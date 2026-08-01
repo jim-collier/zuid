@@ -52,7 +52,9 @@ In each section, items are listed approximately from newest to oldest.
 
 - 🛠️ Two implementations of one spec: Go, and Zig. See `design.md`.
 	- ✅ Repo, folder layout, and the architecture decisions behind the split.
-	- 🔘 Shared test vectors (`testdata/vectors.tsv`), which both must reproduce.
+	- 🛠️ Shared test vectors (`testdata/vectors.tsv`), which both must reproduce.
+		- ✅ Time-only rows, across all four curated bases. Sort guarantee checked against them.
+		- 🔘 Rows for the other components, once those are specified.
 
 - 🔘 Base conversion comes from the sister project `convert-base-v2`, not reimplemented.
 	- 🔘 Go side imports `convertbase` directly. Needs a local `replace` until `lib/v0.1.0` is tagged upstream.
@@ -62,15 +64,20 @@ In each section, items are listed approximately from newest to oldest.
 
 ### Identifier core
 
+- 🛠️ Identifier spec. Drafted in `design.md`; nothing implemented.
+	- ✅ One time encoding (Unix ms UTC), replacing the predecessor's four algorithms and three precisions.
+	- ✅ Fixed-width zero padding, which is what actually makes output sortable.
+	- 🔘 Confirm the three open questions at the end of that section before the vectors are frozen.
 - 🔘 Component set: time, host, user, MAC, UUID, random. Each independent of the others.
 - 🔘 Host and user hashed by default, with an explicit opt-out.
-- 🔘 Time component sortable as text once rendered.
 - 🔘 Clock and random source injectable, so output is reproducible under test.
 
 ### Command-line interface
 
 - 🔘 Format string selecting and ordering components. Improve on the predecessor's surface rather than porting it.
-- 🔘 Curated base list in the help output, with `--base` accepting any base the library knows.
+- 🔘 Curated base list in the help output: **16, 32w, 36, 62**, default 62. `--base` still accepts any base the library knows.
+	- Base 64 was dropped: its RFC 4648 alphabet does not sort, and it needs the same 8 characters as base 62, which does.
+	- Reconcile these alphabets against `convertbase`'s own definitions before relying on the vectors.
 - 🔘 Generate more than one identifier per invocation.
 
 ### Modules
