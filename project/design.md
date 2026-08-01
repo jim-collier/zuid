@@ -94,6 +94,86 @@ The help screen lists a short curated set chosen for identifiers, and `--base` a
 
 The curated set keeps the common case obvious without walling anything off. The full registry contains bases that are actively wrong for an identifier, and a default listing that offers them invites mistakes.
 
+Sortability turns out to be the sharpest filter, and it rules on the alphabet rather than on the size of the base. Byte-order comparison only tracks numeric order if the alphabet is itself in ascending code-point order, which several standard ones are not:
+
+| Base | Sorts | Note
+| :-- | :-- | :--
+| 16 | yes |
+| 32h, 32c, 32w | yes | base32hex, Crockford, and wordsafe all happen to be ascending
+| 32r | **no** | RFC 4648 puts `A-Z` before `2-7`
+| 36 | yes |
+| 62 | yes |
+| 64r, 64u | **no** | RFC 4648 puts `A-Z` before `0-9`
+
+That removes base 64 from consideration entirely, which is worth spelling out because it was in an earlier draft of the curated list. Base 64 and base 62 need the same 8 characters for a timestamp, and base 62 is already URL-safe and filesystem-safe with no escaping. So base 64 costs the sort guarantee and buys nothing back at this magnitude.
+
+The curated set is therefore **16, 32w, 36, 62**, with 62 the default. Every one of them sorts.
+
+`--base` still accepts anything the library knows, including the non-sorting ones. Asking for one of those is a legitimate thing to want; getting one without asking is not.
+
+## Identifier specification
+
+Draft. This is the part most open to revision, and `testdata/vectors.tsv` is generated from whatever this section says.
+
+### One time encoding, not four
+
+The predecessor offers four date/time algorithms and three precisions. Two of the four are acknowledged in its own help text as strictly worse than the others, and the combination of algorithm, precision, and base yields well over a hundred encodings that produce similar-looking output with no way to tell them apart after the fact.
+
+Its author's warning about this is worth quoting, because it is the clearest statement of the problem:
+
+> For any given use-case, you should never mix type, base, and/or precision, or the very purpose for using this tool could be obviated and you'd wind up hating life at best, or with data collisions and/or loss data at worst.
+
+We decided on a single time encoding: **milliseconds elapsed since the Unix epoch, UTC**. No algorithm choice, and no precision choice.
+
+This is the predecessor's `--dtalgo 1` at millisecond resolution. The others were rejected: packing `YYYYMMDDHHmmSS` as a decimal integer wastes roughly a third of the range on digit combinations that cannot occur, and subdividing the day to fit the base exactly is clever but makes the value impossible to reason about without the tool that produced it.
+
+Removing the choice is the point. An encoding nobody can select wrongly needs no marker saying which one was used.
+
+### Fixed width, because sorting depends on it
+
+Rendering an integer in a compact base does not by itself produce something that sorts. Lexicographic comparison reads left to right, so a shorter string sorts before a longer one regardless of value, and identifiers generated years apart differ in length.
+
+So output is **zero-padded to a fixed width**, chosen per base as the width that holds any timestamp through the year 2500:
+
+| Base | Width | Actually good through
+| :-- | --: | :--
+| 16 | 11 | 2527
+| 32 | 9 | 3084
+| 36 | 9 | 5188
+| 62 | 8 | 8888
+| 64 | 8 | 10889
+
+Width is quantized, so most of those overshoot the horizon by a wide margin and the exact horizon barely matters. Base 62 is the case that shows it: 8 characters last until 8888, and the next width down runs out in 2081. There is no useful choice between them.
+
+Two consequences worth stating plainly:
+
+- Sorting is byte-order sorting. It holds under `LC_COLLATE=C`, and does not hold under a locale-aware collation that ignores case, which would fold `A` and `a` together. Any base whose alphabet uses both cases has this property, and it is a property of the locale rather than of the identifier.
+- Padding costs characters the predecessor did not spend. A base 62 timestamp is 8 characters here against its 6, and that is the price of the sort guarantee.
+
+### Format and components
+
+The format string keeps the predecessor's shape, since it reads well and is the part worth carrying forward:
+
+| Token | Component
+| :-- | :--
+| `%d` | Time, as above. The default format is exactly this.
+| `%h` | Host name, hashed by default
+| `%u` | User name, hashed by default
+| `%f` | Fully-qualified domain name, hashed by default
+| `%m` | MAC address of the first interface with a gateway
+| `%g` | A UUID v4
+| `%r` | Random data from a cryptographic source
+
+Hashed components are SHA-256, rendered in the same base as the rest and truncated to a configurable number of characters. Truncation is what makes them short enough to be useful; it also means they are a fingerprint rather than an identity, which is the intent.
+
+### Open questions
+
+Reversible choices, best-guessed for now, and worth a second opinion before the vectors are frozen:
+
+- Year 2500 as the padding horizon. Mostly moot, per the table above - only base 16 sits anywhere near its limit.
+- Milliseconds as the fixed resolution. Seconds would be shorter, microseconds more collision-resistant for rapid generation.
+- Whether a run of identifiers generated within the same millisecond should be disambiguated automatically, or left to the caller to add `%r`.
+
 ## Project structure
 
 ### Folder structure

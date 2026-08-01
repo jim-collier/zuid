@@ -1,0 +1,43 @@
+# Shared test vectors. Both implementations must reproduce every row.
+#
+# Tab-separated. Lines starting with '#' are comments; blank lines are ignored.
+#
+# name      a label, for test output
+# format    the format string
+# base      output base
+# clock_ms  the injected clock, in milliseconds since the Unix epoch UTC
+# expected  the identifier
+#
+# Time-only rows are fully determined by the clock, so they need no other
+# injected state. Rows covering %h %u %f %m %g %r come once those components
+# are specified, and will carry their own input columns.
+#
+# Output is zero-padded to a fixed width per base, so that byte-order sort
+# matches chronological order. Padding uses each alphabet's zero digit, which
+# for 32w is '2' rather than '0'.
+#
+# name	format	base	clock_ms	expected
+time-epoch	%d	16	0	00000000000
+time-epoch	%d	32w	0	222222222
+time-epoch	%d	36	0	000000000
+time-epoch	%d	62	0	00000000
+time-epoch+1ms	%d	16	1	00000000001
+time-epoch+1ms	%d	32w	1	222222223
+time-epoch+1ms	%d	36	1	000000001
+time-epoch+1ms	%d	62	1	00000001
+time-y2k	%d	16	946684800000	0DC6ACFAC00
+time-y2k	%d	32w	946684800000	2qVfJxH22
+time-y2k	%d	36	946684800000	0C2WFOQO0
+time-y2k	%d	62	946684800000	0GfLcwXQ
+time-design-date	%d	16	1785585600000	19FBD320600
+time-design-date	%d	32w	1785585600000	3XwwX63R2
+time-design-date	%d	36	1785585600000	0MSABKAO0
+time-design-date	%d	62	1785585600000	0VR2tCvw
+time-design-date+1ms	%d	16	1785585600001	19FBD320601
+time-design-date+1ms	%d	32w	1785585600001	3XwwX63R3
+time-design-date+1ms	%d	36	1785585600001	0MSABKAO1
+time-design-date+1ms	%d	62	1785585600001	0VR2tCvx
+time-horizon-2500	%d	16	16725225600000	F3625217400
+time-horizon-2500	%d	32w	16725225600000	Q8jWW4v22
+time-horizon-2500	%d	36	16725225600000	5XFGNHMO0
+time-horizon-2500	%d	62	16725225600000	4kSKc9Jo
