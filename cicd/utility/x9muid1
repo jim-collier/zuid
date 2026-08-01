@@ -1,0 +1,3039 @@
+#!/bin/bash
+
+# shellcheck disable=2001  ## Complaining about use of sed istead of bash search & replace.
+# shellcheck disable=2002  ## Useless use of cat. This works well though and I don't want to break it for the sake of syntax purity.
+# shellcheck disable=2004  ## Inappropriate complaining of "$/${} is unnecessary on arithmetic variables."
+# shellcheck disable=2034  ## Unused variables.
+# shellcheck disable=2086
+# shellcheck disable=2119  ## Disable confusing and inapplicable warning about function's $1 meaning script's $1.
+# shellcheck disable=2120  ## OK with declaring variables that accept arguments, without calling with arguments (this is 'overloading').
+# shellcheck disable=2143  ## Used grep -q instead of echo | grep
+# shellcheck disable=2155  ## Disable check to 'Declare and assign separately to avoid masking return values'.
+# shellcheck disable=2162
+# shellcheck disable=2181
+# shellcheck disable=2317  ## Can't reach
+
+##	Purpose: See fPrint_AboutAndSyntax() and fPrint_Help().
+##	History:
+##		- 20230830 JC: Created from x9convertbase1 as template.
+##		- 20230924 JC: Finished.
+##		- 20260226 JC: Don't try xclip if not installed, and don't error if it doesn't work.
+
+#notify-send "Test from '${0}'"
+
+## Boilerplate constants (but don't actually make read-only because of errors during script-managed recursion).
+declare -i    doDebug=0
+declare -i    runAsSudo=0
+declare -i    doQuietly=0; [[ ${X9MUID1_QUIET} -eq 1 ]] && doQuietly=1
+declare       thisVersion="0.9.0"
+declare       copyrightYear="2023"
+declare       author="Jim Collier"
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fConfig(){ :;
+
+	## Defaults
+	default_outBase="62"
+	default_outFormat="%d" #............: A string with possible variables: %d[ate], %h[ost], %f[QDN], %m[AC], %u[UID], %r[andom]
+	default_dtAlgo=1
+	default_precision_DateTime=0 #...: 0, -1, 1
+	dofault_doLCaseIfAppropriate=1
+	default_doHash_UserName=1
+	default_doHash_HostName=1
+	default_doHash_FQDN=1
+	default_keepOnlyRighmostHashChars_UserName=5
+	default_keepOnlyRighmostHashChars_HostName=5
+	default_keepOnlyRighmostHashChars_FQDN=8
+	default_randomCharCount=4
+	default_doClipOut=0
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fPrint_AboutAndSyntax(){ _fdbgEnter "${FUNCNAME[0]}";
+	((doQuietly)) && return
+	fEcho_Clean ""
+	#  X-------------------------------------------------------------------------------X
+	cat <<- EOF_ng50ne2
+		Multiversal Unique ID. Can be way more unique than UUID, but by default, is
+		less unique - but also much shorter, human-readable/sortable, while still
+		privacy-protecting. By default, it converts the current time using --dtalgo 1
+		below, transformed to a base ${default_outBase} string.
+
+		Syntax: ${meName} [optional args]
+		  Optional arguments:
+
+		    --format <FORMAT> (default if not specified: "%d")
+		      Any string that may contain the following the following variables:
+		        %datetime ...: Date/time (format according to --dtalgo)
+		        %username ...: Username, by default cryptographically hashed
+		        %hostname ...: Hostname, by default cryptographically hashed
+		        %fqdn .......: Fully-qualified host and domain name
+		        %mac ........: MAC address of the first network adapter with a gateway
+		        %guid .......: UUID v4 (%uuid also acceptable)
+		        %random .....: Randomly-generated number
+		      You can include any other text, eg delimiters. You may also use common
+		      abbreviations for each (eg "%dt" instead of "%datetime"), or just the
+		      first letter in unambiguous cases.
+
+		    --base <base>: The output base (${default_outBase} if not specified), one of:
+		      Actual standards:
+		         10 ....: aka Decimal [default] ...... 0-9
+		         16 ....: aka Hexedecimal ............ 0-9, A-F
+		         32[r]..: RFC 4648 ................... A-Z, 2-7
+		         32h ...: RFC 4648 §7, 'Base32Hex' ... 0-9, A-V
+		         32w ...: Wordsafe Base32 ............ 2-9, CFGHJMPQRVWX, cfghjmpqrvwx
+		         36 ....: Just alphanum .............. 0-9, A-Z
+		         62 ....: All alphanum ............... 0-9, A-Z, a-z
+		         64[r]..: RFC 4648 ................... 0-9, A-Z, a-z, +, /
+		         64u ...: RFC 4648 §5; URL-safe ...... 0-9, A-Z, a-z, -, _
+		      De-facto standards:
+		         26 ....: One-case alphabetic ........ A-Z
+		         32c ...: Crockford's Base32 ......... 0-9, A-Z no I, L, O, U
+		         52 ....: Both-case alphabetic ....... A-Z, a-z
+		      Very slightly custom:
+		         64j1u..: Slight alternate to 64u but unicode instead of "-_"
+		      Fully custom (URL-safe, filesystem-safe, word-safe, programmer-friendly):
+		         48j1...: 0-9, cfghjmpqrvwx, and lots of unicode symbols
+		         64j1uw.: 0-9, Like 48j1 but with upper-case too
+		        128[j1].: Like 64j1u but with way more unicode symbols
+		        256[j1].: 0-9, A-Z, a-z, and lots of unicode chars
+		      Recommendations:
+		        ▸ Max long-term standardization .....: 26, 36, 52, 62
+		        ▸ Balance standard w/ word-safety ...: 32c, 32w
+		        ▸ Standard, URL-safe, filesystem-safe: 26, 32*, 36, 52, 62, 64u
+		        ▸ URL & FS-safe, programmer-friendly : 26, 32*, 36, 52, 62, *j1*
+		        ▸ Max word-safety ...................: 32w, *j1* except 64j1u
+
+		    --dtalgo <TYPE> (default if not specified: 1)
+		      1: Converts current UTC unix seconds since 1970-01-01 00:00:00, to a
+		         shorter serial string. Pros: ▸Tied for shortest. Cons: ▸While results
+		         are self-comparable, the least human-readable among these. ▸Won't
+		         serialize dates prior to 1970 (to avoid extra symbols for negative).
+		      2: Treats current UTC time in YYYYMMDDHHmmSS as one big integer, then
+		         converts it to the specified base. Pros: ▸Simplest. Cons:
+		         ▸Least efficient. ▸While results are self-comparable, the second-least
+		         human-readable.
+		      3: Treats [YYYY][MM][DD][HH][mm][SS] as separate fields, base-converts
+		         each separately, then rejoins into one string. Pros: ▸Fixed-position
+		         fields. ▸Can be human-readable. ▸Longest option for bases <62 (eg 32).
+		      4: Like #2 for [YYYY][MM][DD], but each day ([HH][mm][SS]) is divided up
+		         evenly to maximize the granularity of the entire specified numeric
+		         base. Pros: ▸Shortest. ▸Fixed-position & human-comparable to the day.
+		         ▸With practice, the short time-of-day field is arguably even useful.
+
+		    --dtprecision <-1|0|1> The millenium and/or second precision for date/time:
+		      ▸  0 : Default; eg millenium & 1 second depending on --dtalgo and --base
+		      ▸ -1 : Less precise, OK to year 2999, ~minute-level precision
+		      ▸  1 : More precise, millisecond depending on --dtalgo and --base
+
+		    --random-char-count: If using %r, how many characters
+		    --lcase <0|1>......: Convert to lcase for single-case bases (default: ${dofault_doLCaseIfAppropriate})
+		    --clipout <0|1>....: Copy output to clipboard (default: ${default_doClipOut})
+		    --help ............: Show extra information on options and bases.
+
+		    --hash-[username|hostname|fqdn] <0|1>:
+		      If %h|%f are in --format, sha256 the hostname or FQDN
+
+		    --keep-only-righmost-hash-chars-[username|hostname|fqdn] <NUM>
+		      If --hash-[username|hostname|fqdn] is in effect, keep only the righntmost
+		      NUM chars of the resulting hash
+
+		    --dtoverride <"date/time string recognizable by 'date' command">
+		      Instead of using the current UTC date/time, use the specified date/time.
+		      Be sure to provide enough precision for for other arguments, e.g.
+		      "2025-06-21 15:45:31.951" if also passing '--dtprecision 1'.
+	EOF_ng50ne2
+	#  X-------------------------------------------------------------------------------X
+	fEcho_Force ""
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fPrint_Help(){ _fdbgEnter "${FUNCNAME[0]}";
+	((doQuietly)) && return
+	fEcho_Clean ""
+	#  X-------------------------------------------------------------------------------X
+	cat <<- EOF_ng50mzv
+		Examples of --dtalgo, for a UTC date of 2025-06-21 at 3:45:31 PM:
+
+		--dtalgo     base10    base62    Res²  #³  Till⁴  prec -1⁵  #  Res   Till
+		  1      1750520731    1uT0PL     1s   6   3769     1yPwr   5   1m   3711
+		  2  20250621154531  5kWSUchH     1s   8  21834    RM656b   6   1m   2056
+		  3  20250621154531   Wf6LFjV     1s   7   3843     P6LFj   5   1m   2061
+		  4   2025062106566   Wf6L1hu    >1s   7   3843     P6Lei   5  22s   2061
+
+		--dtalgo              base32c¹   Res   #   Till   prec -1   #  Res   Till
+		  1                   1m5dmwv     1m   7   3058     vtbhh   5   1m   2033
+		  2                 jdbvh9573     1m   9   3519   2ap3g6s   7   1m   2343
+		  3                1z96nf1d0z     1m  10  32768    s6nf1d   6   1m   2031
+		  4                  1z96nn0c   2.6s   8  32768   1z96nn0   7  84s  32768
+
+		Footnotes:
+
+		  ¹: Listed here is Crockford base32 variant with --lcase.
+		  ²: Time resolution; the number of seconds per unique rightmost character.
+		  ³: Character count in the output.
+		  ⁴: The year that the character count will necessarily increase by 1.
+		  ⁵: If '--dtprecision -1' flag used, eg no millenium and/or seconds.
+
+		Notes:
+
+		  ▸ For any given use-case, you should never mix type, base, and/or precision,
+		    or the very purpose for using this tool could be obviated and you'd wind up
+		    hating life at best, or with data collisions and/or loss data at worst. If
+		    you might do so, you should prepend the type, base and precision to the
+		    result (which is longer than just "YYYYMMDDHHMMSS" in decimal form), or at
+		    least note them in another field.
+
+		  ▸ The following bases are resistant to accidentally spelling out naughty
+		    words: 32c[rockford], and especially 32w, 48j1, 64j1uw, and 128j1.
+
+		  ▸ All --dtalgos and bases are human-readable/comparable. But not even RFC
+		    standard bases >36 will machine-sort properly with common sort regimes, eg
+		    LC_COLLATE=C.UTF-8, etc.
+
+		Recommendations for various --dtalgo goals:
+
+		  ▸ Human parseability and brevity ................: --dtalgo 4 --base 62
+		  ▸ Absolute brevity and URL/file/programmer safety: --dtalgo 1 --base 256j1
+		  ▸ Maximum readability with bad handwriting ......:            --base 32c
+		  ▸ Minimal odds of accidental bad words ..........:            --base 32w
+		  ▸ Human parseability of time fields .............: --dtalgo 3
+	EOF_ng50mzv
+	#  X-------------------------------------------------------------------------------X
+	fEcho_Force ""
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fPrint_Copyright(){ _fdbgEnter "${FUNCNAME[0]}";
+	((doQuietly)) && return
+	fEcho_Clean ""
+	cat <<- EOF_q9tan
+		${meName} version ${thisVersion}
+		Copyright (c) ${copyrightYear} ${author}.
+		License GPLv3+: GNU GPL version 3 or later, full text at:
+		    https://www.gnu.org/licenses/gpl-3.0.en.html
+		There is no warranty, to the extent permitted by law.
+	EOF_q9tan
+	fEcho_Force ""
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fMain(){ _fdbgEnter "${FUNCNAME[0]}";
+
+	## Pre-validation
+	_fMustBeInPath basename
+	_fMustBeInPath x9convertbase1
+
+	## Make template constants immutible
+	local -ri doDebug="${doDebug}"
+	local -r  meName="${meName}"
+
+	## Token constants (these should be as weird as possible and least likely to be used either in user formatting, or any numeric base character set)
+	## Depending on display font these may look the same, but are (or should be) each unique unicode characters.
+	local -r token_DateTime="🟥"
+	local -r token_UserName="🟧"
+	local -r token_HostName="🟨"
+	local -r token_FQDN="🟩"
+	local -r token_MAC="🟦"
+	local -r token_UUID="🟪"
+	local -r token_Random="🟫"
+
+	## Config; 1] Define placeholder variables; 2] Call fConfig() to set them; 3] Freeze them as read-only.
+	local    default_outBase=""
+	local    default_outFormat=""
+	local -i default_dtAlgo=0
+	local -i default_precision_DateTime=0
+	local -i dofault_doLCaseIfAppropriate=0
+	local -i default_doHash_UserName=0
+	local -i default_doHash_HostName=0
+	local -i default_doHash_FQDN=0
+	local -i default_keepOnlyRighmostHashChars_UserName=0
+	local -i default_keepOnlyRighmostHashChars_HostName=0
+	local -i default_keepOnlyRighmostHashChars_FQDN=0
+	local -i default_randomCharCount=0
+	local -i default_doClipOut=0
+	local    format_DateTime_ToSecond=""
+	fConfig
+	local -r  default_outBase="${default_outBase}"
+	local -r  default_outFormat="${default_outFormat}"
+	local -ir default_dtAlgo=$default_dtAlgo
+	local -ir default_precision_DateTime=$default_precision_DateTime
+	local -ir dofault_doLCaseIfAppropriate=$dofault_doLCaseIfAppropriate
+	local -ir default_doHash_UserName=$default_doHash_UserName
+	local -ir default_doHash_HostName=$default_doHash_HostName
+	local -ir default_doHash_FQDN=$default_doHash_FQDN
+	local -ir default_keepOnlyRighmostHashChars_UserName=$default_keepOnlyRighmostHashChars_UserName
+	local -ir default_keepOnlyRighmostHashChars_HostName=$default_keepOnlyRighmostHashChars_HostName
+	local -ir default_keepOnlyRighmostHashChars_FQDN=$default_keepOnlyRighmostHashChars_FQDN
+	local -ir default_randomCharCount=$default_randomCharCount
+	local -ir default_doClipOut=$default_doClipOut
+	local    format_DateTime_ToSecond="${format_DateTime_ToSecond}"
+
+	## Args; 1] Define placeholder variables; 2] Call fInit() [which then calls fValidate()] to set them; 3] Freeze them read-only.
+	local -a allArgs=()
+	local    allArgsStr=""
+	local    outFormat=""
+	local    dtOverride=""
+	local    outBase=""
+	local -i outBaseInt=0
+	local -i dtAlgo=0
+	local -i doAlgo_DateTime=0
+	local -i doAlgo_UserName=0
+	local -i doAlgo_HostName=0
+	local -i doAlgo_FQDN=0
+	local -i doAlgo_MAC=0
+	local -i doAlgo_UUID=0
+	local -i doAlgo_Random=0
+	local -i precision_DateTime=0
+	local -i randomCharCount=0
+	local -i doLCaseIfAppropriate=0
+	local -i doHash_UserName=0
+	local -i doHash_HostName=0
+	local -i doHash_FQDN=0
+	local -i keepOnlyRighmostHashChars_UserName=0
+	local -i keepOnlyRighmostHashChars_HostName=0
+	local -i keepOnlyRighmostHashChars_FQDN=0
+	local -i doClipOut=$default_doClipOut
+	fInit "${1}" "${2}" "${3}" "${4}" "${5}" "${6}" "${7}" "${8}" "${9}" "${10}" "${11}" "${12}" "${13}" "${14}" "${15}" "${16}" "${17}" "${18}" "${19}" "${20}" "${21}" "${22}" "${23}" "${24}" "${25}" "${26}" "${27}" "${28}" "${29}" "${30}" "${31}" "${32}"
+	local -ra allArgs=("${allArgs[@]}")
+	local -r  allArgsStr="${allArgsStr}"
+	local -r  outFormat="${outFormat}"
+	local -r  dtOverride="${dtOverride}"
+	local -r  outBase="${outBase}"
+	local -ir outBaseInt=$outBaseInt
+	local -ir dtAlgo=$dtAlgo
+	local -ir doAlgo_DateTime=$doAlgo_DateTime
+	local -ir doAlgo_UserName=$doAlgo_UserName
+	local -ir doAlgo_HostName=$doAlgo_HostName
+	local -ir doAlgo_FQDN=$doAlgo_FQDN
+	local -ir doAlgo_MAC=$doAlgo_MAC
+	local -ir doAlgo_UUID=$doAlgo_UUID
+	local -ir doAlgo_Random=$doAlgo_Random
+	local -ir precision_DateTime=$precision_DateTime
+	local -ir randomCharCount=$randomCharCount
+	local -ir doLCaseIfAppropriate=$doLCaseIfAppropriate
+	local -ir doHash_UserName=$doHash_UserName
+	local -ir doHash_HostName=$doHash_HostName
+	local -ir doHash_FQDN=$doHash_FQDN
+	local -ir keepOnlyRighmostHashChars_UserName=$keepOnlyRighmostHashChars_UserName
+	local -ir keepOnlyRighmostHashChars_HostName=$keepOnlyRighmostHashChars_HostName
+	local -ir keepOnlyRighmostHashChars_FQDN=$keepOnlyRighmostHashChars_FQDN
+	local -ir doClipOut=$doClipOut
+
+	##Debug
+	#echo -e "allArgs = '${allArgs[*]}'"
+	#echo "Arg count = ${#allArgs[@]}"
+	#fEchoVarAndVal dtOverride
+	#fEchoVarAndVal outBase
+	#fEchoVarAndVal outFormat
+	#fEchoVarAndVal dtAlgo
+	#fEchoVarAndVal doAlgo_DateTime
+	#fEchoVarAndVal doAlgo_UserName
+	#fEchoVarAndVal doAlgo_HostName
+	#fEchoVarAndVal doAlgo_FQDN
+	#fEchoVarAndVal doAlgo_MAC
+	#fEchoVarAndVal doAlgo_UUID
+	#fEchoVarAndVal doAlgo_Random
+	#fEchoVarAndVal precision_DateTime
+	#fEchoVarAndVal randomCharCount
+	#fEchoVarAndVal doLCaseIfAppropriate
+	#fEchoVarAndVal doHash_UserName
+	#fEchoVarAndVal doHash_HostName
+	#fEchoVarAndVal doHash_FQDN
+	#fEchoVarAndVal keepOnlyRighmostHashChars_UserName
+	#fEchoVarAndVal keepOnlyRighmostHashChars_HostName
+	#fEchoVarAndVal keepOnlyRighmostHashChars_FQDN
+	#fEchoVarAndVal doClipOut
+	#fEcho
+	#exit
+
+	##
+	## Make it so
+	##
+
+	local -i tmpMatchIndex=0
+	local preOutputStr=""
+
+	## Lower case?
+	local extCliFlags=""
+	((doLCaseIfAppropriate)) && extCliFlags="${extCliFlags} --lcase"
+
+	## Build output string
+	local outputStr="${outFormat}"
+
+	## Username
+	if ((doAlgo_UserName)); then
+		_fdbgEcho "doAlgo_UserName"
+		preOutputStr=""
+		preOutputStr="${USER}"
+		[[ -z "${preOutputStr}" ]] && preOutputStr="${USERNAME}"
+		if [[ -n "${preOutputStr}" ]]; then
+			if ((doHash_UserName)); then
+				## Cryptographic hash
+				preOutputStr="$(echo "${preOutputStr}" | sha256sum | grep -iPo "[0123456789abcdef]+")"  ## existence of sha256sum is already checked in fInit().
+				[[ -n "${preOutputStr}" ]] && preOutputStr="${preOutputStr^^}"
+				[[ -n "${preOutputStr}" ]] && preOutputStr="$(x9convertbase1 $extCliFlags --ibase 16 ${preOutputStr} $outBase)"
+				[[ -n "${preOutputStr}" ]] && [[ $keepOnlyRighmostHashChars_UserName -gt 0 ]] && [[ $keepOnlyRighmostHashChars_UserName -lt ${#preOutputStr} ]] && preOutputStr="${preOutputStr: -$keepOnlyRighmostHashChars_UserName}"
+			else :;
+				## Do numeric conversion if and when x9convertbase1 supports --ibase of '38username'.
+				## For now just leave username unaltered.
+				true
+			fi
+		fi
+		[[ -z "${preOutputStr}" ]] && preOutputStr="USERNAME-ERROR"
+		outputStr="${outputStr//"${token_UserName}"/"${preOutputStr}"}"
+	fi
+
+	## Hostname
+	if ((doAlgo_HostName)); then
+		_fdbgEcho "doAlgo_HostName"
+		_fMustBeInPath hostname
+		preOutputStr=""
+		preOutputStr="$(hostname --short 2>/dev/null || true)"
+		if [[ -n "${preOutputStr}" ]]; then
+			if ((doHash_HostName)); then
+				## Cryptographic hash
+				preOutputStr="$(echo "${preOutputStr}" | sha256sum | grep -iPo "[0123456789abcdef]+")"  ## existence of sha256sum is already checked in fInit().
+				[[ -n "${preOutputStr}" ]] && preOutputStr="${preOutputStr^^}"
+				[[ -n "${preOutputStr}" ]] && preOutputStr="$(x9convertbase1 $extCliFlags --ibase 16 ${preOutputStr} $outBase)"
+				[[ -n "${preOutputStr}" ]] && [[ $keepOnlyRighmostHashChars_HostName -gt 0 ]] && [[ $keepOnlyRighmostHashChars_HostName -lt ${#preOutputStr} ]] && preOutputStr="${preOutputStr: -$keepOnlyRighmostHashChars_HostName}"
+			else :;
+				## Do numeric conversion if and when x9convertbase1 supports --ibase of '38hostname'.
+				## For now just leave hostname unaltered.
+				true
+			fi
+		fi
+		[[ -z "${preOutputStr}" ]] && preOutputStr="HOSTNAME-ERROR"
+		outputStr="${outputStr//"${token_HostName}"/"${preOutputStr}"}"
+	fi
+
+	## FQDN (Fully-Qualified host & Domain Name); for non-domain hosts, usually the same as hostname.
+	if ((doAlgo_FQDN)); then
+		_fdbgEcho "doAlgo_FQDN"
+		_fMustBeInPath hostname
+		preOutputStr=""
+		preOutputStr="$(hostname --fqdn 2>/dev/null || true)"
+		if [[ -n "${preOutputStr}" ]]; then
+			if ((doHash_FQDN)); then
+				## Cryptographic hash
+				preOutputStr="$(echo "${preOutputStr}" | sha256sum | grep -iPo "[0123456789abcdef]+")"  ## existence of sha256sum is already checked in fInit().
+				[[ -n "${preOutputStr}" ]] && preOutputStr="${preOutputStr^^}"
+				[[ -n "${preOutputStr}" ]] && preOutputStr="$(x9convertbase1 $extCliFlags --ibase 16 ${preOutputStr} $outBase)"
+				[[ -n "${preOutputStr}" ]] && [[ $keepOnlyRighmostHashChars_FQDN -gt 0 ]] && [[ $keepOnlyRighmostHashChars_FQDN -lt ${#preOutputStr} ]] && preOutputStr="${preOutputStr: -$keepOnlyRighmostHashChars_FQDN}"
+			else :;
+				## Do numeric conversion if and when x9convertbase1 supports --ibase of '38hostname'.
+				## For now just leave FQDN unaltered.
+				true
+			fi
+		fi
+		[[ -z "${preOutputStr}" ]] && preOutputStr="FQDN-ERROR"
+		outputStr="${outputStr//"${token_FQDN}"/"${preOutputStr}"}"
+	fi
+
+	## Primary MAC address (connected to gateway)
+	if ((doAlgo_MAC)); then
+		_fdbgEcho "doAlgo_MAC"
+		_fMustBeInPath ip
+		[[ ! -d "/sys/class/net" ]] && fThrowError  "Looking in '/sys/class/net/*/address' for primary MAC address, but it doesn't seem to exist on this distro."  "${FUNCNAME[0]}"
+		preOutputStr=""
+		preOutputStr="$(cat "/sys/class/net/$(ip route show default | grep -iPv "dev br" | awk '/default/ {print $5}' | head -n 1)/address" 2>/dev/null || true)"
+		preOutputStr="${preOutputStr//":"/""}"
+		preOutputStr="${preOutputStr^^}"
+		[[ -n "${preOutputStr}" ]] && preOutputStr="$(x9convertbase1 $extCliFlags --ibase 16 ${preOutputStr} $outBase)"
+		[[ -z "${preOutputStr}" ]] && preOutputStr="MAC-ERROR"
+		outputStr="${outputStr//"${token_MAC}"/"${preOutputStr}"}"
+	fi
+
+	## UUID (v4), "GUID" also acceptable
+	if ((doAlgo_UUID)); then
+		_fdbgEcho "doAlgo_UUID"
+		_fMustBeInPath uuid
+		preOutputStr=""
+		preOutputStr="$(uuid -v 4 -F SIV 2>/dev/null || true)"  ## Output UUID v4 in base 10
+		[[ -n "${preOutputStr}" ]] && preOutputStr="$(x9convertbase1 $extCliFlags ${preOutputStr} $outBase)"
+		[[ -z "${preOutputStr}" ]] && preOutputStr="UUID-ERROR"
+		outputStr="${outputStr//"${token_UUID}"/"${preOutputStr}"}"
+	fi
+
+	## Random chars
+	if ((doAlgo_Random)); then
+		_fdbgEcho "doAlgo_Random"
+		_fMustBeInPath od
+		local -i intermediateCharCount=$((randomCharCount*2))  ## 2X is just an arbitrary multiplier to insure there's enough digits after base conversion from 16 to at least 256.
+		preOutputStr=""
+		preOutputStr="$(od -A n -t x -N ${intermediateCharCount} /dev/urandom 2>/dev/null || true)"
+		[[ -n "${preOutputStr}" ]] && preOutputStr="${preOutputStr//[[:space:]]/""}"
+		[[ -n "${preOutputStr}" ]] && preOutputStr="${preOutputStr^^}"  ## od outputs hex in lowercase, x9convertbase1 --ibase 16 expects uppercase.
+		[[ -n "${preOutputStr}" ]] && preOutputStr="$(x9convertbase1 $extCliFlags --ibase 16 ${preOutputStr} $outBase 2>/dev/null || true)"
+		[[ -n "${preOutputStr}" ]] && preOutputStr="${preOutputStr: -$randomCharCount}"
+		[[ -z "${preOutputStr}" ]] && preOutputStr="RANDOM-ERROR"
+		outputStr="${outputStr//"${token_Random}"/"${preOutputStr}"}"
+	fi
+
+	## DateTime
+	if ((doAlgo_DateTime)); then
+
+		_fdbgEcho "doAlgo_DateTime"
+		_fMustBeInPath bc
+
+		## Constants
+		local -r fmt_dtMS_HumanReadable="+%Y%m%d%H%M%S.%3N" #....: Eg '20231231235959.999'
+		local -r fmt_dtMS_Formatted="+%Y-%m-%d %H:%M:%S.%3N" #...: Eg '2023-12-31 23:59:59.999'
+		local -r fmt_dtMS_Ticks="+%s.%3N" #......................: Unix ticks ('epoch'). Integer seconds since 1970, fractional milliseconds.
+
+		## Get precise date to be used for all calcs from here. Everything you need to now about date command:
+		##	date --utc --date @1695577254.931 "+%Y-%m-%d %H:%M:%S.%3N"            Ticks to formatted date
+		##	date --utc --date "2023-09-21 12:44:18.932" "+%Y-%m-%d %H:%M:%S.%3N"  Convert date formatting
+		##	date --utc --date "2023-09-21 12:44:18.932" "+%s.%3N"                 Convert date by string to ticks
+		local dateTimeTicksMS=""
+		if [[ -n "${dtOverride}" ]]; then
+			## Use override date/time
+			if [[ "${dtOverride}" == "$(echo "${dtOverride}" | grep -iPo "[0-9\.]+")" ]]; then
+				## Override given as ticks
+				dateTimeTicksMS="$(date --utc --date @"${dtOverride}" "${fmt_dtMS_Ticks}")"
+			else
+				## Hope that 'date' will understand the string given
+				dateTimeTicksMS="$(date --utc --date "${dtOverride}" "${fmt_dtMS_Ticks}")"
+			fi
+		else
+			## Use current UTC date/time
+			dateTimeTicksMS="$(date --utc "${fmt_dtMS_Ticks}")"
+		fi
+		local -r dateTimeTicksMS="${dateTimeTicksMS}"
+
+		tmpStr=""
+		preOutputStr=""
+
+		case $dtAlgo in
+
+			## Base-converts the current UTC unix minutes, seconds, or nanoseconds since 1970-01-01 00:00:00, as appropriate according to $precision_DateTime.
+			1)
+				tmpStr="${dateTimeTicksMS/"."/""}"  ## Just remove the decimal point, which in this case is the same as multiplying by 1000 (to turn seconds.milliseconds into whole milliseconds).
+				if   [[ $precision_DateTime -gt 0 ]]; then  tmpInt=${tmpStr} #................ Millisecond precision
+				elif [[ $precision_DateTime -eq 0 ]]; then  tmpInt=$(( tmpStr /  1000 )) #.... Second precision
+				else                                        tmpInt=$(( tmpStr / 60000 )) #.... Minute precision
+				fi
+				[[ $tmpInt -ne 0 ]] && preOutputStr="$(x9convertbase1 $extCliFlags ${tmpInt} $outBase)"
+				;;
+
+			## UTC time in YYYYMMDDHHmm[SS[NNN]] is treated as one big integer, then base-converted, as appropriate according to $precision_DateTime.
+			2)
+				tmpStr="$(date -d @${dateTimeTicksMS} "${fmt_dtMS_HumanReadable}")"  ## Returns date in format 'YYYYmmDDHHMMSSNNN'.
+				if [[ $precision_DateTime -gt 0 ]]; then
+					## Millisecond precision; already done
+					:
+				elif [[ $precision_DateTime -eq 0 ]]; then
+					## Second precision; strip off last three digits
+					tmpStr="${tmpStr:0:-3}"
+				else
+					## Less precision (no millenium, minute precision)
+					tmpStr="${tmpStr:0:-5}"
+					fRemoveMillenium_byref "${tmpStr}" tmpStr
+				fi
+				tmpInt=${tmpStr//"."/""}
+				[[ $tmpInt -ne 0 ]] && preOutputStr="$(x9convertbase1 $extCliFlags ${tmpInt} $outBase)"
+				;;
+
+			## UTC [YYYY], [MM], [DD], [HH], [mm], [SS], and [NNN] are all treated as seperate fields and base-converted individually, as appropriate according to $precision_DateTime.
+			3)
+				## fDateAsFields_byref() sets preOutputStr as output from tmpStr input
+				local -r zeroInBase="$(x9convertbase1 $extCliFlags 0 $outBase)"  ## This will be needed repeatedly by fDateAsFields_byref(), so save cycles by getting in only once here.
+				tmpStr="$(date -d @${dateTimeTicksMS} "${fmt_dtMS_HumanReadable}")"  ## Returns date in format 'YYYYmmDDHHMMSSNNN'.
+				if   [[ $precision_DateTime -gt 0 ]]; then  fDateAsFields_byref 1 1 1 1 1 1 1  ## Millisecond precision
+				elif [[ $precision_DateTime -eq 0 ]]; then  fDateAsFields_byref 1 1 1 1 1 1 0  ## Second precision
+				else                                        fDateAsFields_byref 1 1 1 1 1 0 0  ## Less precision (no millenium, minute precision)
+				fi  ;;
+
+			## UTC [YYYY], [MM], and [DD] are treated as seperate fields and base-converted individually.
+			## ([HH][mm]), ([HH][mm][SS]), or ([HH][mm][NNN]) as a whole are divided up evenly to maximize the granularity of the entire specified numeric base, as appropriate according to $precision_DateTime.
+			4)
+				local -r zeroInBase="$(x9convertbase1 $extCliFlags 0 $outBase)"  ## This will be needed repeatedly by fDateAsFields_byref(), so save cycles by getting in only once here.
+				local -r formattedDate="$(date -d @${dateTimeTicksMS} "${fmt_dtMS_Formatted}")"  ## Returns date in format 'YYYY-mm-DD HH:MM:SS.NNN'.
+				tmpStr="$(date -d @${dateTimeTicksMS} "${fmt_dtMS_HumanReadable}")"  ## Returns date in format 'YYYYmmDDHHMMSSNNN'.
+
+				## First, get [Y]YYYmmDD as separate fields
+				fDateAsFields_byref 1 1 1 0 0 0 0 ## This function sets preOutputStr as output from tmpStr input
+
+				## Next, calculate HHMM[SS[NNN]] to desired granularity for specified base
+
+				## Get best hard-coded character count; per base, per precision
+				local -i tmpCharCount=0
+				if [[ $precision_DateTime -gt 0 ]]; then
+					## Approximately millisecond precision
+					case $outBaseInt in
+						10)  tmpCharCount=8  ;;  ## 0.0009 seconds per tick; +14% [+015%]
+						16)  tmpCharCount=7  ;;  ## 0.0003s, +068% (or tmpCharCount=6, 0.0051s, -415%)
+						26)  tmpCharCount=6  ;;  ## 0.0003s, +072%
+						32)  tmpCharCount=5  ;;  ## 0.0026s, -157%
+						36)  tmpCharCount=5  ;;  ## 0.0014s, -043%
+						48)  tmpCharCount=5  ;;  ## 0.0003s, +066%
+						52)  tmpCharCount=5  ;;  ## 0.0002s, +077%
+						62)  tmpCharCount=4  ;;  ## 0.0058s, -485% [-284%]
+						64)  tmpCharCount=4  ;;  ## 0.0051s, -415% [-248%]
+						128) tmpCharCount=4  ;;  ## 0.0003s, +139% [+068%]
+						256) tmpCharCount=3  ;;  ## 0.0051s, -248% [-415%]
+					esac
+				elif [[ $precision_DateTime -eq 0 ]]; then
+					## Approximately second precision
+					case $outBaseInt in
+						10)  tmpCharCount=5  ;;  ## 0.86 seconds per tick; +14%
+						16)  tmpCharCount=4  ;;  ## 1.32s, -032%
+						26)  tmpCharCount=3  ;;  ## 4.92s, -392% (or tmpCharCount=4, 0.19s, +81%)
+						32)  tmpCharCount=3  ;;  ## 2.64s, -164%
+						36)  tmpCharCount=3  ;;  ## 1.85s, -085%
+						48)  tmpCharCount=3  ;;  ## 0.78s, +022%
+						52)  tmpCharCount=3  ;;  ## 0.61s, +039%
+						62)  tmpCharCount=3  ;;  ## 0.36s, +064%  [+120%]
+						64)  tmpCharCount=3  ;;  ## 0.33s, +067%  [+135%]
+						128) tmpCharCount=2  ;;  ## 5.27s, -427%  [-254%]
+						256) tmpCharCount=2  ;;  ## 1.32s, -032%  [-028%]
+					esac
+				else
+					## Approximately minute precision
+					case $outBaseInt in
+						10)  tmpCharCount=3  ;;  ## 86.4 seconds per tick; -44% accurate compared to 60 seconds [or -37% using more comparable average % change]
+						16)  tmpCharCount=3  ;;  ## 21.1s, +065%
+						26)  tmpCharCount=3  ;;  ##  4.9s, +092%
+						32)  tmpCharCount=2  ;;  ## 84.4s, -041%
+						36)  tmpCharCount=2  ;;  ## 66.7s, -011%
+						48)  tmpCharCount=2  ;;  ## 37.5s, +038%
+						52)  tmpCharCount=2  ;;  ## 31.9s, +047%
+						62)  tmpCharCount=2  ;;  ## 22.5s, +063% [+0115%]
+						64)  tmpCharCount=2  ;;  ## 21.1s, +065% [+0125%]
+						128) tmpCharCount=2  ;;  ##  5.3s, +091% [+0564%]
+						256) tmpCharCount=2  ;;  ##  1.3s, +098% [+2274%]
+					esac
+				fi
+
+				## Get an accurate fraction of the UTC day elapsed so far (in base 10)
+				local -r isoDate="${tmpStr:0:4}-${tmpStr:4:2}-${tmpStr:6:2}"
+				local -r midnightPrev=$(date --utc --date "${isoDate}"        "${fmt_dtMS_Ticks}")
+				local -r midnightNext=$(date --utc --date "${isoDate} +1 day" "${fmt_dtMS_Ticks}")
+				local -r nowTicks=$(    date --utc --date "${formattedDate}"  "${fmt_dtMS_Ticks}")
+				local -r percentOfDayNowUTC="$(bc -l <<< "(${nowTicks} - ${midnightPrev}) / (${midnightNext} - ${midnightPrev})")"
+
+				## Calculate (in base 10) the possible ticks per day (=[target base]^[char count]); we want an integer, and bc without -l will give us that.
+				local -i possibleBaseTicksPerDay=$(bc <<< "${outBaseInt}^${tmpCharCount}")
+
+				## Multiply available ticks times the fraction of day elapsed so far (have to divide as last operation for bc rounding to work)
+				local -i baseTicksPassed=$(bc -l <<< "scale=0; ${percentOfDayNowUTC} * ${possibleBaseTicksPerDay} / 1")
+
+				##DEBUG
+				#fEchoVarAndVal tmpStr
+				#fEchoVarAndVal isoDate
+				#fEchoVarAndVal fmt_dtMS_Ticks
+				#fEchoVarAndVal midnightPrev
+				#fEchoVarAndVal midnightNext
+				#fEchoVarAndVal nowTicks
+				#fEchoVarAndVal percentOfDayNowUTC
+				#fEchoVarAndVal possibleBaseTicksPerDay
+				#fEchoVarAndVal baseTicksPassed
+				#echo
+
+				## Convert ticks elapsed from base 10 to specified base, and append it to previous conversions
+				preOutputStr="${preOutputStr}$(x9convertbase1 $extCliFlags "${baseTicksPassed}" $outBase)"
+
+				;;
+
+		esac
+		[[ -z "${preOutputStr}" ]] && preOutputStr="DATETIME-ERROR"
+		outputStr="${outputStr//"${token_DateTime}"/"${preOutputStr}"}"
+	fi
+
+	echo "${outputStr}"
+	((doClipOut)) && [[ -n "$(which xclip 2>/dev/null || true)" ]]  &&  { echo -n "${outputStr}" | xclip -selection clipboard || true; }
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fInit(){ _fdbgEnter "${FUNCNAME[0]}";
+
+	## Constants
+	local -r _allArgs="$*"
+
+	## Variables for intermediate arg processing, with defaults
+	local arg_outFormat="${default_outFormat}"
+	local arg_dtOverride=""
+	local arg_outBase="${default_outBase}"
+	local arg_dtAlgo="${default_dtAlgo}"
+	local arg_precision_DateTime="${default_precision_DateTime}"
+	local arg_doHash_UserName="${default_doHash_UserName}"
+	local arg_doHash_HostName="${default_doHash_HostName}"
+	local arg_doHash_FQDN="${default_doHash_FQDN}"
+	local arg_keepOnlyRighmostHashChars_UserName="${default_keepOnlyRighmostHashChars_UserName}"
+	local arg_keepOnlyRighmostHashChars_HostName="${default_keepOnlyRighmostHashChars_HostName}"
+	local arg_keepOnlyRighmostHashChars_FQDN="${default_keepOnlyRighmostHashChars_FQDN}"
+	local arg_randomCharCount="${default_randomCharCount}"
+	local arg_doLcase="${dofault_doLCaseIfAppropriate}"
+	local arg_doClipOut="${default_doClipOut}"
+
+	## Determine if we need to show help
+	case " ${_allArgs,,} " in
+		*" -h "*|*" --help "*)                 fPrint_Copyright_About_Syntax 1; exit 0 ;;
+		*" -v "*|*" --ver "*|*" --version "*)  fPrint_Copyright_About_Syntax  ; exit 0 ;;
+	esac
+
+#	## Error if no args
+#	if [[ -z "$(_fStrTrim_byecho "${_allArgs}")" ]]; then fPrint_Copyright_About_Syntax; exit 1; fi
+
+	## Populate parent array (and also a flat string) so that it stops at last non-empty value [GENERIC]
+	local -i highestNonEmpty=0
+	for ((i=1; i<=32; i++)); do [[ -n "${!i}" ]] && highestNonEmpty=$i; done
+	for ((i=1; i<=highestNonEmpty; i++)); do
+		## Add to array
+		allArgs+=("${!i}")
+		## Build flat string
+		[[ -n "${allArgsStr}" ]] && allArgsStr="${allArgsStr} "  ## Pad with space
+		if [[ -z "${!i}" ]] || [[ -n "$(echo "${!i}" | grep " " || true)" ]]; then
+			## Is empty or has spaces (needs quotes)
+			allArgsStr="${allArgsStr}“${!i}”"
+		else
+			## String is not empty and has no spaces, so add it without quotes.
+			allArgsStr="${allArgsStr}${!i}"
+		fi
+	done
+	unset highestNonEmpty
+
+	## Init for loop
+	local    tmpStr=""
+	local    currentArg=""
+	local    lastSwitch=""
+	local -i expectingSwitchParamForNextArg=0
+	local -i wasLastArg=0
+	local -i emptyArgCount=0
+
+	## Process arguments
+	for currentArg in "${allArgs[@]}"; do
+
+		## Test if an option switch or not
+		if [[ ${currentArg,,} =~ ^--[^\ \-]+ ]]; then :;
+			## It's an option switch
+
+			## Check if this was supposed to NOT be a switch (eg expecting a parameter after previous switch)
+			((${expectingSwitchParamForNextArg})) && fThrowError "Expecting a non-switch argument for '${lastSwitch}', instead got '${currentArg}'."  "${FUNCNAME[0]}"
+
+			## Validate switches, and act on unary switches
+			tmpStr="${currentArg,,}"  ## Lower case
+			tmpStr="${tmpStr:2}"      ## Strip dashes off
+			lastSwitch="${tmpStr}"    ## Remember lastSwitch
+			case "${tmpStr}" in
+
+				## Unitary switches (that take no extra params); Comment this test out if this script accepts no such thing.
+				#"hash-host"*)        doHash_HostName=1  ;;
+				#"hash-fqdn"*)        doHash_FQDN=1      ;;
+
+				## Everything else, expecting a non-switch for next argument
+				"format"|"fmt"|*"algo"|"base"|*"prec"*|"random-char-count"|"lc"*|*"case"|"lower"*|"clip"*|"oc"*|"hash"*|"keep-only"*|*"override")
+					expectingSwitchParamForNextArg=1 ;;
+
+				"") : ;;  ## Special case of user passing bare "--". Usually means "end of arg processing", but ignore for now.
+
+				## ¯\_(ツ)_/¯
+				*)  fThrowError  "Argument invalid or not expected in this context: '${currentArg}'."  "${FUNCNAME[0]}" ;;
+
+			esac
+
+		else
+			## It's not an option switch; could be an option switch param, or a positional arg
+
+			if ((expectingSwitchParamForNextArg)); then
+				## Expecting option switch param
+
+				case "${lastSwitch,,}" in
+					"format"|"fmt")                        arg_outFormat="${currentArg}"                       ;;
+					*"override")                           arg_dtOverride="${currentArg}"                      ;;
+					"base")                                arg_outBase="${currentArg,,}"                       ;;
+					*"algo")                               arg_dtAlgo=$currentArg                              ;;
+					*"prec"*)                              arg_precision_DateTime=$currentArg                  ;;
+					"hash-user"*)                          arg_doHash_UserName="${currentArg,,}"               ;;
+					"hash-host"*)                          arg_doHash_HostName="${currentArg,,}"               ;;
+					"hash-fqdn"*)                          arg_doHash_FQDN="${currentArg,,}"                   ;;
+					"keep-only-righmost-hash-chars-user"*) arg_keepOnlyRighmostHashChars_UserName=$currentArg  ;;
+					"keep-only-righmost-hash-chars-host"*) arg_keepOnlyRighmostHashChars_HostName=$currentArg  ;;
+					"keep-only-righmost-hash-chars-fqdn")  arg_keepOnlyRighmostHashChars_FQDN=$currentArg      ;;
+					"random-char-count")                   arg_randomCharCount=$currentArg                     ;;
+					"lc"*|*"case"|"lower"*)                arg_doLcase="${currentArg,,}"                       ;;
+					"clip"*|"oc"*)                         arg_doClipOut="${currentArg,,}"                     ;;
+					*)                                     fThrowError "Unkown parameters. Switch: '--${lastSwitch}', current parameter: '${currentArg}'."  "${FUNCNAME[0]}" ;;
+				esac
+				expectingSwitchParamForNextArg=0
+
+			else
+				## Well it must be a positional arg then.
+
+				fThrowError "Unexpected positional argument: '${currentArg}'."  "${FUNCNAME[0]}"
+
+			fi
+
+		fi
+
+		(($wasLastArg)) && break
+	done
+
+	## Validate; post-loop
+	((expectingSwitchParamForNextArg)) && fThrowError "Never received a parameter for switch '--${lastSwitch}'."
+
+	## Variables not validated here
+	dtOverride="${arg_dtOverride}"
+
+	## Validate and normalize base
+	fNormalizeBaseName_byRef                                                       "${arg_outBase}"                             outBase
+	outBaseInt=$(echo "${outBase}" | grep -iPo "[0-9]+" | head -n 1)
+
+	## Transform and validation
+	[[ -n "${arg_dtAlgo}"                              ]] && fNormalizeInt_byRef   "${arg_dtAlgo}"                              dtAlgo                               1    4  "--dtalgo"
+	[[ -n "${arg_precision_DateTime}"                  ]] && fNormalizeInt_byRef   "${arg_precision_DateTime}"                  precision_DateTime                  -1    1  "--precision"
+	[[ -n "${arg_keepOnlyRighmostHashChars_UserName}"  ]] && fNormalizeInt_byRef   "${arg_keepOnlyRighmostHashChars_UserName}"  keepOnlyRighmostHashChars_UserName   0  256  "--keep-only-righmost-hash-chars-username"
+	[[ -n "${arg_keepOnlyRighmostHashChars_HostName}"  ]] && fNormalizeInt_byRef   "${arg_keepOnlyRighmostHashChars_HostName}"  keepOnlyRighmostHashChars_HostName   0  256  "--keep-only-righmost-hash-chars-hostname"
+	[[ -n "${arg_keepOnlyRighmostHashChars_FQDN}"      ]] && fNormalizeInt_byRef   "${arg_keepOnlyRighmostHashChars_FQDN}"      keepOnlyRighmostHashChars_FQDN       0  256  "--keep-only-righmost-hash-chars-fqdn"
+	[[ -n "${arg_randomCharCount}"                     ]] && fNormalizeInt_byRef   "${arg_randomCharCount}"                     randomCharCount                      0  256  "--random-char-count"
+	[[ -n "${arg_doHash_UserName}"                     ]] && fNormalizeBool_byRef  "${arg_doHash_UserName}"                     doHash_UserName                              "--hash-username"
+	[[ -n "${arg_doHash_HostName}"                     ]] && fNormalizeBool_byRef  "${arg_doHash_HostName}"                     doHash_HostName                              "--hash-hostname"
+	[[ -n "${arg_doHash_FQDN}"                         ]] && fNormalizeBool_byRef  "${arg_doHash_FQDN}"                         doHash_FQDN                                  "--hash-fqdn"
+	[[ -n "${arg_doLcase}"                             ]] && fNormalizeBool_byRef  "${arg_doLcase}"                             doLCaseIfAppropriate                         "--lcase"
+	[[ -n "${arg_doClipOut}"                           ]] && fNormalizeBool_byRef  "${arg_doClipOut}"                           doClipOut                                    "--clipout"
+
+	## Replace user-friendly variables, with tokens that are unlikely to ever be used in either user output or numeric base, so that the same letters that will show up in bases won't screw up the search-and-replace process during fMain() processing.
+	outFormat="${arg_outFormat}"
+	outFormat="${outFormat//"%datetime"/"${token_DateTime}"}"
+	outFormat="${outFormat//"%dt"/"${token_DateTime}"}"
+	outFormat="${outFormat//"%da"/"${token_DateTime}"}"
+	outFormat="${outFormat//"%d"/"${token_DateTime}"}"
+	outFormat="${outFormat//"%uuid"/"${token_UUID}"}"  ## Process uuid/guid before username, so that the last thing checked can be %u for username
+	outFormat="${outFormat//"%uu"/"${token_UUID}"}"
+	outFormat="${outFormat//"%guid"/"${token_UUID}"}"
+	outFormat="${outFormat//"%g"/"${token_UUID}"}"
+	outFormat="${outFormat//"%username"/"${token_UserName}"}"
+	outFormat="${outFormat//"%user"/"${token_UserName}"}"
+	outFormat="${outFormat//"%usr"/"${token_UserName}"}"
+	outFormat="${outFormat//"%un"/"${token_UserName}"}"
+	outFormat="${outFormat//"%us"/"${token_UserName}"}"
+	outFormat="${outFormat//"%u"/"${token_UserName}"}"
+	outFormat="${outFormat//"%hostname"/"${token_HostName}"}"
+	outFormat="${outFormat//"%host"/"${token_HostName}"}"
+	outFormat="${outFormat//"%hn"/"${token_HostName}"}"
+	outFormat="${outFormat//"%h"/"${token_HostName}"}"
+	outFormat="${outFormat//"%fqdn"/"${token_FQDN}"}"
+	outFormat="${outFormat//"%f"/"${token_FQDN}"}"
+	outFormat="${outFormat//"%macaddress"/"${token_MAC}"}"
+	outFormat="${outFormat//"%macaddr"/"${token_MAC}"}"
+	outFormat="${outFormat//"%mac"/"${token_MAC}"}"
+	outFormat="${outFormat//"%ma"/"${token_MAC}"}"
+	outFormat="${outFormat//"%m"/"${token_MAC}"}"
+	outFormat="${outFormat//"%random"/"${token_Random}"}"
+	outFormat="${outFormat//"%rand"/"${token_Random}"}"
+	outFormat="${outFormat//"%rnd"/"${token_Random}"}"
+	outFormat="${outFormat//"%r"/"${token_Random}"}"
+
+	## Determine what algos to include (these need to be checked multiple times, and we don't want to do string scanning every time that happens).
+	local -i tmpMatchIndex=0
+	fFindStrIndex_byref  "${outFormat}"  "${token_DateTime}"  tmpMatchIndex; [[ $tmpMatchIndex -gt 0 ]] && doAlgo_DateTime=1
+	fFindStrIndex_byref  "${outFormat}"  "${token_UserName}"  tmpMatchIndex; [[ $tmpMatchIndex -gt 0 ]] && doAlgo_UserName=1
+	fFindStrIndex_byref  "${outFormat}"  "${token_HostName}"  tmpMatchIndex; [[ $tmpMatchIndex -gt 0 ]] && doAlgo_HostName=1
+	fFindStrIndex_byref  "${outFormat}"  "${token_FQDN}"      tmpMatchIndex; [[ $tmpMatchIndex -gt 0 ]] && doAlgo_FQDN=1
+	fFindStrIndex_byref  "${outFormat}"  "${token_MAC}"       tmpMatchIndex; [[ $tmpMatchIndex -gt 0 ]] && doAlgo_MAC=1
+	fFindStrIndex_byref  "${outFormat}"  "${token_UUID}"      tmpMatchIndex; [[ $tmpMatchIndex -gt 0 ]] && doAlgo_UUID=1
+	fFindStrIndex_byref  "${outFormat}"  "${token_Random}"    tmpMatchIndex; [[ $tmpMatchIndex -gt 0 ]] && doAlgo_Random=1
+
+	## At least one algo must be specified
+	if [[ "${doAlgo_DateTime}${doAlgo_HostName}${doAlgo_FQDN}${doAlgo_MAC}${doAlgo_Random}${doAlgo_UUID}${doAlgo_UserName}" == "0000000" ]]; then
+		fThrowError  "No algorithm was specified or allowed to by default; there's nothing to do."  "${FUNCNAME[0]}"
+	fi
+
+	## Misc validation
+	((doAlgo_Random)) && [[ $randomCharCount -le 0 ]] && fThrowError  "You apparently want to include random characters, but specified '--random-char-count' of <=0."  "${FUNCNAME[0]}"
+	if ((doHash_UserName)) || ((doHash_HostName)) || ((doHash_FQDN)); then _fMustBeInPath sha256sum; fi
+
+#	## Validate lowercase flag, change a value of 'true' to 'false' if it's not valid in context.
+#	## This is too much brainwork to impose on the user, so just do the work here and don't complain about a contextually 'invalid' flag value.
+#	## x9convertbase1 should inherit this bit of benevolence in the future. [Done!]
+#	if ((doLCaseIfAppropriate)); then
+#		case ${outBase} in
+#			10|32w|48j1|52|62|64|64r|64u|64j1u|64j1uw|128|128j1|256j1)
+#				## Can't do lcase; either it doesn't make sense (eg base 10), or it would result in data loss for mixed-case bases, and a validation error by x9convertbase1.
+#				doLCaseIfAppropriate=0
+#				;;
+#			16|26|32|32c|32h|32r|36)
+#				## These are OK to switch to lower case, so leave set to true.
+#				: ;;
+#		esac
+#	fi
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fDateAsFields_byref(){ _fdbgEnter "${FUNCNAME[0]}";
+	##	Uses caller's variables:
+	##		$tmpStr as input value
+	##		$preOutputStr as output variable to set
+
+	## Args
+	local -ri doConvertYYYY=$1
+	local -ri doConvertMo=$2
+	local -ri doConvertDD=$3
+	local -ri doConvertHH=$4
+	local -ri doConvertMi=$5
+	local -ri doConvertSS=$6
+	local -ri doConvertNNN=$7
+
+	## Variables
+	local wrkStr=""
+
+	## Init
+	preOutputStr=""
+
+	if ((doConvertYYYY)); then
+	## Possilby remove millenium and convert [Y]YYY
+		wrkStr="${tmpStr:0:4}"
+		[[ $precision_DateTime -lt 0 ]] && fRemoveMillenium_byref "${wrkStr}" wrkStr
+		preOutputStr="${preOutputStr}$(x9convertbase1 $extCliFlags "${wrkStr}" $outBase)"
+	#	preOutputStr="${preOutputStr}Y-$(x9convertbase1 $extCliFlags "${wrkStr}" $outBase)"
+	fi
+
+	#fEchoVarAndVal preOutputStr
+	#fEchoVarAndVal extCliFlags
+
+	if ((doConvertMo)); then
+		## Convert and pad month, mm
+		wrkStr="${tmpStr:4:2}"
+		wrkStr="$(x9convertbase1 $extCliFlags "${wrkStr}" "${outBase}")"
+		fZeroPadValInBase_byref "${wrkStr}" 12 $outBaseInt "${zeroInBase}" wrkStr  ## The magic #12 is the number of months per year, the max val for mm
+		preOutputStr="${preOutputStr}${wrkStr}"
+	#	preOutputStr="${preOutputStr} m-${wrkStr}"
+	fi
+
+	if ((doConvertDD)); then
+		## Convert and pad day, DD
+		wrkStr="${tmpStr:6:2}"
+		wrkStr="$(x9convertbase1 $extCliFlags "${wrkStr}" "${outBase}")"
+		fZeroPadValInBase_byref "${wrkStr}" 31 $outBaseInt "${zeroInBase}" wrkStr  ## The magic #31 is the max number of days in a month, the max val for DD
+		preOutputStr="${preOutputStr}${wrkStr}"
+	#	preOutputStr="${preOutputStr} D-${wrkStr}"
+	fi
+
+	if ((doConvertHH)); then
+		## Convert and pad 24h, HH
+		wrkStr="${tmpStr:8:2}"
+		wrkStr="$(x9convertbase1 $extCliFlags "${wrkStr}" "${outBase}")"
+		fZeroPadValInBase_byref "${wrkStr}" 23 $outBaseInt "${zeroInBase}" wrkStr  ## The magic #23 is the max val HH can get.
+		preOutputStr="${preOutputStr}${wrkStr}"
+	#	preOutputStr="${preOutputStr} H-${wrkStr}"
+	fi
+
+	if ((doConvertMi)); then
+		## Convert and pad minutes, MM
+		wrkStr="${tmpStr:10:2}"
+		wrkStr="$(x9convertbase1 $extCliFlags "${wrkStr}" "${outBase}")"
+		fZeroPadValInBase_byref "${wrkStr}" 59 $outBaseInt "${zeroInBase}" wrkStr  ## The magic #59 is the max val MM can get.
+		preOutputStr="${preOutputStr}${wrkStr}"
+	#	preOutputStr="${preOutputStr} M-${wrkStr}"
+	fi
+
+	if ((doConvertSS)); then
+		## Convert and pad seconds, SS
+		wrkStr="${tmpStr:12:2}"
+		wrkStr="$(x9convertbase1 $extCliFlags "${wrkStr}" "${outBase}")"
+		fZeroPadValInBase_byref "${wrkStr}" 59 $outBaseInt "${zeroInBase}" wrkStr  ## The magic #59 is the max val SS can get.
+		preOutputStr="${preOutputStr}${wrkStr}"
+	#	preOutputStr="${preOutputStr} S-${wrkStr}"
+	fi
+
+	if ((doConvertNNN)); then
+		## Convert and pad milliseconds, NNN
+		wrkStr="${tmpStr:15:3}"
+		wrkStr="$(x9convertbase1 $extCliFlags "${wrkStr}" "${outBase}")"
+		fZeroPadValInBase_byref "${wrkStr}" 999 $outBaseInt "${zeroInBase}" wrkStr  ## The magic #999 is the max val NNN can get.
+		preOutputStr="${preOutputStr}${wrkStr}"
+	#	preOutputStr="${preOutputStr} N-${wrkStr}"
+	fi
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fZeroPadValInBase_byref(){ _fdbgEnter "${FUNCNAME[0]}";
+	##	Purpose: Pads a value with leading zeros, up to the max chars required for specified max value in specified base.
+
+	## Args
+	local -r  inputVal="$1"    ## The value which may or may not need zero-padding (already in desired base).
+	local -r  maxVal="$2"      ## The maximum value that could exist in the caller's context, in base 10.
+	local -ri baseInt=$3       ## The numeric base, integer-only (we don't actually care what the symbols are, except for what represents 0).
+	local -r  zeroChar="$4"    ## The character that represents zero in the contextual base.
+	local -r  retVarName="$5"  ## The caller's variable to populate with the result.
+
+	## Variables
+	local retVal=""
+	local maxChars=""
+	local -i inputCharCount=${#inputVal}
+	local -i zerosToPad=0
+
+	## Figure out the max # chars for $maxVal in $baseInt.
+	## It's equal to the exponent "x" in ($baseInt^x) + someY = $inputVal, and it doesn't really matter in this context what 'someY' is because it doesn't change the x we're looking for, so we'll discard it ]
+	## So then we can simplify to: $baseInt^x = $inputVal. Then solving for x:
+	## log[$baseInt]($baseInt^x) = log[$baseInt] * ($inputVal)
+	## x * log[$baseInt]($baseInt) = log[$baseInt]($inputVal)
+	## x = log[$baseInt]($inputVal)
+	## Note that bc can only compute natural logarithm (base e), so this basic math identity becomes useful:
+	##	log desiredBase (x) = log base e (x) / log base e (desiredBase)
+	##	Translated to bc: bc -l l(x)/l(desiredBase)
+	maxChars=$(bc -l <<< "(l($maxVal)/l($baseInt))+1")  ## (log(inputval)/log(base))
+	maxChars="${maxChars%.*}"  ## Truncate to integer
+	[[ -z "${maxChars}" ]] && maxChars=1  ## Special case
+	local -ir maxChars=$maxChars  ## Convert to read-only integer
+
+	## Zero-pad output with base's zero character
+	retVal="${inputVal}"
+	zerosToPad=$((maxChars-inputCharCount))
+	if ((zerosToPad > 0)); then
+		for ((i=1; i<=zerosToPad ; i++)); do retVal="${zeroChar}${retVal}"; done
+	fi
+
+	eval "${retVarName}='${retVal}'"
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fRemoveMillenium_byref(){ _fdbgEnter "${FUNCNAME[0]}";
+	##	Purpose: Removes the millenium from a date that starts with millenium, eg 20230615 becomes 230615.
+
+	## Args
+	local     valStr="$1"
+	local -r  varName="$2"  ## The variable to set with modified value.
+
+	valStr="${valStr:1}" #.....................................: Remove first digit
+	valStr="$(echo "${valStr}" | grep -iPo "[1-9][0-9]+")" #...: Remove any/all leading 0s, bash won't convert to int with leading 0s
+
+	eval "${varName}='${valStr}'"
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fFindStrIndex_byref() {
+
+	local -r mainStr="$1"
+	local -r findStr="$2"
+	local -r indexIntVarName="$3"
+	local -i retVal=0
+	local    testStr=""
+
+	testStr="${mainStr%%"$findStr"*}"
+	if [[ "${testStr}" != "${mainStr}" ]]; then
+		retVal=${#testStr}
+		retVal=$((retVal+1))
+	fi
+
+	## Return
+	eval "${indexIntVarName}=${retVal}"
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fNormalizeBaseName_byRef(){ _fdbgEnter "${FUNCNAME[0]}";
+	local -r inVal="$1"
+	local -r outVarName="$2"
+	local    outVal="${inVal}"
+
+	## Base names to numbers
+	case "${outVal,,}" in
+		"bin"*) outVal="2"  ;;
+		"oct"*) outVal="8"  ;;
+		"dec"*) outVal="10" ;;
+		"hex"*) outVal="16" ;;
+	esac
+
+	## Strip "b" or "base" off
+	if   [[ -n "$(echo "${outVal}"  | grep -iP "base[0-9]+.*")" ]]; then outVal="${outVal/"base"/""}"
+	elif [[ -n "$(echo "${outVal}"  | grep -iP "b[0-9]+.*")"    ]]; then outVal="${outVal/"b"/""}"; fi
+
+	## Validate
+	if [[ "${outVal}" =~ 10|16|26|32|32c|32h|32r|32w|36|48j1|52|62|64|64r|64u|64j1u|64j1uw|128|128|128j1|256|256j1 ]]; then :
+	else fThrowError "Unexpected base specified for '--base', '${inVal}'."  "${FUNCNAME[0]}"; fi
+
+	## Return
+	eval "${outVarName}='${outVal}'"
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fNormalizeBool_byRef(){ _fdbgEnter "${FUNCNAME[0]}";
+	local -r inVal="$1"
+	local -r outIntVarName="$2"
+	local -r flagName="$3" #..... For FYI in error message
+	local -i outVal=0
+
+	case "${inVal,,}" in
+		"1"|"true"|"y"|"yes")  outVal=1  ;;
+		"0"|"false"|"n"|"no")  outVal=0  ;;
+		*)                     fThrowError "Invalid boolean input for '${flagName}', '${inVal}'."  "${FUNCNAME[0]}" ;;
+	esac
+
+	## Return
+	eval "${outIntVarName}=${outVal}"
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fNormalizeInt_byRef(){ _fdbgEnter "${FUNCNAME[0]}";
+
+	local -r  inVal="$1"
+	local -r  outIntVarName="$2"
+	local -ri minVal=$3
+	local -ri maxVal=$4
+	local -r  flagName="$5" #..... For FYI in error message
+	local -i  outVal=0
+
+	## Validate
+	[[ -z "$(echo "${inVal}" | grep -iPo "[0-9]+" || true)"                          ]] && fThrowError "Invalid integer input for '${flagName}', '${inVal}'."  "${FUNCNAME[0]}"
+	[[ "${inVal}" != "$(echo "${inVal}" | grep -iPo "[\-0-9]+" | head -n 1 || true)" ]] && fThrowError "Invalid integer input for '${flagName}', '${inVal}'."  "${FUNCNAME[0]}"
+
+	outVal=$inVal
+
+	if [[ $minVal -lt $maxVal ]]; then
+		[[ $outVal -lt $minVal ]] || [[ $outVal -gt $maxVal ]] && fThrowError "Integer for '${flagName}' must be between ${minVal} and ${maxVal}. Passed: ${inVal}."  "${FUNCNAME[0]}"
+	fi
+
+	## Return
+	eval "${outIntVarName}=${outVal}"
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+function fPromptToContinue(){ _fdbgEnter "${FUNCNAME[0]}";
+
+	local answer=""
+	fEcho_Clean ""
+	read -r -p "Continue? (y/n): " answer
+	if [[ "${answer,,}" != "y" ]]; then
+		fEcho "User aborted."
+		exit 0
+	fi
+	fEcho_ResetBlankCounter
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+function fPrint_Copyright_About_Syntax(){ _fdbgEnter "${FUNCNAME[0]}";
+
+	## Constants
+#	local -r additionalLineOfText="$*"
+
+	fPrint_Copyright
+	fPrint_AboutAndSyntax
+	[[ "$1" == "1" ]] && fPrint_Help
+#	if [[ -n "${additionalLineOfText}" ]]; then fEcho_Clean "Error: ${additionalLineOfText}"; fi
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+function fCleanup(){ _fdbgEnter "${FUNCNAME[0]}" "" 0;
+
+	if ((! doSkipIntroStuff)) && ((! doQuietly)); then :;
+	#	fEcho_Clean
+	fi
+
+_fdbgEgress "${FUNCNAME[0]}" "" 0; }
+
+
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+function fTemplate(){ _fdbgEnter "${FUNCNAME[0]}";
+	#@	Purpose:
+	#@	Arguments:
+	#@		1 [REQUIRED]:
+	#@		2 [optional]:
+	#@	Depends on global or parent-scope variable[s] or constant[s]:
+	#@
+	#@	Modifies global or parent-scope variable[s]:
+	#@
+	#@	Prints to stdout:
+	#@
+	#@	Returns via echo to be captured:
+	#@
+	#@	Other side-effects:
+	#@
+	#@	Note[s]:
+	#@		-
+	#@	Example[s]:
+	#@		1:
+	##	History:
+	##		- 20YYMMDD JC: Created.
+
+	## Constants
+	local -i -r default_someThing=0
+
+	## Args
+	local       arg_someThing="$1"
+
+	## Variables
+
+	## Init
+
+	## Validate
+
+	## Execute
+	fThrowError "${meName}.${FUNCNAME[0]}(): Some error."
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+function fUnitTest_ScriptSpecific(){ _fdbgEnter "${FUNCNAME[0]}";
+
+#	_fUnitTest_PrintSectionHeader fPrint_Copyright
+#	_fAssert_Eval_AreEqual                 'fMyFunction  "arg1"  "arg2"'    "Expected-Value"
+#	_fAssert_AreEqual       fMyFunction  "$(fMyFunction  "arg1"  "arg2" )"  "Expected-Value"
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##
+##	Generic library
+##
+##	Purpose:
+##		- Provide "library" functions to new scripts. But in a way that can be easily shared as single-script solutions.
+##			- The old method of sourcing a '0_library_vN', while cleaner in terms of maintaining a whole library of scripts,
+##			  made publishing/sharing more difficult. It's the classic tradeoff. But now that this code is extremely stable,
+##			  it makes sense to be more publish & single-script frienly, and live with the downsides of such redundancy.
+##	Template history:
+##		- 20190911 JC: Curated and cherry-picked from a decade of my prior libraries.
+##		- 20190917 JC: Slight updates and potential bug fixes.
+##		- 20190920 JC:
+##			- Copied entire contents from ${meName}, which has many improvements to generic & template stuff:
+##				- Function logic
+##				- Comments (e.g. function documentation)
+##				- Expanded argument handling
+##				- Structure
+##		- 20190923 JC: Converted single brackets to double, for more robusteness.
+##		- 20190925 JC:
+##			- Added _fPipe_Blake12_Base64URL(), _fPipe_Uuid_Base164URL()
+##			- Renamed _Indent() to _fIndent_abs_pipe()
+##		- 20190925 JC:
+##			- Added functions:
+##				fTemplate(), _fUnitTest(), _fAssert_AreEqual(), _fAssert_Eval_AreEqual(), _fStrJustify_byecho()
+##				_fdbgEchoVarAndVal(), _fIndent_relative1(), _fStrKeepLeftN_byecho(), _fStrKeepRightN_byecho(), _fToInt_byecho(), _fIndent_rltv_pipe()
+##			- Renamed _fIndent1() to _fIndent_abs_pipe()
+##			- Added routing logic to detect '--unit-test'
+##			- Converted the following functions from modifying named variables, to returning value via echo (due to 'eval' expression causing runtime errors due to unescaped problem characters in output strings):
+##				__fEscapeStr_byecho()
+##				_fNormalizePath_byecho()
+##				_fNormalizeDir_byecho()
+##			- _fstrAppend_DEPRECATED_byref()
+##				- Added a message to not use it (so it won't break existing scripts if template code updated).
+##				- Added _fstrAppend_byglobal() to use instead.
+##			- Enhanced _fpStrOps_TempReplacements_byecho(), and __fEscapeStr_byecho()
+##			- Added an input argument to fEchoVarAndVal(): function name.
+##			- Added global constant: doDebug=0.
+##		- 20190926 JC:
+##			- Added debugging functions and variables: _dbgNestLevel, _dbgIndentEachLevelBy, _fdbgEnter(), _fdbgEgress(), _fdbgEcho(), _fPipeAllRawStdout()
+##			- Changed everything beginning with "__" to "_"
+##			- Added to the end of every "function(){" statement:
+##			- Begin to change use of "${variable}" to just "$variable" to quicken dev and improve readability.
+##			- Begin use of bash built-in $FUNCNAME.
+##			- Appended "1" to every library function so that:
+##				- Maintain backward compatibility when copy/pasting everything below a certain line to provide "library" updates to legacy scripts.
+##			- Renamed functions that return something by echo, *_byecho
+##			- Renamed functions that returns something by global variable, *_byglobal
+##		- 20191002 JC: Simplified some "suggested code" in some functions, and commented out others for leaner defaults.
+##		- 20191008 JC:
+##			- Broke out into TEMPLATE_single-file_1-portion-to-copy_20191008 and TEMPLATE_single-file_2-generic-library.
+##				- So that regular updates to template don't have to be copied every time.
+##			- Made "escape"-related functions work similar to my python library.
+##			- From now on, names of function, and their input & output interface, should NEVER CHANGE.
+##				- If that needs to happen, clone the function and append a "2" (or n+1) to the end of the name.
+##		- 20200518 JC:
+##			- Fixed calls to _fSingleExitPoint() to pass separate args rather than quoted as one, to avoid the catch-all from echoing on ALL exits.
+##		- 20200827 JC:
+##			- Added packed-args handling back in.
+##			- Updated arg-parsing and other updated boilerplate, from x9incexc.sh.
+##		- 20200921 JC:
+##			- Minor cleanup and formatting.
+##			- Moved version, author, and copyright year to constants declared at the top.
+##
+
+# shellcheck disable=2016  ## Complains about expressions not expanding in single quotes, which much of _fUnitTest() is based on.
+function _fUnitTest(){ _fdbgEnter "${FUNCNAME[0]}";
+
+	_fUnitTest_PrintSectionHeader _fAssert_AreEqual
+	_fAssert_AreEqual _fAssert_AreEqual "bob" "bob"
+	_fAssert_AreEqual _fAssert_AreEqual "bob" "Bob" 0
+	_fAssert_AreEqual _fAssert_AreEqual "bob" "sam" 0
+
+
+	_fUnitTest_PrintSectionHeader _fStrKeepLeftN_byecho
+	_fAssert_Eval_AreEqual '_fStrKeepLeftN_byecho "abcdefghijk"  3'  "abc"
+	_fAssert_Eval_AreEqual '_fStrKeepLeftN_byecho "abcdefghijk"  1'  "a"
+	_fAssert_Eval_AreEqual '_fStrKeepLeftN_byecho "abcdefghijk"  0'  ""
+	_fAssert_Eval_AreEqual '_fStrKeepLeftN_byecho ""            10'  ""
+	_fAssert_Eval_AreEqual '_fStrKeepLeftN_byecho ""             0'  ""
+	_fAssert_Eval_AreEqual '_fStrKeepLeftN_byecho                 '  ""
+	_fAssert_Eval_AreEqual '_fStrKeepLeftN_byecho "abcdefghijk" -1'  ""
+	_fAssert_Eval_AreEqual '_fStrKeepLeftN_byecho "abcdefghijk" 99'  "abcdefghijk"
+
+
+	_fUnitTest_PrintSectionHeader _fStrKeepRightN_byecho
+	_fAssert_Eval_AreEqual '_fStrKeepRightN_byecho "abcdefghijk"  3'  "ijk"
+	_fAssert_Eval_AreEqual '_fStrKeepRightN_byecho "abcdefghijk"  1'  "k"
+	_fAssert_Eval_AreEqual '_fStrKeepRightN_byecho "abcdefghijk"  0'  ""
+	_fAssert_Eval_AreEqual '_fStrKeepRightN_byecho ""            10'  ""
+	_fAssert_Eval_AreEqual '_fStrKeepRightN_byecho ""             0'  ""
+	_fAssert_Eval_AreEqual '_fStrKeepRightN_byecho                 '  ""
+	_fAssert_Eval_AreEqual '_fStrKeepRightN_byecho "abcdefghijk" -1'  ""
+	_fAssert_Eval_AreEqual '_fStrKeepRightN_byecho "abcdefghijk" 99'  "abcdefghijk"
+
+
+	_fUnitTest_PrintSectionHeader _fStrJustify_byecho "[shorten]"
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdef"                      "01234567890123456789012345678901"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefg"                     "01234567890123456789012345678901"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefg"                     "012345678901234567890123456789012"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefgh"                    "012345678901234567890123456789012"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefgh"                    "0123456789012345678901234567890123"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghi"                   "0123456789012345678901234567890123"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghi"                   "01234567890123456789012345678901234"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghij"                  "01234567890123456789012345678901234"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghij"                  "012345678901234567890123456789012345"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijk"                 "012345678901234567890123456789012345"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijk"                 "0123456789012345678901234567890123456"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijkl"                "0123456789012345678901234567890123456"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijkl"                "01234567890123456789012345678901234567"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijklm"               "01234567890123456789012345678901234567"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijklm"               "012345678901234567890123456789012345678"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijklmn"              "012345678901234567890123456789012345678"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijklmn"              "0123456789012345678901234567890123456789"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijklmno"             "0123456789012345678901234567890123456789"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijklmno"             "01234567890123456789012345678901234567890"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijklmnop"            "01234567890123456789012345678901234567890"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijklmnop"            "012345678901234567890123456789012345678901"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopw"           "012345678901234567890123456789012345678901"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopw"           "0123456789012345678901234567890123456789012"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopwx"          "0123456789012345678901234567890123456789012"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopwx"          "01234567890123456789012345678901234567890123"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopwxy"         "01234567890123456789012345678901234567890123"  | _fPipeAllRawStdout
+	_fStrJustify_byecho "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopwxy"         "012345678901234567890123456789012345678901234"  | _fPipeAllRawStdout
+	fEcho_ResetBlankCounter
+
+
+	_fUnitTest_PrintSectionHeader _fStrJustify_byecho "[shorten]"
+	_fAssert_AreEqual  _fStrJustify_byecho  "$(_fStrJustify_byecho "Now would be a really good time for all honest good men to come to the aid of their ailing country")"   "Now would be a really good time for al┈┈come to the aid of their ailing country"
+
+
+	_fUnitTest_PrintSectionHeader _fStrJustify_byecho "[expand]"
+	_fAssert_AreEqual  _fStrJustify_byecho  "$(_fStrJustify_byecho                            )"   "..............................................................................."
+	_fAssert_AreEqual  _fStrJustify_byecho  "$(_fStrJustify_byecho  "[[["                     )"   "[[[ ..........................................................................."
+	_fAssert_AreEqual  _fStrJustify_byecho  "$(_fStrJustify_byecho  ""         "]]]"          )"   "........................................................................... ]]]"
+	_fAssert_AreEqual  _fStrJustify_byecho  "$(_fStrJustify_byecho  "[[["      "]]]"          )"   "[[[ ....................................................................... ]]]"
+	_fAssert_AreEqual  _fStrJustify_byecho  "$(_fStrJustify_byecho  ""         "hello"        )"  "......................................................................... hello"
+	_fAssert_AreEqual  _fStrJustify_byecho  "$(_fStrJustify_byecho  ""         "hello"        )"  "......................................................................... hello"
+	_fAssert_AreEqual  _fStrJustify_byecho  "$(_fStrJustify_byecho  "Thing 1"  "hello"        )"  "Thing 1 ................................................................. hello"
+	_fAssert_AreEqual  _fStrJustify_byecho  "$(_fStrJustify_byecho  "Thing 1"                 )"  "Thing 1 ......................................................................."
+	_fAssert_AreEqual  _fStrJustify_byecho  "$(_fStrJustify_byecho  "Thing 1"  "hello"  0 "=" )"  "Thing 1 ================================================================= hello"
+	_fAssert_AreEqual  _fStrJustify_byecho  "$(_fStrJustify_byecho  ""         "hello" 10 "=" )"  "==== hello"
+#	_fAssert_AreEqual  _fStrJustify_byecho  "$(_fStrJustify_byecho  "Thing 1"  "hello" 10 "=" )"  "==== hello"
+
+
+	_fUnitTest_PrintSectionHeader _fToInt_byecho
+	_fAssert_Eval_AreEqual '_fToInt_byecho      ""'        0
+	_fAssert_Eval_AreEqual '_fToInt_byecho     "b"'        0
+	_fAssert_Eval_AreEqual '_fToInt_byecho     "1"'        1
+	_fAssert_Eval_AreEqual '_fToInt_byecho   "-99"'      -99
+	_fAssert_Eval_AreEqual '_fToInt_byecho 1000000'  1000000
+
+
+	_fUnitTest_PrintSectionHeader _fConvert_Hex_to_Base64URL_byref
+	_fAssert_Eval_AreEqual 'tmpTst=""; _fConvert_Hex_to_Base64URL_byref tmpTst "98d51036-474e-4d31-9588-7ae8cd844c99";                                                                                             echo "${tmpTst}"'  "mNUQNkdOTTGViHrozYRMmQ=="
+	_fAssert_Eval_AreEqual 'tmpTst=""; _fConvert_Hex_to_Base64URL_byref tmpTst "e4cfa39a3d37be31c59609e807970799caa68a19bfaa15135f165085e01d41a65ba1e1b146aeb6bd0092b49eac214c103ccfa3a365954bbbe52f74a2b3620c94"; echo "${tmpTst}"'  "5M-jmj03vjHFlgnoB5cHmcqmihm_qhUTXxZQheAdQaZboeGxRq62vQCStJ6sIUwQPM-jo2WVS7vlL3Sis2IMlA=="
+
+
+
+	_fUnitTest_PrintSectionHeader _fBlake2_Base64URL_fromString_byref
+	_fAssert_Eval_AreEqual 'tmpTst=""; _fBlake2_Base64URL_fromString_byref tmpTst ""; echo "${tmpTst}"'                                                                      "eGoC90IBWQPGxv2FJVLScpEvR0DhWEdhiobiF_cfVBnSXhAxr-5YUxOJZESTTrBLkDpoWxRIt1XVb3Aa_pvizg=="
+	_fAssert_Eval_AreEqual 'tmpTst=""; tmpfile="$(mktemp)"; touch "${tmpfile}"; _fBlake2_Base64URL_fromFileContent_byref tmpTst "${tmpfile}"; echo "${tmpTst}"'              "eGoC90IBWQPGxv2FJVLScpEvR0DhWEdhiobiF_cfVBnSXhAxr-5YUxOJZESTTrBLkDpoWxRIt1XVb3Aa_pvizg=="
+	_fAssert_Eval_AreEqual 'tmpTst=""; _fBlake2_Base64URL_fromString_byref tmpTst "hello"; echo "${tmpTst}"'                                                                 "5M-jmj03vjHFlgnoB5cHmcqmihm_qhUTXxZQheAdQaZboeGxRq62vQCStJ6sIUwQPM-jo2WVS7vlL3Sis2IMlA=="
+	_fAssert_Eval_AreEqual 'tmpTst=""; tmpfile="$(mktemp)"; echo -n "hello" > "${tmpfile}"; _fBlake2_Base64URL_fromFileContent_byref tmpTst "${tmpfile}"; echo "${tmpTst}"'  "5M-jmj03vjHFlgnoB5cHmcqmihm_qhUTXxZQheAdQaZboeGxRq62vQCStJ6sIUwQPM-jo2WVS7vlL3Sis2IMlA=="
+
+
+	_fUnitTest_PrintSectionHeader _fUUID_Base64URL_byref
+	_fAssert_Eval_AreEqual 'tmpTst=""; _fUUID_Base64URL_byref tmpTst; echo "${tmpTst}"'  "(unpredictable)"  0
+
+
+	fUnitTest_ScriptSpecific
+	fEcho
+	fEcho "Done."
+
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+function fLog(){ _fdbgEnter "${FUNCNAME[0]}";
+	##	Purpose: Wraps logging funcionality.
+	##	Args:
+	##		Required:
+	##			"Calling function name"
+	##		Optional:
+	##			--subhead ...........: Add a linebreak and subheading characters.
+	##			--bare ..............: Don't add anything to the text.
+	##			--indent[=n] ........: Indent the text n (default 1) "tabs". A "tab" is 4 spaces.
+	##			--expandnewlines
+	##			"Text to log"
+	##	Assumes variables defined in a parent scope named:
+	##		filespec_Log
+
+	if ((doLogging)); then
+
+		#echo "\$* = '$*'"
+		#echo "\$1 = '$1'"
+		#echo "\$2 = '$2'"
+		#echo "\$3 = '$3'"
+
+		## Args
+		local -r funcName="$1" ; shift || true
+
+		## Constants
+		local -i -r spacesPerOneTab=4
+		local -r flags="' ${1} '  ' ${2} '  ' ${3} '  ' ${4} '  ' ${5} '  ' ${6} '  ' ${7} '  ' ${8} '  ' ${9} '  ' ${10} '  ' ${11} '  ' ${12} '  ' ${13} '  ' ${14} '  ' ${15} '  ' ${16} '  ' ${17} '  ' ${18} '  ' ${19} '  ' ${20} '"
+
+		## Vars
+		local -i flagCount=0
+		local -i doSubhead=0
+		local -i doBare=0
+		local -i indentLevel=0
+		local -i doExpandNewlines=0
+
+		## Process flags
+		if [[ -n "$(echo "${flags}" | grep -iP " --subhead ")" ]]; then
+			## Subhead
+			flagCount=$((flagCount+1))
+			doSubhead=1
+		fi
+		if [[ -n "$(echo "${flags}" | grep -iP " --bare ")" ]]; then
+			## Bare
+			flagCount=$((flagCount+1))
+			doBare=1
+		fi
+		if [[ -n "$(echo "${flags}" | grep -iP " --indent ")" ]]; then
+			## Indent
+			flagCount=$((flagCount+1))
+			indentLevel=1
+		fi
+		if [[ -n "$(echo "${flags}" | grep -iP " --indent=[0-9]+ ")" ]]; then
+			## Indent number
+			flagCount=$((flagCount+1))
+			local tmpStr="${flags}"
+			tmpStr="$(echo "${tmpStr}" | grep -iPo " --indent=[0-9]+ ")"
+			tmpStr="$(echo "${tmpStr}" | grep -iPo "[0-9]+")"
+			indentLevel=$tmpStr
+		fi
+		if [[ -n "$(echo "${flags}" | grep -iP " --expandnewlines ")" ]]; then
+			## Subhead
+			flagCount=$((flagCount+1))
+			doExpandNewlines=1
+		fi
+
+		## Shift flags off of arg stack.
+		for ((i = 1 ; i <= flagCount; i++)); do
+			shift || true
+		done
+
+		## Args (2 of 2)
+		local logText="$1"
+
+		##DEBUG
+		#fEchoVarAndVal funcName
+		#fEchoVarAndVal flags
+		#fEchoVarAndVal logText
+		#fEchoVarAndVal flagCount
+		#fEchoVarAndVal doSubhead
+		#fEchoVarAndVal doBare
+		#fEchoVarAndVal indentLevel
+		#fEchoVarAndVal doExpandNewlines
+
+		## Build string to log
+		if ((doExpandNewlines)); then
+			## Convert \n to newlines
+			logText="$(echo "${logText}" | sed 's/\\n/\n/g')"
+		fi
+		if [[ indentLevel -gt 0 ]]; then
+			## Indent
+			logText="$(echo "${logText}" | sed "s/^/$(printf "%$((indentLevel * spacesPerOneTab))s")/")"
+		fi
+		if ((doSubhead)); then
+			## Add space
+			echo >> "${filespec_Log}"
+			if ((! doBare)); then
+				## Add subheading
+				[[ -n "${logText}" ]] && logText=" - ${logText}"
+				logText="${logHeader}${meName}.${funcName}()${logText}"
+			fi
+		fi
+		if ((! doBare)); then
+			## Add timestamp
+			[[ -n "${logText}" ]] && logText=" ${logText}"
+			logText="$(date "+%Y%m%d-%H%M%S")${logText}"
+		fi
+
+		## Echo to log
+		echo "${logText}" >> "${filespec_Log}"
+
+	fi
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+function _fRandomInt_byref(){
+	##	Purpose: Return a cryptographically valid integer between low and high ints, inclusive.
+	##	Note: $RANDOM can do similar, but is not uniformly random, or crypto-secure.
+	##	Input:
+	##		1 [REQUIRED]: Variable name that will be populated with result.
+	##		1 [REQUIRED]: Lowest number.
+	##		2 [REQUIRED]: Highest number.
+
+	local -r    varName="$1"
+	local -r -i intLow="$2"
+	local -r -i intHigh="$3"
+
+	eval "${varName}=\$(shuf -i ${intLow}-${intHigh} -n 1 --random-source=/dev/urandom)"
+
+}
+
+
+function _fPickRandomIndex_byref(){ _fdbgEnter "${FUNCNAME[0]}";
+	##	Purpose:
+	##		- Given an array [byref], returns a random index from 0 to max index.
+	##		- If the array empty or invalid, returns -1.
+	##	Args:
+	##		1: The NAME of the variable to put the return value in.
+	##		2: The NAME of the array variable.
+	##	Assumes:
+	##		- The first named variable is an integer.
+	##		    - It is writable.
+	##		- The second named variable is an array.
+	##		    - It's not sparse.
+	##		- Both are already defined in a parent scope.
+	##		- Both are already defined in a parent scope.
+
+	## Args
+	local -r argIntVarName="$1"    ; shift || true
+	local -r argArrayVarName="$1"  ; shift || true
+
+	## Variables
+	local -i retVal=-1
+
+	## Validate
+	if [[ -z "${argIntVarName}" ]] || [[ -z "${argArrayVarName}" ]]; then
+		fThrowError "${meName}.${FUNCNAME[0]}(): Required args: <variable name for integer result> <array variable name>."
+	fi
+
+	## Get array count
+	local -i highestIndex=0
+	eval "highestIndex=\${#$argArrayVarName[@]}"
+	highestIndex=$((highestIndex-1))  ## Count is 1-based, Index is 0-based.
+
+	## Randomize
+	[[ $highestIndex -ge 0 ]] && _fRandomInt_byref retVal 0 $highestIndex
+
+	##DEBUG
+	#fEchoVarAndVal argIntVarName
+	#fEchoVarAndVal argArrayVarName
+	#echo "$argArrayVarName='${!argArrayVarName[*]}'"
+	#echo "highestIndex=\${#$argArrayVarName[@]}"
+	#fEchoVarAndVal highestIndex
+	#fEchoVarAndVal retVal
+	#echo "eval '${argIntVarName}=$retVal'"
+
+	## Set value
+	eval "${argIntVarName}=$retVal"
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+
+function _fBlake2_Base64URL_fromFileContent_byref(){
+	##	Purpose: Generate a base64-URL-encoded Blake2 checksum from the contents of a specified filespec.
+	##	Input:
+	##		1 [REQUIRED]: Variable name that will be populated with result.
+	##		2 [REQUIRED]: File specification to generate checksum from content.
+	##	Modifies:
+	##		Variable specified as first argument.
+	##	Examples:
+	##		_fBlake2_Base64URL_fromFileContent_byref MyVariable "${HOM$}/Downloads/download.zip"
+	##	History:
+	##		- 20190925 JC: Created.
+	##		- 20221205 JC: Added re-trying, as b2sum sometimes just doesn't work the first time.
+
+	local -r variableName="$1"
+	local -r fileSpec="$2"
+	local    blake2Checksum=""
+	local    returnStr=""
+
+	[[   -z "${variableName}" ]] && fThrowError "${meName}.${FUNCNAME[0]}(): No variable specified."
+	[[   -z "${fileSpec}"     ]] && fThrowError "${meName}.${FUNCNAME[0]}(): No filespec specified."
+	[[ ! -f "${fileSpec}"     ]] && fThrowError "${meName}.${FUNCNAME[0]}(): Specified file not found: '${fileSpec}'."
+
+	if [[ $(stat -c "%s" "${fileSpec}") -gt 0 ]]; then
+		blake2Checksum="$(cat "${fileSpec}" | b2sum --binary 2>/dev/null)" ## For integrity of results, don't eat errors!
+		if [[ -z "${blake2Checksum}" ]]; then
+			sleep 2
+			blake2Checksum="$(cat "${fileSpec}" | b2sum --binary 2>/dev/null)"  ## Try again
+			if [[ -z "${blake2Checksum}" ]]; then
+				sleep 1
+				blake2Checksum="$(_fEscapeStr_byecho "${fileSpec}") | b2sum 2>/dev/null)"
+			fi
+		fi
+		if [[ -n "${blake2Checksum}" ]]; then
+			blake2Checksum="$(echo "${blake2Checksum}" | grep -iPo "[a-f0-9]+" 2>/dev/null || true)"
+			_fConvert_Hex_to_Base64URL_byref returnStr "${blake2Checksum}"
+		fi
+	fi
+
+	eval "${variableName}='${returnStr}'"
+
+}
+
+
+function _fUUID_Base64URL_byref(){ _fdbgEnter "${FUNCNAME[0]}";
+	##	Purpose: Generates a base64-URL-encoded UUID v4 (random).
+	##	Input:
+	##		1 [REQUIRED]: Variable name that will be populated with result.
+	##	Usage examples:
+	##		_fUUID_Base164URL MyVar
+	##	History:
+	##		- 20190925 JC: Created.
+
+	local -r variableName="$1"
+	local    returnStr=""
+	if [[ -z "${variableName}" ]]; then fThrowError "${meName}.${FUNCNAME[0]}(): No variable specified."; fi
+	returnStr="$(uuid -v 4 )" #............................................................................................: For integrity of results, don't eat errors!
+	_fConvert_Hex_to_Base64URL_byref returnStr "${returnStr}" #...........................................................: For integrity of results, don't eat errors!
+	eval "${variableName}=\"${returnStr}\""
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+function _fConvert_Hex_to_Base64URL_byref(){ _fdbgEnter "${FUNCNAME[0]}";
+	##	Purpose:
+	##		- Converts a hex string to binary, then binary to base64-URL-encoded string (per per RFC 4648 § 5).
+	##		- Ignores dashes (works on UUID strings).
+	##	Input:
+	##		1 [REQUIRED]: Variable name that will be populated with result.
+	##		2 [REQUIRED]: Hex string.
+	##	Usage examples:
+	##		_fConvert_Hex_to_Base64URL_byref MyVar "aaff1209"
+	##	History:
+	##		- 20190925 JC: Created.
+	##		- 20221205 JC: Added second arg to comments, re-added removing "=".
+
+	local -r variableName="$1"
+	local -r inputStr="$2"
+	local returnStr_ch2b=
+	if [[ -n "${inputStr}" ]]; then
+		if [[ ! ${inputStr,,} =~ ^[\-a-f0-9]+$ ]]; then fThrowError "${meName}.${FUNCNAME[0]}(): Invalid hexadecimal string: '${inputStr}'."; fi
+		returnStr_ch2b="$(echo -n "${inputStr,,}" | xxd -r -p | base64 -w 0)" #........................................: Convert hex to binary, then binary to base64; For integrity of results, don't eat errors!
+		returnStr_ch2b="${returnStr_ch2b//+/-}" #......................................................................: Replace "+" with "-", per RFC 4648 § 5
+		returnStr_ch2b="${returnStr_ch2b//\//_}" #.....................................................................: Replace "/" with "_", per RFC 4648 § 5
+		returnStr_ch2b="${returnStr_ch2b//=/}" #.......................................................................: Remove optional base64 padding chars
+	fi
+	eval "${variableName}=\"${returnStr_ch2b}\""
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+function _fToInt_byecho(){ _fdbgEnter "${FUNCNAME[0]}" "" 1;
+
+	##	Purpose: Converts any input to an integer (zero if there's any problem).
+	local input="$*"
+	local -i retVal=0
+	if [[ -n "${input}" ]]; then
+		if [[ $input =~ ^-?[0-9]+$ ]]; then
+			retVal=$input 2>/dev/null || true
+		fi
+	fi
+
+	# shellcheck disable=2086  ## Unquoted return value. Which is part of the the point for this function.
+	echo $retVal
+
+_fdbgEgress "${FUNCNAME[0]}" "" 1; }
+
+
+function _fStrSearchAndReplace_byecho(){ _fdbgEnter "${FUNCNAME[0]}" "" 1;
+	##	Purpose: For every match in a string, substitutes a replacement.
+	##	Input:
+	##		- Source string.
+	##		- Search substring.
+	##		- Replacement substring.
+	##	Returns:
+	##		Modified string via echo. Capture with: MyVariable="$(_MyFunction "MyArg1" ...etc...)"
+	##	Notes:
+	##		- Case-sensitve
+	##		- Performons only ONE pass - can't get stuck in a loop.
+	##		- Uses sed and tr for more robustness.
+	##	TODO:
+	##		Make sure can handle random strings with double quotes in them (as opposed to singular double quotes).
+	##	History:
+	##		- 20160906 JC: Rewrote from scratch to:
+	##			- Only make one pass.
+	##			- Use 'sed' instead of bash variable expansion, for more robust handling of:
+	##				- Double quotes.
+	##				- Escaped characters such as \n.
+	##		- 20170308 JC: Use bash variable expansion to bypass frustrating sed time-sink / bug.
+	##		- 20190920 JC: Improved function header comments.
+
+	## Input
+	local vlsString="$1"
+	local vlsFind="$2"
+	local vlsReplace="$3"
+
+	## Temp replacements to avoid problems and trades speed for robustness
+	vlsString="$(_fLegacy_pStrOps_TempReplacements_byecho  "forward" "${vlsString}")"
+	vlsFind="$(_fLegacy_pStrOps_TempReplacements_byecho    "forward" "${vlsFind}")"
+	vlsReplace="$(_fLegacy_pStrOps_TempReplacements_byecho "forward" "${vlsReplace}")"
+
+	## Do the replacing
+	# shellcheck disable=2116  ## False positive
+	vlsString="$(echo "${vlsString//${vlsFind}/${vlsReplace}}")"
+
+	## Reverse temp replacements
+	vlsString="$(_fLegacy_pStrOps_TempReplacements_byecho "reverse" "${vlsString}")"
+
+	echo -e "${vlsString}"
+
+_fdbgEgress "${FUNCNAME[0]}" "" 1; }
+
+
+function _fEscapeStr_byecho(){ _fdbgEnter "${FUNCNAME[0]}" "" 1;
+	#@	Purpose:
+	#@		- Escapes a string so that quotes, asterisks, etc. won't screw up SQL, Windows filenames, eval, etc.
+	#@		- Many of those things are valid Linux filenames but will break other stuff.
+	#@	Arg .......: A string to escape.
+	#@	Echos .....: Updated string.
+	#@	Example ...: MyVariable="$(_fEscapeStr_byecho "Some input string that might have wonky characters that break filenames, SQL, or eval")"
+	#@	History:
+	#@		- 20191008 JC: Created by copying and modifying fLegacy_escapeOrUnStStr_byecho().
+	local valStr="$1"
+	valStr="$( echo -e "${valStr}" | sed ':a;N;$!ba;s/\n/⌁▸newline◂⌁/g'     2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed 's*\"*⌁▸dquote◂⌁*g'                2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed "s/'/⌁▸squote◂⌁/g"                 2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed 's/`/⌁▸backtick◂⌁/g'               2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed 's*\t*⌁▸tab◂⌁*g'                   2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed 's*\\*⌁▸backslash◂⌁*g'             2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed "s/\*/⌁▸asterisk◂⌁/g"              2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed "s/\?/⌁▸questionmark◂⌁/g"          2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed "s/|/⌁▸pipe◂⌁/g"                   2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed "s/</⌁▸lthan◂⌁/g"                  2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed "s/>/⌁▸gthan◂⌁/g"                  2>/dev/null || true)"
+	# shellcheck disable=2016  ## False positive on non-expanding variable
+	valStr="$( echo -e "${valStr}" | sed 's/\$(/⌁▸dollarlparen◂⌁/g'         2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed 's/\$/⌁▸dollarl◂⌁/g'               2>/dev/null || true)"
+	echo "${valStr}"
+_fdbgEgress "${FUNCNAME[0]}" "" 1; }
+
+
+function fUnEscapeStr_byecho(){ _fdbgEnter "${FUNCNAME[0]}" "" 1;
+	#@	Purpose:
+	#@		- Escapes a string so that quotes, asterisks, etc. won't screw up SQL, Windows filenames, eval, etc.
+	#@		- Many of those things are valid Linux filenames but will break other stuff.
+	#@	Arg .......: A string to undo the effects of _fEscapeStr_byecho().
+	#@	Echos .....: Updated string.
+	#@	History:
+	#@		- 20191008 JC: Created by copying and modifying fLegacy_escapeOrUnStStr_byecho().
+	local      valStr="$1"
+	valStr="$( echo -e "${valStr}" | sed 's*⌁▸newline◂⌁*\n*g'               2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed 's*⌁▸dquote◂⌁*\"*g'                2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed "s/⌁▸squote◂⌁/'/g"                 2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed 's/⌁▸backtick◂⌁/`/g'               2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed 's*⌁▸tab◂⌁*\t*g'                   2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed 's*⌁▸backslash◂⌁*\\*g'             2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed "s/⌁▸asterisk◂⌁/\*/g"              2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed "s/⌁▸questionmark◂⌁/\?/g"          2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed "s/⌁▸pipe◂⌁/|/g"                   2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed "s/⌁▸lthan◂⌁/</g"                  2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed "s/⌁▸gthan◂⌁/>/g"                  2>/dev/null || true)"
+	# shellcheck disable=2016  ## False positive on non-expanding variable
+	valStr="$( echo -e "${valStr}" | sed 's/⌁▸dollarlparen◂⌁/\$(/g'         2>/dev/null || true)"
+	valStr="$( echo -e "${valStr}" | sed 's/⌁▸dollarl◂⌁/\$/g'               2>/dev/null || true)"
+	echo "${valStr}"
+_fdbgEgress "${FUNCNAME[0]}" "" 1; }
+
+
+function _fIndent_abs_pipe(){ _fdbgEnter "${FUNCNAME[0]}" "" 1;
+	##	Purpose: Meant to be used on right side of pipe, to first unindent stdout, then indent to specified number of spaces.
+	##	Input (besides stout):
+	##		1 [REQUIRED]: Number of spaces to indent.
+	##	Output: stdout
+	##	Usage examples
+	##		- ls -lA . | _fIndent_abs_pipe 2
+	##	History:
+	##		- 20190903 JC: Created.
+	##		- 20190920 JC: Improved function header comments.
+
+	sed -e 's/^[ \t]*//' | sed "s/^/$(printf "%${1}s")/"
+
+_fdbgEgress "${FUNCNAME[0]}" "" 1; }
+
+
+function _fIndent_rltv_pipe(){ _fdbgEnter "${FUNCNAME[0]}" "" 1;
+	##	Purpose: Meant to be used on right side of pipe, to first unindent stdout, then indent to specified number of spaces.
+	##	Input (besides stout):
+	##		1 [REQUIRED]: Number of spaces to indent.
+	##	Output: stdout
+	##	Usage examples
+	##		- ls -lA . | _fIndent_rltv_pipe 2
+	##	History:
+	##		- 20190925 JC: Created by copying _fPipe_Indent_abs_absolute1
+
+	sed "s/^/$(printf "%${1}s")/"
+
+_fdbgEgress "${FUNCNAME[0]}" "" 1; }
+
+
+function _fStrJustify_byecho(){ _fdbgEnter "${FUNCNAME[0]}" "" 1;
+	#@	Purpose:
+	#@		- Left and right-justifies one or two strings.
+	##		- Also doesn't allow the final output to go over specified columns. If it does, the minimum padding witdh is inserted in between a result split in the middle.
+	#@	Arguments:
+	#@		1 [optional]: String on left
+	#@		2 [optional]: String on right
+	#@		3 [optional]: Maximum width (default:79)
+	#@		4 [optional]: String to pad in between with, usually just one character (default ".")
+	#@	Returns via echo: Right-justified string
+	##	History:
+	##		- 20190925 JC: Created.
+	##	TODO:
+	##		- Figure out a better solution for too-long strings, other than cutting the middle out of the LEFT string.
+	##		- Solution must:
+	##			- Put "┈" in the middle (rather than just the left as currently), if both strings are > 1/2 max.
+v	##			- If any stirng is too long
+
+	## Constants
+	local -r -i default_rightmostCol=79
+	local -r    default_padStr="."
+	local -r    splitStrIndicatorIfTooLong="┈┈"
+
+	## Args
+	local       leftStr="$1"
+	local       rightStr="$2"
+	local    -i maxWidth=$(_fToInt_byecho "$3")
+	local       padStr="$4"
+
+	## Variables
+	local       printfCommand=""
+	local       wholePad=""
+#	local    -i extraPlacesToRemove=0
+	local    -i totalCharsFromPadToRemove=0
+	local    -i maxHypotheticalWidth=0
+	local    -i lenLeftPart=0
+	local    -i lenRightPart=0
+	local       tmpStr=""
+	local       tmpPadStr=""
+	local       returnStr=""
+
+	## Init; default values
+	if [[ -z "${maxWidth}" ]] || [[ ! ${maxWidth} =~ [0-9]+ ]] || [[ "${maxWidth}" == "0" ]]; then maxWidth="${default_rightmostCol}"; fi
+	if [[ -z "${maxWidth}" ]] || [[ ! ${maxWidth} =~ [0-9]+ ]] || [[ "${maxWidth}" == "0" ]]; then maxWidth="${default_rightmostCol}"; fi
+	if [[ -z "${padStr}" ]]; then padStr="${default_padStr}"; fi
+
+	## Figure out if string is too long
+	maxHypotheticalWidth=$((${#leftStr} + 1 + ${#rightStr}))
+	tooLongBy=$((maxHypotheticalWidth - maxWidth))
+
+#fEchoVarAndVal leftStr
+#fEchoVarAndVal rightStr
+#fEchoVarAndVal maxHypotheticalWidth
+#fEchoVarAndVal tooLongBy
+
+	if [[ ${tooLongBy} -gt 0 ]]; then
+
+		## Update these values for inclusion of $splitStrIndicatorIfTooLong
+		maxHypotheticalWidth=$((${#leftStr} + ${#splitStrIndicatorIfTooLong} + ${#rightStr}))
+		tooLongBy=$((maxHypotheticalWidth - maxWidth))
+		if [[ $tooLongBy -le 0 ]]; then tooLongBy=0; fi
+
+		## The total output will be too long. Split the longest string in half and put $splitStrIndicatorIfTooLong in between.
+		if [[ ${#rightStr} -gt ${#leftStr} ]]; then  ## If equal, left
+			tmpStr="${rightStr}"
+		else
+			tmpStr="${leftStr}"
+		fi
+
+		## Split the longest string in half, and only for that longest string, hack off some of the right part of left half, and some of the left part of right half
+			## Split the longest string in half. Round first half up; but Bash integer math always rounds down; this trick rounds up.
+				#### result=$(( (numerator  + (denominator - 1) / denomonator) ))
+				lenLeftPart=$(( (${#tmpStr} + 1               ) / 2            ))
+				    ##Eg 13=$(( (25         + 1               ) / 2            ))
+				## Now trim half of the overage off from left half, also rounding up (which evens it out)
+				lenLeftPart=$(( lenLeftPart - ((tooLongBy+1)/2) ))
+			## Round second half down; Bash always does this anyway
+				## (( result=$(( (numerator  / denomonator) ))
+				lenRightPart=$(( (${#tmpStr} / 2          ) ))
+				   ##Eg   12=$(( (25         / 2          ) ))
+				## Now trim half of the overage off from left half, also rounding up (which evens it out)
+				lenRightPart=$(( lenRightPart - (tooLongBy/2) ))
+			## Build the splint string
+			tmpStr="$(_fStrKeepLeftN_byecho "${tmpStr}" ${lenLeftPart})${splitStrIndicatorIfTooLong}$(_fStrKeepRightN_byecho "${tmpStr}" ${lenRightPart})"
+
+		## Replace longest string with the split result
+		if [[ ${#rightStr} -gt ${#leftStr} ]]; then
+			rightStr="${tmpStr}"
+		else
+			leftStr="${tmpStr}"
+		fi
+	fi
+
+#fEchoVarAndVal leftStr
+#fEchoVarAndVal rightStr
+
+	printfCommand="printf '${padStr}%.0s' {1..${maxWidth}}"
+	wholePad="$(eval "${printfCommand}")"
+	if [[ -n "${leftStr}" ]]   && [[ $tooLongBy -le 0 ]]; then leftStr="${leftStr} "; fi
+	if [[ -n "${rightStr}" ]]  && [[ $tooLongBy -le 0 ]]; then rightStr=" ${rightStr}"; fi
+	totalCharsFromPadToRemove=$((${#leftStr} + ${#rightStr}))
+	tmpPadStr="${wholePad:$totalCharsFromPadToRemove}"
+	if [[ -z "${tmpPadStr}" ]] && [[ -n "${leftStr}" ]] && [[ -n "${rightStr}" ]]; then
+		tmpPadStr=" "
+	fi
+	returnStr="${leftStr}${tmpPadStr}${rightStr}"
+
+	## This logic isn't always correct, and isn't even really a good overall idea (at least for too long strings); so just in case, crop to max chars len
+	returnStr="$(_fStrKeepLeftN_byecho "${returnStr}" ${maxWidth})"
+
+#fEchoVarAndVal padStr
+#fEchoVarAndVal maxWidth
+#fEchoVarAndVal wholePad
+#fEchoVarAndVal totalCharsFromPadToRemove
+#fEchoVarAndVal leftStr
+#fEchoVarAndVal tmpPadStr
+#fEchoVarAndVal rightStr
+#fEchoVarAndVal returnStr
+#return
+
+	echo "${returnStr}"
+
+_fdbgEgress "${FUNCNAME[0]}" "" 1; }
+
+
+function _fStrKeepLeftN_byecho(){ _fdbgEnter "${FUNCNAME[0]}" "" 1;
+	##	History:
+	##		- 20190925 JC: Created.
+
+	local -r    inputStr="$1"
+	local    -i numberOfCharacters=$(_fToInt_byecho "$2")
+	local       returnVal=""
+	if [[ ${numberOfCharacters} -le 0 ]]; then
+		returnVal=""
+	elif [[ ${numberOfCharacters} -ge ${#inputStr} ]]; then
+		returnVal="${inputStr}"
+	else
+		returnVal="${inputStr::${numberOfCharacters}}"
+	fi
+	echo "${returnVal}"
+
+_fdbgEgress "${FUNCNAME[0]}" "" 1; }
+
+
+function _fStrKeepRightN_byecho(){ _fdbgEnter "${FUNCNAME[0]}" "" 1;
+	##	History:
+	##		- 20190925 JC: Created.
+
+	local -r    inputStr="$1"
+	local    -i numberOfCharacters=$(_fToInt_byecho "$2")
+	local       returnVal=""
+	if [[ ${numberOfCharacters} -le 0 ]]; then
+		returnVal=""
+	elif [[ ${numberOfCharacters} -ge ${#inputStr} ]]; then
+		returnVal="${inputStr}"
+	else
+		returnVal="${inputStr:(-${numberOfCharacters})}"
+	fi
+	echo "${returnVal}"
+
+_fdbgEgress "${FUNCNAME[0]}" "" 1; }
+
+
+function _fStrTrim_byecho(){ _fdbgEnter "${FUNCNAME[0]}" "" 1;
+	##	Purpose: Strip off leading and trailing whitespace from a string.
+	##	Input:
+	##		1 [REQUIRED]: String to trim.
+	##	Returns:
+	##		Modified string via echo. Capture with: MyVariable="$(_MyFunction "MyArg1" ...etc...)"
+	##	History:
+	##		- 20190826 JC: Created by copying from 0_library_v2.
+	##		- 20190920 JC: Improved function header comments.
+
+	local inputStr="$*"
+	if [[ -n "${inputStr}" ]]; then
+		outputStr="$(echo -e "${inputStr}" | sed 's/^[[:blank:]]*//;s/[[:blank:]]*$//' 2>/dev/null || true)"
+	fi
+	echo -n "${outputStr}"
+
+_fdbgEgress "${FUNCNAME[0]}" "" 1; }
+
+
+function _fStrNormalize_byecho(){ _fdbgEnter "${FUNCNAME[0]}" "" 1;
+	##	Purpose:
+	##		- Strips leading and trailing spaces from string.
+	##		- Changes all whitespace inside a string to single spaces.
+	##	Input:
+	##		1 [REQUIRED]: String to normalize
+	##	Returns:
+	##		Modified string via echo. Capture with: MyVariable="$(_MyFunction "MyArg1" ...etc...)"
+	##	References:
+	##		- https://unix.stackexchange.com/a/205854
+	##	History:
+	##		- 20190701 JC: Created
+	##		- 20190724 JC: Didn't work on newlines. Fixed.
+	##		- 20190920 JC: Improved function header comments.
+
+	local argStr="$*"
+	argStr="$(echo -e "${argStr}")" #.................................................................. Convert \n and \t to real newlines, etc.
+	argStr="${argStr//$'\n'/ }" #...................................................................... Convert newlines to spaces
+	argStr="${argStr//$'\t'/ }" #...................................................................... Convert tabs to spaces
+	argStr="$(echo "${argStr}" | awk '{$1=$1};1' 2>/dev/null || true)" #............................... Collapse multiple spaces to one and trim
+	argStr="$(echo "${argStr}" | sed 's/^[[:blank:]]*//;s/[[:blank:]]*$//' 2>/dev/null || true)" #..... Additional trim
+	echo "${argStr}"
+
+_fdbgEgress "${FUNCNAME[0]}" "" 1; }
+
+
+declare _fstrAppend_byglobal_val=""
+function _fstrAppend_byglobal(){ _fdbgEnter "${FUNCNAME[0]}";
+	##	Purpose:
+	##		- Appends arg1 to the string value in global variable _fstrAppend_byglobal_val,
+	##		  with arg2 as a delimiter if necessary.
+	##		- Continues whether or not value in arg1 is empty, or arg3 is empty.
+	##		- Pros and cons of this approach (modifying a dedicated global variable):
+	##			- Pro: Is more efficient for highly iterative uses, than the multiple unnecessary str copies of the "echo" method.
+	##			- Pro: Won't error on some characters such as the "eval" method.
+	##			- Con: A single global variable means you can't call this to build more than one string at a time.
+	##			- Con: Is inelegant.
+	##	Input:
+	##		1 [optional]: String to first append with, if existing contents aren't empty. (e.g. space, comma, newline)
+	##		2 [optional]: String to append.
+	##	Modifies:
+	##		_fstrAppend_byglobal_val
+	##	Examples:
+	##		_fstrAppend_byglobal_val=""  ##....................... Clear _fstrAppend_byglobal_val
+	##		_fstrAppend_byglobal "\n"  "First in the list!"  ##... Append a string
+	##		_fstrAppend_byglobal "\n"  "Next in the list!"  ##.... Append another string
+	##		MyStr="${_fstrAppend_byglobal_val}"  ##............... Copy result to local variable
+	##	History:
+	##		- 20190826 JC: Created by copying from 0_library_v2.
+	##		- 20190920 JC: Added error checking of variable name.
+	##		- 20190926 JC: Copied _fstrAppend_1() and converted from "eval" to "global" approach, due to errors.
+
+	## Constants
+
+	## Args
+	local -r appendFirstIfExistingNotEmpty="$1"
+	local -r appendStr="$2"
+
+	## Append (written this way to be a little faster for highly iterative uses
+	if [[ -z "${_fstrAppend_byglobal_val}" ]]; then
+		_fstrAppend_byglobal_val="${appendStr}"
+	else
+		_fstrAppend_byglobal_val="${_fstrAppend_byglobal_val}${appendFirstIfExistingNotEmpty}${appendStr}"
+	fi
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+function _fstrAppend_DEPRECATED_byref(){ _fdbgEnter "${FUNCNAME[0]}";
+	##	Purpose:
+	##		- Exists for legacy purposes. Don't use it, it's prone to barfing on some input due to "eval".
+	##		- Use _fstrAppend_byglobal() instead.
+	##	Input:
+	##		1 [REQUIRED]: Variable name to populate.
+	##		2 [optional]: String to first append with, if existing contents aren't empty. (e.g. space, comma, newline)
+	##		3 [optional]: String to append.
+	##	Modifies:
+	##		Variable specified by name as arg1.
+	##	Examples:
+	##		_fstrAppend_byglobal  MyVariable  "\n"  "First in the list!"  ##... Append a string
+	##		_fstrAppend_byglobal  MyVariable  "\n"  "Next in the list!"  ##.... Append another string
+	##	History:
+	##		- 20190826 JC: Created by copying from 0_library_v2.
+	##		- 20190920 JC: Added error checking of variable name.
+
+	fEcho_Clean "${meName}.${FUNCNAME[0]}(): This function is depreciated due to reliance on 'eval'. Refactor to use _fstrAppend_byglobal()."
+
+	## Args
+	local -r variableName="$1"
+	local -r appendFirstIfExistingNotEmpty="$2"
+	local -r appendStr="$3"
+
+	## Validate
+	if [[ -z "${variableName}" ]]; then fThrowError "${meName}.${FUNCNAME[0]}(): No variable specified."; fi
+
+	## Variables
+	local valStr="${!variableName}"
+
+	## Append to variable who's name is stored in $variableName
+	if [[ -n "${valStr}" ]]; then valStr="${valStr}${appendFirstIfExistingNotEmpty}"; fi
+	valStr="${valStr}${appendStr}"
+	eval "${variableName}=\"${valStr}\""
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+function _fNormalizeDir_byecho(){ _fdbgEnter "${FUNCNAME[0]}" "" 1;
+	##	Purpose:
+	##		- Given a folder path as a string, normalizes it.
+	##		- It doesn't have to exist already.
+	##		- And makes sure it has exactly one ending "/" (even if root).
+	##	Input:
+	##		1 [REQUIRED]: Folder path.
+	##	Output:
+	##		Modified value via echo.
+	##	Examples:
+	##		MyVariable="$(_fNormalizePath_byecho "/etc /x")"
+	##	History:
+	##		- 20190923 JC: Created.
+	##		- 20190925 JC: Changed from 'byref' (eval) to 'byval' (echo), because eval barfs on many valid filename characters (e.g. "`", "$(", etc.)
+
+	local strVal="$1"
+	strVal="$(_fNormalizePath_byecho "${strVal}")"
+	strVal="${strVal}/"
+	strVal="${strVal//\/\//\/}"  #.... Replace two slashes with one, just in case
+	echo "${strVal}"
+
+_fdbgEgress "${FUNCNAME[0]}" "" 1; }
+
+
+function _fNormalizePath_byecho(){ _fdbgEnter "${FUNCNAME[0]}" "" 1;
+	##	Purpose:
+	##		- Given a file or folder path as a string, normalizes it.
+	##		- It doesn't have to exist already.
+	##		- And makes sure it has exactly one ending "/" (even if root).
+	##	Input:
+	##		1 [REQUIRED]: Folder path.
+	##	Output:
+	##		Modified value via echo.
+	##	Examples:
+	##		MyVariable="$(_fNormalizePath_byecho "/etc/x.rdp")"
+	##	History:
+	##		- 20190826 JC: Created by copying from 0_library_v2.
+	##		- 20190925 JC: Changed from 'byref' (eval) to 'byval' (echo), because eval barfs on many valid filename characters (e.g. "`", "$(", etc.)
+
+	local strVal="$1"
+	local loop_PreviousStr=""
+	# shellcheck disable=2001  ## Sometimes purposely using sed when builtin doesn't work for specific usage.
+	while [[ "${strVal}" != "${loop_PreviousStr}" ]]; do
+		loop_PreviousStr="${strVal}"
+		strVal=${strVal//$'\n'/ } #............................................................. Replace newlines
+		strVal=${strVal//$'\t'/ } #............................................................. Replace tabs with spaces
+		strVal="$(echo "${strVal}" | sed 's#\\#/#g' 2>/dev/null || true)" #..................... Convert backslashes to forward slashes
+		strVal="$(echo "${strVal}" | sed 's#/ #/#g' | sed 's# /#/#g' 2>/dev/null || true)" #.... Remove space before and after slashes
+		strVal="$(echo "${strVal}" | sed 's#//#/#g' 2>/dev/null || true)" #..................... Replace two backslashes with one
+		strVal="${strVal%/}" #.................................................................. Trim trailing slash
+		strVal="$(_fStrTrim_byecho "${strVal}")" #.................................................... Trim leading and trailing whitespace
+	done
+	echo "${strVal}"
+
+_fdbgEgress "${FUNCNAME[0]}" "" 1; }
+
+
+function _fMustBeInPath(){ _fdbgEnter "${FUNCNAME[0]}";
+	##	History:
+	##		- 20190826 JC: Created by copying from 0_library_v2.
+
+	local -r programToCheckForInPath="$1"
+	if [[ -z "${programToCheckForInPath}" ]]; then
+		fThrowError "_fMustBeInPath(): Not program specified."
+	elif [[ -z "$(command -v "${programToCheckForInPath}" 2>/dev/null || true)" ]]; then
+		fThrowError "Not found in path: ${programToCheckForInPath}"
+	fi
+
+_fdbgEgress "${FUNCNAME[0]}"; }
+
+
+function _fIsInteger(){ :;
+	## 20141117 JC: Created.
+	if [[ "$1" =~ ^-?[0-9]+$ ]]; then :;
+		echo "true"
+	else :;
+		echo "false"
+	fi
+}
+
+
+function _fIsString_PackedArgs(){ :;
+	##	Purpose:
+	##		Returns "true" if the string is some result of _fPackArgs().
+	##	Input:
+	##		Anything or nothing.
+	##	History:
+	##		- 20171217 JC: Created.
+
+	## Variables.
+	local vlsInput="$*"
+	local vlbReturn="false"
+
+	if [[ "${vlsInput}" =~ ^⦃packedargs-begin⦄.*⦃packedargs-end⦄$ ]]; then :;
+		local vlbReturn="true"
+	fi
+
+	echo "${vlbReturn}"
+
+}
+
+
+function _fPackedArgs_GetCount(){ :;
+	##	Purpose:
+	##		Given a packedargs string, returns the number of arguments.
+	##	Input:
+	##		Some result of _fPackArgs()
+	##	History:
+	##		- 20171217 JC: Created.
+
+	## Variables.
+	local vlsInput="$*"
+	local vlwReturnCount=0
+	local vlsItem_Unpacked=""
+
+	if [[ "${vlsInput}" =~ ^⦃packedargs-begin⦄.*⦃packedargs-end⦄$ ]]; then :;
+
+		## Strip wrapper off
+		vlsInput="$(echo "${vlsInput}" | sed "s/⦃packedargs-begin⦄//g")"
+		vlsInput="$(echo "${vlsInput}" | sed "s/⦃packedargs-end⦄//g")"
+
+		## Parse into array on "_"
+		local vlsPrev=$IFS
+		#IFS="_"
+		IFS="☊"  ## 20190615 JC: Changed from _ to ☊ because _ was turning up in unpacked strings somehow. Not sure if this will fix it.
+			# shellcheck disable=2206  ## Must disable complaining about quotes. Next statemnet doesn't work with quotes.
+			local -a vlsArray=(${vlsInput})
+		IFS="${vlsPrev}"
+
+		## Return array length, which is the count of arguments
+		vlwReturnCount=${#vlsArray[@]}
+		if [[ "$(_fIsInteger "${vlwReturnCount}")" != "true" ]]; then :;
+			vlwReturnCount=0
+		fi
+
+		## Check for empty array
+		if [[ ${vlwReturnCount} -eq 1 ]]; then :;
+			if [[ "${vlsArray[0]}" == "" ]]; then :;
+				vlwReturnCount=0
+			fi
+		fi
+
+		## We should never have a single element of "⦃empty⦄", unless explicitly passed to _fPackArgs().
+		#if [[ vlwReturnCount -eq 1 ]]; then :;
+		#	if [[ "${vlsArray[0]}" == "⦃empty⦄" ]]; then :;
+		#		vlwReturnCount=0
+		#	fi
+		#fi
+
+	fi
+
+	echo ${vlwReturnCount}
+
+}
+
+
+function _fUnpackArg_Number(){ :;
+	##	Purpose:
+	##		Given a packedargs string, and an argument number, returns a value.
+	##		withouting getting fubar'ed by spaces and quotes.
+	##	Input:
+	##		1 [REQUIRED]: A packed arg string.
+	##		2 [REQUIRED]: Integer >0 and < _fPackedArgs_GetCount()
+	##	History:
+	##		- 20171217 JC: Created.
+
+	## Input
+	local vlsInput="$1"
+	local vlwArgNum=$2
+
+	## Variables
+	local vlsReturn=""
+	local vlsItem_Packed=""
+	local vlsItem_Unpacked=""
+	local vlwArgCount=0
+	local vlwGetArrayIndex=0
+
+	## Validation variables
+	local vlbIsValid_PackedArg="false"
+	local vlbIsValid_ArgNum="false"
+
+	## Validate part 1/2
+	if [[ -n "${vlsInput}" ]]; then :;
+		if [[ "${vlsInput}" =~ ^⦃packedargs-begin⦄.*⦃packedargs-end⦄$ ]]; then :;
+			vlbIsValid_PackedArg="true"
+			vlwArgCount=$(_fPackedArgs_GetCount "${vlsInput}")
+			if [[ "$(_fIsInteger "${vlwArgNum}")" == "true" ]]; then :;
+				if [[ ${vlwArgNum} -gt 0 ]]; then :;
+					if [[ ${vlwArgNum} -le ${vlwArgCount} ]]; then :;
+						vlbIsValid_ArgNum="true"
+					fi
+				fi
+			fi
+		fi
+	fi
+
+	## Validate part 2/2
+	if [[ "${vlbIsValid_PackedArg}" != "true" ]]; then :;
+		vlsReturn=""
+		#fThrowError "Input is not a packed args string."
+	elif [[ "${vlbIsValid_ArgNum}" != "true" ]]; then :;
+		vlsReturn=""
+		#fThrowError "Argument number (second input) must be >0 and <[argument count]."
+	else :;
+
+		## Strip wrapper off
+		vlsInput="$(echo "${vlsInput}" | sed "s/⦃packedargs-begin⦄//g")"
+		vlsInput="$(echo "${vlsInput}" | sed "s/⦃packedargs-end⦄//g")"
+
+		## Parse into array on "_"
+		local vlsPrev=$IFS
+		#IFS="_"
+		IFS="☊"  ## 20190615 JC: Changed from _ to ☊ because _ was turning up in unpacked strings somehow. Not sure if this will fix it.
+			# shellcheck disable=2206  ## Must disable complaining about quotes. Next statemnet doesn't work with quotes.
+			local -a vlsArray=(${vlsInput})
+		IFS="${vlsPrev}"
+
+		## Calculate the array index, from arg num
+		vlwGetArrayIndex=$(( ${vlwArgNum} - 1 ))
+
+		## Get the value stored in the specified array index
+		vlsItem_Packed="${vlsArray[$vlwGetArrayIndex]}"
+
+		## Unpack
+		vlsItem_Unpacked="$(_fUnpackString "${vlsItem_Packed}")"
+
+		## Set return value
+		vlsReturn="${vlsItem_Unpacked}"
+
+	fi
+
+	echo "${vlsReturn}"
+
+}
+
+
+function _fPackArgs(){ :;
+	##	Purpose:
+	##		Packs up arguments to allow passing around to functions and scripts,
+	##		withouting getting fubar'ed by spaces and quotes.
+	##	Input:
+	##		Arguments. Can contain spaces, single quotes, double quotes, etc.
+	##	Returns via echo:
+	##		A packed string that can be safely passed around without getting munged.
+	##	History:
+	##		- 20161003 JC (0_library): Created.
+	##		- 20161003 JC (0_library_v1):
+	##			- Renamed from fArgs_Pack() to _fPackString().
+	##			- Updated "created" date from probably erroneous 2006, to 2016.
+	##			- Updated comments.
+	##			- Added outer "if" statement to catch null input.
+	##		- 20171217 JC (0_library_v2):
+	##			- Refactored.
+	##			- Add packing header during packing process.
+	##			- Check for packing header before packing, to avoid packing more than once.
+	##			- Allow for $clwMaxEmptyArgsBeforeBail successive empty values before breaking
+
+	## Constants
+	local clwMaxEmptyArgsBeforeBail=8
+
+	## Variables
+	local vlsInput="$*"
+	local vlsReturn=""
+	local vlsCurrentArg=""
+	local vlsCurrentArg_Encoded=""
+	local vlsEncoded_Final=""
+	local vlsEncoded_Provisional=""
+	local vlwCount_EmptyArgs=0
+
+	## Debug
+	#fEcho_VariableAndValue clwMaxEmptyArgsBeforeBail
+	#fEcho_VariableAndValue vlsInput
+	#fEcho_VariableAndValue vlsReturn
+	#fEcho_VariableAndValue vlsCurrentArg
+	#fEcho_VariableAndValue vlsCurrentArg_Encoded
+	#fEcho_VariableAndValue vlsEncoded_Final
+	#fEcho_VariableAndValue vlsEncoded_Provisional
+	#fEcho_VariableAndValue vlwCount_EmptyArgs
+
+	if [[ "${vlsInput}" =~ ^⦃packedargs-begin⦄.*⦃packedargs-end⦄$ ]]; then :;
+
+		## Return already packed input
+		vlsReturn="${vlsInput}"
+
+	else :;
+
+		if [[ -z "${vlsInput}" ]]; then :;
+			#vlsReturn="⦃empty⦄"  ## Caused a bug. An actual empty set works.
+			vlsReturn=""
+		else :;
+			while [ $vlwCount_EmptyArgs -lt $clwMaxEmptyArgsBeforeBail ]; do
+
+				## Get the first or next value off the args stack
+				fDefineTrap_Error_Ignore
+					vlsCurrentArg="$1"; shift; true
+				fDefineTrap_Error_Fatal
+
+				## Debug
+				#fEcho_VariableAndValue vlsCurrentArg
+
+				## Encode
+				vlsCurrentArg_Encoded="$(_fPackString "${vlsCurrentArg}")"
+
+				## Debug
+				#fEcho_VariableAndValue vlsCurrentArg_Encoded
+
+				## Build provisional result
+				if [[ -n "${vlsEncoded_Provisional}" ]]; then vlsEncoded_Provisional="${vlsEncoded_Provisional}☊"; fi  ## 20190615 JC: Changed from _ to ☊ because _ was turning up in unpacked strings somehow. Not sure if this will fix it.
+				vlsEncoded_Provisional="${vlsEncoded_Provisional}${vlsCurrentArg_Encoded}"
+
+				## Debug
+				#fEcho_VariableAndValue vlsEncoded_Provisional
+
+				## Handle if current arg is or isn't empty
+				if [[ -z "${vlsCurrentArg}" ]]; then :;
+					## Increment sucessive empty counter.
+					vlwCount_EmptyArgs=$((vlwCount_EmptyArgs+1))
+				else :;
+					## Not empty: Set permanent return string (which may make previous empty args part of permanent return).
+					vlsEncoded_Final="${vlsEncoded_Provisional}"
+					vlwCount_EmptyArgs=0
+				fi
+
+				## Debug
+				#fEcho_VariableAndValue vlwCount_EmptyArgs
+
+			done
+
+			vlsReturn="${vlsEncoded_Final}"
+		fi
+
+		## Wrap
+		vlsReturn="⦃packedargs-begin⦄${vlsReturn}⦃packedargs-end⦄"
+
+	fi
+
+	echo "${vlsReturn}"
+
+}
+
+
+function _fUnpackArgs(){ :;
+	##	Purpose:
+	##		Unpacks args previously packed with fPackArg(), into its original string.
+	##	Arguments:
+	##		- 1 [optional]: Packed arguments string originally generated by _fPackArgs().
+	##	Returns via echo:
+	##		- Original string, which due to the original reason for packing and unpacking, may not
+	##		  result in full fidelity. [Better to use something like _fUnpackArgs_ToArrayPtr().]
+	##	History:
+	##		- 20161003 JC (0_library): Created.
+	##		- 20161003 JC (0_library_v1):
+	##			- Renamed from fArgs_Unpack() to _fUnpackString().
+	##			- Updated "created" date from probably erroneous 2006, to 2016.
+	##			- Updated comments.
+	##			- Added outer "if" statement to catch null input.
+	##		- 20171217 JC (0_library_v2):
+	##			- Refactored.
+	##			- Check for packing header before unpacking, to avoid unpacking a non-packed args.
+	##			- Remove packing header.
+
+	## Variables.
+	local vlsInput="$*"
+	local vlsReturn=""
+	local vlsItem_Unpacked=""
+
+	if [[ "${vlsInput}" =~ ^⦃packedargs-begin⦄.*⦃packedargs-end⦄$ ]]; then :;
+
+		## Strip wrapper off
+		vlsInput="$(echo "${vlsInput}" | sed "s/⦃packedargs-begin⦄//g")"
+		vlsInput="$(echo "${vlsInput}" | sed "s/⦃packedargs-end⦄//g")"
+
+		## Parse into array on "☊"
+		local vlsPrev=$IFS
+		IFS="☊"  ## 20190615 JC: Changed from _ to ☊ because _ was turning up in unpacked strings somehow. Not sure if this will fix it.
+			# shellcheck disable=2206  ## Must disable complaining about quotes. Next statemnet doesn't work with quotes.
+			local -a vlsArray=(${vlsInput})
+		IFS="${vlsPrev}"
+
+		## Loop through array
+		for vlsItem in "${vlsArray[@]}"; do
+
+			## Debug
+			#fEcho_VariableAndValue vlsItem
+
+			## Unpack item
+			vlsItem_Unpacked="$(_fUnpackString "${vlsItem}")"
+
+			## Add item to return string
+			if [[ -n "${vlsReturn}" ]]; then vlsReturn="${vlsReturn} "; fi
+			vlsReturn="${vlsReturn}'${vlsItem_Unpacked}'"
+
+		done
+
+	else :;
+
+		## Return already unpacked input
+		vlsReturn="${vlsInput}"
+
+	fi
+
+	echo "${vlsReturn}"
+
+}
+
+
+function _fUnpackArgs_ToArrayPtr(){ :;
+	##	Purpose:
+	##		Unpacks args previously packed with _fPackString(), into the named array.
+	##	Arguments:
+	##		- 1 [REQUIRED]: Packed args string.
+	##		- 2 [REQUIRED]: The name of an array variable. Must be visible in scope to this function.
+	##	Modifies:
+	##		- Overwrites the named array.
+	##	History:
+	##		- 20180306 JC (0_library_v2): Created.
+
+	## Arguments
+	local packedArgs="$1"
+	local arrayName="$2"
+
+	## Variables
+	#local -a tmpArray
+	local packedArgsCount=0
+	local arrayIndex=0
+	local packedargsIndex=0
+	local unpackedArg=""
+
+	## Validate
+	if [[ -z "$1" ]]; then fThrowError "${meName}.${FUNCNAME[0]}(): First argument [packed args] can't be empty."; fi
+	if [[ -z "$1" ]]; then fThrowError "${meName}.${FUNCNAME[0]}(): First argument [name of target packed args variable] can't be empty."; fi
+
+	## Initialize
+	eval "${arrayName}=()"    ## Clear out the specified array.
+
+	## Unpack and fill array
+	packedArgsCount=$(_fPackedArgs_GetCount "${packedArgs}")
+	if [[ $packedArgsCount -gt 0 ]]; then :;
+		for ((arrayIndex = 0; arrayIndex < $packedArgsCount; arrayIndex++)); do
+			packedargsIndex=$(( arrayIndex+1 ))
+			unpackedArg="$(_fUnpackArg_Number "${packedArgs}" ${packedargsIndex})"
+			eval "${arrayName}+=(\"${unpackedArg}\")"
+		done
+	fi
+
+}
+
+
+##----------------------------------------------------------------------------------------------------
+function _fPackArgs_FromArrayPtr(){ :;
+	##	Purpose:
+	##		Packs args from a named array.
+	##	Arguments:
+	##		- 1 [REQUIRED]: The name of an array variable. Must be visible in scope to this function.
+	##		- 2 [REQUIRED]: The name of a packed-args variable. Must be visible in scope to this function.
+	##	Modifies:
+	##		- Overwrites value of specified packed args string.
+	##	History:
+	##		- 20180306 JC (0_library_v2): Created.
+
+	## Arguments
+	local arrayName="$1"
+	local packedArgsVarName="$2"
+
+	## Variables
+	local -a tmpArray
+	local tmpPackedArgs=""
+
+	## Validate
+	if [[ -z "$1" ]]; then fThrowError "${meName}.${FUNCNAME[0]}(): First argument [name of source array variable] can't be empty."; fi
+	if [[ -z "$1" ]]; then fThrowError "${meName}.${FUNCNAME[0]}(): First argument [name of target packed args variable] can't be empty."; fi
+
+	## Copy the array so we can access it directly
+	tmpArray=()
+	# shellcheck disable=1087
+	eval "tmpArray=( \"\${$arrayName[@]}\" )"
+
+	## Misc init
+	eval "${packedArgsVarName}=\"\""
+
+	### Debug
+	#fEcho_Clean ""
+	#fEcho_Clean	"tmpArray[] count ...: ${#tmpArray[@]}"
+	#fEcho_Clean	"tmpArray[0] ........: '${tmpArray[0]}'"
+
+	## Loop through the array
+	local currentArg=""
+	local currentArg_PackStrd=""
+	local encodedPackStrs=""
+	for currentArg in "${tmpArray[@]}"; do
+
+		## Encode current item
+		currentArg_PackStrd="$(_fPackString "${currentArg}")"
+
+		## Bundle packed strings together
+		## if [[ -n "${encodedPackStrs}" ]]; then encodedPackStrs="${encodedPackStrs}_"; fi  ## 20190615 JC: Changed from _ to ☊ because _ was turning up in unpacked strings somehow. Not sure if this will fix it.
+		if [[ -n "${encodedPackStrs}" ]]; then encodedPackStrs="${encodedPackStrs}☊"; fi
+		encodedPackStrs="${encodedPackStrs}${currentArg_PackStrd}"
+
+	done
+
+	## Package them up in single packed args wrapper
+	tmpPackedArgs="⦃packedargs-begin⦄${encodedPackStrs}⦃packedargs-end⦄"
+
+	## Copy the value to the defined variable pointer
+	eval "${packedArgsVarName}=\"${tmpPackedArgs}\""
+
+}
+
+
+function _fPackString(){ :;
+	##	Purpose:
+	##		Packs a string up to allow passing around to functions and scripts,
+	##		withouting getting fubar'ed by spaces and quotes.
+	##	Input:
+	##		A string. Can contain spaces, single quotes, double quotes, etc.
+	##	Note:
+	##		Outer quotes will always be ignored. If you must get quotes preserved in a string,
+	##		use single quotes with outer double quotes (e.g. "'first name' 'last name'"),
+	##		double quotes with outer single quotes (e.g. '"first name" "last name"'),
+	##		or escaped quotes if all the same (e.g. "\"first name\" \"last name\"").
+	##	Returns via echo:
+	##		A packed string that can be safely passed around without getting munged.
+	##	History:
+	##		- 20161003 JC (0_library_v1): Created.
+	##		- 20161003 JC (0_library_v1):
+	##			- Removed looping. Now explicitly just operates on the command argument as one big string.
+	##			- Renamed from fArgs_Pack() to _fPackString().
+	##			- Updated "created" date from probably erroneous 2006, to 2016.
+	##			- Updated comments.
+	##			- Added outer "if" statement to catch null input.
+	##		- 20171217 JC (0_library_v2):
+	##			- Add packing header during packing process.
+	##			- Check for packing header before packing, to avoid packing more than once.
+
+	## Variables
+	local vlsInput="$*"
+	local vlsReturn=""
+
+	if [[ "${vlsInput}" =~ ^⦃packedstring-begin⦄.*⦃packedstring-end⦄$ ]]; then  ##⦃⦄
+
+		## Return already packed input
+		vlsReturn="${vlsInput}"
+
+	else :;
+		if [[ -z "${vlsInput}" ]]; then :;
+
+			## Explicitly empty
+			vlsReturn="⦃empty⦄"
+
+		else :;
+
+			## Works
+			vlsReturn="${vlsInput}"
+			vlsReturn="$(echo "${vlsReturn}" | sed "s/\"/⦃dquote⦄/g" )"                               ## "    [double quote]
+			vlsReturn="$(echo "${vlsReturn}" | sed "s/'/⦃squote⦄/g" )"                                ## '    [single quote]
+			vlsReturn="${vlsReturn//$/⦃dollar⦄}"                                                      ## $    [dollar]
+			vlsReturn="${vlsReturn//\%/⦃percent⦄}"                                                    ## %    [percent]
+			vlsReturn="${vlsReturn//$'\n'/⦃newline⦄}"                                                 ## \n   [newline]
+			vlsReturn="$(echo "${vlsReturn}" | sed 's#\t#⦃tab⦄#g' )"                                  ## \t   [tab]
+			vlsReturn="$(echo "${vlsReturn}" | sed 's/ /⦃space⦄/g' )"                                 ## ' '  [space]
+			vlsReturn="$(echo "${vlsReturn}" | sed 's#\\#⦃whack⦄#g' )"                                ## \    [whack]
+			vlsReturn="$(echo "${vlsReturn}" | sed 's#\/#⦃slash⦄#g' )"                                ## /    [slash]
+			vlsReturn="${vlsReturn//_/⦃underscore⦄}"                                                   ## _    [underscore]
+
+			## Doesn't work
+			#vlsReturn="$(echo "${vlsReturn}" | sed -e ":a" -e "N" -e "$!ba" -e "s/\n/⦃newline⦄/g" )"  ## \n   [newline]
+
+		fi
+
+		## Wrap with start and end wrappers
+		vlsReturn="⦃packedstring-begin⦄${vlsReturn}⦃packedstring-end⦄"
+
+	fi
+
+	echo "${vlsReturn}"
+
+}
+
+
+function _fUnpackString(){ :;
+	##	Purpose:
+	##		Unpacks a string previously packed with _fPackString(), into its original
+	##		special characters.
+	##	Arguments:
+	##		- 1 [optional]: Packed arguments string originally generated by _fPackString().
+	##	Returns via echo:
+	##		- Original string.
+	##	History:
+	##		- 20161003 JC (0_library_v1): Created.
+	##		- 20161003 JC (0_library_v1):
+	##			- Removed looping. Now explicitly just operates on the command argument as one big string.
+	##			- Renamed from fArgs_Unpack() to _fUnpackString().
+	##			- Updated "created" date from probably erroneous 2006, to 2016.
+	##			- Updated comments.
+	##			- Added outer "if" statement to catch null input.
+	##		- 20171217 JC (0_library_v2):
+	##			- Check for packing header before unpacking, to avoid unpacking a non-packed args.
+	##			- Remove packing header.
+
+	## Variables.
+	local vlsInput="$*"
+	local vlsReturn=""
+
+	if [[ -n "${vlsInput}" ]]; then :;
+
+		if [[ "${vlsInput}" =~ ^⦃packedstring-begin⦄.*⦃packedstring-end⦄$ ]]; then :;
+
+			## Strip off wrapper
+			#vlsReturn="${vlsReturn/⦃packedstring-begin⦄/}"
+			#vlsReturn="${vlsReturn/⦃packedstring-end⦄/}"
+			vlsReturn="${vlsInput}"
+			vlsReturn="$(echo "${vlsReturn}" | sed "s/⦃packedstring-begin⦄//g")"
+			vlsReturn="$(echo "${vlsReturn}" | sed "s/⦃packedstring-end⦄//g")"
+
+			## Check for empty
+			if [[ "${vlsReturn}" == "⦃empty⦄" ]]; then :;
+				vlsReturn=""
+			else :;
+
+				## Works
+				vlsReturn="${vlsReturn//⦃underscore⦄/_}"                                                  ## _    [underscore]
+				vlsReturn="${vlsReturn//⦃percent⦄/\%}"                                                    ## %    [percent]
+				vlsReturn="${vlsReturn//⦃dollar⦄/$}"                                                      ## $    [dollar]
+				vlsReturn="$(echo "${vlsReturn}" | sed 's/⦃space⦄/ /g' )"                                 ## ' '  [space]
+				vlsReturn="$(echo "${vlsReturn}" | sed 's#⦃whack⦄#\\#g' )"                                ## \    [whack]
+				vlsReturn="$(echo "${vlsReturn}" | sed 's#⦃slash⦄#\/#g' )"                                ## /    [slash]
+				vlsReturn="$(echo "${vlsReturn}" | sed 's#⦃tab⦄#\t#g' )"                                  ## \t   [tab]
+				vlsReturn="${vlsReturn/⦃newline⦄/$'\n'}"                                                  ## \n   [newline]
+				vlsReturn="$(echo "${vlsReturn}" | sed "s/⦃squote⦄/'/g" )"                                ## '    [single quote]
+				vlsReturn="$(echo "${vlsReturn}" | sed "s/⦃dquote⦄/\"/g" )"                               ## "    [double quote]
+
+				## Doesn't work
+				#vlsReturn="$(echo "${vlsReturn}" | sed -e ":a" -e "N" -e "$!ba" -e "s#⦃newline⦄#\n#g" )"  ## \n   [newline]
+
+				## Ignore
+				#vlsReturn="${vlsReturn/_27DKGA6-Underscore_/_}"                                                   ## _    [underscore]
+
+			fi
+		else :;
+
+			## It is not packed, so return unchanged
+			vlsReturn="${vlsInput}"
+
+		fi
+	fi
+
+	echo "${vlsReturn}"
+}
+
+
+
+
+
+
+
+
+##
+##	Generic echo-related stuff.
+##	History:
+##		- 20190911 JC: Created (mostly by copying TEMPLATE_v*)
+##
+
+function _fPipeAllRawStdout(){
+	if [[ ${doDebug} -eq 1 ]] && [[ ${_dbgNestLevel} -ge 0 ]]; then
+		## Send this to stdout before stdin; it indents each streaming line by (_dbgNestLevel *_dbgIndentEachLevelBy)
+		sed "s/^/$(printf "%$((_dbgNestLevel * _dbgIndentEachLevelBy))s")/"
+	else
+		cat  ## Send stdin to stdout
+	fi
+}
+
+declare -i _wasLastEchoBlank=0
+function fEcho_Clean(){
+#	if [[ -n "$1" ]]; then echo -e "$*" | fold -s -w $(tput cols)  ## Break on words, rather than arbitrarily.
+	if [[ -n "$1" ]]; then
+		echo -e "$*" | echo -e "$*" | _fPipeAllRawStdout
+		_wasLastEchoBlank=0
+	elif [[ $_wasLastEchoBlank -eq 0 ]] && echo; then
+		_wasLastEchoBlank=1
+	fi
+}
+# shellcheck disable=2120  ## References arguments, but none are ever passed; Just because this library function isn't called here, doesn't mean it never will in other scripts.
+function fEcho()                   { if [[ -n "$*" ]]; then fEcho_Clean "[ $* ]"; else fEcho_Clean ""; fi; }
+function fEcho_Force()             { fEcho_ResetBlankCounter; fEcho "$*";                                  }
+function fEcho_Clean_Force()       { fEcho_ResetBlankCounter; fEcho_Clean "$*";                            }
+function fEchoVarAndVal()          { fEcho_Clean "${2}${1} = '${!1}'";                                     }
+function fEcho_ResetBlankCounter() { _wasLastEchoBlank=0;                                                  }
+
+
+##
+##	Debugging & profiling-related stuff
+##	History:
+##		- 20190927 JC: Created.
+##
+
+declare -i -r _dbgIndentEachLevelBy=4
+declare -i    _dbgNestLevel=0
+declare -i    _dbgTemporarilyDisableEcho=0
+
+function _fdbgEnter(){
+	if [[ ${doDebug} -eq 1 ]]; then
+		local    -r functionName="$1"
+		local    -r extraText="$2"
+		local -i    dontEchoToStdout=0; if [[ -n "$3" ]] && [[ $3 =~ ^[0-9]+$ ]]; then dontEchoToStdout=$3; fi
+		local       output=""
+
+		## Output text to stdout
+		if [[ -n "$functionName" ]]; then output=".$functionName()"; fi
+		output="Entered ${meName}${output}"
+		if [[ -n "$extraText" ]]; then output="$output [${extraText}]"; fi
+		output="▸ $output:"
+		if [[ $dontEchoToStdout -eq 0 ]]; then _fdbgEcho "${output}"; fi
+
+		## Increment nest counter
+		if [[ _dbgNestLevel -lt 0 ]]; then _dbgNestLevel=0; fi
+		_dbgNestLevel=$((_dbgNestLevel+1))
+
+	fi
+}
+
+function _fdbgEgress(){
+	if [[ ${doDebug} -eq 1 ]]; then
+		local    -r functionName="$1"
+		local    -r extraText="$2"
+		local -i    dontEchoToStdout=0; if [[ -n "$3" ]] && [[ $3 =~ ^[0-9]+$ ]]; then dontEchoToStdout=$3; fi
+		local       output=""
+
+		## Decrement nest counter
+		_dbgNestLevel=$((_dbgNestLevel-1))
+		if [[ _dbgNestLevel -lt 0 ]]; then _dbgNestLevel=0; fi
+
+		## Output text to stdout
+		if [[ -n "$functionName" ]]; then output=".$functionName()"; fi
+		output="Egressed ${meName}${output}"
+		if [[ -n "$extraText" ]]; then output="$output [${extraText}]"; fi
+		output="◂ $output."
+		if [[ $dontEchoToStdout -eq 0 ]]; then _fdbgEcho "$output"; fi
+
+	fi
+}
+
+function _fdbgEcho(){
+	if [[ ${doDebug} -eq 1 ]] && [[ $_dbgTemporarilyDisableEcho -ne 1 ]]; then
+		fEcho_Clean "$*"
+	fi
+}
+
+function _fdbgEchoVarAndVal(){
+	if [[ "${doDebug}" -eq 1 ]]; then
+		local -r varName="$1"
+		local -r optionalPrefix="$2"
+		local    outputStr=""
+		if [[ -n "$optionalPrefix" ]]; then outputStr="$optionalPrefix"; fi
+		outputStr="${outputStr}${varName} = '${!varName}'"
+		_fdbgEcho "$outputStr"
+	fi
+}
+
+##
+##	Generic error-handling  stuff.
+##	History
+##		- 20190826 JC: Created by copying from 0_library_v2.
+##		- 20190919 JC: Slight tweaks to improve newline output.
+##
+
+declare -i _wasCleanupRun=0
+
+function fThrowError(){ _fdbgEnter "${FUNCNAME[0]}" "" 1;
+	local errMsg="$1"
+	local funcName="$2"
+	[[ -z "${errMsg}" ]] && errMsg="An error occurred."
+	if [[ -z "${errMsg}" ]]; then
+		errMsg="${meName}: ${errMsg}"
+	else
+		errMsg="${meName}.$2(): ${errMsg}"
+	fi
+	fEcho_Clean
+	fEcho_Clean "${errMsg}"
+	fEcho_Clean
+	exit 1
+}
+
+function _fTrap_Exit(){ _fdbgEnter "${FUNCNAME[0]}" "" 0;
+	if [[ "${_wasCleanupRun}" == "0" ]]; then  ## String compare is less to fail than integer
+		_wasCleanupRun=1
+		_fSingleExitPoint "${1}" "${2}" "${3}" "${4}" "${5}" "${6}" "${7}" "${8}" "${9}" "${10}" "${11}" "${12}" "${13}" "${14}" "${15}" "${16}" "${17}" "${18}" "${19}" "${20}" "${21}" "${22}" "${23}" "${24}" "${25}" "${26}" "${27}" "${28}" "${29}" "${30}" "${31}" "${32}"
+	fi
+_fdbgEgress "${FUNCNAME[0]}" "" 0; }
+
+function _fTrap_Error(){ _fdbgEnter "${FUNCNAME[0]}" "" 0;
+	if [[ "${_wasCleanupRun}" == "0" ]]; then  ## String compare is less to fail than integer
+		_wasCleanupRun=1
+		fEcho_ResetBlankCounter
+		_fSingleExitPoint "${1}" "${2}" "${3}" "${4}" "${5}" "${6}" "${7}" "${8}" "${9}" "${10}" "${11}" "${12}" "${13}" "${14}" "${15}" "${16}" "${17}" "${18}" "${19}" "${20}" "${21}" "${22}" "${23}" "${24}" "${25}" "${26}" "${27}" "${28}" "${29}" "${30}" "${31}" "${32}"
+	fi
+_fdbgEgress "${FUNCNAME[0]}" "" 1; }
+
+function _fTrap_Error_Ignore(){ _fdbgEnter "${FUNCNAME[0]}" "" 0;
+	true
+_fdbgEgress "${FUNCNAME[0]}" "" 1; }
+
+function _fSingleExitPoint(){ _fdbgEnter "${FUNCNAME[0]}" "" 0;
+	local -r signal="$1";  shift || true
+	local -r lineNum="$1"; shift || true
+	local -r errNum="$1";  shift || true
+	local -r errMsg="$*"
+	if [[ "${signal}" == "INT" ]]; then
+		fEcho_Force
+		fEcho "User interrupted."
+		fCleanup  ## User cleanup
+		exit 1
+	elif [[ "${errNum}" != "0" ]] && [[ "${errNum}" != "1" ]]; then  ## Clunky string compare is less likely to fail than integer
+		fEcho_Clean
+		fEcho_Clean "Signal .....: '${signal}'"
+		fEcho_Clean "Err# .......: '${errNum}'"
+		fEcho_Clean "Error ......: '${errMsg}'"
+		fEcho_Clean "At line# ...: '${lineNum}'"
+		fEcho_Clean
+		fCleanup  ## User cleanup
+	else
+		fCleanup  ## User cleanup
+	fi
+_fdbgEgress "${FUNCNAME[0]}" "" 0; }
+
+function fDefineTrap_Error_Fatal(){ _fdbgEnter "${FUNCNAME[0]}" "" 0;
+	true
+	trap '_fTrap_Error ERR     ${LINENO} $? $_' ERR
+	set -e
+_fdbgEgress "${FUNCNAME[0]}" "" 0; }
+
+function fDefineTrap_Error_Ignore(){ _fdbgEnter "${FUNCNAME[0]}" "" 0;
+	trap '_fTrap_Error_Ignore' ERR
+	set +e
+_fdbgEgress "${FUNCNAME[0]}" "" 0; }
+
+
+##
+## Execution entry point (do not modify)
+##
+
+## Define error and exit handling
+set -e; set -E
+fDefineTrap_Error_Fatal
+trap '_fTrap_Error SIGHUP  ${LINENO} $? $_' SIGHUP
+trap '_fTrap_Error SIGINT  ${LINENO} $? $_' SIGINT    ## CTRL+C
+trap '_fTrap_Error SIGTERM ${LINENO} $? $_' SIGTERM
+trap '_fTrap_Exit  EXIT    ${LINENO} $? $_' EXIT
+trap '_fTrap_Exit  INT     ${LINENO} $? $_' INT
+trap '_fTrap_Exit  TERM    ${LINENO} $? $_' TERM
+
+declare    meName="$(basename "${BASH_SOURCE[0]}")"
+declare -i doSkipIntroStuff=0
+declare    tmpAllArgs="$*"
+
+## Handle prompting for sudo
+if [[ ${runAsSudo} -eq 1 ]] && [[ "$1" == "reran_withsudo" ]]; then
+	_fdbgEcho "reran_withsudo"
+	doSkipIntroStuff=1  ## AlreadyPrompted
+	shift || true   ## get "reran_withsudo" off the arg stack
+fi
+
+_fdbgEnter
+	if [[ ${tmpAllArgs,,} =~ --(unittest|unitest|unit-test) ]]; then
+		_fUnitTest "${1}" "${2}" "${3}" "${4}" "${5}" "${6}" "${7}" "${8}" "${9}" "${10}" "${11}" "${12}" "${13}" "${14}" "${15}" "${16}" "${17}" "${18}" "${19}" "${20}" "${21}" "${22}" "${23}" "${24}" "${25}" "${26}" "${27}" "${28}" "${29}" "${30}" "${31}" "${32}"
+	else
+		_fdbgEcho "About to call fMain()"
+		fMain "${1}" "${2}" "${3}" "${4}" "${5}" "${6}" "${7}" "${8}" "${9}" "${10}" "${11}" "${12}" "${13}" "${14}" "${15}" "${16}" "${17}" "${18}" "${19}" "${20}" "${21}" "${22}" "${23}" "${24}" "${25}" "${26}" "${27}" "${28}" "${29}" "${30}" "${31}" "${32}"
+	fi
+_fdbgEgress
+
+
+##	Notes on various possible encoding schemes to shrink the number of characters required to store YYYYMMDD-HHMMSS:
+##		YYYMM:
+##			- YYYYMMDD ............. 29991231 → b62  = 21q5X, 5 digits
+##			- YYYYMMDD ............. 29991231 → b32c = WK89Z, 5 digits
+##			- YYYYMM ............... 299912   → b62  =  1G1I, 4 digits
+##			- YYYY ................. 2999     → b32c =   2XQ, 3 digits
+##		*	- YYYY ................. 2999     → b62  =    mN, 2 digits until year 3843
+##			- Year as 3-digits .....  999     → b32c =    Z7, 2 digits
+##			- Year as 3-digits .....  999     → b62  =    G7, 2 digits
+##			- YYYMM ................  99912   → b32c =  31J8, 4 digits
+##			- YYYMM ................  99912   → b62  =   PzU, 3 digits
+##			- Month up to max ......     12   → b32c =     C, 1 digits
+##			- Month up to max ......     12   → b62  =     C, 1 digits
+##			- Day up to max ........       31 → b32c =     Z, 1 digit
+##			- Day up to max ........       31 → b62  =     V, 1 digit
+##		HHMMSS:
+##			- HHMMSS .............. 235959 → b32c = 76DQ, 4 digits
+##			- HHMMSS .............. 235959 → b62  = zNn,  3 digits
+##				or
+##			- HH .................. 23     → b32c =    Q, 1 digit
+##			- HH .................. 23     → b62  =    N, 1 digit
+##			- MMSS ................   5959 → b32c  = 5T7, 3 digits
+##			- MM ..................   59   → b32c  =  1V, 2 digits
+##			- MM ..................   59   → b62  =    x, 1 digit
+##			- SS ..................     59 → b62  =    x, 1 digit
+##			= ........................................... 3 digits
+##		Base32c:
+##			- YYYYMMDDHHMMSS ...............: V8VGAY9VQ   9  Millenium and second accurate
+##			-  YYYMMDDHHMMSS ...............: 92S1WKSVQ   9  Century and second
+##			-  YYYMMDDHHMMS ................:  X2G61ZCB   8  Century and ten-second
+##			- [YYYY][MM][DD][HH][MM][SS] ...:  2XQCZNQQ   8  Millenium and second, separate digits for each unit of time
+##			- [ YYY][MM][DD][HH][MM][SS] ...:   Z7CZNQQ   7  Century and second, separate digits for each unit of time
+##			- [ YYY][MM][DD][HHMMSS] .......:  Z7CZ76DQ   8 Century and second
+##		Base62:
+##			- YYYYMMDDHHMMSS ...............: 8W0lprLr    8  Millenium and second, 8 chars until year ~21,000
+##			-  YYYMMDDHHMMSS ...............: 2ptsK3iZ    8  Century and second
+##			-  YYYMMDDHHMMS ................:  HaaQnyF    7  Century and ten-second
+##			- [YYYY][MM][DD][HH][MM][SS] ...:  mNCVNxx    7  Millenium and second, separate digits for each unit of time
+##			- [ YYY][MM][DD][HH][MM][SS] ...:  G7CVNxx    7  Century and second, separate digits for each unit of time
+##			- [ YYY][MM][DD][HHMMSS] .......:  G7CVzNn    7  Century and second accurate
+##		Base62 [YYY*] and various evenly divided divisions:
+##			- [YYY][YMMDDHHMMSS_4] .........:  G7zzzz     6  Centuryaccurate, year evenly divided into 2.134-second intervals
+##			- [2YYY][MMDDHHMMSS_3] .........:   mNzzz     5  Century accurate, month evenly divided into 11.2-second intervals
+##		*	- [2YYY][MM][DD][HHMMSS_2] .....:  mNCVzz     6  Century accurate, day evenly divided into 22.48-second intervals
+##		Seconds since 1970 (unix time): 1694050834  $(date +%s)
+##			x9convertbase1 --clipout $(date --utc +%s) 32c
+##			x9convertbase1 --clipout $(date --utc -d "Jan 1 2024" +%s)
+##			- Base32c ......................: 1JFJAGJ     7 digits until year 3058
+##			- Base48j1 .....................:  6∮6‡[j     6
+##		*	- Base62 .......................:  1qe40Y     6 digits until 3769
+##			- Base64j1u ....................:  1a▴IeI     6 digits until 4147
+##			- Base64j1uw ...................:  1p▴m2F     6
+##			- Base128jc1 ...................:   6t△🜗N     5
+##		Seconds since 2000: 747335729
+##			x9convertbase1 --clipout $(( $(date +%s) - $(date -d "Jan 1 2000" +%s) )) 32c
+##			x9convertbase1 --clipout $(( $(date -d "Jan 1 2500" +%s) - $(date -d "Jan 1 2000" +%s) )) 32c
+##			- Base32c ......................:  P8PW1H      6 digits until 2034, 7 digits until 3059
+##			- Base62 .......................:   oZkA5      5 digits until 2029, 6 digits until 3799
+##		Minutes since 2000: 12455595
+##			x9convertbase1 --clipout $(( ($(date -d "Jan 1 2200" +%s) - $(date -d "Jan 1 2000" +%s)) / 60 )) 32c
+##			- Base32c ......................:   BW3NB      5 digits until 2063, 6 digits until 4041
+##			- Base62 .......................:    qGGh      4 digits until 2028, 5 digits until 3741
