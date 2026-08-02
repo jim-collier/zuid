@@ -131,7 +131,7 @@ In each section, items are listed approximately from newest to oldest.
 
 - ✅ Move Zig 0.13.0 -> 0.16.0. Installed and verified; 0.13.0 kept alongside so the symlink flips back.
 	- ✅ Drift spike: `main(std.process.Init)`, arena, `Io.File.Writer`, `DebugAllocator`, and the no-allocator render path all build and run. 15 rows of `vectors.tsv` reproduce.
-	- ✅ `zig fmt` uses four spaces and cannot be configured, so Zig source is spaces, not tabs. Formatter-canonical wins per `CLAUDE.md`.
+	- ✅ `zig fmt` uses four spaces and cannot be configured, so Zig source is spaces, not tabs. See `style_guide.md`.
 
 ### Bugs
 
