@@ -36,6 +36,7 @@ fn codeFor(err: core.Error) c_int {
 const Zuid = struct {
     wasm_host: host.Host,
     fixed_clock_ms: ?i64,
+    precision: core.Precision,
     // The host's error text plus a NUL, so zuid_last_error can hand out a C string.
     err_buf: [host.Host.err_buf_len + 1]u8,
 
@@ -53,6 +54,7 @@ pub export fn zuid_new() ?*Zuid {
         return null;
     };
     self.fixed_clock_ms = null;
+    self.precision = core.Precision.default;
     self.err_buf[0] = 0;
     return self;
 }
@@ -74,13 +76,19 @@ pub export fn zuid_generate(z: ?*Zuid, format: ?[*:0]const u8, base: ?[*:0]const
     const ms = self.fixed_clock_ms orelse clock.nowMs();
 
     var id_buf: [core.out_buf_len]u8 = undefined;
-    const id = core.generate(self.wasm_host.converter(), fmt_or_default, base_name, ms, &id_buf) catch |err| {
+    const id = core.generate(self.wasm_host.converter(), fmt_or_default, base_name, self.precision, ms, &id_buf) catch |err| {
         self.setErrText(self.wasm_host.lastError());
         return codeFor(err);
     };
     if (id.len + 1 > out_cap) return 5;
     @memcpy(out_ptr[0..id.len], id);
     out_ptr[id.len] = 0;
+    return 0;
+}
+
+pub export fn zuid_set_precision(z: ?*Zuid, precision: c_int) c_int {
+    const self = z orelse return 7;
+    self.precision = core.Precision.fromInt(precision) orelse return 8;
     return 0;
 }
 
