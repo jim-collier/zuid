@@ -65,36 +65,49 @@ Short, sortable, privacy-preserving unique identifiers - from a command line, a 
 
 A UUID is 36 characters, sorts meaninglessly, and is awkward to read over a phone. Most of the time that buys uniqueness nobody needed.
 
-An identifier built from a timestamp and rendered in a compact base is far shorter, sorts in creation order as plain text, and is still unique enough for the job. When it is not, more components can be mixed in - host, user, MAC, a UUID, or random data - and the same identifier gets as unique as required.
+An identifier built from a timestamp and rendered in a compact base is far shorter, sorts in creation order as plain text, and is still unique enough for the job. When it is not, more components can be mixed in - more time precision, host, user, MAC, a UUID, or random data - and the same identifier gets as unique as required.
 
 Host and user components are hashed by default, so an identifier does not leak where it came from.
 
 ## Features
 
-- Short and readable. A timestamp in base 62 rather than 36 characters of hexadecimal.
-- Sorts by creation time, as text, with no special comparison function.
-- Tunable uniqueness. Mix in host, user, MAC, UUID, or random components as needed.
+- UIDs are as short as necessary - but no shorter.
+
+- By default, sorts by creation time, as text, with no special comparison function.
+
+- Tunable uniqueness vs length.
+
 - Private by default. Host and user are hashed unless you ask otherwise.
-- A curated set of bases suited to identifiers, with the full set of sixty-odd still available.
-- Embeddable. A Go module and a C module, for callers that cannot start a process.
+
+- A curated set of bases suited to identifiers, with the full set of sixty-odd bases available.
+
+- Embeddable. Ships with:
+
+	- A standalone CLI.
+
+	- A permissively licensed Go module to embed in your own Go project.
+
+	- A C module to embed in nearly anything else. Also permissively licensed.
 
 ## How it is built
 
 Base conversion is not reimplemented here. It comes from [convert-base-v2](https://github.com/jim-collier/convert-base-v2), so there is one definition of what a base means rather than two that can drift apart.
 
-There are two implementations of the identifier spec, one in Go and one in Zig, and a shared table of test vectors that both have to reproduce. That is more work than one implementation with bindings around it, and it is deliberate: the two check each other, and neither is forced into the other's constraints. The Go module stays free of cgo and cross-compiles statically; the Zig side produces the command and the C module.
+There are two implementations of the identifier spec, one in Go and one in Zig, and a shared table of test vectors that both have to reproduce. That is more work than one implementation with bindings around it, and it is deliberate: the two check each other, and neither is forced into the other's constraints.
+
+The Go module stays free of cgo and cross-compiles statically.
+
+The Zig side produces the CLI executable, and the C module.
 
 ## Installing
 
-Not yet. There is nothing to install.
-
 ## Building from source
-
-Not yet.
 
 ## Copyright and license
 
-The command is GPL-2.0-or-later. The Go and C modules are Apache-2.0, so that embedding either one carries no reciprocity obligation.
+The CLI executable is GPL-2.0-or-later.
+
+The Go and C modules are Apache-2.0.
 
 > Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)<br />
 > Licensed under the [GNU General Public License v2.0 or later](https://spdx.org/licenses/GPL-2.0-or-later.html)<br />
