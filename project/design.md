@@ -123,7 +123,7 @@ Zig has no borrow checker, so memory safety is a design constraint here rather t
 
 Among the options considered - writing an allocator, taking a third-party one, or using the standard library's - we decided the standard library's is already the strongest of the three, and that the larger win is not allocating in the first place. Four rules:
 
-- **The identifier core takes no allocator at all.** Output widths are fixed by the spec (11, 9, 9, and 8 characters for bases 16, 32w, 36, and 62), so every intermediate fits in a stack array and the core writes into a buffer the caller supplies. That is also the right shape for the C module, where the caller owns the buffer and there is no free contract to get wrong. A memory bug that cannot be expressed beats one that gets caught.
+- **The identifier core takes no allocator at all.** Output widths are fixed by the spec (at most 12 characters for the curated bases, per the width table in the identifier section), so every intermediate fits in a stack array and the core writes into a buffer the caller supplies. That is also the right shape for the C module, where the caller owns the buffer and there is no free contract to get wrong. A memory bug that cannot be expressed beats one that gets caught.
 - **Whatever must allocate goes through a single arena owned by the command.** Argument handling and the WebAssembly host are the only parts needing dynamic memory, and both are per-invocation. An arena releases the lot at once, so the individual frees that use-after-free depends on never happen.
 - **`std.heap.DebugAllocator` backs that arena in debug and test builds.** It is the renamed `GeneralPurposeAllocator`, and it is what a hand-written allocator would be trying to become: leak detection with stack traces, and double-free detection that prints the allocation and both frees. Release builds use `std.heap.smp_allocator`.
 - **Tests allocate through `std.testing.allocator`**, which fails the test on a leak rather than reporting it at exit.
@@ -156,32 +156,31 @@ Its author's warning about this is worth quoting, because it is the clearest sta
 
 > For any given use-case, you should never mix type, base, and/or precision, or the very purpose for using this tool could be obviated and you'd wind up hating life at best, or with data collisions and/or loss data at worst.
 
-We decided on a single time encoding: **milliseconds elapsed since the Unix epoch, UTC**. No algorithm choice, and no precision choice.
+We decided on a single time encoding: **the count of time units elapsed since the Unix epoch, UTC** - the predecessor's `--dtalgo 1`. The others were rejected: packing `YYYYMMDDHHmmSS` as a decimal integer wastes roughly a third of the range on digit combinations that cannot occur, and subdividing the day to fit the base exactly is clever but makes the value impossible to reason about without the tool that produced it.
 
-This is the predecessor's `--dtalgo 1` at millisecond resolution. The others were rejected: packing `YYYYMMDDHHmmSS` as a decimal integer wastes roughly a third of the range on digit combinations that cannot occur, and subdividing the day to fit the base exactly is clever but makes the value impossible to reason about without the tool that produced it.
+Precision, though, stays selectable - the predecessor already deliberated this at length, and its surface carries forward: **`-1` minute, `0` second (the default), `1` millisecond**. Coarser precisions truncate toward zero. The algorithm choice is what gets removed, not the precision choice; an encoding nobody can select wrongly needs no marker saying which one was used, and precision is visible in the output width anyway.
 
-Removing the choice is the point. An encoding nobody can select wrongly needs no marker saying which one was used.
+Identifiers of different precisions have different widths and therefore do not sort against each other. That is the same caveat as mixing bases, and the predecessor's warning quoted above covers it: pick one combination per use-case.
 
 ### Fixed width, because sorting depends on it
 
 Rendering an integer in a compact base does not by itself produce something that sorts. Lexicographic comparison reads left to right, so a shorter string sorts before a longer one regardless of value, and identifiers generated years apart differ in length.
 
-So output is **zero-padded to a fixed width**, chosen per base as the width that holds any timestamp through the year 2500:
+So output is **zero-padded to a fixed width**, chosen per base and precision as the width that holds any timestamp through the year 3000. The predecessor does not pad at all - its help documents the year each encoding's width grows by one character, which is exactly when its sort order breaks. Padding is what this spec fixes; year 3000 is the chosen horizon. Widths (derived in code, not tabulated):
 
-| Base | Width | Actually good through
-| :-- | --: | :--
-| 16 | 11 | 2527
-| 32 | 9 | 3084
-| 36 | 9 | 5188
-| 62 | 8 | 8888
-| 64 | 8 | 10889
+| Base | Minute | Second | Millisecond
+| :-- | --: | --: | --:
+| 16 | 8 | 9 | 12
+| 32 | 6 | 7 | 9
+| 36 | 6 | 7 | 9
+| 62 | 5 | 6 | 8
 
-Width is quantized, so most of those overshoot the horizon by a wide margin and the exact horizon barely matters. Base 62 is the case that shows it: 8 characters last until 8888, and the next width down runs out in 2081. There is no useful choice between them.
+Width is quantized, so most of those overshoot the horizon by a wide margin. Base 62 at millisecond precision shows it: 8 characters last until 8888, and the next width down runs out in 2081. At the default second precision base 62 is 6 characters - the same length the predecessor produces today, now with the sort guarantee.
 
 Two consequences worth stating plainly:
 
 - Sorting is byte-order sorting. It holds under `LC_COLLATE=C`, and does not hold under a locale-aware collation that ignores case, which would fold `A` and `a` together. Any base whose alphabet uses both cases has this property, and it is a property of the locale rather than of the identifier.
-- Padding costs characters the predecessor did not spend. A base 62 timestamp is 8 characters here against its 6, and that is the price of the sort guarantee.
+- Padding costs nothing today and one character eventually. At the default precision a base 62 timestamp is 6 characters, the same as the predecessor's - the width only diverges from the unpadded length once the unpadded value grows, which is precisely when unpadded output stops sorting.
 
 ### Format and components
 
@@ -199,13 +198,13 @@ The format string keeps the predecessor's shape, since it reads well and is the 
 
 Hashed components are SHA-256, rendered in the same base as the rest and truncated to a configurable number of characters. Truncation is what makes them short enough to be useful; it also means they are a fingerprint rather than an identity, which is the intent.
 
-### Open questions
+### Resolved questions
 
-Reversible choices, best-guessed for now, and worth a second opinion before the vectors are frozen:
+Three choices were left open until the vectors froze; all three are now settled:
 
-- Year 2500 as the padding horizon. Mostly moot, per the table above - only base 16 sits anywhere near its limit.
-- Milliseconds as the fixed resolution. Seconds would be shorter, microseconds more collision-resistant for rapid generation.
-- Whether a run of identifiers generated within the same millisecond should be disambiguated automatically, or left to the caller to add `%r`. No longer hypothetical: the Go implementation asked for three identifiers in one invocation returns the same string three times, because `%d` alone is fully determined by the clock. Either the command defaults to appending randomness when it emits more than one, or it stays literal and the caller is expected to say so. Leaning literal, on the grounds that a format string should mean what it says.
+- **Padding horizon: year 3000.** The predecessor does not pad, so it had no horizon to inherit; 3000 was chosen as a reasonable compromise. Only base 16 at millisecond precision sits anywhere near its limit, so moving the horizon a few centuries changes almost nothing.
+- **Precision: selectable, `-1|0|1`, defaulting to seconds.** The predecessor already worked through this trade-off, and its answer carries forward: minute, second, and millisecond, second as the default. What was dropped is the algorithm choice, not the precision choice.
+- **Same-tick repeats stay literal, with a warning.** A time-only format is fully determined by the clock, so several identifiers generated within one tick come out identical - verified, not hypothetical. The format means what it says: nothing is appended silently. When the command grows the ability to emit more than one identifier per invocation, it will warn on stderr when the output contains repeats and suggest `%r`; callers wanting uniqueness say so in the format.
 
 ## Project structure
 

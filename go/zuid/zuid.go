@@ -32,11 +32,38 @@ var CuratedBases = []string{"16", "32w", "36", "62"}
 // DefaultBase is what you get without asking.
 const DefaultBase = "62"
 
-// horizonMs is the largest timestamp the fixed width has to hold: 2500-01-01
+// Precision selects the time unit, carrying the predecessor's surface
+// forward: -1 minute, 0 second, 1 millisecond. The clock is always taken in
+// milliseconds and truncated toward zero for the coarser units.
+type Precision int
+
+const (
+	PrecisionMinute Precision = -1
+	PrecisionSecond Precision = 0 // the default
+	PrecisionMilli  Precision = 1
+)
+
+// DefaultPrecision matches the predecessor's default: seconds.
+const DefaultPrecision = PrecisionSecond
+
+// horizonMs is the largest timestamp the fixed width has to hold: 3000-01-01
 // UTC. Width is quantized so coarsely that moving this by a century or two
-// usually changes nothing, which is why the exact value is not worth arguing
-// over. Provisional - the padding horizon is still an open spec question.
-const horizonMs = 16725225600000
+// usually changes nothing.
+const horizonMs = 32503680000000
+
+// msPerUnit converts the clock to the precision's unit; also the divisor that
+// scales the horizon.
+func (p Precision) msPerUnit() (int64, error) {
+	switch p {
+	case PrecisionMinute:
+		return 60000, nil
+	case PrecisionSecond:
+		return 1000, nil
+	case PrecisionMilli:
+		return 1, nil
+	}
+	return 0, fmt.Errorf("precision %d: want -1 (minute), 0 (second), or 1 (millisecond)", p)
+}
 
 // Generator renders identifiers. The clock and random source are fields rather
 // than package-level calls so that output is reproducible under test - that is
@@ -86,12 +113,15 @@ func New(opts ...Option) (*Generator, error) {
 }
 
 // Generate renders one identifier.
-func (g *Generator) Generate(format, baseName string) (string, error) {
+func (g *Generator) Generate(format, baseName string, precision Precision) (string, error) {
 	if baseName == "" {
 		baseName = DefaultBase
 	}
 	base, err := g.registry.Lookup(baseName)
 	if err != nil {
+		return "", err
+	}
+	if _, err := precision.msPerUnit(); err != nil {
 		return "", err
 	}
 
@@ -110,7 +140,7 @@ func (g *Generator) Generate(format, baseName string) (string, error) {
 		case '%':
 			out.WriteByte('%')
 		case 'd':
-			rendered, err := g.timeComponent(base)
+			rendered, err := g.timeComponent(base, precision)
 			if err != nil {
 				return "", err
 			}
@@ -124,21 +154,25 @@ func (g *Generator) Generate(format, baseName string) (string, error) {
 	return out.String(), nil
 }
 
-// timeComponent renders the clock as milliseconds since the Unix epoch UTC,
-// padded to the fixed width for this base.
-func (g *Generator) timeComponent(base *convertbase.Base) (string, error) {
+// timeComponent renders the clock as the precision's unit count since the
+// Unix epoch UTC, padded to the fixed width for this base and precision.
+func (g *Generator) timeComponent(base *convertbase.Base, precision Precision) (string, error) {
 	ms := g.now().UTC().UnixMilli()
 	if ms < 0 {
 		return "", fmt.Errorf("clock predates the Unix epoch: %d ms", ms)
 	}
-	return pad(strconv.FormatInt(ms, 10), g.decimal, base)
+	divisor, err := precision.msPerUnit()
+	if err != nil {
+		return "", err
+	}
+	return pad(strconv.FormatInt(ms/divisor, 10), g.decimal, base, precision)
 }
 
 // pad converts a decimal string into base and left-fills it to the fixed width
 // with that alphabet's zero digit. Lexicographic compare reads left to right,
 // so a short identifier and a long one cannot sort chronologically - the fixed
 // width is what makes the sort guarantee hold, not the choice of alphabet.
-func pad(decimal string, from, to *convertbase.Base) (string, error) {
+func pad(decimal string, from, to *convertbase.Base, precision Precision) (string, error) {
 	converted, err := convertbase.Convert(decimal, from, to, -1)
 	if err != nil {
 		return "", fmt.Errorf("convert %s to base %s: %w", decimal, to.Name(), err)
@@ -150,7 +184,10 @@ func pad(decimal string, from, to *convertbase.Base) (string, error) {
 		return "", fmt.Errorf("tokenize %q in base %s: %w", converted, to.Name(), err)
 	}
 
-	width := WidthFor(len(to.Symbols))
+	width, err := WidthFor(len(to.Symbols), precision)
+	if err != nil {
+		return "", err
+	}
 	if len(symbols) > width {
 		return "", fmt.Errorf("value needs %d symbols in base %s, past the %d-symbol width",
 			len(symbols), to.Name(), width)
@@ -159,13 +196,18 @@ func pad(decimal string, from, to *convertbase.Base) (string, error) {
 }
 
 // WidthFor is the symbol count a base needs to carry any timestamp up to the
-// horizon. For 32w that pads with '2', because its alphabet starts at '2' -
-// looks wrong at a glance, is not.
-func WidthFor(radix int) int {
+// horizon, in the precision's unit. For 32w that pads with '2', because its
+// alphabet starts at '2' - looks wrong at a glance, is not.
+func WidthFor(radix int, precision Precision) (int, error) {
+	divisor, err := precision.msPerUnit()
+	if err != nil {
+		return 0, err
+	}
+	horizon := uint64(horizonMs / divisor)
 	width, capacity := 1, uint64(radix)
-	for capacity <= horizonMs {
+	for capacity <= horizon {
 		capacity *= uint64(radix)
 		width++
 	}
-	return width
+	return width, nil
 }

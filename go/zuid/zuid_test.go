@@ -18,12 +18,13 @@ import (
 const vectorPath = "../../testdata/vectors.tsv"
 
 type vector struct {
-	line     int
-	name     string
-	format   string
-	base     string
-	clockMs  int64
-	expected string
+	line      int
+	name      string
+	format    string
+	base      string
+	precision zuid.Precision
+	clockMs   int64
+	expected  string
 }
 
 func loadVectors(t *testing.T) []vector {
@@ -43,16 +44,20 @@ func loadVectors(t *testing.T) []vector {
 			continue
 		}
 		fields := strings.Split(line, "\t")
-		if len(fields) != 5 {
-			t.Fatalf("%s:%d: want 5 tab-separated fields, got %d", vectorPath, lineNo, len(fields))
+		if len(fields) != 6 {
+			t.Fatalf("%s:%d: want 6 tab-separated fields, got %d", vectorPath, lineNo, len(fields))
 		}
-		clockMs, err := strconv.ParseInt(fields[3], 10, 64)
+		precision, err := strconv.Atoi(fields[3])
+		if err != nil {
+			t.Fatalf("%s:%d: precision: %v", vectorPath, lineNo, err)
+		}
+		clockMs, err := strconv.ParseInt(fields[4], 10, 64)
 		if err != nil {
 			t.Fatalf("%s:%d: clock_ms: %v", vectorPath, lineNo, err)
 		}
 		vectors = append(vectors, vector{
-			line: lineNo, name: fields[0], format: fields[1],
-			base: fields[2], clockMs: clockMs, expected: fields[4],
+			line: lineNo, name: fields[0], format: fields[1], base: fields[2],
+			precision: zuid.Precision(precision), clockMs: clockMs, expected: fields[5],
 		})
 	}
 	if err := scanner.Err(); err != nil {
@@ -73,67 +78,73 @@ func TestVectors(t *testing.T) {
 			if err != nil {
 				t.Fatalf("new generator: %v", err)
 			}
-			got, err := generator.Generate(v.format, v.base)
+			got, err := generator.Generate(v.format, v.base, v.precision)
 			if err != nil {
 				t.Fatalf("line %d: generate: %v", v.line, err)
 			}
 			if got != v.expected {
-				t.Errorf("line %d: base %s clock %d\n got %q\nwant %q",
-					v.line, v.base, v.clockMs, got, v.expected)
+				t.Errorf("line %d: base %s precision %d clock %d\n got %q\nwant %q",
+					v.line, v.base, v.precision, v.clockMs, got, v.expected)
 			}
 		})
 	}
 }
 
-// Width is fixed per base, whatever the timestamp. Without this the sort
-// guarantee below cannot hold.
+// Width is fixed per base and precision, whatever the timestamp. Without this
+// the sort guarantee below cannot hold.
 func TestFixedWidth(t *testing.T) {
-	clocks := []int64{0, 1, 946684800000, 1785585600000, 16725225600000}
+	clocks := []int64{0, 1, 946684800000, 1785585600000, 32503679999999}
+	precisions := []zuid.Precision{zuid.PrecisionMinute, zuid.PrecisionSecond, zuid.PrecisionMilli}
 
 	for _, base := range zuid.CuratedBases {
-		widths := map[int]bool{}
-		for _, ms := range clocks {
-			generator, err := zuid.New(zuid.WithFixedTime(time.UnixMilli(ms).UTC()))
-			if err != nil {
-				t.Fatalf("new generator: %v", err)
+		for _, precision := range precisions {
+			widths := map[int]bool{}
+			for _, ms := range clocks {
+				generator, err := zuid.New(zuid.WithFixedTime(time.UnixMilli(ms).UTC()))
+				if err != nil {
+					t.Fatalf("new generator: %v", err)
+				}
+				got, err := generator.Generate("%d", base, precision)
+				if err != nil {
+					t.Fatalf("base %s precision %d clock %d: %v", base, precision, ms, err)
+				}
+				widths[len([]rune(got))] = true
 			}
-			got, err := generator.Generate("%d", base)
-			if err != nil {
-				t.Fatalf("base %s clock %d: %v", base, ms, err)
+			if len(widths) != 1 {
+				t.Errorf("base %s precision %d: widths vary across clocks: %v", base, precision, widths)
 			}
-			widths[len([]rune(got))] = true
-		}
-		if len(widths) != 1 {
-			t.Errorf("base %s: widths vary across clocks: %v", base, widths)
 		}
 	}
 }
 
 // The point of the whole exercise: byte-order sort has to match time order.
 func TestSortsChronologically(t *testing.T) {
-	clocks := []int64{0, 1, 999, 946684800000, 1785585600000, 1785585600001, 16725225600000}
+	clocks := []int64{0, 60000, 946684800000, 1785585600000, 1785585660000, 32503679999999}
+	precisions := []zuid.Precision{zuid.PrecisionMinute, zuid.PrecisionSecond, zuid.PrecisionMilli}
 
 	for _, base := range zuid.CuratedBases {
-		ordered := make([]string, 0, len(clocks))
-		for _, ms := range clocks {
-			generator, err := zuid.New(zuid.WithFixedTime(time.UnixMilli(ms).UTC()))
-			if err != nil {
-				t.Fatalf("new generator: %v", err)
+		for _, precision := range precisions {
+			ordered := make([]string, 0, len(clocks))
+			for _, ms := range clocks {
+				generator, err := zuid.New(zuid.WithFixedTime(time.UnixMilli(ms).UTC()))
+				if err != nil {
+					t.Fatalf("new generator: %v", err)
+				}
+				got, err := generator.Generate("%d", base, precision)
+				if err != nil {
+					t.Fatalf("base %s precision %d clock %d: %v", base, precision, ms, err)
+				}
+				ordered = append(ordered, got)
 			}
-			got, err := generator.Generate("%d", base)
-			if err != nil {
-				t.Fatalf("base %s clock %d: %v", base, ms, err)
-			}
-			ordered = append(ordered, got)
-		}
 
-		shuffled := append([]string(nil), ordered...)
-		sort.Strings(shuffled)
-		for i := range ordered {
-			if ordered[i] != shuffled[i] {
-				t.Errorf("base %s: sort order does not match time order\n time %v\nsorted %v",
-					base, ordered, shuffled)
-				break
+			shuffled := append([]string(nil), ordered...)
+			sort.Strings(shuffled)
+			for i := range ordered {
+				if ordered[i] != shuffled[i] {
+					t.Errorf("base %s precision %d: sort order does not match time order\n time %v\nsorted %v",
+						base, precision, ordered, shuffled)
+					break
+				}
 			}
 		}
 	}
@@ -147,7 +158,7 @@ func TestReservedComponentsRejected(t *testing.T) {
 		t.Fatalf("new generator: %v", err)
 	}
 	for _, format := range []string{"%h", "%u", "%f", "%m", "%g", "%r"} {
-		if _, err := generator.Generate(format, "62"); err == nil {
+		if _, err := generator.Generate(format, "62", zuid.DefaultPrecision); err == nil {
 			t.Errorf("format %q: want an error, got none", format)
 		}
 	}
@@ -159,12 +170,15 @@ func TestFormatErrors(t *testing.T) {
 		t.Fatalf("new generator: %v", err)
 	}
 	for _, format := range []string{"%", "%z"} {
-		if _, err := generator.Generate(format, "62"); err == nil {
+		if _, err := generator.Generate(format, "62", zuid.DefaultPrecision); err == nil {
 			t.Errorf("format %q: want an error, got none", format)
 		}
 	}
-	if _, err := generator.Generate("%d", "nonesuch"); err == nil {
+	if _, err := generator.Generate("%d", "nonesuch", zuid.DefaultPrecision); err == nil {
 		t.Error("unknown base: want an error, got none")
+	}
+	if _, err := generator.Generate("%d", "62", 2); err == nil {
+		t.Error("precision 2: want an error, got none")
 	}
 }
 
@@ -174,11 +188,11 @@ func TestLiteralsAndEscape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new generator: %v", err)
 	}
-	got, err := generator.Generate("id-%d-%%", "62")
+	got, err := generator.Generate("id-%d-%%", "62", zuid.DefaultPrecision)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if want := "id-00000000-%"; got != want {
+	if want := "id-000000-%"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
@@ -186,9 +200,20 @@ func TestLiteralsAndEscape(t *testing.T) {
 // Widths are derived from the horizon, not typed in. If the horizon moves,
 // these move with it - so this pins the derivation, not the numbers.
 func TestWidthForCuratedBases(t *testing.T) {
-	for radix, want := range map[int]int{16: 11, 32: 9, 36: 9, 62: 8} {
-		if got := zuid.WidthFor(radix); got != want {
-			t.Errorf("radix %d: width %d, want %d", radix, got, want)
+	want := map[zuid.Precision]map[int]int{
+		zuid.PrecisionMinute: {16: 8, 32: 6, 36: 6, 62: 5},
+		zuid.PrecisionSecond: {16: 9, 32: 7, 36: 7, 62: 6},
+		zuid.PrecisionMilli:  {16: 12, 32: 9, 36: 9, 62: 8},
+	}
+	for precision, byRadix := range want {
+		for radix, wantWidth := range byRadix {
+			got, err := zuid.WidthFor(radix, precision)
+			if err != nil {
+				t.Fatalf("radix %d precision %d: %v", radix, precision, err)
+			}
+			if got != wantWidth {
+				t.Errorf("radix %d precision %d: width %d, want %d", radix, precision, got, wantWidth)
+			}
 		}
 	}
 }

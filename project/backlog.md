@@ -53,7 +53,7 @@ In each section, items are listed approximately from newest to oldest.
 - 🛠️ Two implementations of one spec: Go, and Zig. See `design.md`.
 	- ✅ Repo, folder layout, and the architecture decisions behind the split.
 	- 🛠️ Shared test vectors (`testdata/vectors.tsv`), which both must reproduce.
-		- ✅ Time-only rows, across all four curated bases. Sort guarantee checked against them.
+		- ✅ Time-only rows, across all four curated bases and all three precisions, including truncation and horizon-boundary rows. Sort guarantee checked against them.
 		- 🔘 Rows for the other components, once those are specified.
 
 - 🛠️ Base conversion comes from the sister project `convert-base-v2`, not reimplemented.
@@ -67,10 +67,10 @@ In each section, items are listed approximately from newest to oldest.
 
 ### Identifier core
 
-- 🛠️ Identifier spec. Drafted in `design.md`; the time component is implemented on the Go side.
-	- ✅ One time encoding (Unix ms UTC), replacing the predecessor's four algorithms and three precisions.
+- 🛠️ Identifier spec. Drafted in `design.md`; the time component is implemented on both sides.
+	- ✅ One time encoding (units since the Unix epoch, UTC), replacing the predecessor's four algorithms. Precision stays selectable, carrying its surface forward: -1 minute, 0 second (default), 1 millisecond.
 	- ✅ Fixed-width zero padding, which is what actually makes output sortable. Width is derived from the horizon rather than tabulated, so moving the horizon moves the widths.
-	- 🔘 Confirm the three open questions at the end of that section before the vectors are frozen. The same-millisecond one now has a worked example behind it.
+	- ✅ The three open questions are settled: horizon year 3000, precision as above, same-tick repeats stay literal with a warning once multi-emit lands. Vectors regenerated and frozen for the time component.
 - 🛠️ Component set: time, host, user, MAC, UUID, random. Each independent of the others.
 	- ✅ Time. Reserved verbs are rejected rather than silently dropped, so a format string cannot appear to work.
 	- 🔘 Host, user, MAC, UUID, random.
@@ -80,12 +80,14 @@ In each section, items are listed approximately from newest to oldest.
 ### Command-line interface
 
 - 🛠️ Format string selecting and ordering components. Improve on the predecessor's surface rather than porting it.
-	- ✅ The CLI exists: `zuid [-b base] [-f format]`, format `%d` with `%%` literals, reserved verbs rejected with a clear message.
+	- ✅ The CLI exists: `zuid [-b base] [-f format] [-p precision]`, format `%d` with `%%` literals, reserved verbs rejected with a clear message.
+	- ✅ Precision flag: `-p -1|0|1` for minute/second/millisecond, default second - same surface and default as the predecessor.
 	- 🔘 Components beyond `%d`, once specified.
 - ✅ Curated base list in the help output: **16, 32w, 36, 62**, default 62. `--base` still accepts any base the library knows, and an unknown one surfaces the library's near-match suggestion. The `zuid-go` command that first carried it was dropped - the Go side is module-only.
 	- Base 64 was dropped: its RFC 4648 alphabet does not sort, and it needs the same 8 characters as base 62, which does.
 	- ✅ Alphabets reconciled against `convertbase`. Its `32w` is the same 32 symbols the vectors assume, reached by the same alias. All 24 rows reproduce through the real library rather than a local table.
-- 🔘 Generate more than one identifier per invocation. A time-only format repeats within a millisecond - see the open question in `design.md`.
+- 🔘 Generate more than one identifier per invocation. A time-only format repeats within one tick.
+	- Decided: output stays literal - nothing is appended silently - but repeats in one invocation's output get a stderr warning suggesting `%r`.
 
 ### Modules
 

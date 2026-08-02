@@ -43,23 +43,25 @@ fn runVectors(h: *host.Host) !void {
         const name = fields.next() orelse return error.BadVectorRow;
         const format = fields.next() orelse return error.BadVectorRow;
         const base = fields.next() orelse return error.BadVectorRow;
+        const precision_field = fields.next() orelse return error.BadVectorRow;
         const clock_field = fields.next() orelse return error.BadVectorRow;
         const expected = fields.next() orelse return error.BadVectorRow;
+        const precision = core.Precision.fromInt(try std.fmt.parseInt(i64, precision_field, 10)) orelse return error.BadVectorRow;
         const clock_ms = try std.fmt.parseInt(i64, clock_field, 10);
 
         var out_buf: [core.out_buf_len]u8 = undefined;
-        const got = core.generate(h.converter(), format, base, clock_ms, &out_buf) catch |err| {
+        const got = core.generate(h.converter(), format, base, precision, clock_ms, &out_buf) catch |err| {
             std.debug.print("vector {s} ({s}, base {s}): {t}: {s}\n", .{ name, format, base, err, h.lastError() });
             return err;
         };
         std.testing.expectEqualStrings(expected, got) catch |err| {
-            std.debug.print("vector {s} (base {s}, clock {d})\n", .{ name, base, clock_ms });
+            std.debug.print("vector {s} (base {s}, precision {s}, clock {d})\n", .{ name, base, precision_field, clock_ms });
             return err;
         };
         rows += 1;
     }
     // A parsing bug that skips every row would otherwise pass silently.
-    try std.testing.expect(rows >= 24);
+    try std.testing.expect(rows >= 72);
 }
 
 test "error paths carry the module's error text" {
@@ -68,16 +70,16 @@ test "error paths carry the module's error text" {
     var out_buf: [core.out_buf_len]u8 = undefined;
 
     // Unknown base: the module's text includes near-match suggestions.
-    try std.testing.expectError(error.UnknownBase, core.generate(h.converter(), "%d", "hexx", 0, &out_buf));
+    try std.testing.expectError(error.UnknownBase, core.generate(h.converter(), "%d", "hexx", .second, 0, &out_buf));
     try std.testing.expect(h.lastError().len > 0);
 
-    try std.testing.expectError(error.ReservedComponent, core.generate(h.converter(), "%h", "", 0, &out_buf));
-    try std.testing.expectError(error.UnknownComponent, core.generate(h.converter(), "%z", "", 0, &out_buf));
-    try std.testing.expectError(error.BareFormatPercent, core.generate(h.converter(), "abc%", "", 0, &out_buf));
-    try std.testing.expectError(error.ClockBeforeEpoch, core.generate(h.converter(), "%d", "", -1, &out_buf));
+    try std.testing.expectError(error.ReservedComponent, core.generate(h.converter(), "%h", "", .second, 0, &out_buf));
+    try std.testing.expectError(error.UnknownComponent, core.generate(h.converter(), "%z", "", .second, 0, &out_buf));
+    try std.testing.expectError(error.BareFormatPercent, core.generate(h.converter(), "abc%", "", .second, 0, &out_buf));
+    try std.testing.expectError(error.ClockBeforeEpoch, core.generate(h.converter(), "%d", "", .second, -1, &out_buf));
 
     // Literals and %% pass through around the component.
-    const got = try core.generate(h.converter(), "id-%%-%d", "62", 0, &out_buf);
+    const got = try core.generate(h.converter(), "id-%%-%d", "62", .milli, 0, &out_buf);
     try std.testing.expectEqualStrings("id-%-00000000", got);
 
     // Region ledger still clean after the error traffic.
@@ -99,19 +101,26 @@ test "C surface end to end" {
     capi.zuid_set_clock_ms(z, 946684800000);
     var out: [64]u8 = undefined;
 
-    // Defaults: NULL format and base mean %d in base 62.
+    // Defaults: NULL format and base mean %d in base 62, at second precision.
     try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, null, null, &out, out.len));
-    try std.testing.expectEqualStrings("0GfLcwXQ", std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
+    try std.testing.expectEqualStrings("124Bxg", std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
 
     try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%d", "32w", &out, out.len));
-    try std.testing.expectEqualStrings("2qVfJxH22", std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
+    try std.testing.expectEqualStrings("2r8pRr2", std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
+
+    // Precision is sticky on the context, and out-of-range is refused.
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_precision(z, 1));
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, null, null, &out, out.len));
+    try std.testing.expectEqualStrings("0GfLcwXQ", std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
+    try std.testing.expectEqual(@as(c_int, 8), capi.zuid_set_precision(z, 2));
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_precision(z, 0));
 
     // Error text survives into the C string.
     try std.testing.expectEqual(@as(c_int, 1), capi.zuid_generate(z, "%d", "hexx", &out, out.len));
     try std.testing.expect(std.mem.span(capi.zuid_last_error(z)).len > 0);
 
     // A buffer that cannot hold the id plus NUL is refused, not truncated.
-    try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%d", "62", &out, 8));
+    try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%d", "62", &out, 6));
 
     try std.testing.expectEqualStrings(core.version, std.mem.span(capi.zuid_version()));
 }

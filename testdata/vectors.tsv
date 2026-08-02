@@ -2,42 +2,96 @@
 #
 # Tab-separated. Lines starting with '#' are comments; blank lines are ignored.
 #
-# name      a label, for test output
-# format    the format string
-# base      output base
-# clock_ms  the injected clock, in milliseconds since the Unix epoch UTC
-# expected  the identifier
+# name       a label, for test output
+# format     the format string
+# base       output base
+# precision  -1 minute, 0 second, 1 millisecond (the CLI default is 0)
+# clock_ms   the injected clock, in milliseconds since the Unix epoch UTC
+# expected   the identifier
+#
+# The clock is always injected in milliseconds; coarser precisions truncate
+# toward zero, and the truncation rows below pin that down.
 #
 # Time-only rows are fully determined by the clock, so they need no other
 # injected state. Rows covering %h %u %f %m %g %r come once those components
 # are specified, and will carry their own input columns.
 #
-# Output is zero-padded to a fixed width per base, so that byte-order sort
-# matches chronological order. Padding uses each alphabet's zero digit, which
-# for 32w is '2' rather than '0'.
+# Output is zero-padded to a fixed width per base and precision, chosen to
+# hold any timestamp through the year 3000, so that byte-order sort matches
+# chronological order. Padding uses each alphabet's zero digit, which for 32w
+# is '2' rather than '0'. Identifiers of different precisions have different
+# widths and do not sort against each other - same caveat as mixing bases.
 #
-# name	format	base	clock_ms	expected
-time-epoch	%d	16	0	00000000000
-time-epoch	%d	32w	0	222222222
-time-epoch	%d	36	0	000000000
-time-epoch	%d	62	0	00000000
-time-epoch+1ms	%d	16	1	00000000001
-time-epoch+1ms	%d	32w	1	222222223
-time-epoch+1ms	%d	36	1	000000001
-time-epoch+1ms	%d	62	1	00000001
-time-y2k	%d	16	946684800000	0DC6ACFAC00
-time-y2k	%d	32w	946684800000	2qVfJxH22
-time-y2k	%d	36	946684800000	0C2WFOQO0
-time-y2k	%d	62	946684800000	0GfLcwXQ
-time-design-date	%d	16	1785585600000	19FBD320600
-time-design-date	%d	32w	1785585600000	3XwwX63R2
-time-design-date	%d	36	1785585600000	0MSABKAO0
-time-design-date	%d	62	1785585600000	0VR2tCvw
-time-design-date+1ms	%d	16	1785585600001	19FBD320601
-time-design-date+1ms	%d	32w	1785585600001	3XwwX63R3
-time-design-date+1ms	%d	36	1785585600001	0MSABKAO1
-time-design-date+1ms	%d	62	1785585600001	0VR2tCvx
-time-horizon-2500	%d	16	16725225600000	F3625217400
-time-horizon-2500	%d	32w	16725225600000	Q8jWW4v22
-time-horizon-2500	%d	36	16725225600000	5XFGNHMO0
-time-horizon-2500	%d	62	16725225600000	4kSKc9Jo
+# name	format	base	precision	clock_ms	expected
+time-ms-epoch	%d	16	1	0	000000000000
+time-ms-epoch	%d	32w	1	0	222222222
+time-ms-epoch	%d	36	1	0	000000000
+time-ms-epoch	%d	62	1	0	00000000
+time-ms-epoch+1ms	%d	16	1	1	000000000001
+time-ms-epoch+1ms	%d	32w	1	1	222222223
+time-ms-epoch+1ms	%d	36	1	1	000000001
+time-ms-epoch+1ms	%d	62	1	1	00000001
+time-ms-y2k	%d	16	1	946684800000	00DC6ACFAC00
+time-ms-y2k	%d	32w	1	946684800000	2qVfJxH22
+time-ms-y2k	%d	36	1	946684800000	0C2WFOQO0
+time-ms-y2k	%d	62	1	946684800000	0GfLcwXQ
+time-ms-design-date	%d	16	1	1785585600000	019FBD320600
+time-ms-design-date	%d	32w	1	1785585600000	3XwwX63R2
+time-ms-design-date	%d	36	1	1785585600000	0MSABKAO0
+time-ms-design-date	%d	62	1	1785585600000	0VR2tCvw
+time-ms-design-date+1ms	%d	16	1	1785585600001	019FBD320601
+time-ms-design-date+1ms	%d	32w	1	1785585600001	3XwwX63R3
+time-ms-design-date+1ms	%d	36	1	1785585600001	0MSABKAO1
+time-ms-design-date+1ms	%d	62	1	1785585600001	0VR2tCvx
+time-ms-horizon-eve	%d	16	1	32503679999999	1D8FDA4CDFFF
+time-ms-horizon-eve	%d	32w	1	32503679999999	vVxM6mhxx
+time-ms-horizon-eve	%d	36	1	32503679999999	BIRZFUNZZ
+time-ms-horizon-eve	%d	62	1	32503679999999	9EFDkpVn
+time-s-epoch	%d	16	0	0	000000000
+time-s-epoch	%d	32w	0	0	2222222
+time-s-epoch	%d	36	0	0	0000000
+time-s-epoch	%d	62	0	0	000000
+time-s-epoch+999ms	%d	16	0	999	000000000
+time-s-epoch+999ms	%d	32w	0	999	2222222
+time-s-epoch+999ms	%d	36	0	999	0000000
+time-s-epoch+999ms	%d	62	0	999	000000
+time-s-epoch+1s	%d	16	0	1000	000000001
+time-s-epoch+1s	%d	32w	0	1000	2222223
+time-s-epoch+1s	%d	36	0	1000	0000001
+time-s-epoch+1s	%d	62	0	1000	000001
+time-s-y2k	%d	16	0	946684800000	0386D4380
+time-s-y2k	%d	32w	0	946684800000	2r8pRr2
+time-s-y2k	%d	36	0	946684800000	0FNMQO0
+time-s-y2k	%d	62	0	946684800000	124Bxg
+time-s-design-date	%d	16	0	1785585600000	06A6DDFC0
+time-s-design-date	%d	32w	0	1785585600000	3f8qhw2
+time-s-design-date	%d	36	0	1785585600000	0TJ3AO0
+time-s-design-date	%d	62	0	1785585600000	1wq8Nk
+time-s-horizon-eve	%d	16	0	32503679999999	7915ECBFF
+time-s-horizon-eve	%d	32w	0	32503679999999	wCfvWxx
+time-s-horizon-eve	%d	36	0	32503679999999	EXJUNZZ
+time-s-horizon-eve	%d	62	0	32503679999999	ZTi7zD
+time-min-epoch	%d	16	-1	0	00000000
+time-min-epoch	%d	32w	-1	0	222222
+time-min-epoch	%d	36	-1	0	000000
+time-min-epoch	%d	62	-1	0	00000
+time-min-epoch+59.999s	%d	16	-1	59999	00000000
+time-min-epoch+59.999s	%d	32w	-1	59999	222222
+time-min-epoch+59.999s	%d	36	-1	59999	000000
+time-min-epoch+59.999s	%d	62	-1	59999	00000
+time-min-epoch+1min	%d	16	-1	60000	00000001
+time-min-epoch+1min	%d	32w	-1	60000	222223
+time-min-epoch+1min	%d	36	-1	60000	000001
+time-min-epoch+1min	%d	62	-1	60000	00001
+time-min-y2k	%d	16	-1	946684800000	00F0C120
+time-min-y2k	%d	32w	-1	946684800000	2Q3RF2
+time-min-y2k	%d	36	-1	946684800000	09E6G0
+time-min-y2k	%d	62	-1	946684800000	14CbA
+time-min-design-date	%d	16	-1	1785585600000	01C61910
+time-min-design-date	%d	32w	-1	1785585600000	2rJ8CR
+time-min-design-date	%d	36	-1	1785585600000	0HPUS0
+time-min-design-date	%d	62	-1	1785585600000	20rs8
+time-min-horizon-eve	%d	16	-1	32503679999999	204A1CFF
+time-min-horizon-eve	%d	32w	-1	32503679999999	R6c99x
+time-min-horizon-eve	%d	36	-1	32503679999999	8YJ3ZZ
+time-min-horizon-eve	%d	62	-1	32503679999999	af2CN

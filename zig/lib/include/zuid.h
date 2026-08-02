@@ -35,7 +35,8 @@ enum {
 	ZUID_ERR_CONVERT = 4,      /* base conversion failed; see zuid_last_error */
 	ZUID_ERR_BUFFER = 5,       /* out_cap is too small for the identifier plus its NUL */
 	ZUID_ERR_CLOCK = 6,        /* the clock predates the Unix epoch */
-	ZUID_ERR_INTERNAL = 7      /* the embedded runtime or module failed */
+	ZUID_ERR_INTERNAL = 7,     /* the embedded runtime or module failed */
+	ZUID_ERR_PRECISION = 8     /* precision is not -1, 0, or 1 */
 };
 
 /* NULL when the embedded runtime cannot start. */
@@ -49,6 +50,13 @@ void zuid_free(zuid *z);
 	any curated base.
 */
 int zuid_generate(zuid *z, const char *format, const char *base, char *out, size_t out_cap);
+
+/*
+	Time precision for %d: -1 minute, 0 second, 1 millisecond. Default 0.
+	Sticky on the context. Output width varies with precision, so identifiers
+	of different precisions do not sort against each other.
+*/
+int zuid_set_precision(zuid *z, int precision);
 
 /* Pins the clock to a fixed Unix-milliseconds instant, for reproducible output. */
 void zuid_set_clock_ms(zuid *z, long long ms);

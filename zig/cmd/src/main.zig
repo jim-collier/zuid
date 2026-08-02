@@ -22,11 +22,15 @@ const help_text =
     \\    -f, --format <fmt>   Format string (default "%d"). %d is the time
     \\                         component; %% is a literal '%'. %h %u %f %m %g %r
     \\                         are reserved and not implemented yet.
+    \\    -p, --precision <n>  Time precision: -1 minute, 0 second, 1 millisecond
+    \\                         (default 0).
     \\    -h, --help           This.
     \\    -v, --version        Version and copyright.
     \\
-    \\Output is zero-padded to a fixed width per base, so identifiers sort
-    \\chronologically as plain text (byte order; use LC_COLLATE=C).
+    \\Output is zero-padded to a fixed width per base and precision, so
+    \\identifiers sort chronologically as plain text (byte order; use
+    \\LC_COLLATE=C). Different bases or precisions have different widths and do
+    \\not sort against each other - pick one combination per use-case.
     \\
 ;
 
@@ -45,6 +49,7 @@ pub fn main(init: std.process.Init) !void {
 
     var base: []const u8 = "";
     var format: []const u8 = "%d";
+    var precision = zuid.core.Precision.default;
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
@@ -65,6 +70,15 @@ pub fn main(init: std.process.Init) !void {
             i += 1;
             if (i == args.len) return die(stderr, "Expecting a format string after {s}.", .{arg});
             format = args[i];
+        } else if (std.mem.eql(u8, arg, "-p") or std.mem.eql(u8, arg, "--precision")) {
+            i += 1;
+            if (i == args.len) return die(stderr, "Expecting -1, 0, or 1 after {s}.", .{arg});
+            const parsed = std.fmt.parseInt(i64, args[i], 10) catch {
+                return die(stderr, "Precision '{s}' is not a number. Want -1 (minute), 0 (second), or 1 (millisecond).", .{args[i]});
+            };
+            precision = zuid.core.Precision.fromInt(parsed) orelse {
+                return die(stderr, "Precision {d} is out of range. Want -1 (minute), 0 (second), or 1 (millisecond).", .{parsed});
+            };
         } else {
             return die(stderr, "Argument invalid or not expected: '{s}'. Try --help.", .{arg});
         }
@@ -76,7 +90,7 @@ pub fn main(init: std.process.Init) !void {
     defer host.deinit();
 
     var out_buf: [zuid.core.out_buf_len]u8 = undefined;
-    const id = zuid.core.generate(host.converter(), format, base, zuid.clock.nowMs(), &out_buf) catch |err| {
+    const id = zuid.core.generate(host.converter(), format, base, precision, zuid.clock.nowMs(), &out_buf) catch |err| {
         const detail = host.lastError();
         if (detail.len > 0) {
             return die(stderr, "{s}", .{detail});

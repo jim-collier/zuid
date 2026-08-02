@@ -20,10 +20,43 @@ pub const default_base = "62";
 /// conversion library knows; these are the ones that sort and transcribe well.
 pub const curated_bases = [_][]const u8{ "16", "32w", "36", "62" };
 
-/// Largest timestamp the fixed width must hold: 2500-01-01 UTC. Width is
+/// Largest timestamp the fixed width must hold: 3000-01-01 UTC. Width is
 /// quantized so coarsely that the exact horizon barely matters; move it and
 /// the widths follow.
-pub const horizon_ms: u64 = 16725225600000;
+pub const horizon_ms: u64 = 32503680000000;
+
+/// Time unit for the %d component, carrying the predecessor's surface
+/// forward: -1 minute, 0 second (the default), 1 millisecond. The clock is
+/// always injected in milliseconds; coarser units truncate toward zero.
+pub const Precision = enum(i8) {
+    minute = -1,
+    second = 0,
+    milli = 1,
+
+    pub const default: Precision = .second;
+
+    /// The -1|0|1 surface the CLI and C module expose, validated.
+    pub fn fromInt(value: i64) ?Precision {
+        return switch (value) {
+            -1 => .minute,
+            0 => .second,
+            1 => .milli,
+            else => null,
+        };
+    }
+
+    fn msPerUnit(self: Precision) i64 {
+        return switch (self) {
+            .minute => 60000,
+            .second => 1000,
+            .milli => 1,
+        };
+    }
+
+    fn horizon(self: Precision) u64 {
+        return horizon_ms / @as(u64, @intCast(self.msPerUnit()));
+    }
+};
 
 /// Enough for any single rendered component: a 13-digit decimal in base 2 is
 /// 44 digits, and no base's digit symbol exceeds 4 bytes.
@@ -85,15 +118,16 @@ pub const Converter = struct {
     }
 };
 
-/// Smallest symbol count that holds any timestamp up to the horizon.
-/// Lexicographic compare reads left to right, so a short identifier and a long
-/// one cannot sort chronologically - this fixed width is what makes the sort
-/// guarantee hold, not the choice of alphabet.
-pub fn widthFor(radix: u64) u32 {
+/// Smallest symbol count that holds any timestamp up to the horizon, in the
+/// precision's unit. Lexicographic compare reads left to right, so a short
+/// identifier and a long one cannot sort chronologically - this fixed width is
+/// what makes the sort guarantee hold, not the choice of alphabet.
+pub fn widthFor(radix: u64, precision: Precision) u32 {
+    const horizon = precision.horizon();
     var width: u32 = 1;
     var capacity: u64 = radix;
-    while (capacity <= horizon_ms) {
-        // Grows past horizon_ms well before u64 overflows for any radix >= 2.
+    while (capacity <= horizon) {
+        // Grows past the horizon well before u64 overflows for any radix >= 2.
         capacity *= radix;
         width += 1;
     }
@@ -102,7 +136,7 @@ pub fn widthFor(radix: u64) u32 {
 
 /// Renders one identifier into out and returns the filled slice.
 /// An empty base_name means the default base.
-pub fn generate(conv: Converter, format: []const u8, base_name: []const u8, clock_ms: i64, out: []u8) Error![]const u8 {
+pub fn generate(conv: Converter, format: []const u8, base_name: []const u8, precision: Precision, clock_ms: i64, out: []u8) Error![]const u8 {
     const base = if (base_name.len == 0) default_base else base_name;
     var used: usize = 0;
     var i: usize = 0;
@@ -122,7 +156,7 @@ pub fn generate(conv: Converter, format: []const u8, base_name: []const u8, cloc
                 used += 1;
             },
             'd' => {
-                const rendered = try timeComponent(conv, base, clock_ms, out[used..]);
+                const rendered = try timeComponent(conv, base, precision, clock_ms, out[used..]);
                 used += rendered.len;
             },
             'h', 'u', 'f', 'm', 'g', 'r' => return Error.ReservedComponent,
@@ -132,18 +166,19 @@ pub fn generate(conv: Converter, format: []const u8, base_name: []const u8, cloc
     return out[0..used];
 }
 
-/// The clock as milliseconds since the Unix epoch UTC, converted and
-/// zero-padded to the fixed width for this base.
-fn timeComponent(conv: Converter, base: []const u8, clock_ms: i64, out: []u8) Error![]const u8 {
+/// The clock as the precision's unit count since the Unix epoch UTC,
+/// converted and zero-padded to the fixed width for this base and precision.
+fn timeComponent(conv: Converter, base: []const u8, precision: Precision, clock_ms: i64, out: []u8) Error![]const u8 {
     if (clock_ms < 0) return Error.ClockBeforeEpoch;
 
     var dec_buf: [20]u8 = undefined;
-    const dec = std.fmt.bufPrint(&dec_buf, "{d}", .{clock_ms}) catch unreachable;
+    const units = @divTrunc(clock_ms, precision.msPerUnit());
+    const dec = std.fmt.bufPrint(&dec_buf, "{d}", .{units}) catch unreachable;
 
     var conv_buf: [component_buf_len]u8 = undefined;
     const converted = try conv.convert(dec, base, &conv_buf);
 
-    const width = widthFor(try conv.radix(base));
+    const width = widthFor(try conv.radix(base), precision);
     const count = try conv.symbolCount(base, converted);
     if (count > width) return Error.WidthOverflow;
 
@@ -162,8 +197,24 @@ fn timeComponent(conv: Converter, base: []const u8, clock_ms: i64, out: []u8) Er
 }
 
 test "widthFor matches the design table" {
-    try std.testing.expectEqual(@as(u32, 11), widthFor(16));
-    try std.testing.expectEqual(@as(u32, 9), widthFor(32));
-    try std.testing.expectEqual(@as(u32, 9), widthFor(36));
-    try std.testing.expectEqual(@as(u32, 8), widthFor(62));
+    try std.testing.expectEqual(@as(u32, 8), widthFor(16, .minute));
+    try std.testing.expectEqual(@as(u32, 6), widthFor(32, .minute));
+    try std.testing.expectEqual(@as(u32, 6), widthFor(36, .minute));
+    try std.testing.expectEqual(@as(u32, 5), widthFor(62, .minute));
+    try std.testing.expectEqual(@as(u32, 9), widthFor(16, .second));
+    try std.testing.expectEqual(@as(u32, 7), widthFor(32, .second));
+    try std.testing.expectEqual(@as(u32, 7), widthFor(36, .second));
+    try std.testing.expectEqual(@as(u32, 6), widthFor(62, .second));
+    try std.testing.expectEqual(@as(u32, 12), widthFor(16, .milli));
+    try std.testing.expectEqual(@as(u32, 9), widthFor(32, .milli));
+    try std.testing.expectEqual(@as(u32, 9), widthFor(36, .milli));
+    try std.testing.expectEqual(@as(u32, 8), widthFor(62, .milli));
+}
+
+test "precision surface round-trips -1|0|1 and rejects the rest" {
+    try std.testing.expectEqual(Precision.minute, Precision.fromInt(-1).?);
+    try std.testing.expectEqual(Precision.second, Precision.fromInt(0).?);
+    try std.testing.expectEqual(Precision.milli, Precision.fromInt(1).?);
+    try std.testing.expectEqual(@as(?Precision, null), Precision.fromInt(2));
+    try std.testing.expectEqual(Precision.second, Precision.default);
 }
