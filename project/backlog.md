@@ -56,33 +56,35 @@ In each section, items are listed approximately from newest to oldest.
 		- ✅ Time-only rows, across all four curated bases. Sort guarantee checked against them.
 		- 🔘 Rows for the other components, once those are specified.
 
-- 🔘 Base conversion comes from the sister project `convert-base-v2`, not reimplemented.
-	- 🔘 Go side imports `convertbase` directly. Needs a local `replace` until `lib/v0.1.0` is tagged upstream.
+- 🛠️ Base conversion comes from the sister project `convert-base-v2`, not reimplemented.
+	- ✅ Go side imports `convertbase` directly, through a local `replace` until `lib/v0.1.0` is tagged upstream. Goal 3 met: the package works as imported, no changes needed to it.
 	- 🔘 Zig side reaches it through a reactor WebAssembly module, hosted by a vendored Wasmtime.
 
 - 🔘 Upstream the reactor WebAssembly build to `convert-base-v2`. This gates the whole Zig and C side.
 
 ### Identifier core
 
-- 🛠️ Identifier spec. Drafted in `design.md`; nothing implemented.
+- 🛠️ Identifier spec. Drafted in `design.md`; the time component is implemented on the Go side.
 	- ✅ One time encoding (Unix ms UTC), replacing the predecessor's four algorithms and three precisions.
-	- ✅ Fixed-width zero padding, which is what actually makes output sortable.
-	- 🔘 Confirm the three open questions at the end of that section before the vectors are frozen.
-- 🔘 Component set: time, host, user, MAC, UUID, random. Each independent of the others.
+	- ✅ Fixed-width zero padding, which is what actually makes output sortable. Width is derived from the horizon rather than tabulated, so moving the horizon moves the widths.
+	- 🔘 Confirm the three open questions at the end of that section before the vectors are frozen. The same-millisecond one now has a worked example behind it.
+- 🛠️ Component set: time, host, user, MAC, UUID, random. Each independent of the others.
+	- ✅ Time. Reserved verbs are rejected rather than silently dropped, so a format string cannot appear to work.
+	- 🔘 Host, user, MAC, UUID, random.
 - 🔘 Host and user hashed by default, with an explicit opt-out.
-- 🔘 Clock and random source injectable, so output is reproducible under test.
+- 🛠️ Clock and random source injectable, so output is reproducible under test. Done on the Go side (`WithClock`, `WithFixedTime`, `WithRandom`); the Zig side has no code yet.
 
 ### Command-line interface
 
 - 🔘 Format string selecting and ordering components. Improve on the predecessor's surface rather than porting it.
-- 🔘 Curated base list in the help output: **16, 32w, 36, 62**, default 62. `--base` still accepts any base the library knows.
+- 🛠️ Curated base list in the help output: **16, 32w, 36, 62**, default 62. `--base` still accepts any base the library knows. Done in `zuid-go`; the shipped CLI is still the Zig one.
 	- Base 64 was dropped: its RFC 4648 alphabet does not sort, and it needs the same 8 characters as base 62, which does.
-	- Reconcile these alphabets against `convertbase`'s own definitions before relying on the vectors.
-- 🔘 Generate more than one identifier per invocation.
+	- ✅ Alphabets reconciled against `convertbase`. Its `32w` is the same 32 symbols the vectors assume, reached by the same alias. All 24 rows reproduce through the real library rather than a local table.
+- 🛠️ Generate more than one identifier per invocation. `--count` works, but a time-only format repeats within a millisecond - see the open question in `design.md`.
 
 ### Modules
 
-- 🔘 Go module, importable without cgo, keeping static cross-compilation.
+- 🛠️ Go module, importable without cgo, keeping static cross-compilation. Builds `CGO_ENABLED=0` for linux/arm64, windows/amd64, and darwin/arm64. Still to do: its own LICENSE and NOTICE alongside the package.
 - 🔘 C module: static and shared library plus `zuid.h`, cross-compiled with `zig cc`.
 - 🔘 Both modules Apache-2.0; the command stays GPL-2.0-or-later.
 
@@ -129,6 +131,8 @@ In each section, items are listed approximately from newest to oldest.
 
 ### Misc to-do
 
+- ✅ Go side brought up: `go/zuid` plus the `zuid-go` command. All 24 vector rows reproduce, 31 tests pass, `gofmt` and `go vet` clean.
+	- ✅ Startup is 57 ms, nearly all of it building the base registry. Fine for now; revisit if the shipped CLI ever routes through Go.
 - ✅ Move Zig 0.13.0 -> 0.16.0. Installed and verified; 0.13.0 kept alongside so the symlink flips back.
 	- ✅ Drift spike: `main(std.process.Init)`, arena, `Io.File.Writer`, `DebugAllocator`, and the no-allocator render path all build and run. 15 rows of `vectors.tsv` reproduce.
 	- ✅ `zig fmt` uses four spaces and cannot be configured, so Zig source is spaces, not tabs. See `style_guide.md`.

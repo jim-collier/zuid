@@ -200,7 +200,7 @@ Reversible choices, best-guessed for now, and worth a second opinion before the 
 
 - Year 2500 as the padding horizon. Mostly moot, per the table above - only base 16 sits anywhere near its limit.
 - Milliseconds as the fixed resolution. Seconds would be shorter, microseconds more collision-resistant for rapid generation.
-- Whether a run of identifiers generated within the same millisecond should be disambiguated automatically, or left to the caller to add `%r`.
+- Whether a run of identifiers generated within the same millisecond should be disambiguated automatically, or left to the caller to add `%r`. No longer hypothetical: the Go implementation asked for three identifiers in one invocation returns the same string three times, because `%d` alone is fully determined by the clock. Either the command defaults to appending randomness when it emits more than one, or it stays literal and the caller is expected to say so. Leaning literal, on the grounds that a format string should mean what it says.
 
 ## Project structure
 
