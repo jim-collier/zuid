@@ -60,7 +60,9 @@ In each section, items are listed approximately from newest to oldest.
 	- ✅ Go side imports `convertbase` directly, through a local `replace` until `lib/v0.1.0` is tagged upstream. Goal 3 met: the package works as imported, no changes needed to it.
 	- 🔘 Zig side reaches it through a reactor WebAssembly module, hosted by a vendored Wasmtime.
 
-- 🔘 Upstream the reactor WebAssembly build to `convert-base-v2`. This gates the whole Zig and C side.
+- 🛠️ Upstream the reactor WebAssembly build to `convert-base-v2`. This gates the whole Zig and C side.
+	- ✅ Upstream has already designed it, in more depth than anything drafted here. Nothing to propose; do not relitigate their choices.
+	- 🔘 Send them zuid's requirements: base metadata (radix and padding symbol) for fixed-width padding, a symbol count rather than a byte count, a stable error enum, and the error text. No streaming needed - inputs are about 13 bytes, so the one-shot surface alone unblocks this side.
 
 ### Identifier core
 
