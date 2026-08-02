@@ -109,6 +109,13 @@ In each section, items are listed approximately from newest to oldest.
 
 - 🔘 Random component from a cryptographic source.
 - 🔘 Confirm the hashed host/user components cannot be reversed to the originals.
+- 🛠️ Memory safety on the Zig side. See `design.md`.
+	- ✅ Decided: standard-library allocators, no hand-written or third-party one. The bigger win is the core not allocating at all.
+	- 🔘 Identifier core takes no allocator - fixed widths, caller-supplied buffer. Same shape serves the C module.
+	- 🔘 One arena per invocation for the argument handling and the WebAssembly host, so there are no individual frees.
+	- 🔘 `std.heap.DebugAllocator` behind it in debug and test builds, with `never_unmap` and `retain_metadata` on for use-after-free detection. `std.heap.smp_allocator` in release.
+	- 🔘 Tests allocate through `std.testing.allocator`, which fails on a leak.
+	- 🔘 Vendored Wasmtime is C, so it gets `zig cc -fsanitize=address` in CI/CD instead.
 
 ### Other
 
@@ -121,7 +128,8 @@ In each section, items are listed approximately from newest to oldest.
 
 ### Misc to-do
 
-- 🔘 Zig here is 0.13.0 and the current release is 0.15.x. Decide whether to move before writing much.
+- 🛠️ Move Zig 0.13.0 -> 0.16.0. Decided: yes, before any Zig code is written. 0.14 through 0.16 rewrote the I/O and allocator surfaces, so 0.13 code would be a pure port later.
+	- 🔘 Install is a tarball under `~/.local`, outside the project tree, so it needs a go-ahead.
 
 ### Bugs
 
