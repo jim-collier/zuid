@@ -18,8 +18,9 @@
 ##		- 20230830 JC: Created from x9convertbase1 as template.
 ##		- 20230924 JC: Finished.
 ##		- 20260226 JC: Don't try xclip if not installed, and don't error if it doesn't work.
-
-#notify-send "Test from '${0}'"
+##		- 20260802 JC:
+##			- Removed dead boilerplate code.
+##			- Fixed a few minor errors that didn't affect the paths that worked.
 
 ## Constants (not actually read-only; that errors out on re-entry).
 declare -i    doQuietly=0; [[ ${X9MUID1_QUIET} -eq 1 ]] && doQuietly=1
@@ -297,56 +298,29 @@ fMain(){
 	local -i keepOnlyRighmostHashChars_FQDN=0
 	local -i doClipOut=$default_doClipOut
 	fInit "${@}"
-	local -ra allArgs=("${allArgs[@]}")
-	local -r  outFormat="${outFormat}"
-	local -r  dtOverride="${dtOverride}"
-	local -r  outBase="${outBase}"
-	local -ir outBaseInt=$outBaseInt
-	local -ir dtAlgo=$dtAlgo
-	local -ir doAlgo_DateTime=$doAlgo_DateTime
-	local -ir doAlgo_UserName=$doAlgo_UserName
-	local -ir doAlgo_HostName=$doAlgo_HostName
-	local -ir doAlgo_FQDN=$doAlgo_FQDN
-	local -ir doAlgo_MAC=$doAlgo_MAC
-	local -ir doAlgo_UUID=$doAlgo_UUID
-	local -ir doAlgo_Random=$doAlgo_Random
-	local -ir precision_DateTime=$precision_DateTime
-	local -ir randomCharCount=$randomCharCount
-	local -ir doLCaseIfAppropriate=$doLCaseIfAppropriate
-	local -ir doHash_UserName=$doHash_UserName
-	local -ir doHash_HostName=$doHash_HostName
-	local -ir doHash_FQDN=$doHash_FQDN
-	local -ir keepOnlyRighmostHashChars_UserName=$keepOnlyRighmostHashChars_UserName
-	local -ir keepOnlyRighmostHashChars_HostName=$keepOnlyRighmostHashChars_HostName
-	local -ir keepOnlyRighmostHashChars_FQDN=$keepOnlyRighmostHashChars_FQDN
-	local -ir doClipOut=$doClipOut
-
-	##Debug
-	#echo -e "allArgs = '${allArgs[*]}'"
-	#echo "Arg count = ${#allArgs[@]}"
-	#fEchoVarAndVal dtOverride
-	#fEchoVarAndVal outBase
-	#fEchoVarAndVal outFormat
-	#fEchoVarAndVal dtAlgo
-	#fEchoVarAndVal doAlgo_DateTime
-	#fEchoVarAndVal doAlgo_UserName
-	#fEchoVarAndVal doAlgo_HostName
-	#fEchoVarAndVal doAlgo_FQDN
-	#fEchoVarAndVal doAlgo_MAC
-	#fEchoVarAndVal doAlgo_UUID
-	#fEchoVarAndVal doAlgo_Random
-	#fEchoVarAndVal precision_DateTime
-	#fEchoVarAndVal randomCharCount
-	#fEchoVarAndVal doLCaseIfAppropriate
-	#fEchoVarAndVal doHash_UserName
-	#fEchoVarAndVal doHash_HostName
-	#fEchoVarAndVal doHash_FQDN
-	#fEchoVarAndVal keepOnlyRighmostHashChars_UserName
-	#fEchoVarAndVal keepOnlyRighmostHashChars_HostName
-	#fEchoVarAndVal keepOnlyRighmostHashChars_FQDN
-	#fEchoVarAndVal doClipOut
-	#fEcho
-	#exit
+	readonly allArgs
+	readonly outFormat
+	readonly dtOverride
+	readonly outBase
+	readonly outBaseInt
+	readonly dtAlgo
+	readonly doAlgo_DateTime
+	readonly doAlgo_UserName
+	readonly doAlgo_HostName
+	readonly doAlgo_FQDN
+	readonly doAlgo_MAC
+	readonly doAlgo_UUID
+	readonly doAlgo_Random
+	readonly precision_DateTime
+	readonly randomCharCount
+	readonly doLCaseIfAppropriate
+	readonly doHash_UserName
+	readonly doHash_HostName
+	readonly doHash_FQDN
+	readonly keepOnlyRighmostHashChars_UserName
+	readonly keepOnlyRighmostHashChars_HostName
+	readonly keepOnlyRighmostHashChars_FQDN
+	readonly doClipOut
 
 	##
 	## Make it so
@@ -611,18 +585,6 @@ fMain(){
 
 				## Multiply available ticks times the fraction of day elapsed so far (have to divide as last operation for bc rounding to work)
 				local -i baseTicksPassed=$(bc -l <<< "scale=0; ${percentOfDayNowUTC} * ${possibleBaseTicksPerDay} / 1")
-
-				##DEBUG
-				#fEchoVarAndVal tmpStr
-				#fEchoVarAndVal isoDate
-				#fEchoVarAndVal fmt_dtMS_Ticks
-				#fEchoVarAndVal midnightPrev
-				#fEchoVarAndVal midnightNext
-				#fEchoVarAndVal nowTicks
-				#fEchoVarAndVal percentOfDayNowUTC
-				#fEchoVarAndVal possibleBaseTicksPerDay
-				#fEchoVarAndVal baseTicksPassed
-				#echo
 
 				## Convert ticks elapsed from base 10 to specified base, and append it to previous conversions
 				preOutputStr="${preOutputStr}$(x9convertbase1 $extCliFlags "${baseTicksPassed}" $outBase)"
@@ -1096,15 +1058,9 @@ function _fMustBeInPath(){
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 function fPrint_Copyright_About_Syntax(){
-
-	## Constants
-#	local -r additionalLineOfText="$*"
-
 	fPrint_Copyright
 	fPrint_AboutAndSyntax
 	if [[ "$1" == "1" ]]; then fPrint_Help; fi  ## An '&&' here would return 1 and trip the ERR trap.
-#	if [[ -n "${additionalLineOfText}" ]]; then fEcho_Clean "Error: ${additionalLineOfText}"; fi
-
 }
 
 
@@ -1155,14 +1111,12 @@ function fThrowError(){
 	fEcho_Clean
 	exit 1
 }
-
 function _fTrap_Exit(){
 	if [[ "${_wasCleanupRun}" == "0" ]]; then  ## String compare is less to fail than integer
 		_wasCleanupRun=1
 		_fSingleExitPoint "${@}"
 	fi
 }
-
 function _fTrap_Error(){
 	if [[ "${_wasCleanupRun}" == "0" ]]; then  ## String compare is less to fail than integer
 		_wasCleanupRun=1
@@ -1170,7 +1124,6 @@ function _fTrap_Error(){
 		_fSingleExitPoint "${@}"
 	fi
 }
-
 function _fSingleExitPoint(){
 	local -r signal="$1";  shift || true
 	local -r lineNum="$1"; shift || true
@@ -1189,7 +1142,6 @@ function _fSingleExitPoint(){
 		fEcho_Clean
 	fi
 }
-
 function fDefineTrap_Error_Fatal(){
 	true
 	trap '_fTrap_Error ERR     ${LINENO} $? $_' ERR

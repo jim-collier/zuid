@@ -63,7 +63,7 @@ When using the Marks under Section 3:
 
 ## 7. Enforcement and changes
 
-**We may revoke permission for any use that damages the Marks or misleads users**. We may revise this policy at any time; the current version lives at <https://github.com/jim-collier/zuid/blob/main/trademark.md>. Requests for permission, and reports of misuse, go to product_nameⒶdomain.tld.
+**We may revoke permission for any use that damages the Marks or misleads users**. We may revise this policy at any time; the current version lives at <https://github.com/jim-collier/zuid/blob/main/trademark.md>. Requests for permission, and reports of misuse, go to zuidⒶubx9.com
 
 ---
 

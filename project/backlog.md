@@ -109,6 +109,14 @@ In each section, items are listed approximately from newest to oldest.
 
 - 🔘 Random component from a cryptographic source.
 - 🔘 Confirm the hashed host/user components cannot be reversed to the originals.
+- 🛠️ Memory safety on the Zig side. See `design.md`.
+	- ✅ Decided: standard-library allocators, no hand-written or third-party one. The bigger win is the core not allocating at all.
+	- 🔘 Identifier core takes no allocator - fixed widths, caller-supplied buffer. Same shape serves the C module.
+	- 🔘 One arena per invocation for the argument handling and the WebAssembly host, so there are no individual frees.
+	- 🔘 `std.heap.DebugAllocator` behind it in debug and test builds, `std.heap.smp_allocator` in release.
+	- 🔘 Tests allocate through `std.testing.allocator`, which fails on a leak.
+	- ✅ Verified on 0.16 what is actually caught: leaks and double frees, yes; use-after-free reads and writes, no. `never_unmap`/`retain_metadata` widen double-free reporting, they do not detect dangling access. No AddressSanitizer for Zig code, and `zig cc -fsanitize=address` does not link.
+	- 🔘 Vendored Wasmtime is C, so its sanitizer run uses system clang or gcc, not `zig cc`. Both verified working.
 
 ### Other
 
@@ -121,7 +129,9 @@ In each section, items are listed approximately from newest to oldest.
 
 ### Misc to-do
 
-- 🔘 Zig here is 0.13.0 and the current release is 0.15.x. Decide whether to move before writing much.
+- ✅ Move Zig 0.13.0 -> 0.16.0. Installed and verified; 0.13.0 kept alongside so the symlink flips back.
+	- ✅ Drift spike: `main(std.process.Init)`, arena, `Io.File.Writer`, `DebugAllocator`, and the no-allocator render path all build and run. 15 rows of `vectors.tsv` reproduce.
+	- ✅ `zig fmt` uses four spaces and cannot be configured, so Zig source is spaces, not tabs. See `style_guide.md`.
 
 ### Bugs
 
