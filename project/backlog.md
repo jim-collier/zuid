@@ -86,14 +86,21 @@ In each section, items are listed approximately from newest to oldest.
 
 ### Modules
 
-- 🛠️ Go module, importable without cgo, keeping static cross-compilation. Builds `CGO_ENABLED=0` for linux/arm64, windows/amd64, and darwin/arm64. Still to do: its own LICENSE and NOTICE alongside the package.
+- ✅ Go module, importable without cgo, keeping static cross-compilation. Builds `CGO_ENABLED=0` for linux/arm64, windows/amd64, and darwin/arm64, now driven by `cicd.bash --cross`.
 - 🔘 C module: static and shared library plus `zuid.h`, cross-compiled with `zig cc`.
-- 🔘 Both modules Apache-2.0; the command stays GPL-2.0-or-later.
+- 🛠️ Both modules Apache-2.0; the command stays GPL-2.0-or-later.
+	- ✅ Go side: `LICENSE` at the repo root (GPL-2.0-or-later, for the CLI), `go/LICENSE` and `go/NOTICE` (Apache-2.0, for the module). The SPDX headers now name the file that applies to them.
+	- 🔘 C module, once there is one to license.
 
 ### Build, CI/CD, and install
 
-- 🔘 A CI/CD pipeline kicked off by a bash script (`cicd/cicd.bash`): builds, tests, and can commit and push. Packaging and publishing are opt-in.
-	- 🔘 Has to drive two toolchains, and fail clearly when either is missing.
+- 🛠️ A CI/CD pipeline kicked off by a bash script (`cicd/cicd.bash`): builds, tests, and can commit and push. Packaging and publishing are opt-in.
+	- ✅ Drives both toolchains, checks a version floor on each, and says which one is missing rather than failing somewhere later. `--only go|zig` narrows it to one, and then only that one has to be installed.
+	- ✅ Go stage builds, vets, checks formatting, and runs the vectors. `--cross` adds the three cross targets into `dist/`.
+	- ✅ Refuses `--commit` on a protected branch, so the script cannot be the thing that lands work straight on `main`.
+	- ✅ Zig stage skips itself while there is no `build.zig`, rather than failing on work that has not started.
+	- 🔘 Packaging and publishing. Both are recognized and rejected with a reason; they wait on the Zig side.
+	- 🔘 Fetch the Wasmtime C API, once the Zig side needs it.
 
 - 🔘 Vendor the Wasmtime C API during build rather than assuming it is installed.
 
