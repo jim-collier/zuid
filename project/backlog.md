@@ -113,9 +113,10 @@ In each section, items are listed approximately from newest to oldest.
 	- ✅ Decided: standard-library allocators, no hand-written or third-party one. The bigger win is the core not allocating at all.
 	- 🔘 Identifier core takes no allocator - fixed widths, caller-supplied buffer. Same shape serves the C module.
 	- 🔘 One arena per invocation for the argument handling and the WebAssembly host, so there are no individual frees.
-	- 🔘 `std.heap.DebugAllocator` behind it in debug and test builds, with `never_unmap` and `retain_metadata` on for use-after-free detection. `std.heap.smp_allocator` in release.
+	- 🔘 `std.heap.DebugAllocator` behind it in debug and test builds, `std.heap.smp_allocator` in release.
 	- 🔘 Tests allocate through `std.testing.allocator`, which fails on a leak.
-	- 🔘 Vendored Wasmtime is C, so it gets `zig cc -fsanitize=address` in CI/CD instead.
+	- ✅ Verified on 0.16 what is actually caught: leaks and double frees, yes; use-after-free reads and writes, no. `never_unmap`/`retain_metadata` widen double-free reporting, they do not detect dangling access. No AddressSanitizer for Zig code, and `zig cc -fsanitize=address` does not link.
+	- 🔘 Vendored Wasmtime is C, so its sanitizer run uses system clang or gcc, not `zig cc`. Both verified working.
 
 ### Other
 
@@ -128,8 +129,9 @@ In each section, items are listed approximately from newest to oldest.
 
 ### Misc to-do
 
-- 🛠️ Move Zig 0.13.0 -> 0.16.0. Decided: yes, before any Zig code is written. 0.14 through 0.16 rewrote the I/O and allocator surfaces, so 0.13 code would be a pure port later.
-	- 🔘 Install is a tarball under `~/.local`, outside the project tree, so it needs a go-ahead.
+- ✅ Move Zig 0.13.0 -> 0.16.0. Installed and verified; 0.13.0 kept alongside so the symlink flips back.
+	- ✅ Drift spike: `main(std.process.Init)`, arena, `Io.File.Writer`, `DebugAllocator`, and the no-allocator render path all build and run. 15 rows of `vectors.tsv` reproduce.
+	- ✅ `zig fmt` uses four spaces and cannot be configured, so Zig source is spaces, not tabs. Formatter-canonical wins per `CLAUDE.md`.
 
 ### Bugs
 

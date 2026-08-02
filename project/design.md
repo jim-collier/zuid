@@ -120,12 +120,22 @@ Among the options considered - writing an allocator, taking a third-party one, o
 
 - **The identifier core takes no allocator at all.** Output widths are fixed by the spec (11, 9, 9, and 8 characters for bases 16, 32w, 36, and 62), so every intermediate fits in a stack array and the core writes into a buffer the caller supplies. That is also the right shape for the C module, where the caller owns the buffer and there is no free contract to get wrong. A memory bug that cannot be expressed beats one that gets caught.
 - **Whatever must allocate goes through a single arena owned by the command.** Argument handling and the WebAssembly host are the only parts needing dynamic memory, and both are per-invocation. An arena releases the lot at once, so the individual frees that use-after-free depends on never happen.
-- **`std.heap.DebugAllocator` backs that arena in debug and test builds.** It is the renamed `GeneralPurposeAllocator`, and it is what a hand-written allocator would be trying to become: leak detection with stack traces, double-free detection that prints the allocation and both frees, and, with `never_unmap` and `retain_metadata` set, use-after-free detection - address space is never recycled, so a stale pointer faults instead of quietly landing in a new object. Release builds use `std.heap.smp_allocator`.
+- **`std.heap.DebugAllocator` backs that arena in debug and test builds.** It is the renamed `GeneralPurposeAllocator`, and it is what a hand-written allocator would be trying to become: leak detection with stack traces, and double-free detection that prints the allocation and both frees. Release builds use `std.heap.smp_allocator`.
 - **Tests allocate through `std.testing.allocator`**, which fails the test on a leak rather than reporting it at exit.
 
 Writing our own would mean reproducing all of that and then debugging it, in a project whose entire dynamic-memory need is one arena per run. The third-party options were looked at and none of them is a safety story: `zimalloc` and `zig-slab` are performance and layout work, `zig-composable-allocators` is a construction kit in the Alexandrescu style, and `andrewrk/zig-general-purpose-allocator` is the historical repo that became the standard library's. So no third-party allocator dependency.
 
-The vendored Wasmtime is the one place this does not reach, being C and doing its own allocation. That gets `zig cc -fsanitize=address` in CI/CD rather than a Zig-side guarantee.
+#### What is actually detected, and what is not
+
+Measured against 0.16 rather than assumed, because an earlier draft of this section got it wrong:
+
+- Leaks and double frees are caught, with full stack traces at the allocation and at both frees.
+- **A use-after-free read or write is not caught.** `never_unmap` and `retain_metadata` are worth setting, but not for the reason they look like: they keep the mapping alive and the metadata around, which widens *double-free* reporting and turns a would-be segfault into a legible message. The standard library's own doc comments say exactly this. There is no page protection in the implementation, so touching freed memory silently succeeds.
+- Zig 0.16 has no AddressSanitizer for Zig code - `zig build-exe` offers only `-fsanitize-c` and `-fsanitize-thread`. `zig cc -fsanitize=address` does not link either, because the ASan runtime is not shipped.
+
+That gap is the strongest argument for the first rule rather than an argument against it. Since nothing will catch a dangling pointer in Zig, the defense that works is not having one: a core that never takes an allocator has no freeable pointer to dangle, and an arena has no individual free to get wrong.
+
+For the vendored Wasmtime, which is C and allocates on its own, the sanitizer run uses the **system clang or gcc**, not `zig cc`. Both catch heap-use-after-free correctly; that stays a CI/CD step rather than a Zig-side guarantee.
 
 Worth knowing but not worth planning around: an accepted Zig proposal (ziglang/zig#36237) adds a Fil-C-inspired `fil` target ABI - complete memory safety with no escape hatch, at roughly a 1-6x cost. It is a target choice rather than a source change, so if it lands it becomes a build flag. Nothing above conflicts with it.
 
