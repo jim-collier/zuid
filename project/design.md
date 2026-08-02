@@ -85,9 +85,14 @@ We decided this build belongs upstream in `convert-base-v2` rather than here. Pu
 
 The identifier core stays native Zig. Only base conversion crosses the WebAssembly boundary.
 
-Among the runtimes considered, we decided on the Wasmtime C API: it is the reference implementation, has the best-documented C interface, and is the fastest of the options. It is also the heaviest, and it is not present on a stock system, so it is vendored rather than assumed.
+Among the runtimes considered, we decided on the Wasmtime C API: it is the reference implementation, has the best-documented C interface, and is the fastest of the options. It is also the heaviest, and it is not present on a stock system, so it is vendored rather than assumed. The build pins a release, verifies its checksum, and links the static archive, so the shipped binary and the shared library are self-contained; the module bytes are embedded at build time for the same reason.
 
 An interpreter such as wasm3 would vendor far more cleanly and is worth revisiting if the dependency proves painful. Generating one identifier is microseconds of work either way, so this is a build-complexity decision far more than a speed one.
+
+Two measured findings from bring-up, so nobody re-derives them:
+
+- Wasmtime's `min` C API build is a fraction of the size but drops both the compiler and WASI support, so it can only run modules precompiled elsewhere. Usable later as a size optimization, not as the starting point.
+- Startup is dominated by the module's own `_initialize` - the Go runtime building its base registry inside the wasm - not by compiling the module. Wasmtime's baseline compiler (winch) compiles ~3x faster than cranelift but runs that initialization enough slower to lose end to end, so the default strategy stays cranelift.
 
 ### Which bases to offer
 
@@ -273,12 +278,10 @@ Deliberately not carried forward: its base list, which is longer than an identif
 
 ## Upstream dependency status
 
-Both goals depend on `convert-base-v2` work that has not yet landed, and this is currently the critical path:
+Both integration points now work against local checkouts; what remains upstream is releasing, not building:
 
-- The `convertbase` package lives on an unmerged branch. There is no `lib/v0.1.0` tag, so the module is not fetchable, and a local `replace` directive is needed until one exists.
-- The reactor WebAssembly build does not exist yet and has to be written and released upstream.
-
-Verified by experiment, not assumed: a `wasip1` reactor module built with `//go:wasmexport` exports its named functions and imports only the standard WASI set. The approach works. What remains is applying it to the real library. A trivial such module is about 1.8 MB, which is the Go runtime floor, so the real one is expected to land somewhere between two and four megabytes.
+- The `convertbase` package lives on an unmerged branch. There is no `lib/v0.1.0` tag, so the module is not fetchable, and the Go side uses a local `replace` directive until one exists.
+- The reactor WebAssembly build exists upstream and this project's Zig side runs against it. Until upstream publishes it as a release artifact, the build refreshes its copy from the sibling checkout.
 
 ## Licensing
 
@@ -289,11 +292,9 @@ This split is the same arrangement the sister project uses, and for the same rea
 
 ## Plan
 
-1. Fix the identifier spec and write `testdata/vectors.tsv` from it.
-2. Build the Go implementation against a local checkout of `convertbase`.
-3. Upstream the reactor WebAssembly build to `convert-base-v2`.
-4. Build the Zig implementation and the C module against that.
-5. Run both against the shared vectors, and reconcile.
-6. Command-line surface, then configuration, then packaging.
-
-Step 3 gates step 4. Steps 1 and 2 do not depend on it, and come first for that reason.
+1. ~~Fix the identifier spec and write `testdata/vectors.tsv` from it.~~ Done, for the time component; the other components extend it.
+2. ~~Build the Go implementation against a local checkout of `convertbase`.~~ Done.
+3. ~~Upstream the reactor WebAssembly build to `convert-base-v2`.~~ Done, upstream.
+4. ~~Build the Zig implementation and the C module against that.~~ Done.
+5. ~~Run both against the shared vectors, and reconcile.~~ Done; both sides replay every row.
+6. Command-line surface (a minimal one exists), then the remaining components, then configuration, then packaging.

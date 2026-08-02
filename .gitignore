@@ -5,8 +5,8 @@
 /go/zuid-go
 /go/*.wasm
 
-# Vendored wasmtime C API (fetched by cicd, not committed)
-/zig/vendor/wasmtime/
+# Vendored build inputs (fetched/refreshed by cicd, not committed)
+/zig/vendor/
 
 # Editor / OS
 *.swp

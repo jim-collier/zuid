@@ -58,7 +58,7 @@ In each section, items are listed approximately from newest to oldest.
 
 - 🛠️ Base conversion comes from the sister project `convert-base-v2`, not reimplemented.
 	- ✅ Go side imports `convertbase` directly, through a local `replace` until `lib/v0.1.0` is tagged upstream. Goal 3 met: the package works as imported, no changes needed to it.
-	- 🔘 Zig side reaches it through a reactor WebAssembly module, hosted by a vendored Wasmtime.
+	- ✅ Zig side reaches it through a reactor WebAssembly module, hosted by a vendored Wasmtime. Goal 4 met: the module is embedded in the binary, all vectors reproduce through it, and its region ledger stays at zero.
 
 - 🛠️ Upstream the reactor WebAssembly build to `convert-base-v2`. This gates the whole Zig and C side.
 	- ✅ Upstream has already designed it, in more depth than anything drafted here. Nothing to propose; do not relitigate their choices.
@@ -75,12 +75,14 @@ In each section, items are listed approximately from newest to oldest.
 	- ✅ Time. Reserved verbs are rejected rather than silently dropped, so a format string cannot appear to work.
 	- 🔘 Host, user, MAC, UUID, random.
 - 🔘 Host and user hashed by default, with an explicit opt-out.
-- 🛠️ Clock and random source injectable, so output is reproducible under test. Done on the Go side (`WithClock`, `WithFixedTime`, `WithRandom`); the Zig side has no code yet.
+- ✅ Clock and random source injectable, so output is reproducible under test. Go has `WithClock`/`WithFixedTime`/`WithRandom`; Zig takes the milliseconds as a parameter everywhere, with one `clock.zig` reading the wall clock. The random hook lands with the `%r` component.
 
 ### Command-line interface
 
-- 🔘 Format string selecting and ordering components. Improve on the predecessor's surface rather than porting it.
-- 🔘 Curated base list in the help output: **16, 32w, 36, 62**, default 62. `--base` still accepts any base the library knows. The list itself is settled; the CLI that shows it is the Zig one, not yet started. The `zuid-go` command that first carried it was dropped - the Go side is module-only.
+- 🛠️ Format string selecting and ordering components. Improve on the predecessor's surface rather than porting it.
+	- ✅ The CLI exists: `zuid [-b base] [-f format]`, format `%d` with `%%` literals, reserved verbs rejected with a clear message.
+	- 🔘 Components beyond `%d`, once specified.
+- ✅ Curated base list in the help output: **16, 32w, 36, 62**, default 62. `--base` still accepts any base the library knows, and an unknown one surfaces the library's near-match suggestion. The `zuid-go` command that first carried it was dropped - the Go side is module-only.
 	- Base 64 was dropped: its RFC 4648 alphabet does not sort, and it needs the same 8 characters as base 62, which does.
 	- ✅ Alphabets reconciled against `convertbase`. Its `32w` is the same 32 symbols the vectors assume, reached by the same alias. All 24 rows reproduce through the real library rather than a local table.
 - 🔘 Generate more than one identifier per invocation. A time-only format repeats within a millisecond - see the open question in `design.md`.
@@ -88,7 +90,9 @@ In each section, items are listed approximately from newest to oldest.
 ### Modules
 
 - ✅ Go module, importable without cgo, keeping static cross-compilation. Builds `CGO_ENABLED=0` for linux/arm64, windows/amd64, and darwin/arm64, now driven by `cicd.bash --cross`.
-- 🔘 C module: static and shared library plus `zuid.h`, cross-compiled with `zig cc`.
+- 🛠️ C module: static and shared library plus `zuid.h`, cross-compiled with `zig cc`.
+	- ✅ Native artifacts: `libzuid.a` (compiler-rt bundled), self-contained `libzuid.so`, and the installed header. Both link modes verified from plain gcc against a fixed clock.
+	- 🔘 Cross targets. Needs a vendored Wasmtime archive per target; deferred with packaging.
 - ✅ Both modules Apache-2.0; the command stays GPL-2.0-or-later.
 	- ✅ Per-directory license files, all `.txt`: repo root and `zig/cmd/` GPL-2.0-or-later; `go/` and `zig/lib/` each Apache-2.0 with a `NOTICE.txt`. Placed ahead of the Zig source so the split is locked in.
 	- ✅ Dropping the Go command removed the one awkward case - a GPL command inside the Apache module directory - so no prose has to explain the split anymore.
@@ -100,10 +104,10 @@ In each section, items are listed approximately from newest to oldest.
 	- ✅ Go stage builds, vets, checks formatting, and runs the vectors. `--cross` adds the three cross targets into `dist/`.
 	- ✅ Refuses `--commit` on a protected branch, so the script cannot be the thing that lands work straight on `main`.
 	- ✅ Zig stage skips itself while there is no `build.zig`, rather than failing on work that has not started.
-	- 🔘 Packaging and publishing. Both are recognized and rejected with a reason; they wait on the Zig side.
-	- 🔘 Fetch the Wasmtime C API, once the Zig side needs it.
+	- 🔘 Packaging and publishing. Both are recognized and rejected with a reason.
+	- ✅ Fetch the Wasmtime C API: pinned version, checksum verified, extracted into `zig/vendor/`. The reactor wasm refreshes from the sibling checkout whenever it differs, and an already-vendored copy suffices when the sibling is absent.
 
-- 🔘 Vendor the Wasmtime C API during build rather than assuming it is installed.
+- ✅ Vendor the Wasmtime C API during build rather than assuming it is installed.
 
 - 🔘 Dev-environment install script (Linux bash, macOS sh, Windows PowerShell), runnable via a single `curl`/`wget` and documented under "how to develop". Clones main, installs dependencies, and states what it will do with an option to abort.
 
@@ -123,12 +127,12 @@ In each section, items are listed approximately from newest to oldest.
 - 🔘 Confirm the hashed host/user components cannot be reversed to the originals.
 - 🛠️ Memory safety on the Zig side. See `design.md`.
 	- ✅ Decided: standard-library allocators, no hand-written or third-party one. The bigger win is the core not allocating at all.
-	- 🔘 Identifier core takes no allocator - fixed widths, caller-supplied buffer. Same shape serves the C module.
-	- 🔘 One arena per invocation for the argument handling and the WebAssembly host, so there are no individual frees.
-	- 🔘 `std.heap.DebugAllocator` behind it in debug and test builds, `std.heap.smp_allocator` in release.
-	- 🔘 Tests allocate through `std.testing.allocator`, which fails on a leak.
+	- ✅ Identifier core takes no allocator - fixed widths, caller-supplied buffer. Same shape serves the C module.
+	- ✅ It went further than the arena plan: nothing on the Zig side allocates at all. Argv comes from the process-provided arena, Wasmtime owns its own memory, and the C module is one allocation per context.
+	- ✅ `std.heap.DebugAllocator` in debug builds, `std.heap.smp_allocator` in release - the C module's context allocation, the only one there is.
+	- ✅ Tests turned out to need no allocator; the vectors file is embedded at build time.
 	- ✅ Verified on 0.16 what is actually caught: leaks and double frees, yes; use-after-free reads and writes, no. `never_unmap`/`retain_metadata` widen double-free reporting, they do not detect dangling access. No AddressSanitizer for Zig code, and `zig cc -fsanitize=address` does not link.
-	- 🔘 Vendored Wasmtime is C, so its sanitizer run uses system clang or gcc, not `zig cc`. Both verified working.
+	- ✋ Sanitizer run on the vendored Wasmtime. The vendored artifact turned out to be a prebuilt archive, so there is nothing local to instrument; revisit only if it is ever built from source here.
 
 ### Other
 
@@ -141,6 +145,10 @@ In each section, items are listed approximately from newest to oldest.
 
 ### Misc to-do
 
+- ✅ Zig side brought up: `zig/lib` (core, wasm host, C module) and `zig/cmd` (CLI).
+	- ✅ All 24 vector rows reproduce through the embedded module, under both of Wasmtime's compilers.
+	- ✅ The C header verified from plain gcc, shared and static.
+	- ✅ Every CLI run exercises the upstream module end to end, which was the point of making the CLI Zig-only.
 - ✅ Go side brought up: `go/zuid`. All 24 vector rows reproduce, `gofmt` and `go vet` clean.
 	- ✅ Startup is 57 ms, nearly all of it building the base registry. Irrelevant now that nothing user-facing routes through Go.
 	- ✅ The `zuid-go` command was later dropped: the CLI is Zig-only, so that every use of it also exercises the upstream WebAssembly module. The module's own tests replay the vectors, which is the differential check from the Go side.
@@ -166,6 +174,7 @@ In each section, items are listed approximately from newest to oldest.
 
 ### Future and/or deferred
 
+- ✋ CLI startup is ~0.5 s, nearly all of it the module's own `_initialize` building the base registry inside the wasm. Options if it starts to matter: ask upstream about lazier registry construction, or cache a precompiled module per machine. Not worth it before the surface settles.
 - ✋ Swap Wasmtime for a small interpreter such as wasm3 if vendoring proves painful. Speed is not the deciding factor.
 - ✋ Hand-written bindings for other languages, if the C module turns out not to cover them.
 

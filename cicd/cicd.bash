@@ -29,6 +29,14 @@ fConfig(){ :;
 	## Merge targets, never places to commit.
 	default_protectedBranches=("main" "dev")
 
+	## Vendored Wasmtime C API, pinned. Fetched into zig/vendor/ when absent.
+	default_wasmtimeVer="v47.0.3"
+	default_wasmtimeSha256="aaa3621f2a3d8393696702897f8f78a1cc504437d500701496d560125aefd732"
+
+	## The reactor wasm module, refreshed from the sibling checkout until
+	## upstream cuts releases. Path is relative to the repo root.
+	default_reactorWasmSource="../../convert-base-v2/github/lib/dist/convert-base-reactor.wasm"
+
 }
 
 
@@ -81,7 +89,8 @@ fPrint_Help(){
 		    -v, --version     Version and copyright.
 
 		Both toolchains have to reproduce testdata/vectors.tsv, which is what the test
-		stage checks. The Zig side is skipped while it has no source.
+		stage checks. The Zig stage vendors the Wasmtime C API and the upstream
+		reactor wasm module into zig/vendor/ when they are absent.
 
 		Exit code is 0 only if every stage that ran passed.
 	EOF_h7wq4
@@ -108,11 +117,17 @@ fMain(){
 	local    default_minVer_Zig=""
 	local -a default_crossTargets=()
 	local -a default_protectedBranches=()
+	local    default_wasmtimeVer=""
+	local    default_wasmtimeSha256=""
+	local    default_reactorWasmSource=""
 	fConfig
 	local -r minVer_Go="${default_minVer_Go}"
 	local -r minVer_Zig="${default_minVer_Zig}"
 	local -ra crossTargets=("${default_crossTargets[@]}")
 	local -ra protectedBranches=("${default_protectedBranches[@]}")
+	local -r wasmtimeVer="${default_wasmtimeVer}"
+	local -r wasmtimeSha256="${default_wasmtimeSha256}"
+	local -r reactorWasmSource="${default_reactorWasmSource}"
 
 	## Layout. This script lives in the repo's cicd/, so the repo root is one up.
 	local -r repoRoot="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -296,22 +311,80 @@ fStage_Go_Cross(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fStage_Zig_Vendor(){
+
+	fEcho_Clean
+	fEcho "Zig: vendor"
+
+	local -r vendorDir="${zigDir}/vendor"
+	mkdir -p "${vendorDir}"
+
+	## Wasmtime C API, pinned and checksummed. Fetch once; a re-pin means
+	## deleting zig/vendor/wasmtime/ so this runs again.
+	if [[ -f "${vendorDir}/wasmtime/include/wasmtime.h" ]]; then
+		fEcho_Clean "Wasmtime ...: present"
+	else
+		_fMustBeInPath curl
+		_fMustBeInPath sha256sum
+		_fMustBeInPath tar
+		local -r wtName="wasmtime-${wasmtimeVer}-x86_64-linux-c-api"
+		local -r wtUrl="https://github.com/bytecodealliance/wasmtime/releases/download/${wasmtimeVer}/${wtName}.tar.xz"
+		local -r wtTar="${vendorDir}/${wtName}.tar.xz"
+		fEcho_Clean "Wasmtime ...: fetching ${wasmtimeVer}"
+		curl -sSL --fail -o "${wtTar}" "${wtUrl}" || fThrowError "Could not download '${wtUrl}'."  "${FUNCNAME[0]}"
+		local -r wtSum="$(sha256sum "${wtTar}" | awk '{print $1}')"
+		if [[ "${wtSum}" != "${wasmtimeSha256}" ]]; then
+			rm -f "${wtTar}"
+			fThrowError "Wasmtime checksum mismatch: got ${wtSum}."  "${FUNCNAME[0]}"
+		fi
+		tar -xf "${wtTar}" -C "${vendorDir}"
+		rm -f "${wtTar}"
+		rm -rf "${vendorDir}/wasmtime"
+		mv "${vendorDir}/${wtName}" "${vendorDir}/wasmtime"
+		fEcho_Clean "Wasmtime ...: vendored"
+	fi
+
+	## The reactor wasm module. The sibling checkout wins when present, so a
+	## rebuilt upstream artifact flows in; otherwise an already-vendored copy
+	## is good enough to build against.
+	local -r wasmSource="${repoRoot}/${reactorWasmSource}"
+	local -r wasmVendored="${vendorDir}/convert-base-reactor.wasm"
+	if [[ -f "${wasmSource}" ]]; then
+		if ! cmp -s "${wasmSource}" "${wasmVendored}" 2>/dev/null; then
+			cp "${wasmSource}" "${wasmVendored}"
+			fEcho_Clean "Reactor ....: refreshed from sibling"
+		else
+			fEcho_Clean "Reactor ....: current"
+		fi
+	elif [[ -f "${wasmVendored}" ]]; then
+		fEcho_Clean "Reactor ....: sibling absent, using vendored copy"
+	else
+		fThrowError "No reactor wasm module: neither '${wasmSource}' nor '${wasmVendored}' exists."  "${FUNCNAME[0]}"
+	fi
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Zig(){
+
+	fStage_Zig_Vendor
 
 	fEcho_Clean
 	fEcho "Zig: build and test"
 
-	## The Zig side is blocked on the upstream reactor wasm module, so there is
-	## nothing to build yet. Skipping beats failing on work that has not started.
-	if [[ ! -f "${zigDir}/build.zig" ]]; then
-		fEcho_Clean "No build.zig yet - skipping."
-		return
-	fi
-
 	cd "${zigDir}" || fThrowError "Missing the Zig tree: '${zigDir}'."  "${FUNCNAME[0]}"
 
-	zig build
+	## ReleaseSafe is what would ship; the vectors replay through it too.
+	zig build -Doptimize=ReleaseSafe
 	zig build test
+
+	## zig fmt is silent on success and lists offenders on failure. Plain 'if',
+	## not a trailing '&&' - that exact pattern has killed this script before.
+	local -r unformattedZig="$(zig fmt --check build.zig lib/src cmd/src 2>&1 || true)"
+	if [[ -n "${unformattedZig}" ]]; then
+		fThrowError "zig fmt would rewrite: ${unformattedZig//$'\n'/, }"  "${FUNCNAME[0]}"
+	fi
 
 }
 
