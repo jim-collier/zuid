@@ -1025,8 +1025,9 @@ fNormalizeBaseName_byRef(){
 	if   [[ -n "$(echo "${outVal}"  | grep -iP "base[0-9]+.*")" ]]; then outVal="${outVal/"base"/""}"
 	elif [[ -n "$(echo "${outVal}"  | grep -iP "b[0-9]+.*")"    ]]; then outVal="${outVal/"b"/""}"; fi
 
-	## Validate
-	if [[ "${outVal}" =~ 10|16|26|32|32c|32h|32r|32w|36|48j1|52|62|64|64r|64u|64j1u|64j1uw|128|128|128j1|256|256j1 ]]; then :
+	## Validate. Anchored, or a base merely *containing* a valid one (eg '1000', '32x') gets through,
+	## and x9convertbase1 then returns empty with rc=0, which surfaces much later as a *-ERROR field.
+	if [[ "${outVal}" =~ ^(10|16|26|32|32c|32h|32r|32w|36|48j1|52|62|64|64r|64u|64j1u|64j1uw|128|128j1|256|256j1)$ ]]; then :
 	else fThrowError "Unexpected base specified for '--base', '${inVal}'."  "${FUNCNAME[0]}"; fi
 
 	## Return
@@ -1141,13 +1142,13 @@ function fEcho_ResetBlankCounter() { _wasLastEchoBlank=0;                       
 declare -i _wasCleanupRun=0
 
 function fThrowError(){
-	local errMsg="$1"
-	local funcName="$2"
+	local    errMsg="$1"
+	local -r funcName="$2"
 	[[ -z "${errMsg}" ]] && errMsg="An error occurred."
-	if [[ -z "${errMsg}" ]]; then
+	if [[ -z "${funcName}" ]]; then
 		errMsg="${meName}: ${errMsg}"
 	else
-		errMsg="${meName}.$2(): ${errMsg}"
+		errMsg="${meName}.${funcName}(): ${errMsg}"
 	fi
 	fEcho_Clean
 	fEcho_Clean "${errMsg}"
