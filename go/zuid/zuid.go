@@ -1,5 +1,5 @@
 //	Copyright © 2026 Jim Collier
-//	Licensed under the Apache License, Version 2.0. Full text in go/LICENSE, or:
+//	Licensed under the Apache License, Version 2.0. Full text in go/LICENSE.txt, or:
 //		https://spdx.org/licenses/Apache-2.0.html
 //	SPDX-License-Identifier: Apache-2.0
 

@@ -64,7 +64,7 @@ The cost is writing the identifier logic twice. Three things buy it back:
 - The two cross-check each other. A shared table of test vectors that both must reproduce catches a mistake in either one, which a single implementation with bindings cannot do.
 - Neither is forced into the other's constraints. A single core would have meant either cgo in the Go module, giving up static cross-compilation, or no direct use of the Go library at all.
 
-The shipped command-line tool is built from the Zig implementation. The Go side ships a module plus a small command used mainly to drive the differential tests.
+The shipped command-line tool is built from the Zig implementation, and every use of it exercises the upstream WebAssembly module - so ordinary CLI testing doubles as ongoing validation of that artifact. The Go side ships a module only; its tests replay the shared vectors, which is the differential check from that side.
 
 ### Where base conversion comes from
 
@@ -208,11 +208,13 @@ Reversible choices, best-guessed for now, and worth a second opinion before the 
 
 ```
 go/
-	zuid/               the Go module
-	cmd/zuid-go/        command, for differential testing
+	zuid/               the Go module; module only, no command
 zig/
-	src/                identifier core, and the WebAssembly host
-	include/zuid.h      the C header
+	lib/                identifier core, WebAssembly host, C module (Apache-2.0)
+		include/zuid.h  the C header
+		src/
+	cmd/                the CLI (GPL-2.0-or-later)
+		src/
 testdata/
 	vectors.tsv         shared spec; both implementations must reproduce it
 cicd/
