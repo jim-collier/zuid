@@ -105,9 +105,11 @@ The Zig side produces the CLI executable, and the C module.
 
 ## Copyright and license
 
-The CLI executable is GPL-2.0-or-later.
+The CLI executable is GPL-2.0-or-later. Full text in [LICENSE](LICENSE).
 
-The Go and C modules are Apache-2.0.
+The Go and C modules are Apache-2.0, so that embedding one carries no obligation beyond attribution. Full text in [go/LICENSE](go/LICENSE), with attribution in [go/NOTICE](go/NOTICE).
+
+The one place the split is not obvious: `go/cmd/zuid-go` sits inside the Apache-licensed module directory but is GPL-2.0-or-later, because it is a command rather than a library. It exists to drive differential tests, and nothing importable depends on it.
 
 > Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)<br />
 > Licensed under the [GNU General Public License v2.0 or later](https://spdx.org/licenses/GPL-2.0-or-later.html)<br />

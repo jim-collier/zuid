@@ -1,5 +1,7 @@
 //	Copyright © 2026 Jim Collier
-//	Licensed under the GNU General Public License, version 2 or later.
+//	Licensed under the GNU General Public License, version 2 or later. Full text
+//	in the repository root LICENSE, or:
+//		https://spdx.org/licenses/GPL-2.0-or-later.html
 //	SPDX-License-Identifier: GPL-2.0-or-later
 
 // Command zuid-go renders identifiers from the Go implementation. It exists to
