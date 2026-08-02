@@ -45,7 +45,7 @@
 
 Short, sortable, privacy-preserving unique identifiers - from a command line, a Go module, or a C module.
 
-> **Pre-alpha.** Nothing here builds yet. The design is settled and the scaffolding is in place; the code is not. See [project/backlog.md](project/backlog.md) for where it actually stands.
+> **Pre-alpha.** Both implementations build and reproduce the shared test vectors, and the CLI works for time-based identifiers. Components beyond time, configuration, and packaging are still to come. See [project/backlog.md](project/backlog.md) for where it actually stands.
 
 <!-- TOC ignore:true -->
 ## Table of contents
@@ -102,6 +102,10 @@ The Zig side produces the CLI executable, and the C module.
 ## Installing
 
 ## Building from source
+
+`cicd/cicd.bash` drives everything: it builds and tests both sides, and vendors the Wasmtime C API and the upstream WebAssembly module into `zig/vendor/` on first run. Requirements: Go 1.24+, Zig 0.16+.
+
+Or directly: `cd go && go build ./...` for the Go module, and `cd zig && zig build` for the CLI and the C libraries (artifacts land in `zig/zig-out/`).
 
 ## Copyright and license
 
