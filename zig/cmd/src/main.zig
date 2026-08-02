@@ -19,18 +19,31 @@ const help_text =
     \\    -b, --base <name>    Output base: 16, 32w, 36, or 62 (default 62).
     \\                         Any base the conversion library knows is also
     \\                         accepted, including ones that do not sort.
-    \\    -f, --format <fmt>   Format string (default "%d"). %d is the time
-    \\                         component; %% is a literal '%'. %h %u %f %m %g %r
-    \\                         are reserved and not implemented yet.
+    \\    -f, --format <fmt>   Format string (default "%d"). See below.
     \\    -p, --precision <n>  Time precision: -1 minute, 0 second, 1 millisecond
     \\                         (default 0).
+    \\        --no-hash        Emit the host, user, and FQDN names literally
+    \\                         instead of hashing them.
+    \\        --hash-chars <n> Symbols kept from a hashed component (default 8).
+    \\        --rand-chars <n> Symbols %r emits (default 6).
     \\    -h, --help           This.
     \\    -v, --version        Version and copyright.
     \\
-    \\Output is zero-padded to a fixed width per base and precision, so
-    \\identifiers sort chronologically as plain text (byte order; use
-    \\LC_COLLATE=C). Different bases or precisions have different widths and do
-    \\not sort against each other - pick one combination per use-case.
+    \\Format components:
+    \\    %d  Time, as the count of units since the Unix epoch, UTC.
+    \\    %h  Short host name, hashed by default.
+    \\    %u  User name, hashed by default.
+    \\    %f  Fully-qualified host and domain name, hashed by default.
+    \\    %m  Hardware address of the lowest-numbered non-loopback interface.
+    \\    %g  A UUID v4, rendered as the 128-bit number it is.
+    \\    %r  Random symbols from a cryptographic source.
+    \\    %%  A literal '%'. Anything else in the format goes out as itself.
+    \\
+    \\Every component but an unhashed %h, %u, or %f is a fixed number of symbols
+    \\wide, zero-padded, so identifiers sort chronologically as plain text (byte
+    \\order; use LC_COLLATE=C) and can be split by offset. Different bases or
+    \\precisions have different widths and do not sort against each other - pick
+    \\one combination per use-case.
     \\
 ;
 
@@ -47,9 +60,7 @@ pub fn main(init: std.process.Init) !void {
 
     const args = try init.minimal.args.toSlice(arena);
 
-    var base: []const u8 = "";
-    var format: []const u8 = "%d";
-    var precision = zuid.core.Precision.default;
+    var opts = zuid.core.Options{ .clock_ms = 0 };
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
@@ -65,47 +76,70 @@ pub fn main(init: std.process.Init) !void {
         } else if (std.mem.eql(u8, arg, "-b") or std.mem.eql(u8, arg, "--base")) {
             i += 1;
             if (i == args.len) return die(stderr, "Expecting a base name after {s}.", .{arg});
-            base = args[i];
+            opts.base = args[i];
         } else if (std.mem.eql(u8, arg, "-f") or std.mem.eql(u8, arg, "--format")) {
             i += 1;
             if (i == args.len) return die(stderr, "Expecting a format string after {s}.", .{arg});
-            format = args[i];
+            opts.format = args[i];
         } else if (std.mem.eql(u8, arg, "-p") or std.mem.eql(u8, arg, "--precision")) {
             i += 1;
             if (i == args.len) return die(stderr, "Expecting -1, 0, or 1 after {s}.", .{arg});
             const parsed = std.fmt.parseInt(i64, args[i], 10) catch {
                 return die(stderr, "Precision '{s}' is not a number. Want -1 (minute), 0 (second), or 1 (millisecond).", .{args[i]});
             };
-            precision = zuid.core.Precision.fromInt(parsed) orelse {
+            opts.precision = zuid.core.Precision.fromInt(parsed) orelse {
                 return die(stderr, "Precision {d} is out of range. Want -1 (minute), 0 (second), or 1 (millisecond).", .{parsed});
             };
+        } else if (std.mem.eql(u8, arg, "--no-hash")) {
+            opts.no_hash = true;
+        } else if (std.mem.eql(u8, arg, "--hash-chars")) {
+            i += 1;
+            opts.hash_chars = charCount(stderr, args, i, arg);
+        } else if (std.mem.eql(u8, arg, "--rand-chars")) {
+            i += 1;
+            opts.random_chars = charCount(stderr, args, i, arg);
         } else {
             return die(stderr, "Argument invalid or not expected: '{s}'. Try --help.", .{arg});
         }
     }
+    opts.clock_ms = zuid.clock.nowMs();
 
-    var host = zuid.host.Host.init(.auto) catch |err| {
+    var wasm_host = zuid.host.Host.init(.auto) catch |err| {
         return die(stderr, "The embedded wasm runtime failed to start: {t}.", .{err});
     };
-    defer host.deinit();
+    defer wasm_host.deinit();
+    var live: zuid.env.Live = .{};
 
     var out_buf: [zuid.core.out_buf_len]u8 = undefined;
-    const id = zuid.core.generate(host.converter(), format, base, precision, zuid.clock.nowMs(), &out_buf) catch |err| {
-        const detail = host.lastError();
+    const id = zuid.core.generate(wasm_host.converter(), live.env(), opts, &out_buf) catch |err| {
+        const detail = wasm_host.lastError();
         if (detail.len > 0) {
             return die(stderr, "{s}", .{detail});
         }
         return switch (err) {
-            error.ReservedComponent => die(stderr, "That format component is reserved but not implemented yet.", .{}),
-            error.UnknownComponent => die(stderr, "Unknown format component. Known: %d (%h %u %f %m %g %r are reserved).", .{}),
+            error.UnknownComponent => die(stderr, "Unknown format component. Known: %d %h %u %f %m %g %r, and %% for a literal.", .{}),
             error.BareFormatPercent => die(stderr, "The format string ends on a bare '%'.", .{}),
             error.ClockBeforeEpoch => die(stderr, "The clock predates the Unix epoch.", .{}),
+            error.EnvUnavailable => die(stderr, "This machine could not supply that component - no name, hardware address, or random source.", .{}),
+            error.MultiByteBase => die(stderr, "That base has multi-byte digits, so %h, %u, %f, and %r cannot be truncated in it.", .{}),
+            error.OptionRange => die(stderr, "A symbol count is out of range. Want 1 to {d}.", .{zuid.core.max_component_chars}),
             else => die(stderr, "Generation failed: {t}.", .{err}),
         };
     };
 
     try stdout.print("{s}\n", .{id});
     try stdout.flush();
+}
+
+fn charCount(stderr: *std.Io.Writer, args: []const []const u8, i: usize, flag: []const u8) u32 {
+    if (i == args.len) return die(stderr, "Expecting a symbol count after {s}.", .{flag});
+    const parsed = std.fmt.parseInt(u32, args[i], 10) catch {
+        return die(stderr, "'{s}' is not a symbol count. Want 1 to {d}.", .{ args[i], zuid.core.max_component_chars });
+    };
+    if (parsed < 1 or parsed > zuid.core.max_component_chars) {
+        return die(stderr, "{d} is out of range for {s}. Want 1 to {d}.", .{ parsed, flag, zuid.core.max_component_chars });
+    }
+    return parsed;
 }
 
 fn printVersion(w: *std.Io.Writer) !void {

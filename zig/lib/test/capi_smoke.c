@@ -1,0 +1,83 @@
+/*
+	Copyright © 2026 Jim Collier
+	SPDX-License-Identifier: Apache-2.0
+
+	Compiled and run by cicd.bash against both link modes, with the system
+	compiler rather than zig cc - the point is that a foreign toolchain can
+	use the installed header and archives.
+
+	Only the time component is pinned to an expected string. The rest come off
+	whatever machine this runs on, so their widths are what gets checked.
+*/
+
+#include <stdio.h>
+#include <string.h>
+#include <zuid.h>
+
+static int fails = 0;
+
+static void want(const char *label, const char *got, const char *expected) {
+	if (strcmp(got, expected) == 0) return;
+	printf("  %s: got %s, want %s\n", label, got, expected);
+	fails++;
+}
+
+static void wantLen(const char *label, const char *got, size_t expected) {
+	if (strlen(got) == expected) return;
+	printf("  %s: %s is %zu symbols, want %zu\n", label, got, strlen(got), expected);
+	fails++;
+}
+
+static void wantCode(const char *label, int got, int expected) {
+	if (got == expected) return;
+	printf("  %s: got code %d, want %d\n", label, got, expected);
+	fails++;
+}
+
+int main(void) {
+	char out[256];
+	zuid *z = zuid_new();
+	if (!z) {
+		printf("  zuid_new returned NULL\n");
+		return 1;
+	}
+
+	/* A pinned clock is what makes the time component reproducible. */
+	zuid_set_clock_ms(z, 946684800000LL);
+	wantCode("generate", zuid_generate(z, NULL, NULL, out, sizeof out), ZUID_OK);
+	want("time, defaults", out, "124Bxg");
+	wantCode("generate 32w", zuid_generate(z, "%d", "32w", out, sizeof out), ZUID_OK);
+	want("time, base 32w", out, "2r8pRr2");
+
+	/* Fixed widths, in base 62: hash 8, uuid 22, random 6. */
+	wantCode("generate %h", zuid_generate(z, "%h", NULL, out, sizeof out), ZUID_OK);
+	wantLen("host, hashed", out, 8);
+	wantCode("generate %g", zuid_generate(z, "%g", NULL, out, sizeof out), ZUID_OK);
+	wantLen("uuid v4", out, 22);
+	wantCode("generate %r", zuid_generate(z, "%r", NULL, out, sizeof out), ZUID_OK);
+	wantLen("random", out, 6);
+
+	wantCode("set hash chars", zuid_set_hash_chars(z, 5), ZUID_OK);
+	wantCode("set random chars", zuid_set_random_chars(z, 12), ZUID_OK);
+	wantCode("generate resized", zuid_generate(z, "%h%r", NULL, out, sizeof out), ZUID_OK);
+	wantLen("resized components", out, 17);
+
+	/* Every rejection path the header documents. */
+	wantCode("hash chars 0", zuid_set_hash_chars(z, 0), ZUID_ERR_OPTION);
+	wantCode("random chars over cap", zuid_set_random_chars(z, ZUID_MAX_COMPONENT_CHARS + 1), ZUID_ERR_OPTION);
+	wantCode("precision 2", zuid_set_precision(z, 2), ZUID_ERR_PRECISION);
+	wantCode("multi-byte base", zuid_generate(z, "%h", "2048tt", out, sizeof out), ZUID_ERR_BASE_DIGITS);
+	wantCode("unknown base", zuid_generate(z, "%d", "hexx", out, sizeof out), ZUID_ERR_UNKNOWN_BASE);
+	if (strlen(zuid_last_error(z)) == 0) {
+		printf("  unknown base: no error text\n");
+		fails++;
+	}
+	wantCode("short buffer", zuid_generate(z, "%d", "62", out, 6), ZUID_ERR_BUFFER);
+
+	zuid_free(z);
+	if (fails) {
+		printf("  %d check(s) failed\n", fails);
+		return 1;
+	}
+	return 0;
+}

@@ -186,17 +186,41 @@ Two consequences worth stating plainly:
 
 The format string keeps the predecessor's shape, since it reads well and is the part worth carrying forward:
 
-| Token | Component
-| :-- | :--
-| `%d` | Time, as above. The default format is exactly this.
-| `%h` | Host name, hashed by default
-| `%u` | User name, hashed by default
-| `%f` | Fully-qualified domain name, hashed by default
-| `%m` | MAC address of the first interface with a gateway
-| `%g` | A UUID v4
-| `%r` | Random data from a cryptographic source
+| Token | Component | Width in base 62
+| :-- | :-- | --:
+| `%d` | Time, as above. The default format is exactly this. | 6
+| `%h` | Short host name, hashed by default | 8
+| `%u` | User name, hashed by default | 8
+| `%f` | Fully-qualified name, hashed by default | 8
+| `%m` | Hardware address of the lowest-numbered non-loopback interface | 9
+| `%g` | A UUID v4 | 22
+| `%r` | Random data from a cryptographic source | 6
+| `%%` | A literal `%`. Anything else in the format goes out as itself. | -
 
-Hashed components are SHA-256, rendered in the same base as the rest and truncated to a configurable number of characters. Truncation is what makes them short enough to be useful; it also means they are a fingerprint rather than an identity, which is the intent.
+Every component is rendered as a number in the output base, and every one of them is a fixed number of symbols wide. Fixed width is what makes the leading timestamp sort, and it also means an identifier can be split back into its parts by offset. The single exception is an unhashed name, which is emitted as text.
+
+Hashed components are SHA-256 of the raw name, converted from base 16, keeping the **rightmost 8 symbols** by default. Truncation is what makes them short enough to be useful; it also means they are a fingerprint rather than an identity, which is the intent. Eight base-62 symbols is around 47 bits, so a collision between two hosts is not a practical worry.
+
+The byte-valued components all take the same path - hex in, converted from base 16 - because that is the cheapest faithful way to hand bytes to a library whose interface is strings.
+
+- `%m` is the 48-bit address as a number. The predecessor picked the interface holding the default route, which needs the routing table on three different platforms; the lowest-numbered non-loopback interface is stable enough for a value whose only job is to differ between machines, and it needs no route parsing and no subprocess.
+- `%g` is a real UUID v4 - 16 bytes from the random source with the version and variant bits forced - but rendered as the 128-bit number it is rather than in the dashed text form, which would not sort and would be four times as long.
+- `%r` draws one byte per requested symbol. That is more entropy than any base of 256 symbols or fewer can spend, so the draw never has to know the radix.
+
+One limit falls out of the conversion library's interface: **truncation needs single-byte digits**. There is no way to slice a converted string at a symbol boundary, so `%h`, `%u`, `%f`, and `%r` are refused in a base with multi-byte digits rather than each implementation guessing differently. Padding is unaffected, so `%d`, `%m`, and `%g` work in any base. Every base worth putting in an identifier qualifies; only the exotic ones are ruled out.
+
+### Component widths
+
+`%d` derives its width from the horizon. The other fixed-size components derive theirs from a bit count - 48 for a MAC, 128 for a UUID - by the same rule: the smallest number of symbols that holds the largest possible value.
+
+| Base | `%m` (48 bits) | `%g` (128 bits)
+| :-- | --: | --:
+| 16 | 12 | 32
+| 32 | 10 | 26
+| 36 | 10 | 25
+| 62 | 9 | 22
+
+Hashed and random components are not derived; their width is whatever symbol count was asked for.
 
 ### Resolved questions
 
@@ -205,6 +229,13 @@ Three choices were left open until the vectors froze; all three are now settled:
 - **Padding horizon: year 3000.** The predecessor does not pad, so it had no horizon to inherit; 3000 was chosen as a reasonable compromise. Only base 16 at millisecond precision sits anywhere near its limit, so moving the horizon a few centuries changes almost nothing.
 - **Precision: selectable, `-1|0|1`, defaulting to seconds.** The predecessor already worked through this trade-off, and its answer carries forward: minute, second, and millisecond, second as the default. What was dropped is the algorithm choice, not the precision choice.
 - **Same-tick repeats stay literal, with a warning.** A time-only format is fully determined by the clock, so several identifiers generated within one tick come out identical - verified, not hypothetical. The format means what it says: nothing is appended silently. When the command grows the ability to emit more than one identifier per invocation, it will warn on stderr when the output contains repeats and suggest `%r`; callers wanting uniqueness say so in the format.
+
+Four more were settled when the remaining components landed:
+
+- **Hashed components are 8 symbols, uniformly.** The predecessor used 5 for host and user and 8 for the FQDN. One number is easier to remember than three, and 5 symbols in base 62 is only about 30 bits, which is thin across a large fleet.
+- **Two flags rather than six.** `--no-hash` and `--hash-chars` apply to all three name components, where the predecessor had a hashing switch and a width per component. Per-component control is the kind of surface that grew by accretion there, and it is the thing this project set out to improve on.
+- **`%r` defaults to 6 symbols**, not the predecessor's 4. Around 36 bits: enough that appending `%r` to a same-tick timestamp actually resolves the collision it exists to resolve.
+- **`%m` takes the lowest-numbered non-loopback interface**, for the reasons under [Format and components](#format-and-components).
 
 ## Project structure
 
@@ -263,9 +294,11 @@ Command line only. The interface is a deliberate improvement on the predecessor 
 
 ### Testing
 
-`testdata/vectors.tsv` is the specification in executable form. Each row fixes the inputs, including the clock and any random source, and the expected output. Both implementations run it.
+`testdata/vectors.tsv` is the specification in executable form. Each row fixes the inputs - the clock, the random stream, the host, user, and FQDN names, the hardware address, and the width options - and the expected output. Both implementations run it.
 
-Fixing the clock and the random source is what makes an identifier generator testable at all. Both implementations therefore take those as injectable inputs rather than reading them directly at the point of use.
+Pinning all of that is what makes an identifier generator testable at all. So neither implementation reads the machine at the point of use: everything arrives through an injectable interface, and there is exactly one live implementation of that interface per side. The vectors then test *rendering*, which both sides must agree on, while acquisition is free to differ per platform - which it has to, since finding a hardware address has nothing in common between Go's portable interface list and a C library call.
+
+The expected column was computed a third time, in a throwaway script working from this document rather than from either implementation, so that "both sides agree" cannot mean "both sides are wrong the same way".
 
 ## Relationship to x9muid1
 
@@ -296,4 +329,5 @@ This split is the same arrangement the sister project uses, and for the same rea
 3. ~~Upstream the reactor WebAssembly build to `convert-base-v2`.~~ Done, upstream.
 4. ~~Build the Zig implementation and the C module against that.~~ Done.
 5. ~~Run both against the shared vectors, and reconcile.~~ Done; both sides replay every row.
-6. Command-line surface (a minimal one exists), then the remaining components, then configuration, then packaging.
+6. ~~The remaining components - host, user, FQDN, MAC, UUID, random.~~ Done, both sides, with the vectors extended to cover them.
+7. Configuration, then multi-emit, then packaging.

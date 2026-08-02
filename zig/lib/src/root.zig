@@ -8,6 +8,7 @@
 
 pub const core = @import("core.zig");
 pub const host = @import("host.zig");
+pub const env = @import("env.zig");
 pub const clock = @import("clock.zig");
 
 pub const version = core.version;

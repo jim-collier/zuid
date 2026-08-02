@@ -45,7 +45,7 @@
 
 Short, sortable, privacy-preserving unique identifiers - from a command line, a Go module, or a C module.
 
-> **Pre-alpha.** Both implementations build and reproduce the shared test vectors, and the CLI works for time-based identifiers. Components beyond time, configuration, and packaging are still to come. See [project/backlog.md](project/backlog.md) for where it actually stands.
+> **Pre-alpha.** Both implementations build and reproduce the shared test vectors, and every component works from the CLI, the Go module, and the C module. Configuration files, emitting more than one identifier per run, and packaging are still to come. See [project/backlog.md](project/backlog.md) for where it actually stands.
 
 <!-- TOC ignore:true -->
 ## Table of contents
@@ -68,6 +68,17 @@ A UUID is 36 characters, sorts meaninglessly, and is awkward to read over a phon
 An identifier built from a timestamp and rendered in a compact base is far shorter, sorts in creation order as plain text, and is still unique enough for the job. When it is not, more components can be mixed in - more time precision, host, user, MAC, a UUID, or random data - and the same identifier gets as unique as required.
 
 Host and user components are hashed by default, so an identifier does not leak where it came from.
+
+```
+$ zuid                          # the default: a timestamp, base 62, to the second
+1wqd1q
+$ zuid -f '%d%r'                # plus six random symbols, for same-second uniqueness
+1wqd1wDppAd6
+$ zuid -f '%d-%h-%u' -p 1       # millisecond precision, with a hashed host and user
+0VRArWn2-rw79Mr05-6UI3mO4y
+```
+
+Every component is a fixed width, so identifiers line up in a column, sort as text, and can be split back into their parts by offset.
 
 ## Features
 

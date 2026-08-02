@@ -10,6 +10,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const core = @import("core.zig");
 const host = @import("host.zig");
+const env = @import("env.zig");
 const clock = @import("clock.zig");
 
 // Per the memory-safety decisions: DebugAllocator when debugging the library
@@ -25,18 +26,23 @@ fn codeFor(err: core.Error) c_int {
     return switch (err) {
         core.Error.UnknownBase => 1,
         core.Error.BareFormatPercent, core.Error.UnknownComponent => 2,
-        core.Error.ReservedComponent => 3,
-        core.Error.BadInput, core.Error.ConvertFailed => 4,
+        core.Error.BadInput, core.Error.ConvertFailed, core.Error.WidthOverflow => 4,
         core.Error.BufferTooSmall => 5,
         core.Error.ClockBeforeEpoch => 6,
-        core.Error.WidthOverflow => 4,
+        core.Error.OptionRange => 9,
+        core.Error.EnvUnavailable => 10,
+        core.Error.MultiByteBase => 11,
     };
 }
 
 const Zuid = struct {
     wasm_host: host.Host,
+    live_env: env.Live,
     fixed_clock_ms: ?i64,
     precision: core.Precision,
+    no_hash: bool,
+    hash_chars: u32,
+    random_chars: u32,
     // The host's error text plus a NUL, so zuid_last_error can hand out a C string.
     err_buf: [host.Host.err_buf_len + 1]u8,
 
@@ -53,8 +59,12 @@ pub export fn zuid_new() ?*Zuid {
         gpa.destroy(self);
         return null;
     };
+    self.live_env = .{};
     self.fixed_clock_ms = null;
     self.precision = core.Precision.default;
+    self.no_hash = false;
+    self.hash_chars = core.default_hash_chars;
+    self.random_chars = core.default_random_chars;
     self.err_buf[0] = 0;
     return self;
 }
@@ -71,12 +81,18 @@ pub export fn zuid_generate(z: ?*Zuid, format: ?[*:0]const u8, base: ?[*:0]const
     self.err_buf[0] = 0;
 
     const fmt: []const u8 = if (format) |f| std.mem.span(f) else "";
-    const fmt_or_default = if (fmt.len == 0) "%d" else fmt;
-    const base_name: []const u8 = if (base) |b| std.mem.span(b) else "";
-    const ms = self.fixed_clock_ms orelse clock.nowMs();
+    const opts = core.Options{
+        .format = if (fmt.len == 0) "%d" else fmt,
+        .base = if (base) |b| std.mem.span(b) else "",
+        .precision = self.precision,
+        .clock_ms = self.fixed_clock_ms orelse clock.nowMs(),
+        .no_hash = self.no_hash,
+        .hash_chars = self.hash_chars,
+        .random_chars = self.random_chars,
+    };
 
     var id_buf: [core.out_buf_len]u8 = undefined;
-    const id = core.generate(self.wasm_host.converter(), fmt_or_default, base_name, self.precision, ms, &id_buf) catch |err| {
+    const id = core.generate(self.wasm_host.converter(), self.live_env.env(), opts, &id_buf) catch |err| {
         self.setErrText(self.wasm_host.lastError());
         return codeFor(err);
     };
@@ -90,6 +106,29 @@ pub export fn zuid_set_precision(z: ?*Zuid, precision: c_int) c_int {
     const self = z orelse return 7;
     self.precision = core.Precision.fromInt(precision) orelse return 8;
     return 0;
+}
+
+pub export fn zuid_set_hashing(z: ?*Zuid, enabled: c_int) void {
+    const self = z orelse return;
+    self.no_hash = enabled == 0;
+}
+
+pub export fn zuid_set_hash_chars(z: ?*Zuid, chars: c_int) c_int {
+    const self = z orelse return 7;
+    if (!inRange(chars)) return 9;
+    self.hash_chars = @intCast(chars);
+    return 0;
+}
+
+pub export fn zuid_set_random_chars(z: ?*Zuid, chars: c_int) c_int {
+    const self = z orelse return 7;
+    if (!inRange(chars)) return 9;
+    self.random_chars = @intCast(chars);
+    return 0;
+}
+
+fn inRange(chars: c_int) bool {
+    return chars >= 1 and chars <= core.max_component_chars;
 }
 
 pub export fn zuid_set_clock_ms(z: ?*Zuid, ms: c_longlong) void {

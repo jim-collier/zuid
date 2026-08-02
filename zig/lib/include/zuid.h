@@ -29,15 +29,21 @@ typedef struct zuid zuid;
 
 enum {
 	ZUID_OK = 0,
-	ZUID_ERR_UNKNOWN_BASE = 1, /* base name resolves to nothing; zuid_last_error suggests near matches */
-	ZUID_ERR_BAD_FORMAT = 2,   /* bare '%' at the end, or an unknown %x component */
-	ZUID_ERR_RESERVED = 3,     /* %h %u %f %m %g %r are reserved by the spec, not implemented yet */
-	ZUID_ERR_CONVERT = 4,      /* base conversion failed; see zuid_last_error */
-	ZUID_ERR_BUFFER = 5,       /* out_cap is too small for the identifier plus its NUL */
-	ZUID_ERR_CLOCK = 6,        /* the clock predates the Unix epoch */
-	ZUID_ERR_INTERNAL = 7,     /* the embedded runtime or module failed */
-	ZUID_ERR_PRECISION = 8     /* precision is not -1, 0, or 1 */
+	ZUID_ERR_UNKNOWN_BASE = 1,  /* base name resolves to nothing; zuid_last_error suggests near matches */
+	ZUID_ERR_BAD_FORMAT = 2,    /* bare '%' at the end, or an unknown %x component */
+	ZUID_ERR_RESERVED = 3,      /* no longer produced; every component is implemented */
+	ZUID_ERR_CONVERT = 4,       /* base conversion failed; see zuid_last_error */
+	ZUID_ERR_BUFFER = 5,        /* out_cap is too small for the identifier plus its NUL */
+	ZUID_ERR_CLOCK = 6,         /* the clock predates the Unix epoch */
+	ZUID_ERR_INTERNAL = 7,      /* the embedded runtime or module failed */
+	ZUID_ERR_PRECISION = 8,     /* precision is not -1, 0, or 1 */
+	ZUID_ERR_OPTION = 9,        /* a symbol count is outside 1..ZUID_MAX_COMPONENT_CHARS */
+	ZUID_ERR_ENV = 10,          /* no host name, user, hardware address, or random source */
+	ZUID_ERR_BASE_DIGITS = 11   /* the base has multi-byte digits, so %h %u %f %r cannot be truncated in it */
 };
+
+/* Upper bound on zuid_set_hash_chars and zuid_set_random_chars. */
+#define ZUID_MAX_COMPONENT_CHARS 64
 
 /* NULL when the embedded runtime cannot start. */
 zuid *zuid_new(void);
@@ -46,8 +52,21 @@ void zuid_free(zuid *z);
 /*
 	Renders one identifier into out, NUL-terminated. A NULL or empty format
 	means "%d" (the time component); a NULL or empty base means base 62.
-	Returns ZUID_OK or one of the codes above. 64 bytes of out is plenty for
-	any curated base.
+	Returns ZUID_OK or one of the codes above.
+
+	Format components:
+		%d  time, as the precision's unit count since the Unix epoch UTC
+		%h  short host name, hashed by default
+		%u  user name, hashed by default
+		%f  fully-qualified name, hashed by default
+		%m  hardware address of the lowest-numbered non-loopback interface
+		%g  a UUID v4, rendered as the 128-bit number it is
+		%r  random symbols from a cryptographic source
+		%%  a literal '%'
+
+	Every component but an unhashed %h %u %f is a fixed number of symbols
+	wide, so an identifier can be split by offset. 256 bytes of out holds a
+	format naming every component in any curated base.
 */
 int zuid_generate(zuid *z, const char *format, const char *base, char *out, size_t out_cap);
 
@@ -57,6 +76,20 @@ int zuid_generate(zuid *z, const char *format, const char *base, char *out, size
 	of different precisions do not sort against each other.
 */
 int zuid_set_precision(zuid *z, int precision);
+
+/*
+	Hashing for %h, %u, and %f. On by default: the name goes through SHA-256
+	and only zuid_set_hash_chars symbols survive, so the identifier carries a
+	fingerprint rather than the name. Turning it off emits the name itself,
+	which is then the one component that is not fixed width.
+*/
+void zuid_set_hashing(zuid *z, int enabled);
+
+/* Symbols kept from a hashed component. Default 8. */
+int zuid_set_hash_chars(zuid *z, int chars);
+
+/* Symbols %r emits. Default 6. One byte is drawn per symbol. */
+int zuid_set_random_chars(zuid *z, int chars);
 
 /* Pins the clock to a fixed Unix-milliseconds instant, for reproducible output. */
 void zuid_set_clock_ms(zuid *z, long long ms);
