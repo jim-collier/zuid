@@ -70,7 +70,7 @@ fPrint_Help(){
 		Options:
 		    --only <go|zig>   Drive one toolchain instead of both. Only that one has
 		                      to be installed.
-		    --cross           Also cross-build for: ${crossTargets[*]}
+		    --cross           Also cross-compile for: ${crossTargets[*]}
 		    --commit <msg>    Commit if everything passed. Refuses on a protected
 		                      branch: ${protectedBranches[*]}
 		    --push            Push the current branch. Implies a remote exists.
@@ -118,7 +118,6 @@ fMain(){
 	local -r repoRoot="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 	local -r goDir="${repoRoot}/go"
 	local -r zigDir="${repoRoot}/zig"
-	local -r distDir="${repoRoot}/dist"
 
 	## Args; 1] Define placeholder variables; 2] Call fInit() to set them; 3] Freeze them read-only.
 	local    onlyToolchain=""
@@ -280,18 +279,17 @@ fStage_Go(){
 fStage_Go_Cross(){
 
 	fEcho_Clean
-	fEcho "Go: cross-build"
+	fEcho "Go: cross-compile"
 
 	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
-	mkdir -p "${distDir}"
 
-	local target="" goos="" goarch="" ext=""
+	## Module only, so there is no binary to emit - this is a compile check per target.
+	local target="" goos="" goarch=""
 	for target in "${crossTargets[@]}"; do
 		goos="${target%%/*}"
 		goarch="${target##*/}"
-		ext=""; [[ "${goos}" == "windows" ]] && ext=".exe"
-		CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build -o "${distDir}/zuid-go-${goos}-${goarch}${ext}" ./cmd/zuid-go
-		fEcho_Clean "Built ......: ${goos}/${goarch}"
+		CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build ./...
+		fEcho_Clean "Compiles ...: ${goos}/${goarch}"
 	done
 
 }

@@ -62,7 +62,8 @@ In each section, items are listed approximately from newest to oldest.
 
 - 🛠️ Upstream the reactor WebAssembly build to `convert-base-v2`. This gates the whole Zig and C side.
 	- ✅ Upstream has already designed it, in more depth than anything drafted here. Nothing to propose; do not relitigate their choices.
-	- 🔘 Send them zuid's requirements: base metadata (radix and padding symbol) for fixed-width padding, a symbol count rather than a byte count, a stable error enum, and the error text. No streaming needed - inputs are about 13 bytes, so the one-shot surface alone unblocks this side.
+	- ✅ Sent them zuid's requirements: base metadata (radix and padding symbol) for fixed-width padding, a symbol count rather than a byte count, a stable error enum, and the error text. No streaming needed - inputs are about 13 bytes, so the one-shot surface alone unblocks this side.
+	- ✅ Upstream now has a working reactor build. Streaming is still in progress there, but zuid does not use it, so the gate on the Zig side is lifted.
 
 ### Identifier core
 
@@ -79,18 +80,18 @@ In each section, items are listed approximately from newest to oldest.
 ### Command-line interface
 
 - 🔘 Format string selecting and ordering components. Improve on the predecessor's surface rather than porting it.
-- 🛠️ Curated base list in the help output: **16, 32w, 36, 62**, default 62. `--base` still accepts any base the library knows. Done in `zuid-go`; the shipped CLI is still the Zig one.
+- 🔘 Curated base list in the help output: **16, 32w, 36, 62**, default 62. `--base` still accepts any base the library knows. The list itself is settled; the CLI that shows it is the Zig one, not yet started. The `zuid-go` command that first carried it was dropped - the Go side is module-only.
 	- Base 64 was dropped: its RFC 4648 alphabet does not sort, and it needs the same 8 characters as base 62, which does.
 	- ✅ Alphabets reconciled against `convertbase`. Its `32w` is the same 32 symbols the vectors assume, reached by the same alias. All 24 rows reproduce through the real library rather than a local table.
-- 🛠️ Generate more than one identifier per invocation. `--count` works, but a time-only format repeats within a millisecond - see the open question in `design.md`.
+- 🔘 Generate more than one identifier per invocation. A time-only format repeats within a millisecond - see the open question in `design.md`.
 
 ### Modules
 
 - ✅ Go module, importable without cgo, keeping static cross-compilation. Builds `CGO_ENABLED=0` for linux/arm64, windows/amd64, and darwin/arm64, now driven by `cicd.bash --cross`.
 - 🔘 C module: static and shared library plus `zuid.h`, cross-compiled with `zig cc`.
-- 🛠️ Both modules Apache-2.0; the command stays GPL-2.0-or-later.
-	- ✅ Go side: `LICENSE` at the repo root (GPL-2.0-or-later, for the CLI), `go/LICENSE` and `go/NOTICE` (Apache-2.0, for the module). The SPDX headers now name the file that applies to them.
-	- 🔘 C module, once there is one to license.
+- ✅ Both modules Apache-2.0; the command stays GPL-2.0-or-later.
+	- ✅ Per-directory license files, all `.txt`: repo root and `zig/cmd/` GPL-2.0-or-later; `go/` and `zig/lib/` each Apache-2.0 with a `NOTICE.txt`. Placed ahead of the Zig source so the split is locked in.
+	- ✅ Dropping the Go command removed the one awkward case - a GPL command inside the Apache module directory - so no prose has to explain the split anymore.
 
 ### Build, CI/CD, and install
 
@@ -140,8 +141,9 @@ In each section, items are listed approximately from newest to oldest.
 
 ### Misc to-do
 
-- ✅ Go side brought up: `go/zuid` plus the `zuid-go` command. All 24 vector rows reproduce, 31 tests pass, `gofmt` and `go vet` clean.
-	- ✅ Startup is 57 ms, nearly all of it building the base registry. Fine for now; revisit if the shipped CLI ever routes through Go.
+- ✅ Go side brought up: `go/zuid`. All 24 vector rows reproduce, `gofmt` and `go vet` clean.
+	- ✅ Startup is 57 ms, nearly all of it building the base registry. Irrelevant now that nothing user-facing routes through Go.
+	- ✅ The `zuid-go` command was later dropped: the CLI is Zig-only, so that every use of it also exercises the upstream WebAssembly module. The module's own tests replay the vectors, which is the differential check from the Go side.
 - ✅ Move Zig 0.13.0 -> 0.16.0. Installed and verified; 0.13.0 kept alongside so the symlink flips back.
 	- ✅ Drift spike: `main(std.process.Init)`, arena, `Io.File.Writer`, `DebugAllocator`, and the no-allocator render path all build and run. 15 rows of `vectors.tsv` reproduce.
 	- ✅ `zig fmt` uses four spaces and cannot be configured, so Zig source is spaces, not tabs. See `style_guide.md`.
