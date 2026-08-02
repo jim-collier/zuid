@@ -208,14 +208,14 @@ pub const Host = struct {
         .symbolCount = vtSymbolCount,
     };
 
-    fn vtConvert(ctx: *anyopaque, value_dec: []const u8, to_base: []const u8, out: []u8) core.Error![]const u8 {
+    fn vtConvert(ctx: *anyopaque, value_in: []const u8, from_base: []const u8, to_base: []const u8, out: []u8) core.Error![]const u8 {
         const self: *Host = @ptrCast(@alignCast(ctx));
         self.clearErr();
-        const from = try self.putStr("10");
+        const from = try self.putStr(from_base);
         defer self.freeRegion(from.ptr);
         const to = try self.putStr(to_base);
         defer self.freeRegion(to.ptr);
-        const value = try self.putStr(value_dec);
+        const value = try self.putStr(value_in);
         defer self.freeRegion(value.ptr);
 
         var results: [1]c.wasmtime_val_t = undefined;

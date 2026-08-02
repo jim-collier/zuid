@@ -7,91 +7,181 @@
 # base       output base
 # precision  -1 minute, 0 second, 1 millisecond (the CLI default is 0)
 # clock_ms   the injected clock, in milliseconds since the Unix epoch UTC
+# env        injected state and options, '-' for none (see below)
 # expected   the identifier
 #
 # The clock is always injected in milliseconds; coarser precisions truncate
 # toward zero, and the truncation rows below pin that down.
 #
-# Time-only rows are fully determined by the clock, so they need no other
-# injected state. Rows covering %h %u %f %m %g %r come once those components
-# are specified, and will carry their own input columns.
+# The env column is a comma-separated list of key=value pairs. Unset keys take
+# the defaults shown, so a row only states what it cares about:
 #
-# Output is zero-padded to a fixed width per base and precision, chosen to
-# hold any timestamp through the year 3000, so that byte-order sort matches
-# chronological order. Padding uses each alphabet's zero digit, which for 32w
-# is '2' rather than '0'. Identifiers of different precisions have different
-# widths and do not sort against each other - same caveat as mixing bases.
+#   host=testhost                 %h, the short host name
+#   user=testuser                 %u, the user name
+#   fqdn=testhost.example.com     %f, the fully-qualified name
+#   mac=02005E100000              %m, 48 bits of hex, no separators
+#   rand=                         the random stream %g and %r draw from, hex
+#   nohash=0                      1 turns hashing off for %h %u %f
+#   hashchars=8                   symbols kept from a hashed component
+#   randchars=6                   symbols %r emits
 #
-# name	format	base	precision	clock_ms	expected
-time-ms-epoch	%d	16	1	0	000000000000
-time-ms-epoch	%d	32w	1	0	222222222
-time-ms-epoch	%d	36	1	0	000000000
-time-ms-epoch	%d	62	1	0	00000000
-time-ms-epoch+1ms	%d	16	1	1	000000000001
-time-ms-epoch+1ms	%d	32w	1	1	222222223
-time-ms-epoch+1ms	%d	36	1	1	000000001
-time-ms-epoch+1ms	%d	62	1	1	00000001
-time-ms-y2k	%d	16	1	946684800000	00DC6ACFAC00
-time-ms-y2k	%d	32w	1	946684800000	2qVfJxH22
-time-ms-y2k	%d	36	1	946684800000	0C2WFOQO0
-time-ms-y2k	%d	62	1	946684800000	0GfLcwXQ
-time-ms-design-date	%d	16	1	1785585600000	019FBD320600
-time-ms-design-date	%d	32w	1	1785585600000	3XwwX63R2
-time-ms-design-date	%d	36	1	1785585600000	0MSABKAO0
-time-ms-design-date	%d	62	1	1785585600000	0VR2tCvw
-time-ms-design-date+1ms	%d	16	1	1785585600001	019FBD320601
-time-ms-design-date+1ms	%d	32w	1	1785585600001	3XwwX63R3
-time-ms-design-date+1ms	%d	36	1	1785585600001	0MSABKAO1
-time-ms-design-date+1ms	%d	62	1	1785585600001	0VR2tCvx
-time-ms-horizon-eve	%d	16	1	32503679999999	1D8FDA4CDFFF
-time-ms-horizon-eve	%d	32w	1	32503679999999	vVxM6mhxx
-time-ms-horizon-eve	%d	36	1	32503679999999	BIRZFUNZZ
-time-ms-horizon-eve	%d	62	1	32503679999999	9EFDkpVn
-time-s-epoch	%d	16	0	0	000000000
-time-s-epoch	%d	32w	0	0	2222222
-time-s-epoch	%d	36	0	0	0000000
-time-s-epoch	%d	62	0	0	000000
-time-s-epoch+999ms	%d	16	0	999	000000000
-time-s-epoch+999ms	%d	32w	0	999	2222222
-time-s-epoch+999ms	%d	36	0	999	0000000
-time-s-epoch+999ms	%d	62	0	999	000000
-time-s-epoch+1s	%d	16	0	1000	000000001
-time-s-epoch+1s	%d	32w	0	1000	2222223
-time-s-epoch+1s	%d	36	0	1000	0000001
-time-s-epoch+1s	%d	62	0	1000	000001
-time-s-y2k	%d	16	0	946684800000	0386D4380
-time-s-y2k	%d	32w	0	946684800000	2r8pRr2
-time-s-y2k	%d	36	0	946684800000	0FNMQO0
-time-s-y2k	%d	62	0	946684800000	124Bxg
-time-s-design-date	%d	16	0	1785585600000	06A6DDFC0
-time-s-design-date	%d	32w	0	1785585600000	3f8qhw2
-time-s-design-date	%d	36	0	1785585600000	0TJ3AO0
-time-s-design-date	%d	62	0	1785585600000	1wq8Nk
-time-s-horizon-eve	%d	16	0	32503679999999	7915ECBFF
-time-s-horizon-eve	%d	32w	0	32503679999999	wCfvWxx
-time-s-horizon-eve	%d	36	0	32503679999999	EXJUNZZ
-time-s-horizon-eve	%d	62	0	32503679999999	ZTi7zD
-time-min-epoch	%d	16	-1	0	00000000
-time-min-epoch	%d	32w	-1	0	222222
-time-min-epoch	%d	36	-1	0	000000
-time-min-epoch	%d	62	-1	0	00000
-time-min-epoch+59.999s	%d	16	-1	59999	00000000
-time-min-epoch+59.999s	%d	32w	-1	59999	222222
-time-min-epoch+59.999s	%d	36	-1	59999	000000
-time-min-epoch+59.999s	%d	62	-1	59999	00000
-time-min-epoch+1min	%d	16	-1	60000	00000001
-time-min-epoch+1min	%d	32w	-1	60000	222223
-time-min-epoch+1min	%d	36	-1	60000	000001
-time-min-epoch+1min	%d	62	-1	60000	00001
-time-min-y2k	%d	16	-1	946684800000	00F0C120
-time-min-y2k	%d	32w	-1	946684800000	2Q3RF2
-time-min-y2k	%d	36	-1	946684800000	09E6G0
-time-min-y2k	%d	62	-1	946684800000	14CbA
-time-min-design-date	%d	16	-1	1785585600000	01C61910
-time-min-design-date	%d	32w	-1	1785585600000	2rJ8CR
-time-min-design-date	%d	36	-1	1785585600000	0HPUS0
-time-min-design-date	%d	62	-1	1785585600000	20rs8
-time-min-horizon-eve	%d	16	-1	32503679999999	204A1CFF
-time-min-horizon-eve	%d	32w	-1	32503679999999	R6c99x
-time-min-horizon-eve	%d	36	-1	32503679999999	8YJ3ZZ
-time-min-horizon-eve	%d	62	-1	32503679999999	af2CN
+# Component rules, in full, because the vectors are the spec:
+#
+#   %d  the clock as the precision's unit count since the Unix epoch UTC
+#   %h  %u  %f  SHA-256 of the raw name, hex uppercase, converted from base 16;
+#       the rightmost hashchars symbols. With nohash=1 the name goes out
+#       literally instead, unconverted and unpadded.
+#   %m  the MAC as a 48-bit number, converted from base 16
+#   %g  16 bytes drawn from the random stream with the UUID v4 version and
+#       variant bits forced, converted from base 16 as a 128-bit number
+#   %r  randchars bytes drawn from the random stream - one byte per symbol,
+#       ample for any base - converted from base 16; the rightmost randchars
+#       symbols
+#
+# %g and %r draw from the stream in the order they appear in the format.
+#
+# Output is zero-padded to a fixed width per component, chosen to hold that
+# component's largest value: the horizon year 3000 for %d, 48 bits for %m, 128
+# bits for %g. Hashed and random components are fixed at their configured
+# symbol count. Padding uses each alphabet's zero digit, which for 32w is '2'
+# rather than '0'.
+#
+# Fixed width is what makes byte-order sort match chronological order, and it
+# also lets a multi-component identifier be split by offset. Identifiers of
+# different precisions have different widths and do not sort against each
+# other - same caveat as mixing bases.
+#
+# name	format	base	precision	clock_ms	env	expected
+time-ms-epoch	%d	16	1	0	-	000000000000
+time-ms-epoch	%d	32w	1	0	-	222222222
+time-ms-epoch	%d	36	1	0	-	000000000
+time-ms-epoch	%d	62	1	0	-	00000000
+time-ms-epoch+1ms	%d	16	1	1	-	000000000001
+time-ms-epoch+1ms	%d	32w	1	1	-	222222223
+time-ms-epoch+1ms	%d	36	1	1	-	000000001
+time-ms-epoch+1ms	%d	62	1	1	-	00000001
+time-ms-y2k	%d	16	1	946684800000	-	00DC6ACFAC00
+time-ms-y2k	%d	32w	1	946684800000	-	2qVfJxH22
+time-ms-y2k	%d	36	1	946684800000	-	0C2WFOQO0
+time-ms-y2k	%d	62	1	946684800000	-	0GfLcwXQ
+time-ms-design-date	%d	16	1	1785585600000	-	019FBD320600
+time-ms-design-date	%d	32w	1	1785585600000	-	3XwwX63R2
+time-ms-design-date	%d	36	1	1785585600000	-	0MSABKAO0
+time-ms-design-date	%d	62	1	1785585600000	-	0VR2tCvw
+time-ms-design-date+1ms	%d	16	1	1785585600001	-	019FBD320601
+time-ms-design-date+1ms	%d	32w	1	1785585600001	-	3XwwX63R3
+time-ms-design-date+1ms	%d	36	1	1785585600001	-	0MSABKAO1
+time-ms-design-date+1ms	%d	62	1	1785585600001	-	0VR2tCvx
+time-ms-horizon-eve	%d	16	1	32503679999999	-	1D8FDA4CDFFF
+time-ms-horizon-eve	%d	32w	1	32503679999999	-	vVxM6mhxx
+time-ms-horizon-eve	%d	36	1	32503679999999	-	BIRZFUNZZ
+time-ms-horizon-eve	%d	62	1	32503679999999	-	9EFDkpVn
+time-s-epoch	%d	16	0	0	-	000000000
+time-s-epoch	%d	32w	0	0	-	2222222
+time-s-epoch	%d	36	0	0	-	0000000
+time-s-epoch	%d	62	0	0	-	000000
+time-s-epoch+999ms	%d	16	0	999	-	000000000
+time-s-epoch+999ms	%d	32w	0	999	-	2222222
+time-s-epoch+999ms	%d	36	0	999	-	0000000
+time-s-epoch+999ms	%d	62	0	999	-	000000
+time-s-epoch+1s	%d	16	0	1000	-	000000001
+time-s-epoch+1s	%d	32w	0	1000	-	2222223
+time-s-epoch+1s	%d	36	0	1000	-	0000001
+time-s-epoch+1s	%d	62	0	1000	-	000001
+time-s-y2k	%d	16	0	946684800000	-	0386D4380
+time-s-y2k	%d	32w	0	946684800000	-	2r8pRr2
+time-s-y2k	%d	36	0	946684800000	-	0FNMQO0
+time-s-y2k	%d	62	0	946684800000	-	124Bxg
+time-s-design-date	%d	16	0	1785585600000	-	06A6DDFC0
+time-s-design-date	%d	32w	0	1785585600000	-	3f8qhw2
+time-s-design-date	%d	36	0	1785585600000	-	0TJ3AO0
+time-s-design-date	%d	62	0	1785585600000	-	1wq8Nk
+time-s-horizon-eve	%d	16	0	32503679999999	-	7915ECBFF
+time-s-horizon-eve	%d	32w	0	32503679999999	-	wCfvWxx
+time-s-horizon-eve	%d	36	0	32503679999999	-	EXJUNZZ
+time-s-horizon-eve	%d	62	0	32503679999999	-	ZTi7zD
+time-min-epoch	%d	16	-1	0	-	00000000
+time-min-epoch	%d	32w	-1	0	-	222222
+time-min-epoch	%d	36	-1	0	-	000000
+time-min-epoch	%d	62	-1	0	-	00000
+time-min-epoch+59.999s	%d	16	-1	59999	-	00000000
+time-min-epoch+59.999s	%d	32w	-1	59999	-	222222
+time-min-epoch+59.999s	%d	36	-1	59999	-	000000
+time-min-epoch+59.999s	%d	62	-1	59999	-	00000
+time-min-epoch+1min	%d	16	-1	60000	-	00000001
+time-min-epoch+1min	%d	32w	-1	60000	-	222223
+time-min-epoch+1min	%d	36	-1	60000	-	000001
+time-min-epoch+1min	%d	62	-1	60000	-	00001
+time-min-y2k	%d	16	-1	946684800000	-	00F0C120
+time-min-y2k	%d	32w	-1	946684800000	-	2Q3RF2
+time-min-y2k	%d	36	-1	946684800000	-	09E6G0
+time-min-y2k	%d	62	-1	946684800000	-	14CbA
+time-min-design-date	%d	16	-1	1785585600000	-	01C61910
+time-min-design-date	%d	32w	-1	1785585600000	-	2rJ8CR
+time-min-design-date	%d	36	-1	1785585600000	-	0HPUS0
+time-min-design-date	%d	62	-1	1785585600000	-	20rs8
+time-min-horizon-eve	%d	16	-1	32503679999999	-	204A1CFF
+time-min-horizon-eve	%d	32w	-1	32503679999999	-	R6c99x
+time-min-horizon-eve	%d	36	-1	32503679999999	-	8YJ3ZZ
+time-min-horizon-eve	%d	62	-1	32503679999999	-	af2CN
+
+# Hashed components: SHA-256 of the name, converted from base 16, rightmost
+# hash_chars symbols (default 8).
+hash-host	%h	16	0	0	-	8654C5D9
+hash-host	%h	32w	0	0	-	4W57FVPm
+hash-host	%h	36	0	0	-	A36QQJ89
+hash-host	%h	62	0	0	-	rw79Mr05
+hash-user	%u	16	0	0	-	2C1D6684
+hash-user	%u	32w	0	0	-	xcg3pmc6
+hash-user	%u	36	0	0	-	MWV46CUC
+hash-user	%u	62	0	0	-	6UI3mO4y
+hash-fqdn	%f	16	0	0	-	E0569E14
+hash-fqdn	%f	32w	0	0	-	cxR7M9Rc
+hash-fqdn	%f	36	0	0	-	D8C0LBMC
+hash-fqdn	%f	62	0	0	-	M6O3MdAC
+
+# hash_chars is configurable. 43 is the full width of a SHA-256 in base 62,
+# so that row also covers a hash that renders short and needs left-filling.
+hash-chars-5	%h	62	0	0	hashchars=5	9Mr05
+hash-chars-1	%h	62	0	0	hashchars=1	5
+hash-chars-43	%h	62	0	0	hashchars=43	I1s24JgnJYwj3VQdgiWY53QAolAYPMH8stdrw79Mr05
+hash-chars-64	%u	16	0	0	hashchars=64	AE5DEB822E0D71992900471A7199D0D95B8E7C9D05C40A8245A281FD2C1D6684
+
+# Hashing off: the name goes out literally, unconverted and unpadded.
+nohash-host	%h	62	0	0	nohash=1	testhost
+nohash-user	%u	62	0	0	nohash=1	testuser
+nohash-fqdn	%f	62	0	0	nohash=1	testhost.example.com
+
+# MAC: 48 bits, so the width holds any address. The low row is the padding case.
+mac	%m	16	0	0	-	02005E100000
+mac	%m	32w	0	0	-	2423Q32222
+mac	%m	36	0	0	-	00S2XX8EF4
+mac	%m	62	0	0	-	00ck3P3Jo
+mac-low	%m	62	0	0	mac=000000000001	000000001
+mac-high	%m	62	0	0	mac=FFFFFFFFFFFF	1HvWXNAa7
+
+# UUID v4: 16 bytes drawn from the random source, version and variant bits
+# forced, then converted as a 128-bit number. The zero row shows those bits.
+uuid	%g	16	0	0	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0	0F1E2D3C4B5A49788796A5B4C3D2E1F0
+uuid	%g	32w	0	0	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0	2Q5jgXjWppF7rCQ7f7gX3v7jQR
+uuid	%g	36	0	0	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0	0W7XTFJF7ZEINQR3R4H97LZHS
+uuid	%g	62	0	0	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0	0SWftNEX5hXfaeOnU4YWmW
+uuid-zero-draw	%g	16	0	0	rand=00000000000000000000000000000000	00000000000040008000000000000000
+uuid-zero-draw	%g	62	0	0	rand=00000000000000000000000000000000	000000001VgEh72lXvTXkG
+
+# Random: one byte drawn per requested symbol, rightmost random_chars kept.
+random	%r	16	0	0	rand=A1B2C3D4E5F6	D4E5F6
+random	%r	32w	0	0	rand=A1B2C3D4E5F6	3vFmQg
+random	%r	36	0	0	rand=A1B2C3D4E5F6	7OJ5DI
+random	%r	62	0	0	rand=A1B2C3D4E5F6	4pQFxG
+random-chars-4	%r	62	0	0	rand=A1B2C3D4,randchars=4	apVs
+random-chars-12	%r	62	0	0	rand=0F1E2D3C4B5A69788796A5B4,randchars=12	aTKq6oAW1Age
+random-zero-draw	%r	62	0	0	rand=000000000000	000000
+
+# Composites: components render in format order, and %g then %r draw from the
+# same stream in that order.
+composite-time-random	%d%r	62	0	1785585600000	rand=A1B2C3D4E5F6	1wq8Nk4pQFxG
+composite-literals	%d-%h-%r	62	0	1785585600000	rand=A1B2C3D4E5F6	1wq8Nk-rw79Mr05-4pQFxG
+composite-uuid-then-random	%g%r	62	0	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F6	0SWftNEX5hXfaeOnU4YWmW4pQFxG
+composite-all	%d%h%u%f%m%g%r	62	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F6	0VR2tCvwrw79Mr056UI3mO4yM6O3MdAC00ck3P3Jo0SWftNEX5hXfaeOnU4YWmW4pQFxG
+composite-all	%d%h%u%f%m%g%r	32w	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F6	3XwwX63R24W57FVPmxcg3pmc6cxR7M9Rc2423Q322222Q5jgXjWppF7rCQ7f7gX3v7jQR3vFmQg

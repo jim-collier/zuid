@@ -208,7 +208,7 @@ fInit(){
 
 			## Opt-in stages that do not exist yet. Say so rather than pretending.
 			--package|--publish)
-				fThrowError "Not implemented yet: '${currentArg}'. Packaging waits on the Zig side, which waits on the upstream wasm module."  "${FUNCNAME[0]}"
+				fThrowError "Not implemented yet: '${currentArg}'. Packaging waits on a vendored Wasmtime archive per target."  "${FUNCNAME[0]}"
 				;;
 
 			## ¯\_(ツ)_/¯
@@ -385,6 +385,48 @@ fStage_Zig(){
 	if [[ -n "${unformattedZig}" ]]; then
 		fThrowError "zig fmt would rewrite: ${unformattedZig//$'\n'/, }"  "${FUNCNAME[0]}"
 	fi
+
+	fStage_Zig_CApi
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The C module is a shipped artifact, so a foreign toolchain has to be able to
+## use it. Deliberately not 'zig cc' - that would prove nothing.
+fStage_Zig_CApi(){
+
+	fEcho_Clean
+	fEcho "Zig: C module from a system compiler"
+
+	local systemCc=""
+	if   command -v gcc   &>/dev/null; then systemCc="gcc"
+	elif command -v clang &>/dev/null; then systemCc="clang"
+	fi
+	if [[ -z "${systemCc}" ]]; then
+		fEcho_Clean "Skipped ....: no system gcc or clang."
+		return 0
+	fi
+	fEcho_Clean "Compiler ...: ${systemCc}"
+
+	local -r smokeSrc="${zigDir}/lib/test/capi_smoke.c"
+	local -r buildDir="$(mktemp -d)"
+	trap 'rm -rf "${buildDir}"' RETURN
+
+	## Shared: self-contained, so the header and -lzuid are the whole story.
+	"${systemCc}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
+		-L "${zigDir}/zig-out/lib" -lzuid -o "${buildDir}/smoke-shared"
+	LD_LIBRARY_PATH="${zigDir}/zig-out/lib" "${buildDir}/smoke-shared"
+	fEcho_Clean "Shared .....: passed"
+
+	## Static: the consumer supplies wasmtime and the system libraries itself.
+	## No -lunwind here on purpose - libgcc already provides __register_frame,
+	## and the header says so.
+	"${systemCc}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
+		"${zigDir}/zig-out/lib/libzuid.a" "${zigDir}/vendor/wasmtime/lib/libwasmtime.a" \
+		-lpthread -ldl -lm -o "${buildDir}/smoke-static"
+	"${buildDir}/smoke-static"
+	fEcho_Clean "Static .....: passed"
 
 }
 

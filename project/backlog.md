@@ -52,9 +52,10 @@ In each section, items are listed approximately from newest to oldest.
 
 - 🛠️ Two implementations of one spec: Go, and Zig. See `design.md`.
 	- ✅ Repo, folder layout, and the architecture decisions behind the split.
-	- 🛠️ Shared test vectors (`testdata/vectors.tsv`), which both must reproduce.
+	- ✅ Shared test vectors (`testdata/vectors.tsv`), which both must reproduce.
 		- ✅ Time-only rows, across all four curated bases and all three precisions, including truncation and horizon-boundary rows. Sort guarantee checked against them.
-		- 🔘 Rows for the other components, once those are specified.
+		- ✅ Rows for the other components: 115 in total. An `env` column carries the injected host, user, FQDN, hardware address, random stream, and width options, so a row states only what it cares about.
+		- ✅ Expected values computed a third time, from `design.md` rather than from either implementation, so agreement between the two cannot just mean they are wrong the same way.
 
 - 🛠️ Base conversion comes from the sister project `convert-base-v2`, not reimplemented.
 	- ✅ Go side imports `convertbase` directly, through a local `replace` until `lib/v0.1.0` is tagged upstream. Goal 3 met: the package works as imported, no changes needed to it.
@@ -71,18 +72,22 @@ In each section, items are listed approximately from newest to oldest.
 	- ✅ One time encoding (units since the Unix epoch, UTC), replacing the predecessor's four algorithms. Precision stays selectable, carrying its surface forward: -1 minute, 0 second (default), 1 millisecond.
 	- ✅ Fixed-width zero padding, which is what actually makes output sortable. Width is derived from the horizon rather than tabulated, so moving the horizon moves the widths.
 	- ✅ The three open questions are settled: horizon year 3000, precision as above, same-tick repeats stay literal with a warning once multi-emit lands. Vectors regenerated and frozen for the time component.
-- 🛠️ Component set: time, host, user, MAC, UUID, random. Each independent of the others.
-	- ✅ Time. Reserved verbs are rejected rather than silently dropped, so a format string cannot appear to work.
-	- 🔘 Host, user, MAC, UUID, random.
-- 🔘 Host and user hashed by default, with an explicit opt-out.
-- ✅ Clock and random source injectable, so output is reproducible under test. Go has `WithClock`/`WithFixedTime`/`WithRandom`; Zig takes the milliseconds as a parameter everywhere, with one `clock.zig` reading the wall clock. The random hook lands with the `%r` component.
+- ✅ Component set: time, host, user, FQDN, MAC, UUID, random. Each independent of the others.
+	- ✅ Time. An unknown verb is rejected rather than silently dropped, so a format string cannot appear to work.
+	- ✅ Host, user, FQDN, MAC, UUID, random, on both sides.
+	- ✅ Every component is a fixed symbol count wide, so an identifier can be split by offset - not only sorted. The one exception is an unhashed name, which is text.
+	- ✅ `%m` takes the lowest-numbered non-loopback interface rather than the predecessor's default-route one, which would need the routing table on three platforms.
+	- ✅ `%g` is a real UUID v4, rendered as the 128-bit number rather than the dashed text form, which does not sort.
+	- ✅ Truncated components are refused in a base with multi-byte digits: there is no way to split a converted string at a symbol boundary, so both sides refuse rather than each guess. Padding is unaffected.
+- ✅ Host, user, and FQDN hashed by default, with an explicit opt-out. SHA-256, rightmost 8 symbols; `--no-hash` emits the names literally and `--hash-chars` resizes them.
+- ✅ Every environment source injectable, so output is reproducible under test. Go has `WithClock`/`WithFixedTime`/`WithRandom`/`WithHostname`/`WithUsername`/`WithFQDN`/`WithMAC`; Zig has an `Env` interface alongside the existing `Converter`, with `env.zig` as its one live implementation.
 
 ### Command-line interface
 
-- 🛠️ Format string selecting and ordering components. Improve on the predecessor's surface rather than porting it.
-	- ✅ The CLI exists: `zuid [-b base] [-f format] [-p precision]`, format `%d` with `%%` literals, reserved verbs rejected with a clear message.
+- ✅ Format string selecting and ordering components. Improve on the predecessor's surface rather than porting it.
+	- ✅ The CLI exists: `zuid [-b base] [-f format] [-p precision] [--no-hash] [--hash-chars n] [--rand-chars n]`, all seven components plus `%%` literals, unknown verbs rejected with a clear message.
 	- ✅ Precision flag: `-p -1|0|1` for minute/second/millisecond, default second - same surface and default as the predecessor.
-	- 🔘 Components beyond `%d`, once specified.
+	- ✅ Two hashing flags rather than the predecessor's six. Per-component widths were exactly the sort of accretion this was meant to improve on.
 - ✅ Curated base list in the help output: **16, 32w, 36, 62**, default 62. `--base` still accepts any base the library knows, and an unknown one surfaces the library's near-match suggestion. The `zuid-go` command that first carried it was dropped - the Go side is module-only.
 	- Base 64 was dropped: its RFC 4648 alphabet does not sort, and it needs the same 8 characters as base 62, which does.
 	- ✅ Alphabets reconciled against `convertbase`. Its `32w` is the same 32 symbols the vectors assume, reached by the same alias. All 24 rows reproduce through the real library rather than a local table.
@@ -94,6 +99,8 @@ In each section, items are listed approximately from newest to oldest.
 - ✅ Go module, importable without cgo, keeping static cross-compilation. Builds `CGO_ENABLED=0` for linux/arm64, windows/amd64, and darwin/arm64, now driven by `cicd.bash --cross`.
 - 🛠️ C module: static and shared library plus `zuid.h`, cross-compiled with `zig cc`.
 	- ✅ Native artifacts: `libzuid.a` (compiler-rt bundled), self-contained `libzuid.so`, and the installed header. Both link modes verified from plain gcc against a fixed clock.
+	- ✅ That verification is now a cicd stage rather than something done by hand, so the C ABI cannot rot unnoticed. It deliberately uses the system compiler - `zig cc` would prove nothing about a foreign toolchain.
+	- ✅ Every component reachable from C, with the width options sticky on the context the way precision already was.
 	- 🔘 Cross targets. Needs a vendored Wasmtime archive per target; deferred with packaging.
 - ✅ Both modules Apache-2.0; the command stays GPL-2.0-or-later.
 	- ✅ Per-directory license files, all `.txt`: repo root and `zig/cmd/` GPL-2.0-or-later; `go/` and `zig/lib/` each Apache-2.0 with a `NOTICE.txt`. Placed ahead of the Zig source so the split is locked in.
@@ -106,6 +113,7 @@ In each section, items are listed approximately from newest to oldest.
 	- ✅ Go stage builds, vets, checks formatting, and runs the vectors. `--cross` adds the three cross targets into `dist/`.
 	- ✅ Refuses `--commit` on a protected branch, so the script cannot be the thing that lands work straight on `main`.
 	- ✅ Zig stage skips itself while there is no `build.zig`, rather than failing on work that has not started.
+	- ✅ Zig stage builds ReleaseSafe, replays the vectors under both Wasmtime compilers, checks `zig fmt`, and then compiles the C smoke test with the system gcc or clang in both link modes. It skips that last part with a note if neither compiler is installed.
 	- 🔘 Packaging and publishing. Both are recognized and rejected with a reason.
 	- ✅ Fetch the Wasmtime C API: pinned version, checksum verified, extracted into `zig/vendor/`. The reactor wasm refreshes from the sibling checkout whenever it differs, and an already-vendored copy suffices when the sibling is absent.
 
@@ -125,8 +133,10 @@ In each section, items are listed approximately from newest to oldest.
 
 ### Performance and security
 
-- 🔘 Random component from a cryptographic source.
-- 🔘 Confirm the hashed host/user components cannot be reversed to the originals.
+- ✅ Random component from a cryptographic source. Go uses `crypto/rand`; Zig uses `getentropy` through libc, because 0.16 moved randomness onto `Io` the same way it moved the clocks, and the C module has no `Io` to hand it.
+- 🛠️ Confirm the hashed host/user components cannot be reversed to the originals.
+	- ✅ Not reversible by construction: 8 base-62 symbols out of a 256-bit SHA-256 discards about 200 bits, so nothing can be inverted back to a unique name.
+	- 🔘 The real exposure is a dictionary attack - host and user names come from a small space, so an attacker can hash candidates and compare. Decide whether that matters enough to want a salt, and where a salt could live given that the same name must hash the same on every machine.
 - 🛠️ Memory safety on the Zig side. See `design.md`.
 	- ✅ Decided: standard-library allocators, no hand-written or third-party one. The bigger win is the core not allocating at all.
 	- ✅ Identifier core takes no allocator - fixed widths, caller-supplied buffer. Same shape serves the C module.
@@ -146,6 +156,11 @@ In each section, items are listed approximately from newest to oldest.
 ## Backlog
 
 ### Misc to-do
+
+- ✅ The remaining components landed on both sides, and the vectors grew from 72 rows to 115.
+	- ✅ The `Converter` interface now carries a from-base, since hashes, hardware addresses, and UUIDs all arrive as hex rather than decimal.
+	- ✅ Zig gained an `Env` interface next to it, so the core still touches neither the runtime nor the operating system.
+	- 🔘 `%m` is Linux-only on the Zig side - it reads `getifaddrs` for `AF_PACKET`, and macOS wants `AF_LINK` instead. The Go module is already portable. Worth doing alongside the cross targets, since nothing on the Zig side cross-compiles yet either.
 
 - ✅ Zig side brought up: `zig/lib` (core, wasm host, C module) and `zig/cmd` (CLI).
 	- ✅ All 24 vector rows reproduce through the embedded module, under both of Wasmtime's compilers.
