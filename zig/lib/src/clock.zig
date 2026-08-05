@@ -11,11 +11,16 @@ const c = @cImport({
     @cInclude("time.h");
 });
 
-/// Milliseconds since the Unix epoch, UTC. Goes through libc because the
-/// library links it for Wasmtime anyway, and 0.16's std clock wants an Io
-/// instance the C module has no business owning.
-pub fn nowMs() i64 {
+/// Milliseconds since the Unix epoch, UTC, or null if the clock cannot be
+/// read. Goes through libc because the library links it for Wasmtime anyway,
+/// and 0.16's std clock wants an Io instance the C module has no business
+/// owning.
+///
+/// The failure case is checked rather than ignored: the timespec is left
+/// uninitialized on a failed call, so arithmetic over it would emit a wrong
+/// identifier instead of reporting anything.
+pub fn nowMs() ?i64 {
     var ts: c.struct_timespec = undefined;
-    _ = c.clock_gettime(c.CLOCK_REALTIME, &ts);
+    if (c.clock_gettime(c.CLOCK_REALTIME, &ts) != 0) return null;
     return @as(i64, ts.tv_sec) * 1000 + @divTrunc(@as(i64, ts.tv_nsec), 1_000_000);
 }

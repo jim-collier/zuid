@@ -29,19 +29,28 @@ import (
 	"os/user"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jim-collier/convert-base-v2/lib/convertbase"
 )
 
-// Curated bases offered in help. --base still accepts anything convertbase
-// knows; these are the ones that sort. The first four transcribe by hand; the
-// wide families trade that away for length, and only one of the two names each
-// radix carries is listed - tt up to 512, tz above it, which is where tt stops
-// existing.
-var CuratedBases = []string{
+// curatedBases are the bases offered in help. Base still accepts anything
+// convertbase knows; these are the ones that sort. The first four transcribe by
+// hand; the wide families trade that away for length, and only one of the two
+// names each radix carries is listed - tt up to 512, tz above it, which is
+// where tt stops existing.
+var curatedBases = []string{
 	"16", "32w", "36", "62",
 	"64tt", "128tt", "256tt", "512tt", "1024tz", "2048tz",
+}
+
+// CuratedBases returns the short list of bases suited to identifiers, in the
+// order help should show them. The result is a fresh slice, so a caller
+// rearranging it cannot change what anyone else sees.
+func CuratedBases() []string {
+	return append([]string(nil), curatedBases...)
 }
 
 // DefaultBase is what you get without asking.
@@ -49,12 +58,14 @@ const DefaultBase = "62"
 
 const (
 	// DefaultHashChars is how many symbols a hashed component keeps. Eight
-	// base-62 symbols is around 47 bits of fingerprint.
+	// base-62 symbols is around 47 bits of fingerprint; narrower bases carry
+	// proportionally less, since the count is symbols rather than bits.
 	DefaultHashChars = 8
 	// DefaultRandomChars is how many symbols %r emits.
 	DefaultRandomChars = 6
-	// MaxComponentChars bounds both, so a format string cannot ask for an
-	// identifier that will not fit a caller's buffer.
+	// MaxComponentChars bounds the width of any one component. It does not
+	// bound the whole identifier, since a format string may repeat a component
+	// and may carry literal text of any length.
 	MaxComponentChars = 64
 )
 
@@ -71,9 +82,12 @@ const (
 type Precision int
 
 const (
+	// PrecisionMinute counts whole minutes since the epoch.
 	PrecisionMinute Precision = -1
-	PrecisionSecond Precision = 0 // the default
-	PrecisionMilli  Precision = 1
+	// PrecisionSecond counts whole seconds, and is the default.
+	PrecisionSecond Precision = 0
+	// PrecisionMilli counts milliseconds, the finest the clock is read at.
+	PrecisionMilli Precision = 1
 )
 
 // DefaultPrecision matches the predecessor's default: seconds.
@@ -114,6 +128,10 @@ type Request struct {
 // host, user, FQDN, MAC - is a field rather than a package-level call, so that
 // output is reproducible under test. That is the whole basis of the shared
 // vectors.
+//
+// Generate is safe to call from several goroutines at once. Options are not:
+// they write the fields Generate reads, so apply them when constructing the
+// Generator and not afterwards.
 type Generator struct {
 	registry *convertbase.Registry
 	decimal  *convertbase.Base // input side of the time conversion
@@ -221,6 +239,9 @@ func (g *Generator) Generate(req Request) (string, error) {
 	}
 	base, err := g.registry.Lookup(req.Base)
 	if err != nil {
+		return "", fmt.Errorf("base %q: %w", req.Base, err)
+	}
+	if err := checkRenderable(base); err != nil {
 		return "", err
 	}
 	if _, err := req.Precision.msPerUnit(); err != nil {
@@ -234,6 +255,7 @@ func (g *Generator) Generate(req Request) (string, error) {
 	}
 
 	var out strings.Builder
+	out.Grow(len(req.Format) * MaxComponentChars / 8)
 	for i := 0; i < len(req.Format); i++ {
 		if req.Format[i] != '%' {
 			out.WriteByte(req.Format[i])
@@ -265,7 +287,10 @@ func (g *Generator) Generate(req Request) (string, error) {
 		case 'r':
 			rendered, err = g.randomComponent(base, req.RandomChars)
 		default:
-			return "", fmt.Errorf("unknown component %%%c", verb)
+			// Decode rather than cast: a multi-byte verb would otherwise be
+			// reported as the Latin-1 reading of its first byte.
+			bad, _ := utf8.DecodeRuneInString(req.Format[i:])
+			return "", fmt.Errorf("unknown component %%%c", bad)
 		}
 		if err != nil {
 			return "", fmt.Errorf("component %%%c: %w", verb, err)
@@ -282,10 +307,37 @@ func checkChars(what string, count int) error {
 	return nil
 }
 
+// checkRenderable rejects a base whose digits are raw bytes rather than text.
+// convertbase carries one - each of its 256 digits is a literal byte value - and
+// it converts happily, so nothing downstream would object to an identifier full
+// of control characters and invalid UTF-8. It also cannot hold a decimal
+// timestamp at all, so a format mixing %d with anything else would half work.
+// The test is the zero digit, which both implementations can read.
+func checkRenderable(base *convertbase.Base) error {
+	zero := ""
+	if len(base.Symbols) > 0 {
+		zero = base.Symbols[0]
+	}
+	for _, symbol := range zero {
+		if symbol < 0x20 || symbol == 0x7f {
+			return fmt.Errorf("base %s renders raw bytes, not text", base.Name())
+		}
+	}
+	return nil
+}
+
 // timeComponent renders the clock as the precision's unit count since the
 // Unix epoch UTC, padded to the fixed width for this base and precision.
 func (g *Generator) timeComponent(base *convertbase.Base, precision Precision) (string, error) {
-	ms := g.now().UTC().UnixMilli()
+	// Seconds first. UnixMilli is undefined once the millisecond count leaves
+	// int64, and it wraps to a small positive number - which would sail past
+	// both the sign check below and the width check in pad, and emit an
+	// identifier that collides with one from near the epoch.
+	at := g.now().UTC()
+	if seconds := at.Unix(); seconds < 0 || seconds > horizonMs/1000 {
+		return "", fmt.Errorf("clock reads %s, outside the epoch-to-horizon range", at.Format(time.RFC3339))
+	}
+	ms := at.UnixMilli()
 	if ms < 0 {
 		return "", fmt.Errorf("clock predates the Unix epoch: %d ms", ms)
 	}
@@ -343,7 +395,7 @@ func (g *Generator) macComponent(base *convertbase.Base) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return pad(converted, base, widthForBits(len(base.Symbols), macBits))
+	return pad(converted, base, widthForValueBits(len(base.Symbols), macBits))
 }
 
 // uuidComponent draws a UUID v4 from the random source and renders it as the
@@ -360,7 +412,7 @@ func (g *Generator) uuidComponent(base *convertbase.Base) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return pad(converted, base, widthForBits(len(base.Symbols), uuidBits))
+	return pad(converted, base, widthForValueBits(len(base.Symbols), uuidBits))
 }
 
 // randomComponent draws enough entropy to fill every symbol it emits.
@@ -417,6 +469,9 @@ func pad(converted string, base *convertbase.Base, width int) (string, error) {
 		return "", fmt.Errorf("value needs %d symbols in base %s, past the %d-symbol width",
 			symbols, base.Name(), width)
 	}
+	if symbols == width {
+		return converted, nil // already the right width; Fit would only re-tokenize
+	}
 	return base.Fit(converted, width)
 }
 
@@ -433,6 +488,13 @@ func symbolCount(converted string, base *convertbase.Base) (int, error) {
 // horizon, in the precision's unit. For 32w that pads with '2', because its
 // alphabet starts at '2' - looks wrong at a glance, is not.
 func WidthFor(radix int, precision Precision) (int, error) {
+	// Below 2 the loop below never terminates, and a negative radix wraps to a
+	// huge unsigned one and returns a width of 1. Neither is reachable from
+	// inside this package, but WidthFor is exported precisely so a caller can
+	// size a buffer with it.
+	if radix < 2 {
+		return 0, fmt.Errorf("radix %d: want 2 or more", radix)
+	}
 	divisor, err := precision.msPerUnit()
 	if err != nil {
 		return 0, err
@@ -446,11 +508,24 @@ func WidthFor(radix int, precision Precision) (int, error) {
 	return width, nil
 }
 
-// widthForBits is the same derivation for the components whose largest value
-// is a bit width rather than a date: the MAC's 48 and the UUID's 128. Those
-// overflow uint64, hence the big integer.
-func widthForBits(radix, bits int) int {
-	largest := new(big.Int).Lsh(big.NewInt(1), uint(bits))
+// widthKey identifies one derived width, so the big-integer ladder below runs
+// once per base rather than once per identifier.
+type widthKey struct {
+	radix   int
+	valBits int
+}
+
+var derivedWidths sync.Map // widthKey -> int
+
+// widthForValueBits is the same derivation as WidthFor for the components whose
+// largest value is a bit count rather than a date: the MAC's 48 and the UUID's
+// 128. Both overflow uint64, hence the big integer, and hence the cache.
+func widthForValueBits(radix, valBits int) int {
+	key := widthKey{radix: radix, valBits: valBits}
+	if cached, ok := derivedWidths.Load(key); ok {
+		return cached.(int)
+	}
+	largest := new(big.Int).Lsh(big.NewInt(1), uint(valBits))
 	largest.Sub(largest, big.NewInt(1))
 	step := big.NewInt(int64(radix))
 	capacity := new(big.Int).Set(step)
@@ -459,10 +534,9 @@ func widthForBits(radix, bits int) int {
 		capacity.Mul(capacity, step)
 		width++
 	}
+	derivedWidths.Store(key, width)
 	return width
 }
-
-// -- live sources ------------------------------------------------------------
 
 func liveHostname() (string, error) {
 	name, err := os.Hostname()
@@ -490,7 +564,11 @@ func liveUsername() (string, error) {
 
 // liveFQDN is best-effort. A host with no domain has no qualified name to
 // find, and falling back to the short name beats failing the identifier.
-func liveFQDN() (string, error) {
+//
+// Resolved once per process. The unqualified path is a blocking name lookup,
+// which does not belong in the middle of generating an identifier, and a host
+// that changed its answer mid-run would emit two fingerprints for one machine.
+var liveFQDN = sync.OnceValues(func() (string, error) {
 	name, err := os.Hostname()
 	if err != nil {
 		return "", fmt.Errorf("host name: %w", err)
@@ -504,13 +582,17 @@ func liveFQDN() (string, error) {
 		}
 	}
 	return name, nil
-}
+})
 
 // liveMAC takes the lowest-numbered non-loopback interface carrying an EUI-48.
 // The predecessor picked the interface holding the default route, which needs
 // the routing table on three platforms; interface order is stable enough for a
 // value whose only job is to differ between hosts.
-func liveMAC() ([]byte, error) {
+//
+// Read once per process, for the same reason liveFQDN is: enumerating every
+// interface costs far more than the conversion it feeds, and an identifier
+// should not change because a link came up.
+var liveMAC = sync.OnceValues(func() ([]byte, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return nil, fmt.Errorf("network interfaces: %w", err)
@@ -529,4 +611,4 @@ func liveMAC() ([]byte, error) {
 		return nil, errors.New("no non-loopback interface with a hardware address")
 	}
 	return chosen.HardwareAddr, nil
-}
+})
