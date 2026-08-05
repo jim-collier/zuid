@@ -79,8 +79,9 @@ fPrint_AboutAndSyntax(){
 	fEcho_Clean ""
 	#  X-------------------------------------------------------------------------------X
 	cat <<- EOF_p3vk9
-		Builds and tests both zuid implementations. Nothing is committed, pushed, or
-		packaged unless asked for.
+		Builds and tests both zuid implementations. A full run on a feature branch
+		also archives the project and publishes it. Nothing is packaged unless
+		asked for.
 
 		Syntax: ${meName} [options]
 	EOF_p3vk9
@@ -105,9 +106,9 @@ fPrint_Help(){
 		                      branch: ${protectedBranches[*]}
 		    --push            Push the current branch. Implies a remote exists.
 		    --package         Build release artifacts into dist/.
-		    --backup          Archive the whole project to ../versions/, then commit
-		                      and push. Does its own git, so it will not combine with
-		                      --commit or --push. Same protected branches as --commit.
+		    --backup          Archive and publish even on a quick run. A full run on a
+		                      feature branch does it anyway.
+		    --no-backup       Do not archive or publish, however the run went.
 		    --dogfood         Install for daily use even on a quick run. A full run
 		                      installs anyway.
 		    --no-dogfood      Do not install, however the run went.
@@ -129,6 +130,13 @@ fPrint_Help(){
 		of these that exists, so daily use is always the build that just passed:
 		${dogfoodDirs[*]}
 		It says so and moves on when none of them do.
+
+		A full run then archives the whole project - github/, private/, the lot - into
+		../versions/ and publishes it, committing and pushing through the helper in
+		cicd/utility/. Build caches and other regenerable trees are left out, so the
+		archive is a fraction of what is on disk. On ${protectedBranches[*]} it says so
+		and moves on, since publishing belongs on a feature branch; asking for it there
+		by name is an error rather than a shrug.
 
 		Exit code is 0 only if every stage that ran passed.
 	EOF_h7wq4
@@ -201,7 +209,8 @@ fMain(){
 	local -i commitAsked=0
 	local -i doPush=0
 	local -i doPackage=0
-	local -i doBackup=0
+	local -i doBackup=1
+	local -i backupAsked=0
 	local -i doDogfood=1
 	local -i dogfoodAsked=0
 	fInit "${@}"
@@ -211,13 +220,28 @@ fMain(){
 	readonly doSync
 	readonly doPush
 	readonly doPackage
-	readonly doBackup
 
 	## Dogfooding rides along with every full run - the whole point is that daily
 	## use is the build that just passed. A quick run is mid-iteration, so it stays
 	## off the path unless asked for by name.
 	if ((doQuick)) && ((! dogfoodAsked)); then doDogfood=0; fi
 	readonly doDogfood
+
+	## Backing up rides along the same way, and for the same reason: an archive
+	## nobody remembered to ask for is not an archive. A quick run is mid-iteration,
+	## so it neither archives nor publishes unless asked for by name.
+	if ((doQuick)) && ((! backupAsked)); then doBackup=0; fi
+
+	## It publishes as well as archives, so it cannot run on a merge target. Asked
+	## for by name there that is an error and fStage_Backup says so; riding along it
+	## simply does not apply, and a stage that runs by default must never fail a run
+	## that was otherwise good. Settled here rather than in the stage so the commit
+	## message below is only asked for when there is going to be a commit.
+	if ((doBackup)) && ((! backupAsked)) && fIsProtectedBranch; then
+		doBackup=0
+		fEcho_Clean "Backup .....: skipped on '$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD)' - publish from a feature branch."
+	fi
+	readonly doBackup
 
 	local -i doGo=1;  [[ "${onlyToolchain}" == "zig" ]] && doGo=0
 	local -i doZig=1; [[ "${onlyToolchain}" == "go"  ]] && doZig=0
@@ -296,7 +320,8 @@ fInit(){
 			--commit)     doCommit=1; commitAsked=1 ;;
 			--push)       doPush=1    ;;
 			--package)    doPackage=1 ;;
-			--backup)     doBackup=1  ;;
+			--backup)     doBackup=1; backupAsked=1 ;;
+			--no-backup)  doBackup=0; backupAsked=0 ;;
 			--dogfood)    doDogfood=1; dogfoodAsked=1 ;;
 			--no-dogfood) doDogfood=0; dogfoodAsked=0 ;;
 			-q|--quiet)   doQuietly=1 ;;
@@ -314,14 +339,18 @@ fInit(){
 	done
 
 	## The backup helper does its own commit and push, so pairing it with either of
-	## ours would land the same work twice. A bare -m is not that pairing though -
-	## the message is what the helper commits with, so it only looks like one.
-	if ((doBackup)); then
-		if ((commitAsked)) || ((doPush)); then
+	## ours would land the same work twice. Asked for together that is a mistake and
+	## says so; with the backup merely riding along by default, the narrower git path
+	## is plainly what was meant, so it wins quietly.
+	if ((commitAsked)) || ((doPush)); then
+		if ((backupAsked)); then
 			fThrowError "--backup already commits and pushes; drop --commit and --push."  "${FUNCNAME[0]}"
 		fi
-		doCommit=0
+		doBackup=0
 	fi
+
+	## A bare -m is not that clash - the message is what the helper commits with.
+	if ((doBackup)); then doCommit=0; fi
 
 }
 
@@ -335,6 +364,21 @@ fMustBeAValue(){
 	if [[ -z "${value}" ]] || [[ "${value}" == -* ]]; then
 		fThrowError "Expecting a value after ${flag}, instead got '${value:-nothing}'."  "${FUNCNAME[1]}"
 	fi
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## True when HEAD sits on a branch this script must not land work on. A detached
+## HEAD is not protected - that is its own error, raised where it matters.
+fIsProtectedBranch(){
+
+	local -r branch="$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+	local protected=""
+	for protected in "${protectedBranches[@]}"; do
+		if [[ "${branch}" == "${protected}" ]]; then return 0; fi
+	done
+	return 1
+
 }
 
 
@@ -876,13 +920,12 @@ fStage_Backup(){
 	fi
 
 	## Same policy as fStage_Commit. The helper has no such guard of its own, and
-	## this script should not be what lands work on a merge target.
-	local protected=""
-	for protected in "${protectedBranches[@]}"; do
-		if [[ "${branch}" == "${protected}" ]]; then
-			fThrowError "Refusing to publish from '${branch}'. Work on a feature branch and merge it back."  "${FUNCNAME[0]}"
-		fi
-	done
+	## this script should not be what lands work on a merge target. Only an explicit
+	## --backup reaches here on a protected branch; the default one bowed out in
+	## fMain, because a stage that runs by default must not fail an otherwise good run.
+	if fIsProtectedBranch; then
+		fThrowError "Refusing to publish from '${branch}'. Work on a feature branch and merge it back."  "${FUNCNAME[0]}"
+	fi
 
 	fEcho_Clean "Archive to .: $(dirname "${repoRoot}")/versions/"
 	fEcho_Clean "Excluding ..: ${rarExcludes}"
