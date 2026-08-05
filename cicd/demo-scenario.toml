@@ -9,9 +9,11 @@
 # wanting a second look gets one for free. Typing pace stays at a human rate on
 # purpose, which means the way to shorten this is fewer words, not faster typing.
 #
-# Flags are written -flag='value' rather than -flag value. Costs a few
-# characters of typing time and makes it obvious which value belongs to which
-# flag at a glance, which is the whole point of a ten-second look.
+# Flags are written --flag=value rather than -f value. Costs a few characters of
+# typing time and makes it obvious both what the flag means and which value
+# belongs to it, which is the whole point of a ten-second look. Quotes go on only
+# where the value carries a symbol the shell would otherwise take ('-', '%'), so
+# the ones that are there look deliberate.
 
 title = "zuid"
 prog  = "zuid"
@@ -29,26 +31,26 @@ pause = 1.9
 
 [[step]]
 note  = "Username (hashed)"
-show  = "{prog} -f='%u'"
+show  = "{prog} --format='%u'"
 notepause = 0.45
 pause = 2.1
 
 [[step]]
 # Last thing on screen before the clear, so it holds noticeably longer.
 note  = "Random"
-show  = "{prog} -f='%r'"
+show  = "{prog} --format='%r'"
 notepause = 0.45
 pause = 3.2
 
 [[step]]
 note  = "Minute precision, base 32 Crockford"
-show  = "{prog} -p='-1' -b='32c'"
+show  = "{prog} --precision='-1' --base=32c"
 clear = true
 notepause = 0.45
 pause = 2.0
 
 [[step]]
 note  = "Millisecond, 256tt"
-show  = "{prog} -p='1' -b='256tt'"
+show  = "{prog} --precision=1 --base=256tt"
 notepause = 0.45
 pause = 2.0
