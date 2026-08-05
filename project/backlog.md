@@ -182,6 +182,11 @@ In each section, items are listed approximately from newest to oldest. A require
 
 #### Done - Features and enhancements
 
+- ✅ A flag's value can attach with `=`, 20260805.
+	- `-b=32c`, `--base=32c`, `-b 32c`, and `--base 32c` are all the same thing. A leading-dash argument splits at its first `=`; anything else passes through, so a format string with an `=` in it still works either way.
+	- Flags that take no value now say so instead of ignoring one silently.
+	- The demo and the README examples use the attached form - it makes which value belongs to which flag obvious at a glance, which matters most in a ten-second look.
+
 - ✅ Component widths carry a strength rather than a symbol count, 20260804. Code Review 20260804 item 5.
 	- Note: a symbol is worth four bits in base 16 and eleven in 2048tz, so the fixed 8-and-6 defaults promised a strength they only delivered in base 62. `%r` was 36 bits there and 24 in base 16, where a birthday collision arrives after about four thousand draws.
 	- The default width is now derived from a target - 47 bits for a hashed name, 35 for `%r`, which is what 8 and 6 base-62 symbols have always held - so the strength stays put and the width moves: 12 and 9 symbols in base 16, 5 and 4 in 2048tz. Base 62 is unchanged.

@@ -86,9 +86,9 @@ Host and user components are hashed by default, so an identifier does not leak w
 ```
 $ zuid                          # the default: a timestamp, base 62, to the second
 1wqd1q
-$ zuid -f '%d%r'                # plus six random symbols, for same-second uniqueness
+$ zuid -f='%d%r'                # plus six random symbols, for same-second uniqueness
 1wqd1wDppAd6
-$ zuid -f '%d-%h-%u' -p 1       # millisecond precision, with a hashed host and user
+$ zuid -f='%d-%h-%u' -p='1'     # millisecond precision, with a hashed host and user
 0VRArWn2-rw79Mr05-6UI3mO4y
 ```
 
