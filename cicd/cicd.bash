@@ -79,9 +79,8 @@ fPrint_AboutAndSyntax(){
 	fEcho_Clean ""
 	#  X-------------------------------------------------------------------------------X
 	cat <<- EOF_p3vk9
-		Builds and tests both zuid implementations. A full run on a feature branch
-		also archives the project and publishes it. Nothing is packaged unless
-		asked for.
+		Builds and tests both zuid implementations, then archives the project and
+		publishes it. Nothing is packaged unless asked for.
 
 		Syntax: ${meName} [options]
 	EOF_p3vk9
@@ -97,17 +96,17 @@ fPrint_Help(){
 		    --only <go|zig>   Drive one toolchain instead of both. Only that one has
 		                      to be installed.
 		    --cross           Also cross-compile for: ${crossTargets[*]}
-		    --quick           Skip the slow stages: cross builds, profiling, and the
-		                      demo, plus the dogfood install. Everything that gates
-		                      a merge still runs.
+		    --quick           Skip the slow stages: profiling and the demo, plus the
+		                      dogfood install. The backup and everything that gates
+		                      a merge still run.
 		    --no-sync         Skip the remote refresh at the start.
 		    -m, --message     Commit message. Implies --commit.
 		    --commit          Commit if everything passed. Refuses on a protected
 		                      branch: ${protectedBranches[*]}
 		    --push            Push the current branch. Implies a remote exists.
 		    --package         Build release artifacts into dist/.
-		    --backup          Archive and publish even on a quick run. A full run on a
-		                      feature branch does it anyway.
+		    --backup          Archive and publish. On by default, so this only undoes
+		                      an earlier --no-backup.
 		    --no-backup       Do not archive or publish, however the run went.
 		    --dogfood         Install for daily use even on a quick run. A full run
 		                      installs anyway.
@@ -131,12 +130,12 @@ fPrint_Help(){
 		${dogfoodDirs[*]}
 		It says so and moves on when none of them do.
 
-		A full run then archives the whole project - github/, private/, the lot - into
-		../versions/ and publishes it, committing and pushing through the helper in
-		cicd/utility/. Build caches and other regenerable trees are left out, so the
-		archive is a fraction of what is on disk. On ${protectedBranches[*]} it says so
-		and moves on, since publishing belongs on a feature branch; asking for it there
-		by name is an error rather than a shrug.
+		Every run - quick or full, any branch - then archives the whole project:
+		github/, private/, the lot, into ../versions/, and publishes it, committing
+		and pushing through the helper in cicd/utility/. Build caches and other
+		regenerable trees are left out, so the archive is a fraction of what is on
+		disk. --no-backup turns it off; so does --commit or --push, which take over
+		the git half.
 
 		Exit code is 0 only if every stage that ran passed.
 	EOF_h7wq4
@@ -227,25 +226,10 @@ fMain(){
 	if ((doQuick)) && ((! dogfoodAsked)); then doDogfood=0; fi
 	readonly doDogfood
 
-	## Backing up rides along the same way, and for the same reason: an archive
-	## nobody remembered to ask for is not an archive. A quick run is mid-iteration,
-	## so it neither archives nor publishes unless asked for by name.
-	if ((doQuick)) && ((! backupAsked)); then doBackup=0; fi
-
-	## It publishes as well as archives, so it cannot run on a merge target. Settled
-	## here rather than in the stage, for two reasons: an impossible run should say so
-	## before the build and not after it, and the commit message below should only be
-	## asked for when there is going to be a commit.
-	if ((doBackup)) && fIsProtectedBranch; then
-		local -r headBranch="$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD)"
-		## Asked for by name it is an error; merely riding along it does not apply,
-		## and a stage that runs by default must never fail an otherwise good run.
-		if ((backupAsked)); then
-			fThrowError "Refusing to publish from '${headBranch}'. Work on a feature branch and merge it back."  "${FUNCNAME[0]}"
-		fi
-		doBackup=0
-		fEcho_Clean "Backup .....: skipped on '${headBranch}' - publish from a feature branch."
-	fi
+	## Backing up survives a quick run - the archive is cheap next to the stages
+	## quick actually exists to skip, and an archive nobody remembered to ask for
+	## is not an archive. Any branch, too: the helper commits and pushes the same
+	## way it would run by hand from the repo, main included.
 	readonly doBackup
 
 	local -i doGo=1;  [[ "${onlyToolchain}" == "zig" ]] && doGo=0
@@ -922,14 +906,6 @@ fStage_Backup(){
 	local -r branch="$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD)"
 	if [[ "${branch}" == "HEAD" ]]; then
 		fThrowError "HEAD is detached. Check out a branch before publishing."  "${FUNCNAME[0]}"
-	fi
-
-	## Same policy as fStage_Commit. The helper has no such guard of its own, and
-	## this script should not be what lands work on a merge target. Only an explicit
-	## --backup reaches here on a protected branch; the default one bowed out in
-	## fMain, because a stage that runs by default must not fail an otherwise good run.
-	if fIsProtectedBranch; then
-		fThrowError "Refusing to publish from '${branch}'. Work on a feature branch and merge it back."  "${FUNCNAME[0]}"
 	fi
 
 	fEcho_Clean "Archive to .: $(dirname "${repoRoot}")/versions/"
