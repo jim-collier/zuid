@@ -1,0 +1,41 @@
+# Demo scenario for gen-demo-gif.py. Each [[step]] types its show= line into the
+# fake terminal, runs run= (default: show) for real, and shows the output. {prog}
+# renders as the program name and {bin} runs as the tested binary path. pause= is
+# the read time in seconds, notepause= the read time after the comment line, and
+# clear= starts the step on a blank screen.
+#
+# Keep the whole thing to roughly twenty seconds. It loops, so anyone wanting a
+# second look gets one for free. Typing pace stays at a human rate on purpose,
+# which means the way to shorten this is fewer words, not faster typing.
+
+title = "zuid"
+prog  = "zuid"
+seed  = 62
+font  = ["Monaspace Argon SemiBold"]
+end_hold  = 1.2
+end_black = 3.0
+
+[[step]]
+note  = "Short, sortable, unique ids"
+show  = "{prog}"
+notepause = 0.3
+pause = 1.2
+
+[[step]]
+note  = "Random, host, user - hashed"
+show  = "{prog} -f '%d%r-%h-%u'"
+notepause = 0.3
+pause = 1.6
+
+[[step]]
+note  = "Fixed widths: splits by offset"
+show  = "{prog} -f '%d %h %u %m %g %r'"
+clear = true
+notepause = 0.3
+pause = 1.6
+
+[[step]]
+note  = "Unknown base? It guesses"
+show  = "{prog} -b 62x"
+notepause = 0.3
+pause = 1.5

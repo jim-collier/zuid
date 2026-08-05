@@ -7,8 +7,9 @@
 ##	Purpose: See fPrint_AboutAndSyntax() and fPrint_Help().
 ##	History:
 ##		- 20260802 JC: Created.
+##		- 20260804 JC: Remote sync, artifacts, profiling, demo, packaging, dogfood.
 
-declare -i doQuietly=0; [[ ${ZUID_CICD_QUIET} -eq 1 ]] && doQuietly=1
+declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 declare    thisVersion="0.1.0"
 declare    copyrightYear="2026"
 declare    author="Jim Collier"
@@ -38,12 +39,20 @@ fConfig(){ :;
 	## of the conversion library.
 	default_reactorPackage="github.com/jim-collier/convert-base-v2/lib/reactor"
 
+	## Where dogfooding puts the binary. First existing directory wins.
+	default_dogfoodDirs=("${HOME}/synced/0-0/common/exec/util/linux/bash" "${HOME}/.local/bin" "${HOME}/bin")
+
+	## Artifact retention, grandfather-father-son. Keep this many of each.
+	default_keepDaily=7
+	default_keepWeekly=5
+	default_keepMonthly=6
+
 }
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fPrint_Copyright(){
-	((doQuietly)) && return
+	((doQuietly)) && return 0
 	fEcho_Clean ""
 	cat <<- EOF_c8xr2
 		${meName} version ${thisVersion}
@@ -58,7 +67,7 @@ fPrint_Copyright(){
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fPrint_AboutAndSyntax(){
-	((doQuietly)) && return
+	((doQuietly)) && return 0
 	fEcho_Clean ""
 	#  X-------------------------------------------------------------------------------X
 	cat <<- EOF_p3vk9
@@ -73,19 +82,24 @@ fPrint_AboutAndSyntax(){
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fPrint_Help(){
-	((doQuietly)) && return
 	#  X-------------------------------------------------------------------------------X
 	cat <<- EOF_h7wq4
 		Options:
 		    --only <go|zig>   Drive one toolchain instead of both. Only that one has
 		                      to be installed.
 		    --cross           Also cross-compile for: ${crossTargets[*]}
-		    --commit <msg>    Commit if everything passed. Refuses on a protected
+		    --quick           Skip the slow stages: cross builds, profiling, and the
+		                      demo. Everything that gates a merge still runs.
+		    --no-sync         Skip the remote refresh at the start.
+		    -m, --message     Commit message. Implies --commit.
+		    --commit          Commit if everything passed. Refuses on a protected
 		                      branch: ${protectedBranches[*]}
 		    --push            Push the current branch. Implies a remote exists.
-		    --package         Build release artifacts. Not implemented yet.
+		    --package         Build release artifacts into dist/.
+		    --dogfood         Install the release build for daily use.
 		    --publish         Publish a release. Not implemented yet.
-		    --quiet           Suppress the banner.
+		    -q, --quiet       No banner and no prompting. Without -m the commit
+		                      message is generated.
 		    -h, --help        This.
 		    -v, --version     Version and copyright.
 
@@ -93,6 +107,9 @@ fPrint_Help(){
 		stage checks. The Zig stage vendors the Wasmtime C API into zig/vendor/ when
 		absent, and builds the reactor wasm module there from the pinned convertbase
 		release.
+
+		Every run is logged to cicd/artifacts/, along with any profile and demo it
+		produced. Those are rotated, not kept forever, and none of it is committed.
 
 		Exit code is 0 only if every stage that ran passed.
 	EOF_h7wq4
@@ -108,6 +125,8 @@ fMain(){
 	_fMustBeInPath basename
 	_fMustBeInPath dirname
 	_fMustBeInPath git
+	_fMustBeInPath head
+	_fMustBeInPath mktemp
 	_fMustBeInPath sed
 	_fMustBeInPath sort
 
@@ -122,6 +141,10 @@ fMain(){
 	local    default_wasmtimeVer=""
 	local    default_wasmtimeSha256=""
 	local    default_reactorPackage=""
+	local -a default_dogfoodDirs=()
+	local -i default_keepDaily=0
+	local -i default_keepWeekly=0
+	local -i default_keepMonthly=0
 	fConfig
 	local -r minVer_Go="${default_minVer_Go}"
 	local -r minVer_Zig="${default_minVer_Zig}"
@@ -130,40 +153,70 @@ fMain(){
 	local -r wasmtimeVer="${default_wasmtimeVer}"
 	local -r wasmtimeSha256="${default_wasmtimeSha256}"
 	local -r reactorPackage="${default_reactorPackage}"
+	local -ra dogfoodDirs=("${default_dogfoodDirs[@]}")
+	local -ri keepDaily="${default_keepDaily}"
+	local -ri keepWeekly="${default_keepWeekly}"
+	local -ri keepMonthly="${default_keepMonthly}"
 
 	## Layout. This script lives in the repo's cicd/, so the repo root is one up.
 	local -r repoRoot="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+	[[ -n "${repoRoot}" ]] || fThrowError "Could not resolve the repo root."  "${FUNCNAME[0]}"
 	local -r goDir="${repoRoot}/go"
 	local -r zigDir="${repoRoot}/zig"
+	local -r artifactDir="${repoRoot}/cicd/artifacts"
+	local -r utilityDir="${repoRoot}/cicd/utility"
+	local -r runStamp="$(date +%Y%m%d-%H%M%S)"
+
+	## No single stage gets the whole machine. Half the cores, at least one.
+	local -ri buildJobs="$(fHalfTheCores)"
 
 	## Args; 1] Define placeholder variables; 2] Call fInit() to set them; 3] Freeze them read-only.
 	local    onlyToolchain=""
 	local    commitMsg=""
 	local -i doCross=0
+	local -i doQuick=0
+	local -i doSync=1
 	local -i doCommit=0
 	local -i doPush=0
+	local -i doPackage=0
+	local -i doDogfood=0
 	fInit "${@}"
 	readonly onlyToolchain
-	readonly commitMsg
 	readonly doCross
-	readonly doCommit
+	readonly doQuick
+	readonly doSync
 	readonly doPush
+	readonly doPackage
+	readonly doDogfood
 
 	local -i doGo=1;  [[ "${onlyToolchain}" == "zig" ]] && doGo=0
 	local -i doZig=1; [[ "${onlyToolchain}" == "go"  ]] && doZig=0
+
+	## Ask for the commit message before anything slow runs, so the build is not
+	## finished and then thrown away because nobody was there to answer.
+	fAskForCommitMessage
+	readonly commitMsg
+	readonly doCommit
 
 	##
 	## Make it so
 	##
 
+	fStartRunLog
+
 	## Plain 'if', not '&&' - a trailing false in a function trips the ERR trap.
+	if ((doSync));             then fStage_Sync;      fi
 	fPreflight
 	fStage_Shell
-	if ((doGo));               then fStage_Go;       fi
-	if ((doZig));              then fStage_Zig;      fi
+	if ((doGo));               then fStage_Go;        fi
+	if ((doZig));              then fStage_Zig;       fi
 	if ((doCross)) && ((doGo)); then fStage_Go_Cross; fi
-	if ((doCommit));           then fStage_Commit;   fi
-	if ((doPush));             then fStage_Push;     fi
+	if ((! doQuick));          then fStage_Profile;   fi
+	if ((! doQuick));          then fStage_Demo;      fi
+	if ((doPackage));          then fStage_Package;   fi
+	if ((doDogfood));          then fStage_Dogfood;   fi
+	if ((doCommit));           then fStage_Commit;    fi
+	if ((doPush));             then fStage_Push;      fi
 
 	fEcho_Clean
 	fEcho "Passed."
@@ -175,50 +228,151 @@ fMain(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fInit(){
 
-	local -r _allArgs="$*"
-
-	## Determine if we need to show help
-	case " ${_allArgs,,} " in
-		*" -h "*|*" --help "*)                 fPrint_Copyright_About_Syntax 1; exit 0 ;;
-		*" -v "*|*" --ver "*|*" --version "*)  fPrint_Copyright               ; exit 0 ;;
-	esac
-
+	## Help and version are checked switch by switch, not by searching the joined
+	## argument string - a commit message mentioning '-h' is not a request for help.
 	local currentArg=""
 	while (($#)); do
 		currentArg="${1,,}"
 		case "${currentArg}" in
+
+			-h|--help)                fPrint_Copyright_About_Syntax 1; exit 0 ;;
+			-v|--ver|--version)       fPrint_Copyright               ; exit 0 ;;
 
 			## Switches taking a parameter
 			--only)
 				shift || true
 				onlyToolchain="${1,,}"
 				if [[ "${onlyToolchain}" != "go" ]] && [[ "${onlyToolchain}" != "zig" ]]; then
-					fThrowError "Expecting 'go' or 'zig' after --only, instead got '$1'."  "${FUNCNAME[0]}"
+					fThrowError "Expecting 'go' or 'zig' after --only, instead got '${1:-nothing}'."  "${FUNCNAME[0]}"
 				fi
 				;;
-			--commit)
+			-m|--msg|--message)
 				shift || true
-				if [[ -z "$1" ]]; then fThrowError "Expecting a message after --commit."  "${FUNCNAME[0]}"; fi
+				fMustBeAValue "${1:-}" "${currentArg}"
 				commitMsg="$1"
+				doCommit=1
+				;;
+			-m=*|--msg=*|--message=*)
+				commitMsg="${1#*=}"
+				fMustBeAValue "${commitMsg}" "${currentArg%%=*}"
 				doCommit=1
 				;;
 
 			## Unitary switches
 			--cross)    doCross=1   ;;
+			--quick)    doQuick=1   ;;
+			--no-sync)  doSync=0    ;;
+			--commit)   doCommit=1  ;;
 			--push)     doPush=1    ;;
-			--quiet)    doQuietly=1 ;;
+			--package)  doPackage=1 ;;
+			--dogfood)  doDogfood=1 ;;
+			-q|--quiet) doQuietly=1 ;;
 
 			## Opt-in stages that do not exist yet. Say so rather than pretending.
-			--package|--publish)
-				fThrowError "Not implemented yet: '${currentArg}'. Packaging waits on a vendored Wasmtime archive per target."  "${FUNCNAME[0]}"
+			--publish)
+				fThrowError "Not implemented yet: '${currentArg}'. Publishing waits on the repo existing and on packaging covering more than this platform."  "${FUNCNAME[0]}"
 				;;
 
-			## ¯\_(ツ)_/¯
+			## ¯\_(:/)_/¯
 			*)  fThrowError "Argument invalid or not expected in this context: '$1'."  "${FUNCNAME[0]}" ;;
 
 		esac
 		shift || true
 	done
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## A value that looks like the next switch is almost always a missing argument,
+## not somebody's commit message. Saying so beats committing '--push'.
+fMustBeAValue(){
+	local -r value="${1:-}"
+	local -r flag="${2:-}"
+	if [[ -z "${value}" ]] || [[ "${value}" == -* ]]; then
+		fThrowError "Expecting a value after ${flag}, instead got '${value:-nothing}'."  "${FUNCNAME[1]}"
+	fi
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Asked up front, and only when a commit was asked for without a message.
+## Quiet mode generates one instead of waiting for somebody who is not there.
+fAskForCommitMessage(){
+
+	((doCommit)) || return 0
+	[[ -z "${commitMsg}" ]] || return 0
+
+	if ((doQuietly)); then
+		commitMsg="Updated"
+		return 0
+	fi
+
+	fEcho_Clean
+	fEcho "Commit message"
+	fEcho_Clean "CTRL+C to abort."
+	fEcho_Clean
+	read -r -p "  Message: " commitMsg || fThrowError "No commit message given."  "${FUNCNAME[0]}"
+	[[ -n "${commitMsg}" ]] || fThrowError "No commit message given."  "${FUNCNAME[0]}"
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Refresh from the remote before building rather than at publish time. Pulling
+## only at the end means a change merged upstream gets pushed having never been
+## built here.
+fStage_Sync(){
+
+	fEcho_Clean
+	fEcho "Remote sync"
+
+	[[ -d "${repoRoot}/.git" ]] || fThrowError "Not a git repo: '${repoRoot}'."  "${FUNCNAME[0]}"
+
+	if [[ -z "$(git -C "${repoRoot}" remote)" ]]; then
+		fEcho_Clean "Remote .....: none - nothing to sync"
+		return 0
+	fi
+
+	local -r branch="$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD)"
+	if [[ "${branch}" == "HEAD" ]]; then
+		fEcho_Clean "Branch .....: detached - skipping sync"
+		return 0
+	fi
+
+	if ! git -C "${repoRoot}" fetch --quiet --prune 2>/dev/null; then
+		fEcho_Clean "Fetch ......: failed (offline?) - continuing with what is here"
+		return 0
+	fi
+
+	local -r upstream="$(git -C "${repoRoot}" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+	if [[ -z "${upstream}" ]]; then
+		fEcho_Clean "Upstream ...: none for '${branch}' - continuing"
+		return 0
+	fi
+
+	local -r behind="$(git -C "${repoRoot}" rev-list --count "HEAD..${upstream}")"
+	local -r ahead="$(git -C "${repoRoot}" rev-list --count "${upstream}..HEAD")"
+	if ((behind == 0)); then
+		fEcho_Clean "Branch .....: ${branch} up to date with ${upstream}"
+		return 0
+	fi
+	if ((ahead > 0)); then
+		fThrowError "'${branch}' has diverged from ${upstream} (${ahead} ahead, ${behind} behind). Reconcile it before building."  "${FUNCNAME[0]}"
+	fi
+
+	## Behind only, so a fast-forward is safe. Local work is stashed around it
+	## rather than refused, since a dirty tree is the normal state mid-change.
+	local -i stashed=0
+	if [[ -n "$(git -C "${repoRoot}" status --porcelain)" ]]; then
+		git -C "${repoRoot}" stash push --quiet --include-untracked --message "cicd sync ${runStamp}"
+		stashed=1
+	fi
+	git -C "${repoRoot}" merge --ff-only --quiet "${upstream}"
+	if ((stashed)); then
+		git -C "${repoRoot}" stash pop --quiet || fThrowError "Fast-forwarded, but the stashed changes conflict. Resolve them by hand."  "${FUNCNAME[0]}"
+	fi
+	fEcho_Clean "Branch .....: ${branch} fast-forwarded ${behind} commit(s)"
 
 }
 
@@ -233,18 +387,22 @@ fPreflight(){
 
 	local -r branch="$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD)"
 	fEcho_Clean "Branch .....: ${branch}"
+	if [[ -n "$(git -C "${repoRoot}" status --porcelain)" ]]; then
+		fEcho_Clean "Tree .......: uncommitted changes present"
+	fi
+	fEcho_Clean "Jobs .......: ${buildJobs}"
 
 	if ((doGo)); then
 		_fMustBeInPath go
 		local -r haveVer_Go="$(go version | awk '{print $3}' | sed 's/^go//')"
-		fVersion_AtLeast "${haveVer_Go}" "${minVer_Go}" || fThrowError "Go ${minVer_Go} or newer required, found ${haveVer_Go}."  "${FUNCNAME[0]}"
+		fVersion_AtLeast "${haveVer_Go}" "${minVer_Go}" || fThrowError "Go ${minVer_Go} or newer required, found '${haveVer_Go}'."  "${FUNCNAME[0]}"
 		fEcho_Clean "Go .........: ${haveVer_Go}"
 	fi
 
 	if ((doZig)); then
 		_fMustBeInPath zig
 		local -r haveVer_Zig="$(zig version)"
-		fVersion_AtLeast "${haveVer_Zig}" "${minVer_Zig}" || fThrowError "Zig ${minVer_Zig} or newer required, found ${haveVer_Zig}."  "${FUNCNAME[0]}"
+		fVersion_AtLeast "${haveVer_Zig}" "${minVer_Zig}" || fThrowError "Zig ${minVer_Zig} or newer required, found '${haveVer_Zig}'."  "${FUNCNAME[0]}"
 		fEcho_Clean "Zig ........: ${haveVer_Zig}"
 	fi
 
@@ -262,11 +420,12 @@ fStage_Shell(){
 	## Not a toolchain, so a missing shellcheck is a gap in coverage, not a failure.
 	if [[ -z "$(command -v shellcheck 2>/dev/null || true)" ]]; then
 		fEcho_Clean "shellcheck not installed - skipping."
-		return
+		return 0
 	fi
 
-	## Only this script. x9muid1 under utility/ is 2023 reference code, not ours to keep clean.
-	shellcheck "${repoRoot}/cicd/cicd.bash"
+	## Only what this project wrote. x9muid1 under utility/ is 2023 reference
+	## code, and the copied helpers keep their own upstream's lint state.
+	shellcheck "${repoRoot}/cicd/cicd.bash" "${repoRoot}/install.bash"
 	fEcho_Clean "Clean."
 
 }
@@ -280,14 +439,21 @@ fStage_Go(){
 
 	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
 
-	go build ./...
+	go build -p "${buildJobs}" ./...
 	go vet ./...
 
-	## gofmt is silent on success and lists offenders on failure, so it needs the test.
-	local -r unformatted="$(gofmt -l .)"
-	[[ -n "${unformatted}" ]] && fThrowError "gofmt would rewrite: ${unformatted//$'\n'/, }"  "${FUNCNAME[0]}"
+	## gofmt is silent on success and lists offenders on failure, so it needs the
+	## test. Its own exit code is checked too - a missing gofmt would otherwise
+	## report an empty list and pass.
+	local unformatted=""
+	unformatted="$(gofmt -l . 2>&1)" || fThrowError "gofmt failed: ${unformatted}"  "${FUNCNAME[0]}"
+	if [[ -n "${unformatted}" ]]; then
+		fThrowError "gofmt would rewrite: ${unformatted//$'\n'/, }"  "${FUNCNAME[0]}"
+	fi
 
-	go test ./...
+	## The race detector is the only thing defending the documented promise that
+	## Generate is safe to call concurrently.
+	go test -p "${buildJobs}" -race ./...
 
 }
 
@@ -305,7 +471,7 @@ fStage_Go_Cross(){
 	for target in "${crossTargets[@]}"; do
 		goos="${target%%/*}"
 		goarch="${target##*/}"
-		CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build ./...
+		CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build -p "${buildJobs}" ./...
 		fEcho_Clean "Compiles ...: ${goos}/${goarch}"
 	done
 
@@ -321,15 +487,23 @@ fStage_Zig_Vendor(){
 	local -r vendorDir="${zigDir}/vendor"
 	mkdir -p "${vendorDir}"
 
-	## Wasmtime C API, pinned and checksummed. Fetch once; a re-pin means
-	## deleting zig/vendor/wasmtime/ so this runs again.
-	if [[ -f "${vendorDir}/wasmtime/include/wasmtime.h" ]]; then
-		fEcho_Clean "Wasmtime ...: present"
+	## Wasmtime C API, pinned and checksummed. The pin covers one architecture,
+	## so a different host would need its own archive and its own checksum.
+	local -r hostArch="$(uname -m)"
+	if [[ "${hostArch}" != "x86_64" ]]; then
+		fThrowError "The vendored Wasmtime pin is x86_64 only; this machine is ${hostArch}. Add that archive and its checksum to fConfig first."  "${FUNCNAME[0]}"
+	fi
+
+	## Version-stamped, so re-pinning in fConfig actually re-fetches instead of
+	## quietly keeping whatever was vendored first.
+	local -r wtStamp="${vendorDir}/wasmtime/.version"
+	if [[ -f "${vendorDir}/wasmtime/include/wasmtime.h" ]] && [[ "$(cat "${wtStamp}" 2>/dev/null || true)" == "${wasmtimeVer}" ]]; then
+		fEcho_Clean "Wasmtime ...: ${wasmtimeVer} present"
 	else
 		_fMustBeInPath curl
 		_fMustBeInPath sha256sum
 		_fMustBeInPath tar
-		local -r wtName="wasmtime-${wasmtimeVer}-x86_64-linux-c-api"
+		local -r wtName="wasmtime-${wasmtimeVer}-${hostArch}-linux-c-api"
 		local -r wtUrl="https://github.com/bytecodealliance/wasmtime/releases/download/${wasmtimeVer}/${wtName}.tar.xz"
 		local -r wtTar="${vendorDir}/${wtName}.tar.xz"
 		fEcho_Clean "Wasmtime ...: fetching ${wasmtimeVer}"
@@ -339,10 +513,11 @@ fStage_Zig_Vendor(){
 			rm -f "${wtTar}"
 			fThrowError "Wasmtime checksum mismatch: got ${wtSum}."  "${FUNCNAME[0]}"
 		fi
-		tar -xf "${wtTar}" -C "${vendorDir}"
+		tar --no-same-owner --no-same-permissions -xf "${wtTar}" -C "${vendorDir}"
 		rm -f "${wtTar}"
-		rm -rf "${vendorDir}/wasmtime"
+		rm -rf "${vendorDir:?}/wasmtime"
 		mv "${vendorDir}/${wtName}" "${vendorDir}/wasmtime"
+		printf '%s\n' "${wasmtimeVer}" > "${wtStamp}"
 		fEcho_Clean "Wasmtime ...: vendored"
 	fi
 
@@ -350,25 +525,29 @@ fStage_Zig_Vendor(){
 	## pins. Building it here rather than copying a prebuilt artifact is what
 	## keeps the two implementations on one version of the library: the Go
 	## module and the wasm module cannot drift apart when they come from the
-	## same verified module. Needs a Go 1.24+ toolchain for //go:wasmexport;
-	## an already-vendored copy carries an offline or Go-less build.
+	## same verified module. Needs a Go 1.24+ toolchain for //go:wasmexport.
 	local -r wasmVendored="${vendorDir}/convert-base-reactor.wasm"
 	if command -v go &>/dev/null; then
 		local -r wasmTmp="${wasmVendored}.new"
-		if GOOS=wasip1 GOARCH=wasm go build -C "${goDir}" -trimpath -buildmode=c-shared \
-			-ldflags '-s -w' -o "${wasmTmp}" "${reactorPackage}" 2>/dev/null
+		local buildLog=""
+		if buildLog="$(GOOS=wasip1 GOARCH=wasm go build -C "${goDir}" -trimpath -buildmode=c-shared \
+			-ldflags '-s -w' -o "${wasmTmp}" "${reactorPackage}" 2>&1)"
 		then
-			if ! cmp -s "${wasmTmp}" "${wasmVendored}" 2>/dev/null; then
-				mv -f "${wasmTmp}" "${wasmVendored}"
-				fEcho_Clean "Reactor ....: rebuilt from the pinned release"
-			else
+			if cmp -s "${wasmTmp}" "${wasmVendored}" 2>/dev/null; then
 				rm -f "${wasmTmp}"
 				fEcho_Clean "Reactor ....: current"
+			else
+				mv -f "${wasmTmp}" "${wasmVendored}"
+				fEcho_Clean "Reactor ....: rebuilt from the pinned release"
 			fi
 		else
+			## The whole point of building it here is that the two sides cannot
+			## reach different library versions, so a failure that falls back to
+			## an older vendored copy has to say what went wrong.
 			rm -f "${wasmTmp}"
-			[[ -f "${wasmVendored}" ]] || fThrowError "Could not build the reactor wasm module, and no vendored copy exists."  "${FUNCNAME[0]}"
-			fEcho_Clean "Reactor ....: build failed, using vendored copy"
+			[[ -f "${wasmVendored}" ]] || fThrowError "Could not build the reactor wasm module, and no vendored copy exists: ${buildLog}"  "${FUNCNAME[0]}"
+			fEcho_Clean "Reactor ....: build failed, falling back to the vendored copy"
+			fEcho_Clean "${buildLog}"
 		fi
 	elif [[ -f "${wasmVendored}" ]]; then
 		fEcho_Clean "Reactor ....: no Go toolchain, using vendored copy"
@@ -390,8 +569,9 @@ fStage_Zig(){
 	cd "${zigDir}" || fThrowError "Missing the Zig tree: '${zigDir}'."  "${FUNCNAME[0]}"
 
 	## ReleaseSafe is what would ship; the vectors replay through it too.
-	zig build -Doptimize=ReleaseSafe
-	zig build test
+	## zig wants the count attached to the flag, not as a separate word.
+	zig build "-j${buildJobs}" -Doptimize=ReleaseSafe
+	zig build "-j${buildJobs}" test
 
 	## zig fmt is silent on success and lists offenders on failure. Plain 'if',
 	## not a trailing '&&' - that exact pattern has killed this script before.
@@ -406,8 +586,8 @@ fStage_Zig(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## The C module is a shipped artifact, so a foreign toolchain has to be able to
-## use it. Deliberately not 'zig cc' - that would prove nothing.
+## The C module is one of the shipped artifacts, so a foreign toolchain has to
+## be able to use it. Deliberately not 'zig cc' - that would prove nothing.
 fStage_Zig_CApi(){
 
 	fEcho_Clean
@@ -424,8 +604,11 @@ fStage_Zig_CApi(){
 	fEcho_Clean "Compiler ...: ${systemCc}"
 
 	local -r smokeSrc="${zigDir}/lib/test/capi_smoke.c"
-	local -r buildDir="$(mktemp -d)"
-	trap 'rm -rf "${buildDir}"' RETURN
+	local buildDir=""
+	buildDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	## An errexit abort skips a RETURN trap, so the cleanup is registered where
+	## the exit handler can also see it.
+	_scratchDirs+=("${buildDir}")
 
 	## Shared: self-contained, so the header and -lzuid are the whole story.
 	"${systemCc}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
@@ -442,6 +625,181 @@ fStage_Zig_CApi(){
 	"${buildDir}/smoke-static"
 	fEcho_Clean "Static .....: passed"
 
+	rm -rf "${buildDir}"
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Two profiles, because the two implementations have different hot shapes: the
+## Go module through its own benchmarks, and the shipped CLI through perf.
+fStage_Profile(){
+
+	fEcho_Clean
+	fEcho "Profile"
+
+	local -r profileDir="${artifactDir}/profiling"
+	mkdir -p "${profileDir}"
+
+	if ((doGo)); then fProfile_Go "${profileDir}"; fi
+	if ((doZig)); then fProfile_Cli "${profileDir}"; fi
+
+	fRotate_Artifacts "${profileDir}" "flame_"
+
+	## Non-fatal by design: a hotspot summary is something to read, not a gate.
+	if [[ -x "${utilityDir}/flame-report.py" ]]; then
+		fEcho_Clean
+		"${utilityDir}/flame-report.py" --dir "${profileDir}" || true
+	fi
+
+}
+
+
+fProfile_Go(){
+
+	local -r profileDir="$1"
+	local -r converter="${utilityDir}/pprof2flame.py"
+
+	if [[ ! -x "${converter}" ]]; then
+		fEcho_Clean "Go .........: skipped - no pprof2flame.py"
+		return 0
+	fi
+
+	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
+	local -r cpuOut="${profileDir}/cpu_${runStamp}.pprof"
+	## Only the per-identifier benchmarks. BenchmarkNew builds the base registry,
+	## which costs more than everything else put together and would bury the
+	## work actually worth looking at.
+	go test -p "${buildJobs}" -run '^$' -bench 'BenchmarkGenerate' -benchtime 3000x \
+		-cpuprofile "${cpuOut}" -o /dev/null ./zuid >/dev/null
+	if "${converter}" --prof "${cpuOut}" --title "zuid Go module" --out "${profileDir}/flame_${runStamp}_go.svg" >/dev/null 2>&1; then
+		fEcho_Clean "Go .........: flame_${runStamp}_go.svg"
+	else
+		fEcho_Clean "Go .........: profile captured, flamegraph conversion skipped"
+	fi
+	rm -f "${cpuOut}"
+
+}
+
+
+fProfile_Cli(){
+
+	local -r profileDir="$1"
+	local -r exe="${zigDir}/zig-out/bin/zuid"
+
+	if [[ ! -x "${exe}" ]]; then
+		fEcho_Clean "CLI ........: skipped - no release build"
+		return 0
+	fi
+	if ! command -v perf &>/dev/null || ! command -v inferno-collapse-perf &>/dev/null || ! command -v inferno-flamegraph &>/dev/null; then
+		fEcho_Clean "CLI ........: skipped - needs perf and the inferno tools"
+		return 0
+	fi
+
+	local scratch=""
+	scratch="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	_scratchDirs+=("${scratch}")
+
+	## perf needs kernel.perf_event_paranoid below 3 to record an unprivileged
+	## process. Say which knob rather than failing the build over a profile.
+	if ! perf record -q -g -o "${scratch}/perf.data" -- "${exe}" -f '%d%h%u%f%m%g%r' >/dev/null 2>"${scratch}/perf.err"; then
+		fEcho_Clean "CLI ........: skipped - perf could not record (kernel.perf_event_paranoid is $(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null || echo unknown))"
+		rm -rf "${scratch}"
+		return 0
+	fi
+	perf script -i "${scratch}/perf.data" 2>/dev/null \
+		| inferno-collapse-perf 2>/dev/null \
+		| inferno-flamegraph --title "zuid CLI" 2>/dev/null \
+		> "${profileDir}/flame_${runStamp}_cli.svg"
+	fEcho_Clean "CLI ........: flame_${runStamp}_cli.svg"
+	rm -rf "${scratch}"
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fStage_Demo(){
+
+	fEcho_Clean
+	fEcho "Demo"
+
+	local -r generator="${utilityDir}/gen-demo-gif.py"
+	local -r scenario="${repoRoot}/cicd/demo-scenario.toml"
+	local -r exe="${zigDir}/zig-out/bin/zuid"
+
+	if [[ ! -x "${generator}" ]] || [[ ! -f "${scenario}" ]]; then
+		fEcho_Clean "Skipped ....: no generator or scenario"
+		return 0
+	fi
+	if [[ ! -x "${exe}" ]]; then
+		fEcho_Clean "Skipped ....: no release build to record"
+		return 0
+	fi
+	if ! python3 -c 'import PIL' &>/dev/null; then
+		fEcho_Clean "Skipped ....: python pillow not installed"
+		return 0
+	fi
+
+	local -r demoDir="${artifactDir}/demo"
+	mkdir -p "${demoDir}"
+	local -r rendered="${demoDir}/demo_${runStamp}.gif"
+
+	if ! python3 "${generator}" --scenario "${scenario}" --bin "${exe}" --out "${rendered}" --quiet; then
+		fEcho_Clean "Skipped ....: the generator failed"
+		return 0
+	fi
+	fRotate_Artifacts "${demoDir}" "demo_"
+
+	## The README points at assets/demo.gif, so the newest render becomes that.
+	mkdir -p "${repoRoot}/assets"
+	if ! cmp -s "${rendered}" "${repoRoot}/assets/demo.gif" 2>/dev/null; then
+		cp -f "${rendered}" "${repoRoot}/assets/demo.gif"
+		fEcho_Clean "Rendered ...: assets/demo.gif updated"
+	else
+		fEcho_Clean "Rendered ...: unchanged"
+	fi
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fStage_Package(){
+
+	fEcho_Clean
+	fEcho "Package"
+
+	local -r packager="${utilityDir}/package.bash"
+	[[ -x "${packager}" ]] || fThrowError "Missing the packager: '${packager}'."  "${FUNCNAME[0]}"
+
+	"${packager}" --out "${repoRoot}/dist"
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Installs the optimized native build for daily use, into the first of the
+## preferred directories that exists.
+fStage_Dogfood(){
+
+	fEcho_Clean
+	fEcho "Dogfood"
+
+	local -r exe="${zigDir}/zig-out/bin/zuid"
+	[[ -x "${exe}" ]] || fThrowError "No release build to install: '${exe}'."  "${FUNCNAME[0]}"
+
+	local target="" candidate=""
+	for candidate in "${dogfoodDirs[@]}"; do
+		if [[ -d "${candidate}" ]]; then target="${candidate}"; break; fi
+	done
+	[[ -n "${target}" ]] || fThrowError "None of the preferred directories exist: ${dogfoodDirs[*]}"  "${FUNCNAME[0]}"
+
+	if cmp -s "${exe}" "${target}/zuid" 2>/dev/null; then
+		fEcho_Clean "Installed ..: ${target}/zuid already current"
+		return 0
+	fi
+	install -m 0755 "${exe}" "${target}/zuid"
+	fEcho_Clean "Installed ..: ${target}/zuid"
+
 }
 
 
@@ -452,15 +810,20 @@ fStage_Commit(){
 	fEcho "Commit"
 
 	local -r branch="$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD)"
+	if [[ "${branch}" == "HEAD" ]]; then
+		fThrowError "HEAD is detached. Check out a branch before committing."  "${FUNCNAME[0]}"
+	fi
 
 	local protected=""
 	for protected in "${protectedBranches[@]}"; do
-		[[ "${branch}" == "${protected}" ]] && fThrowError "Refusing to commit to '${branch}'. Work on a feature branch and merge it back."  "${FUNCNAME[0]}"
+		if [[ "${branch}" == "${protected}" ]]; then
+			fThrowError "Refusing to commit to '${branch}'. Work on a feature branch and merge it back."  "${FUNCNAME[0]}"
+		fi
 	done
 
 	if [[ -z "$(git -C "${repoRoot}" status --porcelain)" ]]; then
 		fEcho_Clean "Nothing to commit."
-		return
+		return 0
 	fi
 
 	git -C "${repoRoot}" add -A
@@ -475,27 +838,113 @@ fStage_Push(){
 	fEcho_Clean
 	fEcho "Push"
 
-	[[ -n "$(git -C "${repoRoot}" remote)" ]] || fThrowError "No remote to push to."  "${FUNCNAME[0]}"
+	local -r remote="$(git -C "${repoRoot}" remote | head -n1)"
+	[[ -n "${remote}" ]] || fThrowError "No remote to push to."  "${FUNCNAME[0]}"
 
 	local -r branch="$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD)"
-	git -C "${repoRoot}" push -u origin "${branch}"
+	if [[ "${branch}" == "HEAD" ]]; then
+		fThrowError "HEAD is detached, so there is no branch to push."  "${FUNCNAME[0]}"
+	fi
+	git -C "${repoRoot}" push -u "${remote}" "${branch}"
 
 }
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+##
+##	Artifacts. Everything under cicd/artifacts/ is gitignored; this keeps it
+##	from growing without bound.
+##
+
+## Tees the whole run to a dated log, so lint-report.bash has something to read
+## and a failure can be looked at after the fact.
+fStartRunLog(){
+	local -r lintDir="${artifactDir}/lint"
+	mkdir -p "${lintDir}"
+	fRotate_Artifacts "${lintDir}" "run_"
+	exec > >(tee -a "${lintDir}/run_${runStamp}.log") 2>&1
+}
+
+## Grandfather-father-son: every file from the last few days, then one a week,
+## then one a month. Files are named <prefix><YYYYmmdd-HHMMSS>[_role].<ext>.
+fRotate_Artifacts(){
+
+	local -r dir="$1"
+	local -r prefix="$2"
+	[[ -d "${dir}" ]] || return 0
+
+	local -a candidates=()
+	mapfile -t candidates < <(find "${dir}" -maxdepth 1 -type f -name "${prefix}*" -printf '%f\n' 2>/dev/null | sort -r)
+	((${#candidates[@]})) || return 0
+
+	## Post-increment inside (( )) returns the value from before the increment,
+	## so ((n++)) on a zero is a false status and errexit kills the script.
+	## Arithmetic assignment has no such trap.
+	local -A keptDay=() keptWeek=() keptMonth=()
+	local -i days=0 weeks=0 months=0
+	local name="" stamp="" day="" week="" month=""
+	for name in "${candidates[@]}"; do
+		stamp="${name#"${prefix}"}"
+		stamp="${stamp%%_*}"
+		stamp="${stamp%%.*}"
+		## Anything not stamped the way this script stamps things is left alone.
+		[[ "${stamp}" =~ ^[0-9]{8}-[0-9]{6}$ ]] || continue
+		day="${stamp:0:8}"
+		month="${stamp:0:6}"
+		week="$(date -d "${day}" +%G-%V 2>/dev/null || echo "${day}")"
+
+		if [[ -z "${keptDay[${day}]:-}" ]] && ((days < keepDaily)); then
+			keptDay[${day}]=1; days=$((days + 1)); continue
+		fi
+		if [[ -z "${keptWeek[${week}]:-}" ]] && ((weeks < keepWeekly)); then
+			keptWeek[${week}]=1; weeks=$((weeks + 1)); continue
+		fi
+		if [[ -z "${keptMonth[${month}]:-}" ]] && ((months < keepMonthly)); then
+			keptMonth[${month}]=1; months=$((months + 1)); continue
+		fi
+		rm -f "${dir:?}/${name}"
+	done
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Half the cores, rounded down, never less than one. No stage is allowed the
+## whole machine.
+fHalfTheCores(){
+	local -i cores=1
+	if command -v nproc &>/dev/null; then cores="$(nproc)"; fi
+	local -i half=$((cores / 2))
+	((half > 0)) || half=1
+	printf '%s\n' "${half}"
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## sort -V puts 1.2.3 before 1.2.3-dev, so a pre-release reads as newer than the
+## release it precedes. Comparing the release part first is what stops a dev
+## snapshot passing a floor it is actually below.
 fVersion_AtLeast(){
 	local -r have="$1"
 	local -r want="$2"
 	[[ -n "${have}" ]] || return 1
-	[[ "$(printf '%s\n%s\n' "${want}" "${have}" | sort -V | head -n1)" == "${want}" ]]
+	[[ "${have}" =~ ^[0-9] ]] || return 1
+	local -r haveRelease="${have%%-*}"
+	if [[ "$(printf '%s\n%s\n' "${want}" "${haveRelease}" | sort -V | head -n1)" != "${want}" ]]; then
+		return 1
+	fi
+	## Equal release parts and a pre-release suffix means it is below the floor.
+	if [[ "${haveRelease}" == "${want}" ]] && [[ "${have}" != "${haveRelease}" ]]; then
+		return 1
+	fi
+	return 0
 }
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 _fMustBeInPath(){
 
-	local -r programToCheckForInPath="$1"
+	local -r programToCheckForInPath="${1:-}"
 	if [[ -z "${programToCheckForInPath}" ]]; then
 		fThrowError "_fMustBeInPath(): No program specified."
 	elif [[ -z "$(command -v "${programToCheckForInPath}" 2>/dev/null || true)" ]]; then
@@ -509,7 +958,7 @@ _fMustBeInPath(){
 fPrint_Copyright_About_Syntax(){
 	fPrint_Copyright
 	fPrint_AboutAndSyntax
-	if [[ "$1" == "1" ]]; then fPrint_Help; fi  ## An '&&' here would return 1 and trip the ERR trap.
+	if [[ "${1:-}" == "1" ]]; then fPrint_Help; fi  ## An '&&' here would return 1 and trip the ERR trap.
 }
 
 
@@ -521,16 +970,16 @@ fPrint_Copyright_About_Syntax(){
 declare -i _wasLastEchoBlank=0
 
 function fEcho_Clean(){
-	if [[ -n "$1" ]]; then
+	if [[ -n "${1:-}" ]]; then
 		echo -e "$*"
 		_wasLastEchoBlank=0
 	elif [[ $_wasLastEchoBlank -eq 0 ]] && echo; then
 		_wasLastEchoBlank=1
 	fi
 }
-function fEcho()                   { if [[ -n "$*" ]]; then fEcho_Clean "[ $* ]"; else fEcho_Clean ""; fi; }
-function fEcho_Force()             { fEcho_ResetBlankCounter; fEcho "$*";                                  }
-function fEcho_Clean_Force()       { fEcho_ResetBlankCounter; fEcho_Clean "$*";                            }
+function fEcho()                   { if [[ -n "${*:-}" ]]; then fEcho_Clean "[ $* ]"; else fEcho_Clean ""; fi; }
+function fEcho_Force()             { fEcho_ResetBlankCounter; fEcho "${*:-}";                              }
+function fEcho_Clean_Force()       { fEcho_ResetBlankCounter; fEcho_Clean "${*:-}";                        }
 function fEcho_ResetBlankCounter() { _wasLastEchoBlank=0;                                                  }
 
 
@@ -540,10 +989,11 @@ function fEcho_ResetBlankCounter() { _wasLastEchoBlank=0;                       
 ##
 
 declare -i _wasCleanupRun=0
+declare -a _scratchDirs=()
 
 function fThrowError(){
-	local    errMsg="$1"
-	local -r funcName="$2"
+	local    errMsg="${1:-}"
+	local -r funcName="${2:-}"
 	[[ -z "${errMsg}" ]] && errMsg="An error occurred."
 	if [[ -z "${funcName}" ]]; then
 		errMsg="${meName}: ${errMsg}"
@@ -555,29 +1005,40 @@ function fThrowError(){
 	fEcho_Clean
 	exit 1
 }
+function _fRemoveScratchDirs(){
+	local dir=""
+	for dir in "${_scratchDirs[@]}"; do
+		[[ -n "${dir}" ]] && [[ "${dir}" == /tmp/* ]] && rm -rf "${dir}"
+	done
+	_scratchDirs=()
+}
 function _fTrap_Exit(){
 	if [[ "${_wasCleanupRun}" == "0" ]]; then  ## String compare is less to fail than integer
 		_wasCleanupRun=1
+		_fRemoveScratchDirs
 		_fSingleExitPoint "${@}"
 	fi
 }
 function _fTrap_Error(){
 	if [[ "${_wasCleanupRun}" == "0" ]]; then  ## String compare is less to fail than integer
 		_wasCleanupRun=1
+		_fRemoveScratchDirs
 		fEcho_ResetBlankCounter
 		_fSingleExitPoint "${@}"
 	fi
 }
 function _fSingleExitPoint(){
-	local -r signal="$1";  shift || true
-	local -r lineNum="$1"; shift || true
-	local -r errNum="$1";  shift || true
-	local -r errMsg="$*"
+	local -r signal="${1:-}";  shift || true
+	local -r lineNum="${1:-}"; shift || true
+	local -r errNum="${1:-0}"; shift || true
+	local -r errMsg="${*:-}"
 	if [[ "${signal}" == "INT" ]]; then
 		fEcho_Force
 		fEcho "User interrupted."
 		exit 1
-	elif [[ "${errNum}" != "0" ]] && [[ "${errNum}" != "1" ]]; then  ## Clunky string compare is less likely to fail than integer
+	elif [[ "${errNum}" != "0" ]]; then
+		## Every failing tool here exits 1, including the trailing-'&&' bug this
+		## script has hit three times, so 1 is exactly the code worth reporting.
 		fEcho_Clean
 		fEcho_Clean "Signal .....: '${signal}'"
 		fEcho_Clean "Err# .......: '${errNum}'"
@@ -593,12 +1054,13 @@ function fDefineTrap_Error_Fatal(){
 }
 
 
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ##
 ## Execution entry point (do not modify)
 ##
 
 ## Define error and exit handling
-set -e; set -E
+set -e; set -E; set -u
 fDefineTrap_Error_Fatal
 trap '_fTrap_Error SIGHUP  ${LINENO} $? $_' SIGHUP
 trap '_fTrap_Error SIGINT  ${LINENO} $? $_' SIGINT    ## CTRL+C
@@ -611,3 +1073,4 @@ declare meName="$(basename "${BASH_SOURCE[0]}")"
 
 
 fMain "${@}"
+
