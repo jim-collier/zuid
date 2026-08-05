@@ -12,7 +12,7 @@
 ##		- Only the host platform, for now. The Zig side embeds a Wasmtime static
 ##		  archive, and one is vendored per platform; until the other platforms'
 ##		  archives are vendored there is nothing to link against. The Go module
-##		  cross-compiles fine, but it is a module - there is no binary to ship.
+##		  cross-compiles fine, but it is a module - there is no binary to release.
 ##	Syntax:
 ##		package.bash [--out DIR] [--version V]
 ##	History: At bottom.
@@ -33,7 +33,7 @@ EXE="zuid"
 MAINTAINER="Jim Collier <32471972+jim-collier@users.noreply.github.com>"
 HOMEPAGE="https://github.com/jim-collier/zuid"
 SUMMARY="Short, sortable, privacy-preserving unique identifiers"
-DESC_LONG="Generates identifiers built from a timestamp and optional host, user, hardware address, UUID, and random components, rendered in a compact base. Fixed width, so they sort chronologically as plain text. Ships as a command, a Go module, and a C module."
+DESC_LONG="Generates identifiers built from a timestamp and optional host, user, hardware address, UUID, and random components, rendered in a compact base. Fixed width, so they sort chronologically as plain text. Available as a command, a Go module, and a C module."
 
 VERSION="$(cd "${root}" && git describe --tags --always --dirty 2>/dev/null || echo dev)"
 OUT="${root}/dist"
@@ -73,7 +73,7 @@ fEcho "packaging ${PKG} ${VERSION} -> ${OUT}"
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## The shipped tree: the command, both C libraries, the header, and the licenses.
+## The release tree: the command, both C libraries, the header, and the licenses.
 
 ( cd "${root}/zig" && zig build -Doptimize=ReleaseSafe )
 

@@ -8,13 +8,14 @@
 [![License: GPL v2+](https://img.shields.io/badge/License-GPLv2%2B-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html)
 ![Lifecycle: Pre-alpha](https://img.shields.io/badge/Lifecycle-Pre--alpha-red)
 ![Support](https://img.shields.io/badge/Support-Maintained-brightgreen)
+![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go&logoColor=white)
+![Zig](https://img.shields.io/badge/Zig-0.16%2B-F7A41D?logo=zig&logoColor=white)
 
 </div>
 <!--
 [![!#/bin/bash](https://img.shields.io/badge/-%23!%2Fbin%2Fbash-1f425f.svg?logo=gnu-bash)](https://www.gnu.org/software/bash/)
 [![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/)
 [![made-with-rust](https://img.shields.io/badge/Made%20with-Rust-1f425f.svg)](https://www.rust-lang.org/)
-![Go](https://img.shields.io/badge/Go-00ADD8?logo=go&logoColor=white)
 ![Made with](https://img.shields.io/badge/Made%20with-C%2B%2B-brightgreen?style=plastic)
 ![Made with](https://img.shields.io/badge/Made%20with-Unreal%20Engine-critical?style=plastic)
 [![made-with-javascript](https://img.shields.io/badge/Made%20with-JavaScript-1f425f.svg)](https://www.javascript.com)
@@ -45,7 +46,15 @@
 
 Short, sortable, privacy-preserving unique identifiers - from a command line, a Go module, or a C module.
 
-> **Pre-alpha.** Both implementations build and reproduce the shared test vectors, and every component works from the CLI, the Go module, and the C module. Configuration files, emitting more than one identifier per run, and packaging are still to come. See [project/backlog.md](project/backlog.md) for where it actually stands.
+<div align="center">
+
+![zuid in a terminal](assets/demo.gif)
+
+<!-- Video walkthrough: https://www.youtube.com/watch?v=REPLACE_ME -->
+
+</div>
+
+> **Pre-alpha.** Both implementations build and reproduce the shared test vectors, and every component works from the command line, the Go module, and the C module. Configuration files, emitting more than one identifier per run, and releases for platforms other than Linux are still to come. See [project/backlog.md](project/backlog.md) for where it actually stands.
 
 <!-- TOC ignore:true -->
 ## Table of contents
@@ -55,8 +64,13 @@ Short, sortable, privacy-preserving unique identifiers - from a command line, a 
 - [Why](#why)
 - [Features](#features)
 - [How it is built](#how-it-is-built)
-- [Installing](#installing)
-- [Building from source](#building-from-source)
+- [Installation](#installation)
+	- [Packages and installers](#packages-and-installers)
+	- [Direct install script](#direct-install-script)
+	- [Do it yourself](#do-it-yourself)
+- [Setting up a development environment](#setting-up-a-development-environment)
+	- [Prerequisites](#prerequisites)
+	- [Building and testing](#building-and-testing)
 - [Copyright and license](#copyright-and-license)
 
 <!-- /TOC -->
@@ -65,7 +79,7 @@ Short, sortable, privacy-preserving unique identifiers - from a command line, a 
 
 A UUID is 36 characters, sorts meaninglessly, and is awkward to read over a phone. Most of the time that buys uniqueness nobody needed.
 
-An identifier built from a timestamp and rendered in a compact base is far shorter, sorts in creation order as plain text, and is still unique enough for the job. When it is not, more components can be mixed in - more time precision, host, user, MAC, a UUID, or random data - and the same identifier gets as unique as required.
+An identifier built from a timestamp and rendered in a compact base is far shorter, sorts in creation order as plain text, and is still unique enough for the job. When it is not, more components can be mixed in - more time precision, host, user, hardware address, a UUID, or random data - and the same identifier gets as unique as required.
 
 Host and user components are hashed by default, so an identifier does not leak where it came from.
 
@@ -82,23 +96,23 @@ Every component is a fixed width, so identifiers line up in a column, sort as te
 
 ## Features
 
-- UIDs are as short as necessary - but no shorter.
+- Identifiers are as short as necessary, but no shorter.
 
-- By default, sorts by creation time, as text, with no special comparison function.
+- Sorts by creation time, as text, with no special comparison function.
 
-- Tunable uniqueness vs length.
+- Uniqueness and length are yours to trade off.
 
-- Private by default. Host and user are hashed unless you ask otherwise.
+- Private by default. Host and user are hashed unless asked otherwise.
 
-- A curated set of bases suited to identifiers, with the full set of sixty-odd bases available.
+- A curated set of bases suited to identifiers, with the library's full set of seventy-odd still available.
 
-- Embeddable. Ships with:
+- Embeddable, three ways:
 
-	- A standalone CLI.
+	- A standalone command.
 
-	- A permissively licensed Go module to embed in your own Go project.
+	- A permissively licensed Go module.
 
-	- A C module to embed in nearly anything else. Also permissively licensed.
+	- A C module, for nearly anything else. Also permissively licensed.
 
 ## How it is built
 
@@ -106,21 +120,102 @@ Base conversion is not reimplemented here. It comes from [convert-base-v2](https
 
 There are two implementations of the identifier spec, one in Go and one in Zig, and a shared table of test vectors that both have to reproduce. That is more work than one implementation with bindings around it, and it is deliberate: the two check each other, and neither is forced into the other's constraints.
 
-The Go module stays free of cgo and cross-compiles statically.
+The Go module stays free of cgo and cross-compiles statically. The Zig side produces the command and the C module. Full reasoning is in [project/design.md](project/design.md).
 
-The Zig side produces the CLI executable, and the C module.
+## Installation
 
-## Installing
+### Packages and installers
 
-## Building from source
+Preferred, once there are releases to install. Nothing is published yet, so for now use [Do it yourself](#do-it-yourself) below.
 
-`cicd/cicd.bash` drives everything: it builds and tests both sides, and vendors the Wasmtime C API and the upstream WebAssembly module into `zig/vendor/` on first run. Requirements: Go 1.24+, Zig 0.16+.
+| Platform | Package |
+| :-- | :-- |
+| Debian, Ubuntu | `zuid_<version>_amd64.deb` |
+| Fedora, RHEL, openSUSE | `zuid-<version>.x86_64.rpm` |
+| Anything else | the `.tgz`, or the bare binary |
 
-Or directly: `cd go && go build ./...` for the Go module, and `cd zig && zig build` for the CLI and the C libraries (artifacts land in `zig/zig-out/`).
+Windows, macOS, BSD, and ARM builds are not produced yet. The command embeds a WebAssembly runtime, and one is vendored per platform; the rest follow once those are in place.
+
+### Direct install script
+
+Both scripts download the latest release, check it against the published checksums, say what they are about to do, and ask before touching anything. Re-running one is a no-op when nothing changed, and `--uninstall` reverses it.
+
+Linux, BSD, macOS, and WSL:
+
+~~~bash
+bash <(curl -fsSL https://raw.githubusercontent.com/jim-collier/zuid/main/install.bash)  [--release stable|dev]  [--target user|system]  [--arch x86_64|arm64]
+~~~
+
+Windows, Linux, and macOS, under PowerShell 7 or newer:
+
+~~~powershell
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/jim-collier/zuid/main/install.ps1')))  [-Release dev|stable]  [-Target user|system]  [-Arch x86_64|arm64]
+~~~
+
+Where things go:
+
+| OS | System install | Command | User install | Command |
+| :-- | :-- | :-- | :-- | :-- |
+| Linux | `/opt/zuid/` | `/usr/local/bin/zuid` | `~/.local/share/zuid/` | `~/.local/bin/zuid` |
+| BSD | `/usr/local/zuid/` | `/usr/local/bin/zuid` | `~/.local/share/zuid/` | `~/.local/bin/zuid` |
+| macOS | `/opt/zuid/` | `/usr/local/bin/zuid` | `~/Library/Application Support/zuid/` | `~/.local/bin/zuid` |
+| Windows | `C:\Program Files\zuid\` | add the `bin` folder to `%PATH%` | `%LOCALAPPDATA%\Programs\zuid\` | add the `bin` folder to `%PATH%` |
+
+A user install is the default when the system location is not writable.
+
+### Do it yourself
+
+Clone the repository and run `cicd/cicd.bash`. It fetches what it needs, builds both sides, and runs the tests. The command ends up at `zig/zig-out/bin/zuid`, and `cicd/cicd.bash --dogfood` copies it somewhere on your path.
+
+For the Go module, no install step is needed:
+
+~~~bash
+go get github.com/jim-collier/zuid/go
+~~~
+
+## Setting up a development environment
+
+### Prerequisites
+
+| Tool | Version | Needed for |
+| :-- | :-- | :-- |
+| Go | 1.24 or newer | the Go module, and building the WebAssembly module the Zig side embeds |
+| Zig | 0.16.0 | the command and the C module |
+| git, curl, tar, sha256sum | any | fetching and verifying the vendored runtime |
+| gcc or clang | any | checking that a foreign toolchain can use the C module |
+| shellcheck | any | linting the build script |
+
+Optional, and each stage that wants one skips itself with a note when it is missing:
+
+| Tool | Used for |
+| :-- | :-- |
+| nfpm | building `.deb` and `.rpm` packages |
+| python3 with pillow, gifsicle | rendering the demo animation |
+| perf, inferno | profiling the command |
+
+Nothing has to be installed system-wide beyond those. The WebAssembly runtime and the conversion module are fetched or built into `zig/vendor/`, which is not committed.
+
+### Building and testing
+
+`cicd/cicd.bash` drives everything and is what to run before merging.
+
+~~~bash
+cicd/cicd.bash                      # build and test both sides
+cicd/cicd.bash --quick              # skip the cross builds, profiling, and demo
+cicd/cicd.bash --only go            # one toolchain, so only that one has to exist
+cicd/cicd.bash --cross              # add the Go cross-compile checks
+cicd/cicd.bash -m "message"         # commit too, refusing on main and dev
+~~~
+
+Underneath it is just `cd go && go build ./...` and `cd zig && zig build`. The Zig half needs `cicd/cicd.bash` to have run at least once first, since that is what populates `zig/vendor/`.
+
+Both sides have to reproduce every row of `testdata/vectors.tsv` before anything merges. That file is the specification in executable form, so a change to the identifier format means regenerating it and re-running both.
+
+Run logs, profiles, and demo renders land under `cicd/artifacts/`, which is rotated and not committed.
 
 ## Copyright and license
 
-The CLI executable is GPL-2.0-or-later. Full text in [LICENSE.txt](LICENSE.txt) and [zig/cmd/LICENSE.txt](zig/cmd/LICENSE.txt).
+The command is GPL-2.0-or-later. Full text in [LICENSE.txt](LICENSE.txt) and [zig/cmd/LICENSE.txt](zig/cmd/LICENSE.txt).
 
 The Go and C modules are Apache-2.0, so that embedding one carries no obligation beyond attribution. Full text and attribution sit next to each module: [go/LICENSE.txt](go/LICENSE.txt) + [go/NOTICE.txt](go/NOTICE.txt), and [zig/lib/LICENSE.txt](zig/lib/LICENSE.txt) + [zig/lib/NOTICE.txt](zig/lib/NOTICE.txt).
 

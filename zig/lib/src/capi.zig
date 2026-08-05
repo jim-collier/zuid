@@ -14,7 +14,7 @@ const env = @import("env.zig");
 const clock = @import("clock.zig");
 
 // Per the memory-safety decisions: DebugAllocator when debugging the library
-// itself, smp_allocator in what ships.
+// itself, smp_allocator in a release build.
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 const gpa = switch (builtin.mode) {
     .Debug => debug_allocator.allocator(),

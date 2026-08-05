@@ -5,7 +5,7 @@
 
 //! Identifier core: format parsing, components, assembly, fixed-width padding.
 //! Deliberately takes no allocator - every intermediate fits a stack buffer and
-//! the result lands in a caller-supplied one, so there is no pointer to dangle
+//! the result goes into a caller-supplied one, so there is no pointer to dangle
 //! and no free contract for the C module to get wrong. Base conversion is
 //! reached through the Converter interface and the machine's own state through
 //! the Env interface; this file touches neither the wasm host nor the operating
@@ -316,8 +316,8 @@ fn timeComponent(conv: Converter, base: []const u8, precision: Precision, clock_
 const NameKind = enum { host, user, fqdn };
 
 /// Host, user, or FQDN. Hashed by default: the name goes through SHA-256 and
-/// only the rightmost few symbols survive, so what lands in the identifier is
-/// a fingerprint rather than an identity. Opting out emits the name itself,
+/// only the rightmost few symbols survive, so the identifier carries a
+/// fingerprint rather than an identity. Opting out emits the name itself,
 /// which is the one component that is not fixed width.
 fn nameComponent(conv: Converter, env: Env, base: []const u8, opts: Options, kind: NameKind, out: []u8) Error![]const u8 {
     var name_buf: [name_buf_len]u8 = undefined;

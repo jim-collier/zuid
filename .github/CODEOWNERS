@@ -1,6 +1,18 @@
 # Ownership rules for review-gating (needs branch protection "require review from
 # code owners" to enforce). Last match wins.
 
-# Donation page: owner-only for now (money-adjacent, must not be changed loosely).
-/DONATE.md @jim-collier
+# Licensing and trademark: not to be changed loosely.
+/LICENSE.txt         @jim-collier
+/trademark.md        @jim-collier
+/go/LICENSE.txt      @jim-collier
+/go/NOTICE.txt       @jim-collier
+/zig/lib/LICENSE.txt @jim-collier
+/zig/lib/NOTICE.txt  @jim-collier
+/zig/cmd/LICENSE.txt @jim-collier
+
+# The specification in executable form. A change here changes what an identifier
+# means, so it does not slip through unreviewed.
+/testdata/vectors.tsv @jim-collier
+
 /.github/CODEOWNERS  @jim-collier
+/.github/FUNDING.yml @jim-collier

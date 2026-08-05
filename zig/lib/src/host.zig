@@ -399,8 +399,8 @@ pub const Host = struct {
         };
     }
 
-    /// One export call. Wasmtime errors and traps both land here; their
-    /// message becomes the host's error text.
+    /// One export call. Wasmtime errors and traps are both caught here, and
+    /// their message becomes the host's error text.
     fn call(self: *Host, func: *const c.wasmtime_func_t, args: []const c.wasmtime_val_t, results: []c.wasmtime_val_t) core.Error!void {
         var trap: ?*c.wasm_trap_t = null;
         const err = c.wasmtime_func_call(self.context, func, args.ptr, args.len, results.ptr, results.len, &trap);

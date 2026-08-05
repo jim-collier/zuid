@@ -586,7 +586,7 @@ fStage_Zig(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## The C module is one of the shipped artifacts, so a foreign toolchain has to
+## The C module is one of the released artifacts, so a foreign toolchain has to
 ## be able to use it. Deliberately not 'zig cc' - that would prove nothing.
 fStage_Zig_CApi(){
 
@@ -632,7 +632,7 @@ fStage_Zig_CApi(){
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Two profiles, because the two implementations have different hot shapes: the
-## Go module through its own benchmarks, and the shipped CLI through perf.
+## Go module through its own benchmarks, and the command itself through perf.
 fStage_Profile(){
 
 	fEcho_Clean
