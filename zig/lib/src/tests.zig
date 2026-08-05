@@ -359,3 +359,78 @@ test "C surface end to end" {
 
     try std.testing.expectEqualStrings(core.version, std.mem.span(capi.zuid_version()));
 }
+
+// The conversion library carries a base whose digits are raw byte values. It
+// converts happily, which is exactly why it has to be refused here.
+test "a raw-byte base is refused" {
+    var h = try host.Host.init(.auto);
+    defer h.deinit();
+    var fixed: FixedEnv = .{};
+    var out_buf: [core.out_buf_len]u8 = undefined;
+
+    for ([_][]const u8{ "%d", "%h", "%g" }) |format| {
+        const attempt = core.generate(
+            h.converter(),
+            fixed.interface(),
+            .{ .format = format, .base = "bytes", .clock_ms = 0 },
+            &out_buf,
+        );
+        try std.testing.expectError(core.Error.BaseNotText, attempt);
+    }
+    try std.testing.expectEqual(@as(u32, 0), try h.regionCount());
+}
+
+// The horizon is what the fixed width comes from, so both sides of it need
+// pinning: the last instant that fits, and the first that does not.
+test "the padding horizon is a hard edge" {
+    var h = try host.Host.init(.auto);
+    defer h.deinit();
+    var fixed: FixedEnv = .{};
+    var out_buf: [core.out_buf_len]u8 = undefined;
+
+    const eve = try core.generate(
+        h.converter(),
+        fixed.interface(),
+        .{ .precision = .milli, .clock_ms = @intCast(core.horizon_ms - 1) },
+        &out_buf,
+    );
+    try std.testing.expectEqual(@as(usize, 8), eve.len);
+
+    const past = core.generate(
+        h.converter(),
+        fixed.interface(),
+        .{ .precision = .milli, .clock_ms = @intCast(core.horizon_ms * 1000) },
+        &out_buf,
+    );
+    try std.testing.expectError(core.Error.WidthOverflow, past);
+    try std.testing.expectEqual(@as(u32, 0), try h.regionCount());
+}
+
+// zuid_last_error used to answer with whatever the previous call left behind,
+// because the failures that never reach the converter do not touch its text.
+test "the C module does not report a stale error" {
+    const z = capi.zuid_new() orelse return error.SkipZigTest;
+    defer capi.zuid_free(z);
+    var out: [64]u8 = undefined;
+
+    try std.testing.expect(capi.zuid_generate(z, "%d", "hexx", &out, out.len) != 0);
+    const stale = std.mem.span(capi.zuid_last_error(z));
+    try std.testing.expect(std.mem.indexOf(u8, stale, "hexx") != null);
+
+    try std.testing.expect(capi.zuid_generate(z, "%q", "62", &out, out.len) != 0);
+    const fresh = std.mem.span(capi.zuid_last_error(z));
+    try std.testing.expect(std.mem.indexOf(u8, fresh, "hexx") == null);
+    try std.testing.expect(fresh.len > 0);
+    // Nothing readable is left in the caller's buffer either.
+    try std.testing.expectEqual(@as(u8, 0), out[0]);
+}
+
+// Every entry point takes a nullable context, so a caller who ignored a null
+// from zuid_new gets a code rather than a crash.
+test "the C module rejects a null context" {
+    var out: [64]u8 = undefined;
+    try std.testing.expectEqual(@as(c_int, 7), capi.zuid_generate(null, "%d", "62", &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 7), capi.zuid_set_precision(null, 0));
+    try std.testing.expectEqual(@as(c_int, 7), capi.zuid_set_hash_chars(null, 8));
+    try std.testing.expectEqualStrings("", std.mem.span(capi.zuid_last_error(null)));
+}

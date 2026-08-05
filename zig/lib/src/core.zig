@@ -5,7 +5,7 @@
 
 //! Identifier core: format parsing, components, assembly, fixed-width padding.
 //! Deliberately takes no allocator - every intermediate fits a stack buffer and
-//! the result lands in a caller-supplied one, so there is no pointer to dangle
+//! the result goes into a caller-supplied one, so there is no pointer to dangle
 //! and no free contract for the C module to get wrong. Base conversion is
 //! reached through the Converter interface and the machine's own state through
 //! the Env interface; this file touches neither the wasm host nor the operating
@@ -35,8 +35,8 @@ pub const default_hash_chars: u32 = 8;
 /// Symbols %r emits.
 pub const default_random_chars: u32 = 6;
 
-/// Upper bound on both, so a format string cannot ask for an identifier that
-/// will not fit a caller's buffer.
+/// Upper bound on the width of any one component. The whole identifier is
+/// bounded separately, by the output buffer the caller supplies.
 pub const max_component_chars: u32 = 64;
 
 /// Bit widths of the fixed-size components, which is what their output widths
@@ -82,8 +82,9 @@ pub const Precision = enum(i8) {
     }
 };
 
-/// Enough for any single rendered component. The worst case is a 64-byte
-/// random draw in base 2, which is 512 symbols.
+/// Enough for any single rendered component. The worst case is the widest
+/// request in a narrow base whose digits are several bytes each, which comes
+/// to well under half of this.
 pub const component_buf_len = 1024;
 
 /// Sized for a format naming every component, plus literal text between them.
@@ -95,7 +96,8 @@ pub const name_buf_len = 256;
 
 /// Bytes any component hands to base conversion. The largest is a random draw
 /// filling max_component_chars symbols of the widest base the library carries,
-/// whose symbols are 16 bits - two bytes each.
+/// whose symbols are 16 bits - two bytes each. A wider base than that would
+/// need more, so randomComponent checks rather than trusting the arithmetic.
 const raw_buf_len = max_component_chars * 2;
 
 pub const Error = error{
@@ -119,6 +121,9 @@ pub const Error = error{
     EnvUnavailable,
     /// The converter failed for a reason of its own; ask it for the text.
     ConvertFailed,
+    /// The base renders raw bytes rather than text, so it cannot carry an
+    /// identifier.
+    BaseNotText,
 };
 
 /// What the core needs from base conversion, and nothing more: one-shot
@@ -140,6 +145,9 @@ pub const Converter = struct {
         fit: *const fn (ctx: *anyopaque, base: []const u8, digits: []const u8, width: u32, out: []u8) Error![]const u8,
         /// Symbols, not bytes: some bases have multi-byte digits.
         symbolCount: *const fn (ctx: *anyopaque, base: []const u8, digits: []const u8) Error!u64,
+        /// The base's zero digit, which is also the padding symbol. Used to
+        /// tell a text base from a raw-byte one.
+        zeroSymbol: *const fn (ctx: *anyopaque, base: []const u8, out: []u8) Error![]const u8,
     };
 
     pub fn convert(self: Converter, value: []const u8, from_base: []const u8, to_base: []const u8, out: []u8) Error![]const u8 {
@@ -153,6 +161,9 @@ pub const Converter = struct {
     }
     pub fn symbolCount(self: Converter, base: []const u8, digits: []const u8) Error!u64 {
         return self.vtable.symbolCount(self.ctx, base, digits);
+    }
+    pub fn zeroSymbol(self: Converter, base: []const u8, out: []u8) Error![]const u8 {
+        return self.vtable.zeroSymbol(self.ctx, base, out);
     }
 };
 
@@ -236,6 +247,7 @@ pub fn generate(conv: Converter, env: Env, opts: Options, out: []u8) Error![]con
     const base = if (opts.base.len == 0) default_base else opts.base;
     if (opts.hash_chars < 1 or opts.hash_chars > max_component_chars) return Error.OptionRange;
     if (opts.random_chars < 1 or opts.random_chars > max_component_chars) return Error.OptionRange;
+    try rejectRawByteBase(conv, base);
 
     var used: usize = 0;
     var i: usize = 0;
@@ -271,6 +283,20 @@ pub fn generate(conv: Converter, env: Env, opts: Options, out: []u8) Error![]con
     return out[0..used];
 }
 
+/// The conversion library carries a base whose 256 digits are literal byte
+/// values. It converts happily, which is the problem - an identifier full of
+/// control characters and invalid UTF-8 is not an identifier, and that base
+/// cannot hold a decimal timestamp at all, so a format mixing %d with anything
+/// else would half work. The zero digit is the cheapest thing to test, and it
+/// is the one piece of base metadata both implementations can read.
+fn rejectRawByteBase(conv: Converter, base: []const u8) Error!void {
+    var zero_buf: [16]u8 = undefined;
+    const zero = try conv.zeroSymbol(base, &zero_buf);
+    for (zero) |byte| {
+        if (byte < 0x20 or byte == 0x7f) return Error.BaseNotText;
+    }
+}
+
 /// The clock as the precision's unit count since the Unix epoch UTC,
 /// converted and zero-padded to the fixed width for this base and precision.
 fn timeComponent(conv: Converter, base: []const u8, precision: Precision, clock_ms: i64, out: []u8) Error![]const u8 {
@@ -278,6 +304,8 @@ fn timeComponent(conv: Converter, base: []const u8, precision: Precision, clock_
 
     var dec_buf: [20]u8 = undefined;
     const units = @divTrunc(clock_ms, precision.msPerUnit());
+    // clock_ms is non-negative by the guard above, so units is at most 19
+    // digits and the buffer cannot be too small.
     const dec = std.fmt.bufPrint(&dec_buf, "{d}", .{units}) catch unreachable;
 
     var conv_buf: [component_buf_len]u8 = undefined;
@@ -288,8 +316,8 @@ fn timeComponent(conv: Converter, base: []const u8, precision: Precision, clock_
 const NameKind = enum { host, user, fqdn };
 
 /// Host, user, or FQDN. Hashed by default: the name goes through SHA-256 and
-/// only the rightmost few symbols survive, so what lands in the identifier is
-/// a fingerprint rather than an identity. Opting out emits the name itself,
+/// only the rightmost few symbols survive, so the identifier carries a
+/// fingerprint rather than an identity. Opting out emits the name itself,
 /// which is the one component that is not fixed width.
 fn nameComponent(conv: Converter, env: Env, base: []const u8, opts: Options, kind: NameKind, out: []u8) Error![]const u8 {
     var name_buf: [name_buf_len]u8 = undefined;
@@ -332,7 +360,9 @@ fn uuidComponent(conv: Converter, env: Env, base: []const u8, out: []u8) Error![
 /// Enough entropy drawn to fill every symbol emitted.
 fn randomComponent(conv: Converter, env: Env, base: []const u8, count: u32, out: []u8) Error![]const u8 {
     var drawn: [raw_buf_len]u8 = undefined;
-    const slice = drawn[0..randomBytesFor(try conv.radix(base), count)];
+    const wanted = randomBytesFor(try conv.radix(base), count);
+    if (wanted > drawn.len) return Error.BadInput;
+    const slice = drawn[0..wanted];
     try env.randomBytes(slice);
     return bytesComponent(conv, base, slice, .{ .keep_right = count }, out);
 }

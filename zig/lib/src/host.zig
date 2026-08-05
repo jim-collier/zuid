@@ -22,7 +22,9 @@ const c = @cImport({
 });
 
 // Registered in build.zig as an anonymous import pointing at zig/vendor/,
-// which cicd refreshes from the sibling repo until upstream cuts releases.
+// where cicd builds it from the same pinned convertbase release the Go module
+// imports - which is what stops the two sides reaching different library
+// versions.
 const reactor_wasm = @embedFile("convert-base-reactor.wasm");
 
 // ABI error codes, from the reactor's README. Stable by contract.
@@ -36,11 +38,11 @@ pub const InitError = error{
     MissingExport,
 };
 
-/// Measured, not assumed: winch compiles the module ~3x faster than cranelift
-/// (80 ms vs 190), but _initialize - the Go runtime building its base registry
-/// inside the module - dominates startup and runs ~200 ms slower under winch
-/// code. Cranelift wins end to end, so auto is the default; winch stays for
-/// the tests to cross-check both compilers against the vectors.
+/// Winch compiles the module in well under half the time cranelift takes, but
+/// _initialize - the Go runtime building its base registry inside the module -
+/// dominates startup and runs a couple of hundred milliseconds slower under
+/// winch code. Cranelift wins end to end, so auto is the default; winch stays
+/// for the tests to cross-check both compilers against the vectors.
 pub const Strategy = enum { auto, winch };
 
 pub const Host = struct {
@@ -55,6 +57,7 @@ pub const Host = struct {
     f_free: c.wasmtime_func_t,
     f_convert: c.wasmtime_func_t,
     f_base_radix: c.wasmtime_func_t,
+    f_base_zero: c.wasmtime_func_t,
     f_fit: c.wasmtime_func_t,
     f_symbol_count: c.wasmtime_func_t,
     f_last_error_code: c.wasmtime_func_t,
@@ -63,8 +66,36 @@ pub const Host = struct {
     f_region_count: c.wasmtime_func_t,
     err_buf: [err_buf_len]u8,
     err_len: usize,
+    base_cache: BaseCache,
 
     pub const err_buf_len = 512;
+
+    /// A base's radix and zero digit do not change, and every component asks
+    /// for one or the other. One slot is enough: an identifier renders in a
+    /// single base, and a name too long for the slot just misses and calls the
+    /// module, which is correct if slower.
+    const BaseCache = struct {
+        name: [64]u8 = undefined,
+        name_len: usize = 0,
+        radix: ?u64 = null,
+        zero: [16]u8 = undefined,
+        zero_len: ?usize = null,
+
+        fn holds(self: *const BaseCache, base: []const u8) bool {
+            return self.name_len == base.len and std.mem.eql(u8, self.name[0..self.name_len], base);
+        }
+
+        /// Points the slot at base, discarding whatever it held for another one.
+        fn aim(self: *BaseCache, base: []const u8) void {
+            if (self.holds(base)) return;
+            self.name_len = 0;
+            self.radix = null;
+            self.zero_len = null;
+            if (base.len > self.name.len) return;
+            @memcpy(self.name[0..base.len], base);
+            self.name_len = base.len;
+        }
+    };
 
     pub fn init(strategy: Strategy) InitError!Host {
         const config = c.wasm_config_new() orelse return InitError.RuntimeFailed;
@@ -105,8 +136,8 @@ pub const Host = struct {
             c.wasmtime_error_delete(err);
             return InitError.InstantiateFailed;
         }
-        if (trap) |t| {
-            c.wasm_trap_delete(t);
+        if (trap) |trapped| {
+            c.wasm_trap_delete(trapped);
             return InitError.InstantiateFailed;
         }
 
@@ -122,6 +153,7 @@ pub const Host = struct {
             .f_free = undefined,
             .f_convert = undefined,
             .f_base_radix = undefined,
+            .f_base_zero = undefined,
             .f_fit = undefined,
             .f_symbol_count = undefined,
             .f_last_error_code = undefined,
@@ -130,29 +162,31 @@ pub const Host = struct {
             .f_region_count = undefined,
             .err_buf = undefined,
             .err_len = 0,
+            .base_cache = .{},
         };
 
-        host.memory = (try host.exportOf("memory")).of.memory;
-        host.f_alloc = (try host.exportOf("alloc")).of.func;
-        host.f_free = (try host.exportOf("free")).of.func;
-        host.f_convert = (try host.exportOf("convert")).of.func;
-        host.f_base_radix = (try host.exportOf("base_radix")).of.func;
-        host.f_fit = (try host.exportOf("fit")).of.func;
-        host.f_symbol_count = (try host.exportOf("symbol_count")).of.func;
-        host.f_last_error_code = (try host.exportOf("last_error_code")).of.func;
-        host.f_last_error_text = (try host.exportOf("last_error_text")).of.func;
-        host.f_version = (try host.exportOf("version")).of.func;
-        host.f_region_count = (try host.exportOf("region_count")).of.func;
+        host.memory = (try host.memoryExport("memory")).of.memory;
+        host.f_alloc = (try host.funcExport("alloc")).of.func;
+        host.f_free = (try host.funcExport("free")).of.func;
+        host.f_convert = (try host.funcExport("convert")).of.func;
+        host.f_base_radix = (try host.funcExport("base_radix")).of.func;
+        host.f_base_zero = (try host.funcExport("base_zero")).of.func;
+        host.f_fit = (try host.funcExport("fit")).of.func;
+        host.f_symbol_count = (try host.funcExport("symbol_count")).of.func;
+        host.f_last_error_code = (try host.funcExport("last_error_code")).of.func;
+        host.f_last_error_text = (try host.funcExport("last_error_text")).of.func;
+        host.f_version = (try host.funcExport("version")).of.func;
+        host.f_region_count = (try host.funcExport("region_count")).of.func;
 
         // A reactor is not live until _initialize runs; skipping it reads as a
         // corrupt binary later.
-        const f_init = (try host.exportOf("_initialize")).of.func;
+        const f_init = (try host.funcExport("_initialize")).of.func;
         if (c.wasmtime_func_call(context, &f_init, null, 0, null, 0, &trap)) |err| {
             c.wasmtime_error_delete(err);
             return InitError.InstantiateFailed;
         }
-        if (trap) |t| {
-            c.wasm_trap_delete(t);
+        if (trap) |trapped| {
+            c.wasm_trap_delete(trapped);
             return InitError.InstantiateFailed;
         }
 
@@ -167,12 +201,25 @@ pub const Host = struct {
         self.* = undefined;
     }
 
-    fn exportOf(self: *Host, name: []const u8) InitError!c.wasmtime_extern_t {
+    /// A named export of the kind asked for. The kind check is what stops a
+    /// renamed or retyped upstream export being read through the wrong arm of
+    /// the extern union, which would hand Wasmtime a garbage handle instead of
+    /// failing here.
+    fn exportOf(self: *Host, name: []const u8, kind: c.wasmtime_extern_kind_t) InitError!c.wasmtime_extern_t {
         var item: c.wasmtime_extern_t = undefined;
         if (!c.wasmtime_instance_export_get(self.context, &self.instance, name.ptr, name.len, &item)) {
             return InitError.MissingExport;
         }
+        if (item.kind != kind) return InitError.MissingExport;
         return item;
+    }
+
+    fn funcExport(self: *Host, name: []const u8) InitError!c.wasmtime_extern_t {
+        return self.exportOf(name, c.WASMTIME_EXTERN_FUNC);
+    }
+
+    fn memoryExport(self: *Host, name: []const u8) InitError!c.wasmtime_extern_t {
+        return self.exportOf(name, c.WASMTIME_EXTERN_MEMORY);
     }
 
     /// Text of the most recent failure, empty when there was none. Valid until
@@ -206,6 +253,7 @@ pub const Host = struct {
         .radix = vtRadix,
         .fit = vtFit,
         .symbolCount = vtSymbolCount,
+        .zeroSymbol = vtZeroSymbol,
     };
 
     fn vtConvert(ctx: *anyopaque, value_in: []const u8, from_base: []const u8, to_base: []const u8, out: []u8) core.Error![]const u8 {
@@ -233,6 +281,9 @@ pub const Host = struct {
 
     fn vtRadix(ctx: *anyopaque, base: []const u8) core.Error!u64 {
         const self: *Host = @ptrCast(@alignCast(ctx));
+        self.base_cache.aim(base);
+        if (self.base_cache.radix) |cached| return cached;
+
         self.clearErr();
         const name = try self.putStr(base);
         defer self.freeRegion(name.ptr);
@@ -240,7 +291,10 @@ pub const Host = struct {
         try self.call(&self.f_base_radix, &.{ valU32(name.ptr), valU32(name.len) }, &results);
         const radix = results[0].of.i64;
         if (radix < 0) return self.fail();
-        return @intCast(radix);
+
+        const value: u64 = @intCast(radix);
+        if (self.base_cache.holds(base)) self.base_cache.radix = value;
+        return value;
     }
 
     fn vtFit(ctx: *anyopaque, base: []const u8, digits: []const u8, width: u32, out: []u8) core.Error![]const u8 {
@@ -248,12 +302,12 @@ pub const Host = struct {
         self.clearErr();
         const name = try self.putStr(base);
         defer self.freeRegion(name.ptr);
-        const str = try self.putStr(digits);
-        defer self.freeRegion(str.ptr);
+        const digits_region = try self.putStr(digits);
+        defer self.freeRegion(digits_region.ptr);
         var results: [1]c.wasmtime_val_t = undefined;
         try self.call(&self.f_fit, &.{
-            valU32(name.ptr), valU32(name.len),
-            valU32(str.ptr),  valU32(str.len),
+            valU32(name.ptr),          valU32(name.len),
+            valU32(digits_region.ptr), valU32(digits_region.len),
             valU32(width),
         }, &results);
         const packed_str: u64 = @bitCast(results[0].of.i64);
@@ -262,35 +316,66 @@ pub const Host = struct {
         return self.readPacked(packed_str, out);
     }
 
+    fn vtZeroSymbol(ctx: *anyopaque, base: []const u8, out: []u8) core.Error![]const u8 {
+        const self: *Host = @ptrCast(@alignCast(ctx));
+        self.base_cache.aim(base);
+        if (self.base_cache.zero_len) |len| {
+            if (len > out.len) return core.Error.BufferTooSmall;
+            @memcpy(out[0..len], self.base_cache.zero[0..len]);
+            return out[0..len];
+        }
+
+        self.clearErr();
+        const name = try self.putStr(base);
+        defer self.freeRegion(name.ptr);
+        var results: [1]c.wasmtime_val_t = undefined;
+        try self.call(&self.f_base_zero, &.{ valU32(name.ptr), valU32(name.len) }, &results);
+        const packed_str: u64 = @bitCast(results[0].of.i64);
+        if (packed_str == 0) return self.fail();
+        defer self.freeRegion(@truncate(packed_str >> 32));
+
+        const zero = try self.readPacked(packed_str, out);
+        if (self.base_cache.holds(base) and zero.len <= self.base_cache.zero.len) {
+            @memcpy(self.base_cache.zero[0..zero.len], zero);
+            self.base_cache.zero_len = zero.len;
+        }
+        return zero;
+    }
+
     fn vtSymbolCount(ctx: *anyopaque, base: []const u8, digits: []const u8) core.Error!u64 {
         const self: *Host = @ptrCast(@alignCast(ctx));
         self.clearErr();
         const name = try self.putStr(base);
         defer self.freeRegion(name.ptr);
-        const str = try self.putStr(digits);
-        defer self.freeRegion(str.ptr);
+        const digits_region = try self.putStr(digits);
+        defer self.freeRegion(digits_region.ptr);
         var results: [1]c.wasmtime_val_t = undefined;
         try self.call(&self.f_symbol_count, &.{
-            valU32(name.ptr), valU32(name.len),
-            valU32(str.ptr),  valU32(str.len),
+            valU32(name.ptr),          valU32(name.len),
+            valU32(digits_region.ptr), valU32(digits_region.len),
         }, &results);
         const count = results[0].of.i64;
         if (count < 0) return self.fail();
         return @intCast(count);
     }
 
-    // -- plumbing ----------------------------------------------------------
-
     const Region = struct { ptr: u32, len: u32 };
 
-    fn clearErr(self: *Host) void {
+    /// Public because the C module clears it before a call that may fail
+    /// before ever reaching the converter - otherwise zuid_last_error would
+    /// report whatever the previous call left behind.
+    pub fn clearErr(self: *Host) void {
         self.err_len = 0;
     }
 
     fn setErr(self: *Host, msg: []const u8) void {
-        const n = @min(msg.len, self.err_buf.len);
-        @memcpy(self.err_buf[0..n], msg[0..n]);
-        self.err_len = n;
+        var kept = @min(msg.len, self.err_buf.len);
+        // Back off to a codepoint boundary. Near-match suggestions quote base
+        // names, and the wide alphabets are several bytes per symbol, so a
+        // blind cut can leave a half-written character.
+        while (kept > 0 and kept < msg.len and msg[kept] & 0xc0 == 0x80) kept -= 1;
+        @memcpy(self.err_buf[0..kept], msg[0..kept]);
+        self.err_len = kept;
     }
 
     /// Captures the module's last-error state and maps its code onto the
@@ -314,40 +399,50 @@ pub const Host = struct {
         };
     }
 
-    /// One export call. Wasmtime errors and traps both land here; their
-    /// message becomes the host's error text.
+    /// One export call. Wasmtime errors and traps are both caught here, and
+    /// their message becomes the host's error text.
     fn call(self: *Host, func: *const c.wasmtime_func_t, args: []const c.wasmtime_val_t, results: []c.wasmtime_val_t) core.Error!void {
         var trap: ?*c.wasm_trap_t = null;
         const err = c.wasmtime_func_call(self.context, func, args.ptr, args.len, results.ptr, results.len, &trap);
-        if (err) |e| {
+        if (err) |failure| {
             var msg: c.wasm_byte_vec_t = undefined;
-            c.wasmtime_error_message(e, &msg);
+            c.wasmtime_error_message(failure, &msg);
             self.setErr(msg.data[0..msg.size]);
             c.wasm_byte_vec_delete(&msg);
-            c.wasmtime_error_delete(e);
+            c.wasmtime_error_delete(failure);
             return core.Error.ConvertFailed;
         }
-        if (trap) |t| {
+        if (trap) |trapped| {
             var msg: c.wasm_byte_vec_t = undefined;
-            c.wasm_trap_message(t, &msg);
+            c.wasm_trap_message(trapped, &msg);
             self.setErr(msg.data[0..msg.size]);
             c.wasm_byte_vec_delete(&msg);
-            c.wasm_trap_delete(t);
+            c.wasm_trap_delete(trapped);
             return core.Error.ConvertFailed;
         }
     }
 
     /// Copies s into a module region. The data pointer is fetched after the
     /// alloc call: linear memory can move when it grows.
-    fn putStr(self: *Host, s: []const u8) core.Error!Region {
-        if (s.len == 0) return .{ .ptr = 0, .len = 0 };
+    fn putStr(self: *Host, text: []const u8) core.Error!Region {
+        if (text.len == 0) return .{ .ptr = 0, .len = 0 };
         var results: [1]c.wasmtime_val_t = undefined;
-        try self.call(&self.f_alloc, &.{valU32(@intCast(s.len))}, &results);
+        try self.call(&self.f_alloc, &.{valU32(@intCast(text.len))}, &results);
         const ptr: u32 = @bitCast(results[0].of.i32);
         if (ptr == 0) return self.fail();
+        const memory = self.memoryBytes();
+        if (@as(usize, ptr) + text.len > memory.len) return core.Error.ConvertFailed;
+        @memcpy(memory[ptr..][0..text.len], text);
+        return .{ .ptr = ptr, .len = @intCast(text.len) };
+    }
+
+    /// Linear memory as a bounds-carrying slice. The raw C pointer has no
+    /// length, so a pointer the module returned would otherwise be trusted
+    /// blind - and the module is rebuilt from upstream, not frozen here.
+    fn memoryBytes(self: *Host) []u8 {
         const data = c.wasmtime_memory_data(self.context, &self.memory);
-        @memcpy(data[ptr .. ptr + s.len], s);
-        return .{ .ptr = ptr, .len = @intCast(s.len) };
+        const size = c.wasmtime_memory_data_size(self.context, &self.memory);
+        return data[0..size];
     }
 
     /// Failing to free is a leak in the module's ledger, not a crash; nothing
@@ -362,16 +457,17 @@ pub const Host = struct {
         const ptr: u32 = @truncate(packed_str >> 32);
         const len: u32 = @truncate(packed_str);
         if (len > out.len) return core.Error.BufferTooSmall;
-        const data = c.wasmtime_memory_data(self.context, &self.memory);
-        @memcpy(out[0..len], data[ptr .. ptr + len]);
+        const memory = self.memoryBytes();
+        if (@as(usize, ptr) + len > memory.len) return core.Error.ConvertFailed;
+        @memcpy(out[0..len], memory[ptr..][0..len]);
         return out[0..len];
     }
 };
 
-fn valU32(v: u32) c.wasmtime_val_t {
-    return .{ .kind = c.WASMTIME_I32, .of = .{ .i32 = @bitCast(v) } };
+fn valU32(value: u32) c.wasmtime_val_t {
+    return .{ .kind = c.WASMTIME_I32, .of = .{ .i32 = @bitCast(value) } };
 }
 
-fn valI32(v: i32) c.wasmtime_val_t {
-    return .{ .kind = c.WASMTIME_I32, .of = .{ .i32 = v } };
+fn valI32(value: i32) c.wasmtime_val_t {
+    return .{ .kind = c.WASMTIME_I32, .of = .{ .i32 = value } };
 }

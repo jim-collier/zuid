@@ -8,6 +8,10 @@
 # Vendored build inputs (fetched/refreshed by cicd, not committed)
 /zig/vendor/
 
+# Run logs, profiles, and demo renders. Rotated by cicd; assets/demo.gif is the
+# one copy that is committed.
+/cicd/artifacts/
+
 # Editor / OS
 *.swp
 .DS_Store

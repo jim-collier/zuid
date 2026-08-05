@@ -10,13 +10,28 @@
 const std = @import("std");
 const zuid = @import("zuid");
 
-const help_text =
+/// The curated list, spelled out at compile time so help cannot drift from
+/// what the library actually offers.
+const curated_list = blk: {
+    var joined: []const u8 = "";
+    for (zuid.core.curated_bases, 0..) |base, i| {
+        joined = joined ++ (if (i == 0) "" else ", ") ++ base;
+    }
+    break :blk joined;
+};
+
+const help_head =
     \\Generates short, sortable, privacy-preserving unique identifiers.
     \\
     \\Syntax: zuid [options]
     \\
     \\Options:
-    \\    -b, --base <name>    Output base: 16, 32w, 36, or 62 (default 62).
+    \\    -b, --base <name>    Output base (default 62). Curated set:
+    \\
+;
+
+const help_tail =
+    \\
     \\                         Any base the conversion library knows is also
     \\                         accepted, including ones that do not sort.
     \\    -f, --format <fmt>   Format string (default "%d"). See below.
@@ -35,6 +50,7 @@ const help_text =
     \\    %u  User name, hashed by default.
     \\    %f  Fully-qualified host and domain name, hashed by default.
     \\    %m  Hardware address of the lowest-numbered non-loopback interface.
+    \\        Linux only so far.
     \\    %g  A UUID v4, rendered as the 128-bit number it is.
     \\    %r  Random symbols from a cryptographic source.
     \\    %%  A literal '%'. Anything else in the format goes out as itself.
@@ -46,6 +62,8 @@ const help_text =
     \\one combination per use-case.
     \\
 ;
+
+const help_text = help_head ++ "                         " ++ curated_list ++ "\n" ++ help_tail;
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
@@ -102,7 +120,7 @@ pub fn main(init: std.process.Init) !void {
             return die(stderr, "Argument invalid or not expected: '{s}'. Try --help.", .{arg});
         }
     }
-    opts.clock_ms = zuid.clock.nowMs();
+    opts.clock_ms = zuid.clock.nowMs() orelse return die(stderr, "The system clock could not be read.", .{});
 
     var wasm_host = zuid.host.Host.init(.auto) catch |err| {
         return die(stderr, "The embedded wasm runtime failed to start: {t}.", .{err});
@@ -120,6 +138,7 @@ pub fn main(init: std.process.Init) !void {
             error.UnknownComponent => die(stderr, "Unknown format component. Known: %d %h %u %f %m %g %r, and %% for a literal.", .{}),
             error.BareFormatPercent => die(stderr, "The format string ends on a bare '%'.", .{}),
             error.ClockBeforeEpoch => die(stderr, "The clock predates the Unix epoch.", .{}),
+            error.BaseNotText => die(stderr, "That base renders raw bytes rather than text, so it cannot carry an identifier.", .{}),
             error.EnvUnavailable => die(stderr, "This machine could not supply that component - no name, hardware address, or random source.", .{}),
             error.OptionRange => die(stderr, "A symbol count is out of range. Want 1 to {d}.", .{zuid.core.max_component_chars}),
             else => die(stderr, "Generation failed: {t}.", .{err}),

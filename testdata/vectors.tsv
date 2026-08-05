@@ -56,7 +56,7 @@
 # Width is counted in symbols throughout, never in bytes. The wide bases at the
 # end of this file, 64tt and up, have digits of two to four bytes each, so
 # every padded and every truncated component there also pins down that the cut
-# lands on a symbol boundary rather than mid-digit.
+# falls on a symbol boundary rather than mid-digit.
 #
 # name	format	base	precision	clock_ms	env	expected
 time-ms-epoch	%d	16	1	0	-	000000000000
