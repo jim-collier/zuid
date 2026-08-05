@@ -53,18 +53,20 @@ In each section, items are listed approximately from newest to oldest.
 - 🛠️ Two implementations of one spec: Go, and Zig. See `design.md`.
 	- ✅ Repo, folder layout, and the architecture decisions behind the split.
 	- ✅ Shared test vectors (`testdata/vectors.tsv`), which both must reproduce.
-		- ✅ Time-only rows, across all four curated bases and all three precisions, including truncation and horizon-boundary rows. Sort guarantee checked against them.
-		- ✅ Rows for the other components: 115 in total. An `env` column carries the injected host, user, FQDN, hardware address, random stream, and width options, so a row states only what it cares about.
+		- ✅ Time-only rows, across the narrow curated bases and all three precisions, including truncation and horizon-boundary rows. Sort guarantee checked against them.
+		- ✅ Rows for the other components, then for the wide bases: 187 in total. An `env` column carries the injected host, user, FQDN, hardware address, random stream, and width options, so a row states only what it cares about.
 		- ✅ Expected values computed a third time, from `design.md` rather than from either implementation, so agreement between the two cannot just mean they are wrong the same way.
 
-- 🛠️ Base conversion comes from the sister project `convert-base-v2`, not reimplemented.
-	- ✅ Go side imports `convertbase` directly, through a local `replace` until `lib/v0.1.0` is tagged upstream. Goal 3 met: the package works as imported, no changes needed to it.
+- ✅ Base conversion comes from the sister project `convert-base-v2`, not reimplemented.
+	- ✅ Go side imports `convertbase` directly, now at the published `lib/v0.1.0` rather than through a local `replace`. Goal 3 met: the package works as imported, no changes needed to it.
+	- ✅ Padding, truncation, and symbol slicing all come from the library too, so the one piece of policy both implementations share has one owner.
 	- ✅ Zig side reaches it through a reactor WebAssembly module, hosted by a vendored Wasmtime. Goal 4 met: the module is embedded in the binary, all vectors reproduce through it, and its region ledger stays at zero.
 
-- 🛠️ Upstream the reactor WebAssembly build to `convert-base-v2`. This gates the whole Zig and C side.
+- ✅ Upstream the reactor WebAssembly build to `convert-base-v2`. This gated the whole Zig and C side.
 	- ✅ Upstream has already designed it, in more depth than anything drafted here. Nothing to propose; do not relitigate their choices.
 	- ✅ Sent them zuid's requirements: base metadata (radix and padding symbol) for fixed-width padding, a symbol count rather than a byte count, a stable error enum, and the error text. No streaming needed - inputs are about 13 bytes, so the one-shot surface alone unblocks this side.
 	- ✅ Upstream now has a working reactor build. Streaming is still in progress there, but zuid does not use it, so the gate on the Zig side is lifted.
+	- ✅ It shipped in a release, and it exports the symbol slice and right-align calls this side asked for. zuid builds the module from that pinned release rather than embedding a prebuilt copy.
 
 ### Identifier core
 
@@ -78,7 +80,7 @@ In each section, items are listed approximately from newest to oldest.
 	- ✅ Every component is a fixed symbol count wide, so an identifier can be split by offset - not only sorted. The one exception is an unhashed name, which is text.
 	- ✅ `%m` takes the lowest-numbered non-loopback interface rather than the predecessor's default-route one, which would need the routing table on three platforms.
 	- ✅ `%g` is a real UUID v4, rendered as the 128-bit number rather than the dashed text form, which does not sort.
-	- ✅ Truncated components are refused in a base with multi-byte digits: there is no way to split a converted string at a symbol boundary, so both sides refuse rather than each guess. Padding is unaffected.
+	- ✅ Padding and truncation both come from the conversion library, in one call that right-aligns a value to an exact symbol count. Truncation used to be refused in a base with multi-byte digits; the library slices by symbol now, so every component works in every base.
 - ✅ Host, user, and FQDN hashed by default, with an explicit opt-out. SHA-256, rightmost 8 symbols; `--no-hash` emits the names literally and `--hash-chars` resizes them.
 - ✅ Every environment source injectable, so output is reproducible under test. Go has `WithClock`/`WithFixedTime`/`WithRandom`/`WithHostname`/`WithUsername`/`WithFQDN`/`WithMAC`; Zig has an `Env` interface alongside the existing `Converter`, with `env.zig` as its one live implementation.
 
@@ -88,8 +90,9 @@ In each section, items are listed approximately from newest to oldest.
 	- ✅ The CLI exists: `zuid [-b base] [-f format] [-p precision] [--no-hash] [--hash-chars n] [--rand-chars n]`, all seven components plus `%%` literals, unknown verbs rejected with a clear message.
 	- ✅ Precision flag: `-p -1|0|1` for minute/second/millisecond, default second - same surface and default as the predecessor.
 	- ✅ Two hashing flags rather than the predecessor's six. Per-component widths were exactly the sort of accretion this was meant to improve on.
-- ✅ Curated base list in the help output: **16, 32w, 36, 62**, default 62. `--base` still accepts any base the library knows, and an unknown one surfaces the library's near-match suggestion. The `zuid-go` command that first carried it was dropped - the Go side is module-only.
-	- Base 64 was dropped: its RFC 4648 alphabet does not sort, and it needs the same 8 characters as base 62, which does.
+- ✅ Curated base list in the help output: **16, 32w, 36, 62, 64tt, 128tt, 256tt, 512tt, 1024tz, 2048tz**, default 62. `--base` still accepts any base the library knows, and an unknown one surfaces the library's near-match suggestion. The `zuid-go` command that first carried it was dropped - the Go side is module-only.
+	- The RFC 4648 base 64 variants were dropped: their alphabet does not sort, and they need the same 8 characters as base 62, which does.
+	- The wide families were added once truncation worked in them. `tt` up to 512, `tz` above it - below 512 the two are one alphabet under two names, at 512 they genuinely differ, and past it only `tz` continues.
 	- ✅ Alphabets reconciled against `convertbase`. Its `32w` is the same 32 symbols the vectors assume, reached by the same alias. All 24 rows reproduce through the real library rather than a local table.
 - 🔘 Generate more than one identifier per invocation. A time-only format repeats within one tick.
 	- Decided: output stays literal - nothing is appended silently - but repeats in one invocation's output get a stderr warning suggesting `%r`.
@@ -115,7 +118,7 @@ In each section, items are listed approximately from newest to oldest.
 	- ✅ Zig stage skips itself while there is no `build.zig`, rather than failing on work that has not started.
 	- ✅ Zig stage builds ReleaseSafe, replays the vectors under both Wasmtime compilers, checks `zig fmt`, and then compiles the C smoke test with the system gcc or clang in both link modes. It skips that last part with a note if neither compiler is installed.
 	- 🔘 Packaging and publishing. Both are recognized and rejected with a reason.
-	- ✅ Fetch the Wasmtime C API: pinned version, checksum verified, extracted into `zig/vendor/`. The reactor wasm refreshes from the sibling checkout whenever it differs, and an already-vendored copy suffices when the sibling is absent.
+	- ✅ Fetch the Wasmtime C API: pinned version, checksum verified, extracted into `zig/vendor/`. The reactor wasm is built from the pinned convertbase release, so it cannot drift from the version the Go side imports; an already-vendored copy covers an offline build.
 
 - ✅ Vendor the Wasmtime C API during build rather than assuming it is installed.
 
@@ -156,6 +159,14 @@ In each section, items are listed approximately from newest to oldest.
 ## Backlog
 
 ### Misc to-do
+
+- ✅ The wide bases joined the curated set, and the upstream dependency moved to a release.
+	- ✅ Curated set is now **16, 32w, 36, 62, 64tt, 128tt, 256tt, 512tt, 1024tz, 2048tz**, default still 62. `tt` up to 512, `tz` above it, which is where `tt` stops existing.
+	- ✅ Padding and truncation both delegate to the library's one right-align call, so the two implementations cannot drift on half a policy each.
+	- ✅ The multi-byte-digit refusal is gone. Every component works in every base, which is what made the wide families usable at all. Its C error code is retired rather than renumbered.
+	- ✅ `%r` draws enough bytes to fill its symbols. One byte each still covers everything up to 256; above that a symbol carries more than eight bits and the leading one would otherwise never vary.
+	- ✅ `go.mod` pins the published release; the local `replace` directive is gone. The reactor wasm is built from that same pinned version instead of copied from a neighbouring checkout.
+	- ✅ Vectors grew 115 -> 187, the new rows computed a third time in python. That script also reproduces all 115 existing rows, so its algorithm is checked before it is trusted for new ones.
 
 - ✅ The remaining components landed on both sides, and the vectors grew from 72 rows to 115.
 	- ✅ The `Converter` interface now carries a from-base, since hashes, hardware addresses, and UUIDs all arrive as hex rather than decimal.

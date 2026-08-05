@@ -39,7 +39,7 @@ enum {
 	ZUID_ERR_PRECISION = 8,     /* precision is not -1, 0, or 1 */
 	ZUID_ERR_OPTION = 9,        /* a symbol count is outside 1..ZUID_MAX_COMPONENT_CHARS */
 	ZUID_ERR_ENV = 10,          /* no host name, user, hardware address, or random source */
-	ZUID_ERR_BASE_DIGITS = 11   /* the base has multi-byte digits, so %h %u %f %r cannot be truncated in it */
+	ZUID_ERR_BASE_DIGITS = 11   /* no longer produced; every base can carry every component */
 };
 
 /* Upper bound on zuid_set_hash_chars and zuid_set_random_chars. */

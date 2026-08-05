@@ -18,8 +18,15 @@ pub const version = "0.1.0";
 pub const default_base = "62";
 
 /// The short list the help screen shows. --base still accepts anything the
-/// conversion library knows; these are the ones that sort and transcribe well.
-pub const curated_bases = [_][]const u8{ "16", "32w", "36", "62" };
+/// conversion library knows; these are the ones that sort. The first four
+/// transcribe by hand; the wide families trade that away for length, and only
+/// one of the two names each radix carries is listed - tt up to 512, tz above
+/// it, which is where tt stops existing.
+pub const curated_bases = [_][]const u8{
+    "16",     "32w",    "36",    "62",
+    "64tt",   "128tt",  "256tt", "512tt",
+    "1024tz", "2048tz",
+};
 
 /// Symbols kept from a hashed component. Eight in base 62 is around 47 bits of
 /// fingerprint, which is enough that two hosts colliding is not a real worry.
@@ -86,9 +93,10 @@ pub const out_buf_len = 4096;
 /// 253 bytes.
 pub const name_buf_len = 256;
 
-/// Bytes any component hands to base conversion: the 64-byte cap on a random
-/// draw is the largest.
-const raw_buf_len = max_component_chars;
+/// Bytes any component hands to base conversion. The largest is a random draw
+/// filling max_component_chars symbols of the widest base the library carries,
+/// whose symbols are 16 bits - two bytes each.
+const raw_buf_len = max_component_chars * 2;
 
 pub const Error = error{
     /// Base name or alias resolves to nothing. The converter's error text
@@ -109,9 +117,6 @@ pub const Error = error{
     /// The machine could not supply a component: no host name, no user, no
     /// interface with a hardware address, no random source.
     EnvUnavailable,
-    /// The base has multi-byte digits, so a truncated component cannot be
-    /// split in it. Padding still works; only %h %u %f %r are affected.
-    MultiByteBase,
     /// The converter failed for a reason of its own; ask it for the text.
     ConvertFailed,
 };
@@ -126,9 +131,13 @@ pub const Converter = struct {
         /// Renders value, written in from_base, into to_base.
         convert: *const fn (ctx: *anyopaque, value: []const u8, from_base: []const u8, to_base: []const u8, out: []u8) Error![]const u8,
         radix: *const fn (ctx: *anyopaque, base: []const u8) Error!u64,
-        /// The base's first symbol - the padding digit. 32w starts at '2', so
-        /// assuming '0' pads wrongly.
-        zeroSymbol: *const fn (ctx: *anyopaque, base: []const u8, out: []u8) Error![]const u8,
+        /// Right-aligns digits to exactly width symbols: left-filled with the
+        /// base's zero symbol when short, cut to the rightmost width when
+        /// long. The whole pad-or-truncate policy, kept on the library side so
+        /// the two implementations cannot drift on the half of it they would
+        /// otherwise each write themselves - and the zero symbol is not always
+        /// '0' (32w starts at '2').
+        fit: *const fn (ctx: *anyopaque, base: []const u8, digits: []const u8, width: u32, out: []u8) Error![]const u8,
         /// Symbols, not bytes: some bases have multi-byte digits.
         symbolCount: *const fn (ctx: *anyopaque, base: []const u8, digits: []const u8) Error!u64,
     };
@@ -139,8 +148,8 @@ pub const Converter = struct {
     pub fn radix(self: Converter, base: []const u8) Error!u64 {
         return self.vtable.radix(self.ctx, base);
     }
-    pub fn zeroSymbol(self: Converter, base: []const u8, out: []u8) Error![]const u8 {
-        return self.vtable.zeroSymbol(self.ctx, base, out);
+    pub fn fit(self: Converter, base: []const u8, digits: []const u8, width: u32, out: []u8) Error![]const u8 {
+        return self.vtable.fit(self.ctx, base, digits, width, out);
     }
     pub fn symbolCount(self: Converter, base: []const u8, digits: []const u8) Error!u64 {
         return self.vtable.symbolCount(self.ctx, base, digits);
@@ -320,35 +329,46 @@ fn uuidComponent(conv: Converter, env: Env, base: []const u8, out: []u8) Error![
     return bytesComponent(conv, base, &uuid, .{ .width = width }, out);
 }
 
-/// One byte drawn per requested symbol. That is more entropy than any base of
-/// 256 symbols or fewer can spend, so the draw never has to know the radix.
+/// Enough entropy drawn to fill every symbol emitted.
 fn randomComponent(conv: Converter, env: Env, base: []const u8, count: u32, out: []u8) Error![]const u8 {
     var drawn: [raw_buf_len]u8 = undefined;
-    const slice = drawn[0..count];
+    const slice = drawn[0..randomBytesFor(try conv.radix(base), count)];
     try env.randomBytes(slice);
     return bytesComponent(conv, base, slice, .{ .keep_right = count }, out);
 }
 
+/// How many bytes fill count symbols of the given radix. One byte per symbol
+/// covers anything up to 256 symbols and is what the narrow bases have always
+/// drawn, so the floor keeps their output unchanged. Above 256 a symbol
+/// carries more than eight bits, and one byte each would leave the leading
+/// symbols permanently at the zero digit.
+fn randomBytesFor(radix: u64, count: u32) u32 {
+    const bits_per_symbol: u32 = 64 - @clz(radix - 1);
+    return @max(count, (count * bits_per_symbol + 7) / 8);
+}
+
 /// How a rendered component is brought to its final width.
-const Fit = union(enum) {
+const Sizing = union(enum) {
     /// Left-fill to a derived width; overflowing it is an error.
     width: u32,
     /// Keep the rightmost n symbols, left-filling if the value renders short.
+    /// Truncation is what makes a 256-bit digest short enough to sit in an
+    /// identifier.
     keep_right: u32,
 };
 
 /// The path every byte-valued component takes: base 16 in, because that is the
 /// cheapest faithful way to hand bytes to the conversion library.
-fn bytesComponent(conv: Converter, base: []const u8, raw: []const u8, fit: Fit, out: []u8) Error![]const u8 {
+fn bytesComponent(conv: Converter, base: []const u8, raw: []const u8, sizing: Sizing, out: []u8) Error![]const u8 {
     var hex_buf: [raw_buf_len * 2]u8 = undefined;
     const hexed = hexUpper(raw, &hex_buf);
 
     var conv_buf: [component_buf_len]u8 = undefined;
     const converted = try conv.convert(hexed, "16", base, &conv_buf);
 
-    return switch (fit) {
+    return switch (sizing) {
         .width => |width| padTo(conv, base, converted, width, out),
-        .keep_right => |count| keepRight(conv, base, converted, count, out),
+        .keep_right => |count| conv.fit(base, converted, count, out),
     };
 }
 
@@ -362,48 +382,15 @@ fn hexUpper(raw: []const u8, out: []u8) []const u8 {
 }
 
 /// Left-fills converted to width with the base's zero digit.
+///
+/// fit alone would truncate an over-wide value, which is right for a hash and
+/// wrong for a timestamp: overflowing here means the clock is past the horizon
+/// the width was derived for, and quietly dropping the high symbols would
+/// break the sort rather than report it. Hence the count first.
 fn padTo(conv: Converter, base: []const u8, converted: []const u8, width: u32, out: []u8) Error![]const u8 {
     const count = try conv.symbolCount(base, converted);
     if (count > width) return Error.WidthOverflow;
-
-    var zero_buf: [8]u8 = undefined;
-    const zero = try conv.zeroSymbol(base, &zero_buf);
-
-    const fill: usize = @intCast(width - count);
-    if (fill * zero.len + converted.len > out.len) return Error.BufferTooSmall;
-    var used: usize = 0;
-    for (0..fill) |_| {
-        @memcpy(out[used .. used + zero.len], zero);
-        used += zero.len;
-    }
-    @memcpy(out[used .. used + converted.len], converted);
-    return out[0 .. used + converted.len];
-}
-
-/// Rightmost count symbols of a hash or a random draw. Truncation is what
-/// makes a hash short enough to be useful.
-///
-/// It needs single-byte digits, because the conversion library offers no way
-/// to slice a string at a symbol boundary and the two implementations have to
-/// agree on the answer. Every base worth putting in an identifier qualifies;
-/// the exotic multi-byte ones are refused rather than guessed at.
-fn keepRight(conv: Converter, base: []const u8, converted: []const u8, count: u32, out: []u8) Error![]const u8 {
-    const symbols = try conv.symbolCount(base, converted);
-
-    var zero_buf: [8]u8 = undefined;
-    const zero = try conv.zeroSymbol(base, &zero_buf);
-    if (symbols != converted.len or zero.len != 1) return Error.MultiByteBase;
-
-    if (count > out.len) return Error.BufferTooSmall;
-    if (symbols >= count) {
-        const tail = converted[converted.len - count ..];
-        @memcpy(out[0..count], tail);
-        return out[0..count];
-    }
-    const fill: usize = count - converted.len;
-    @memset(out[0..fill], zero[0]);
-    @memcpy(out[fill..count], converted);
-    return out[0..count];
+    return conv.fit(base, converted, width, out);
 }
 
 test "widthFor matches the design table" {

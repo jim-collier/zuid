@@ -14,12 +14,19 @@ Design, requirements, and direction. The active pre-v1.0.0 bug/feature task list
 
 - [What this is](#what-this-is)
 - [Assumptions](#assumptions)
-- [Direction decisions](#direction-decisions)
+- [Overview](#overview)
 	- [Two implementations, one spec](#two-implementations-one-spec)
 	- [Where base conversion comes from](#where-base-conversion-comes-from)
 	- [Reaching the library from C](#reaching-the-library-from-c)
 	- [Which bases to offer](#which-bases-to-offer)
 	- [Memory safety on the Zig side](#memory-safety-on-the-zig-side)
+		- [What is actually detected, and what is not](#what-is-actually-detected-and-what-is-not)
+- [Identifier specification](#identifier-specification)
+	- [One time encoding, not four](#one-time-encoding-not-four)
+	- [Fixed width, because sorting depends on it](#fixed-width-because-sorting-depends-on-it)
+	- [Format and components](#format-and-components)
+	- [Component widths](#component-widths)
+	- [Resolved questions](#resolved-questions)
 - [Project structure](#project-structure)
 	- [Folder structure](#folder-structure)
 	- [Logical code structure](#logical-code-structure)
@@ -45,11 +52,14 @@ The identifier is built from a time component, optionally combined with host, us
 ## Assumptions
 
 - An identifier is generated far more often than it is parsed, so generation speed matters and parsing convenience does not.
+
 - Callers who can start a process should just run the binary. The Go and C modules exist for callers who cannot.
+
 - Sortability is a property worth protecting. Any base whose alphabet does not sort in code-point order breaks it, and that constrains which bases are sensible defaults.
+
 - Privacy defaults matter: host and user components are hashed unless the caller explicitly asks otherwise.
 
-## Direction decisions
+## Overview
 
 ### Two implementations, one spec
 
@@ -104,16 +114,25 @@ Sortability turns out to be the sharpest filter, and it rules on the alphabet ra
 
 | Base | Sorts | Note
 | :-- | :-- | :--
+| 10 | yes |
 | 16 | yes |
+| 26 | yes |
 | 32h, 32c, 32w | yes | base32hex, Crockford, and wordsafe all happen to be ascending
 | 32r | **no** | RFC 4648 puts `A-Z` before `2-7`
 | 36 | yes |
+| 52 | yes |
 | 62 | yes |
 | 64r, 64u | **no** | RFC 4648 puts `A-Z` before `0-9`
+| 64h | yes |
+| `*tt`, `*tz` | yes | the wide families, built on ordered alphabets for exactly this reason
 
-That removes base 64 from consideration entirely, which is worth spelling out because it was in an earlier draft of the curated list. Base 64 and base 62 need the same 8 characters for a timestamp, and base 62 is already URL-safe and filesystem-safe with no escaping. So base 64 costs the sort guarantee and buys nothing back at this magnitude.
+That removes the RFC base 64 variants from consideration entirely, which is worth spelling out because one of them was in an earlier draft of the curated list. Base 64 and base 62 need the same 8 characters for a timestamp, and base 62 is already URL-safe and filesystem-safe with no escaping. So base 64 cost the sort guarantee and bought nothing back at this magnitude.
 
-The curated set is therefore **16, 32w, 36, 62**, with 62 the default. Every one of them sorts.
+Above base 62 the sensible choices are the two wide families the library carries. They are the same alphabet below 512, diverge at 512, and only `tz` continues past it - so listing both names for one radix would offer a choice that is not really a choice. The curated set takes `tt` up to 512 and `tz` above, which is where `tt` stops existing.
+
+The curated set is therefore **16, 32w, 36, 62, 64tt, 128tt, 256tt, 512tt, 1024tz, 2048tz**, with 62 the default. Every one of them sorts.
+
+The first four transcribe by hand. The wide ones trade that away - their digits are two to four bytes each and most are not on anybody's keyboard - and buy back length: a millisecond timestamp is 12 characters in base 16 and 5 in base 512. They are for identifiers that get copied by machines, not read aloud.
 
 `--base` still accepts anything the library knows, including the non-sorting ones. Asking for one of those is a legitimate thing to want; getting one without asking is not.
 
@@ -174,8 +193,16 @@ So output is **zero-padded to a fixed width**, chosen per base and precision as 
 | 32 | 6 | 7 | 9
 | 36 | 6 | 7 | 9
 | 62 | 5 | 6 | 8
+| 64 | 5 | 6 | 8
+| 128 | 5 | 5 | 7
+| 256 | 4 | 5 | 6
+| 512 | 4 | 4 | 5
+| 1024 | 3 | 4 | 5
+| 2048 | 3 | 4 | 5
 
 Width is quantized, so most of those overshoot the horizon by a wide margin. Base 62 at millisecond precision shows it: 8 characters last until 8888, and the next width down runs out in 2081. At the default second precision base 62 is 6 characters - the same length the predecessor produces today, now with the sort guarantee.
+
+The quantization also explains why the wide bases flatten out at the bottom of the table: 1024 and 2048 need the same width at every precision, because a radix that large clears the horizon in the same number of steps. Past a point, widening the alphabet stops buying characters.
 
 Two consequences worth stating plainly:
 
@@ -207,7 +234,9 @@ The byte-valued components all take the same path - hex in, converted from base 
 - `%g` is a real UUID v4 - 16 bytes from the random source with the version and variant bits forced - but rendered as the 128-bit number it is rather than in the dashed text form, which would not sort and would be four times as long.
 - `%r` draws one byte per requested symbol. That is more entropy than any base of 256 symbols or fewer can spend, so the draw never has to know the radix.
 
-One limit falls out of the conversion library's interface: **truncation needs single-byte digits**. There is no way to slice a converted string at a symbol boundary, so `%h`, `%u`, `%f`, and `%r` are refused in a base with multi-byte digits rather than each implementation guessing differently. Padding is unaffected, so `%d`, `%m`, and `%g` work in any base. Every base worth putting in an identifier qualifies; only the exotic ones are ruled out.
+Padding and truncation both come from the conversion library, through one call that right-aligns a converted value to an exact symbol count. That is deliberate: the two halves of the policy - left-fill with the base's zero digit when short, keep the rightmost symbols when long - are exactly the kind of thing two implementations drift on if each writes its own. Neither does.
+
+It also removes an earlier limit. Truncation used to need single-byte digits, because nothing could slice a converted string at a symbol boundary, so `%h`, `%u`, `%f`, and `%r` were refused in a base with multi-byte digits. The library slices by symbol now, so every component works in every base, which is what made the wide families usable as curated choices at all.
 
 ### Component widths
 
@@ -219,8 +248,16 @@ One limit falls out of the conversion library's interface: **truncation needs si
 | 32 | 10 | 26
 | 36 | 10 | 25
 | 62 | 9 | 22
+| 64 | 8 | 22
+| 128 | 7 | 19
+| 256 | 6 | 16
+| 512 | 6 | 15
+| 1024 | 5 | 13
+| 2048 | 5 | 12
 
 Hashed and random components are not derived; their width is whatever symbol count was asked for.
+
+`%r` is the one component whose *input* depends on the base. It draws one byte per symbol, which is more entropy than a base of 256 symbols or fewer can spend. Above 256 a symbol carries more than eight bits, so a byte each would leave the leading symbols pinned at the zero digit forever; the draw is `ceil(symbols * bits / 8)` bytes there instead. The floor of one byte per symbol keeps the narrow bases drawing exactly what they always did.
 
 ### Resolved questions
 
@@ -310,10 +347,12 @@ Deliberately not carried forward: its base list, which is longer than an identif
 
 ## Upstream dependency status
 
-Both integration points now work against local checkouts; what remains upstream is releasing, not building:
+Both integration points run against a published release. Nothing is pinned to a working copy any more:
 
-- The `convertbase` package lives on an unmerged branch. There is no `lib/v0.1.0` tag, so the module is not fetchable, and the Go side uses a local `replace` directive until one exists.
-- The reactor WebAssembly build exists upstream and this project's Zig side runs against it. Until upstream publishes it as a release artifact, the build refreshes its copy from the sibling checkout.
+- The `convertbase` package is fetched at a tagged version, like any other dependency. The local `replace` directive that stood in while it was unreleased is gone.
+- The reactor WebAssembly module is **built from that same pinned version** rather than copied in as a prebuilt artifact. That is the point: the Go side imports the library and the Zig side calls it through WebAssembly, and building both from one module version is what stops them drifting onto two. It needs a Go 1.24+ toolchain for `//go:wasmexport`; a vendored copy covers an offline build.
+
+The two goals this architecture exists to serve - exercising the upstream Go module and the upstream WebAssembly module - are both met, and now against released artifacts rather than a neighbouring directory.
 
 ## Licensing
 

@@ -121,7 +121,6 @@ pub fn main(init: std.process.Init) !void {
             error.BareFormatPercent => die(stderr, "The format string ends on a bare '%'.", .{}),
             error.ClockBeforeEpoch => die(stderr, "The clock predates the Unix epoch.", .{}),
             error.EnvUnavailable => die(stderr, "This machine could not supply that component - no name, hardware address, or random source.", .{}),
-            error.MultiByteBase => die(stderr, "That base has multi-byte digits, so %h, %u, %f, and %r cannot be truncated in it.", .{}),
             error.OptionRange => die(stderr, "A symbol count is out of range. Want 1 to {d}.", .{zuid.core.max_component_chars}),
             else => die(stderr, "Generation failed: {t}.", .{err}),
         };

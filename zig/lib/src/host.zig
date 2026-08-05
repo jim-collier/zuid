@@ -55,7 +55,7 @@ pub const Host = struct {
     f_free: c.wasmtime_func_t,
     f_convert: c.wasmtime_func_t,
     f_base_radix: c.wasmtime_func_t,
-    f_base_zero: c.wasmtime_func_t,
+    f_fit: c.wasmtime_func_t,
     f_symbol_count: c.wasmtime_func_t,
     f_last_error_code: c.wasmtime_func_t,
     f_last_error_text: c.wasmtime_func_t,
@@ -122,7 +122,7 @@ pub const Host = struct {
             .f_free = undefined,
             .f_convert = undefined,
             .f_base_radix = undefined,
-            .f_base_zero = undefined,
+            .f_fit = undefined,
             .f_symbol_count = undefined,
             .f_last_error_code = undefined,
             .f_last_error_text = undefined,
@@ -137,7 +137,7 @@ pub const Host = struct {
         host.f_free = (try host.exportOf("free")).of.func;
         host.f_convert = (try host.exportOf("convert")).of.func;
         host.f_base_radix = (try host.exportOf("base_radix")).of.func;
-        host.f_base_zero = (try host.exportOf("base_zero")).of.func;
+        host.f_fit = (try host.exportOf("fit")).of.func;
         host.f_symbol_count = (try host.exportOf("symbol_count")).of.func;
         host.f_last_error_code = (try host.exportOf("last_error_code")).of.func;
         host.f_last_error_text = (try host.exportOf("last_error_text")).of.func;
@@ -204,7 +204,7 @@ pub const Host = struct {
     const converter_vtable = core.Converter.VTable{
         .convert = vtConvert,
         .radix = vtRadix,
-        .zeroSymbol = vtZeroSymbol,
+        .fit = vtFit,
         .symbolCount = vtSymbolCount,
     };
 
@@ -243,13 +243,19 @@ pub const Host = struct {
         return @intCast(radix);
     }
 
-    fn vtZeroSymbol(ctx: *anyopaque, base: []const u8, out: []u8) core.Error![]const u8 {
+    fn vtFit(ctx: *anyopaque, base: []const u8, digits: []const u8, width: u32, out: []u8) core.Error![]const u8 {
         const self: *Host = @ptrCast(@alignCast(ctx));
         self.clearErr();
         const name = try self.putStr(base);
         defer self.freeRegion(name.ptr);
+        const str = try self.putStr(digits);
+        defer self.freeRegion(str.ptr);
         var results: [1]c.wasmtime_val_t = undefined;
-        try self.call(&self.f_base_zero, &.{ valU32(name.ptr), valU32(name.len) }, &results);
+        try self.call(&self.f_fit, &.{
+            valU32(name.ptr), valU32(name.len),
+            valU32(str.ptr),  valU32(str.len),
+            valU32(width),
+        }, &results);
         const packed_str: u64 = @bitCast(results[0].of.i64);
         if (packed_str == 0) return self.fail();
         defer self.freeRegion(@truncate(packed_str >> 32));
