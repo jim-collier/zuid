@@ -232,14 +232,19 @@ fMain(){
 	## so it neither archives nor publishes unless asked for by name.
 	if ((doQuick)) && ((! backupAsked)); then doBackup=0; fi
 
-	## It publishes as well as archives, so it cannot run on a merge target. Asked
-	## for by name there that is an error and fStage_Backup says so; riding along it
-	## simply does not apply, and a stage that runs by default must never fail a run
-	## that was otherwise good. Settled here rather than in the stage so the commit
-	## message below is only asked for when there is going to be a commit.
-	if ((doBackup)) && ((! backupAsked)) && fIsProtectedBranch; then
+	## It publishes as well as archives, so it cannot run on a merge target. Settled
+	## here rather than in the stage, for two reasons: an impossible run should say so
+	## before the build and not after it, and the commit message below should only be
+	## asked for when there is going to be a commit.
+	if ((doBackup)) && fIsProtectedBranch; then
+		local -r headBranch="$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD)"
+		## Asked for by name it is an error; merely riding along it does not apply,
+		## and a stage that runs by default must never fail an otherwise good run.
+		if ((backupAsked)); then
+			fThrowError "Refusing to publish from '${headBranch}'. Work on a feature branch and merge it back."  "${FUNCNAME[0]}"
+		fi
 		doBackup=0
-		fEcho_Clean "Backup .....: skipped on '$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD)' - publish from a feature branch."
+		fEcho_Clean "Backup .....: skipped on '${headBranch}' - publish from a feature branch."
 	fi
 	readonly doBackup
 
