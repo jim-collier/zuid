@@ -75,7 +75,8 @@ In each section, items are listed approximately from newest to oldest. A require
 - 🛠️ Release-install scripts, runnable as a one-liner and documented in `README.md`.
 	- ✅ `install.bash` for Linux, BSD, macOS, and WSL; `install.ps1` for those plus Windows.
 	- ✅ Both verify the download against the published checksums, state their plan, and ask before touching anything. Re-running one changes nothing, and `--uninstall` reverses it.
-	- 🔘 Untested end to end, because there is no release to install yet.
+	- 🛠️ Tag resolution and the download were checked against the `v1.0.0-alpha.1` prerelease. The install and uninstall halves are still untried on a clean machine.
+		- Note for whoever tests it: `latest` is a stable-only endpoint, so a repo carrying only prereleases needs `--release dev`.
 
 ### Configuration and persistence
 
@@ -101,7 +102,7 @@ In each section, items are listed approximately from newest to oldest. A require
 
 ### Other
 
-- 🔘 Create the GitHub repo and push. Does not exist yet, so nothing can be pushed.
+- ✅ `jim-collier/zuid` exists and carries `main`, the `v1.0.0-alpha.1` tag, and that prerelease with its x86_64 Linux artifacts.
 - 🔘 Contact address in `trademark.md` is still a placeholder. Needs a real one.
 - 🔘 No logo. `README.md` dropped the template's `assets/logo.png` references since there is no `assets/`.
 
