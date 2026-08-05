@@ -55,10 +55,9 @@ pub const Host = struct {
     memory: c.wasmtime_memory_t,
     f_alloc: c.wasmtime_func_t,
     f_free: c.wasmtime_func_t,
-    f_convert: c.wasmtime_func_t,
+    f_convert_fit: c.wasmtime_func_t,
     f_base_radix: c.wasmtime_func_t,
     f_base_zero: c.wasmtime_func_t,
-    f_fit: c.wasmtime_func_t,
     f_symbol_count: c.wasmtime_func_t,
     f_last_error_code: c.wasmtime_func_t,
     f_last_error_text: c.wasmtime_func_t,
@@ -151,10 +150,9 @@ pub const Host = struct {
             .memory = undefined,
             .f_alloc = undefined,
             .f_free = undefined,
-            .f_convert = undefined,
+            .f_convert_fit = undefined,
             .f_base_radix = undefined,
             .f_base_zero = undefined,
-            .f_fit = undefined,
             .f_symbol_count = undefined,
             .f_last_error_code = undefined,
             .f_last_error_text = undefined,
@@ -168,10 +166,9 @@ pub const Host = struct {
         host.memory = (try host.memoryExport("memory")).of.memory;
         host.f_alloc = (try host.funcExport("alloc")).of.func;
         host.f_free = (try host.funcExport("free")).of.func;
-        host.f_convert = (try host.funcExport("convert")).of.func;
+        host.f_convert_fit = (try host.funcExport("convert_fit")).of.func;
         host.f_base_radix = (try host.funcExport("base_radix")).of.func;
         host.f_base_zero = (try host.funcExport("base_zero")).of.func;
-        host.f_fit = (try host.funcExport("fit")).of.func;
         host.f_symbol_count = (try host.funcExport("symbol_count")).of.func;
         host.f_last_error_code = (try host.funcExport("last_error_code")).of.func;
         host.f_last_error_text = (try host.funcExport("last_error_text")).of.func;
@@ -249,14 +246,17 @@ pub const Host = struct {
     }
 
     const converter_vtable = core.Converter.VTable{
-        .convert = vtConvert,
+        .convertFit = vtConvertFit,
         .radix = vtRadix,
-        .fit = vtFit,
         .symbolCount = vtSymbolCount,
         .zeroSymbol = vtZeroSymbol,
     };
 
-    fn vtConvert(ctx: *anyopaque, value_in: []const u8, from_base: []const u8, to_base: []const u8, out: []u8) core.Error![]const u8 {
+    /// One crossing for what used to be two. Converting and then fitting
+    /// separately meant a second call, a second result region, and the base
+    /// name marshalled into the module twice - for every component of every
+    /// identifier.
+    fn vtConvertFit(ctx: *anyopaque, value_in: []const u8, from_base: []const u8, to_base: []const u8, width: u32, out: []u8) core.Error![]const u8 {
         const self: *Host = @ptrCast(@alignCast(ctx));
         self.clearErr();
         const from = try self.putStr(from_base);
@@ -267,11 +267,11 @@ pub const Host = struct {
         defer self.freeRegion(value.ptr);
 
         var results: [1]c.wasmtime_val_t = undefined;
-        try self.call(&self.f_convert, &.{
+        try self.call(&self.f_convert_fit, &.{
             valU32(from.ptr),  valU32(from.len),
             valU32(to.ptr),    valU32(to.len),
             valU32(value.ptr), valU32(value.len),
-            valI32(-1),
+            valU32(width),
         }, &results);
         const packed_str: u64 = @bitCast(results[0].of.i64);
         if (packed_str == 0) return self.fail();
@@ -295,25 +295,6 @@ pub const Host = struct {
         const value: u64 = @intCast(radix);
         if (self.base_cache.holds(base)) self.base_cache.radix = value;
         return value;
-    }
-
-    fn vtFit(ctx: *anyopaque, base: []const u8, digits: []const u8, width: u32, out: []u8) core.Error![]const u8 {
-        const self: *Host = @ptrCast(@alignCast(ctx));
-        self.clearErr();
-        const name = try self.putStr(base);
-        defer self.freeRegion(name.ptr);
-        const digits_region = try self.putStr(digits);
-        defer self.freeRegion(digits_region.ptr);
-        var results: [1]c.wasmtime_val_t = undefined;
-        try self.call(&self.f_fit, &.{
-            valU32(name.ptr),          valU32(name.len),
-            valU32(digits_region.ptr), valU32(digits_region.len),
-            valU32(width),
-        }, &results);
-        const packed_str: u64 = @bitCast(results[0].of.i64);
-        if (packed_str == 0) return self.fail();
-        defer self.freeRegion(@truncate(packed_str >> 32));
-        return self.readPacked(packed_str, out);
     }
 
     fn vtZeroSymbol(ctx: *anyopaque, base: []const u8, out: []u8) core.Error![]const u8 {
@@ -466,8 +447,4 @@ pub const Host = struct {
 
 fn valU32(value: u32) c.wasmtime_val_t {
     return .{ .kind = c.WASMTIME_I32, .of = .{ .i32 = @bitCast(value) } };
-}
-
-fn valI32(value: i32) c.wasmtime_val_t {
-    return .{ .kind = c.WASMTIME_I32, .of = .{ .i32 = value } };
 }

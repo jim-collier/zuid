@@ -171,7 +171,7 @@ fn runVectors(h: *host.Host) !void {
         rows += 1;
     }
     // A parsing bug that skips every row would otherwise pass silently.
-    try std.testing.expect(rows >= 187);
+    try std.testing.expect(rows >= 190);
 }
 
 test "error paths carry the module's error text" {
@@ -188,7 +188,7 @@ test "error paths carry the module's error text" {
     try std.testing.expectError(error.UnknownComponent, core.generate(h.converter(), e, .{ .format = "%z", .clock_ms = 0 }, &out_buf));
     try std.testing.expectError(error.BareFormatPercent, core.generate(h.converter(), e, .{ .format = "abc%", .clock_ms = 0 }, &out_buf));
     try std.testing.expectError(error.ClockBeforeEpoch, core.generate(h.converter(), e, .{ .clock_ms = -1 }, &out_buf));
-    try std.testing.expectError(error.OptionRange, core.generate(h.converter(), e, .{ .clock_ms = 0, .hash_chars = 0 }, &out_buf));
+    try std.testing.expectError(error.OptionRange, core.generate(h.converter(), e, .{ .clock_ms = 0, .hash_chars = 65 }, &out_buf));
     try std.testing.expectError(error.OptionRange, core.generate(h.converter(), e, .{ .clock_ms = 0, .random_chars = 65 }, &out_buf));
 
     // An exhausted random source fails the identifier rather than quietly
@@ -220,10 +220,10 @@ test "a multi-byte base carries every component" {
         const radix = try h.converter().radix(base);
         const cases = [_]struct { format: []const u8, want: u32 }{
             .{ .format = "%d", .want = core.widthFor(radix, .second) },
-            .{ .format = "%h", .want = core.default_hash_chars },
-            .{ .format = "%u", .want = core.default_hash_chars },
-            .{ .format = "%f", .want = core.default_hash_chars },
-            .{ .format = "%r", .want = core.default_random_chars },
+            .{ .format = "%h", .want = core.defaultHashChars(radix) },
+            .{ .format = "%u", .want = core.defaultHashChars(radix) },
+            .{ .format = "%f", .want = core.defaultHashChars(radix) },
+            .{ .format = "%r", .want = core.defaultRandomChars(radix) },
         };
         for (cases) |case| {
             fixed.drawn = 0;
@@ -347,8 +347,22 @@ test "C surface end to end" {
     try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_random_chars(z, 12));
     try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h%r", null, &out, out.len));
     try std.testing.expectEqual(@as(usize, 17), std.mem.span(@as([*:0]const u8, @ptrCast(&out))).len);
-    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_set_hash_chars(z, 0));
+    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_set_hash_chars(z, 65));
     try std.testing.expectEqual(@as(c_int, 9), capi.zuid_set_random_chars(z, 65));
+
+    // Zero is the way back to the per-base default, which is 8 and 6 here.
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_hash_chars(z, 0));
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_random_chars(z, 0));
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h%r", null, &out, out.len));
+    try std.testing.expectEqual(@as(usize, 14), std.mem.span(@as([*:0]const u8, @ptrCast(&out))).len);
+
+    // Past the digest's own width the extra symbols are all left-fill, and the
+    // message names the ceiling because it moves with the base.
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_hash_chars(z, 44));
+    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_generate(z, "%h", "62", &out, out.len));
+    try std.testing.expect(std.mem.indexOf(u8, std.mem.span(capi.zuid_last_error(z)), "43") != null);
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h", "16", &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_hash_chars(z, 0));
 
     // Error text survives into the C string.
     try std.testing.expectEqual(@as(c_int, 1), capi.zuid_generate(z, "%d", "hexx", &out, out.len));
@@ -358,6 +372,35 @@ test "C surface end to end" {
     try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%d", "62", &out, 6));
 
     try std.testing.expectEqualStrings(core.version, std.mem.span(capi.zuid_version()));
+}
+
+// Past what a SHA-256 fills in the base, the extra symbols are all left-fill:
+// a longer identifier carrying no more fingerprint.
+test "a hash wider than the digest is refused" {
+    var h = try host.Host.init(.auto);
+    defer h.deinit();
+    var fixed: FixedEnv = .{};
+    var out_buf: [core.out_buf_len]u8 = undefined;
+
+    for ([_]struct { base: []const u8, ceiling: u32 }{
+        .{ .base = "62", .ceiling = 43 },
+        .{ .base = "2048tz", .ceiling = 24 },
+        .{ .base = "16", .ceiling = 64 },
+    }) |case| {
+        const at_ceiling = core.generate(h.converter(), fixed.interface(), .{ .format = "%h", .base = case.base, .hash_chars = case.ceiling, .clock_ms = 0 }, &out_buf);
+        try std.testing.expectEqual(@as(u64, case.ceiling), try h.converter().symbolCount(case.base, try at_ceiling));
+
+        // Base 16 fills the whole digest in exactly max_component_chars, so
+        // there is no room above it for this error to be the one that fires.
+        if (case.ceiling >= core.max_component_chars) continue;
+        const past = core.generate(h.converter(), fixed.interface(), .{ .format = "%h", .base = case.base, .hash_chars = case.ceiling + 1, .clock_ms = 0 }, &out_buf);
+        try std.testing.expectError(core.Error.HashTooWide, past);
+    }
+
+    // Nothing is hashed with no_hash, so the ceiling has nothing to say.
+    const literal = try core.generate(h.converter(), fixed.interface(), .{ .format = "%h", .base = "2048tz", .hash_chars = 64, .no_hash = true, .clock_ms = 0 }, &out_buf);
+    try std.testing.expectEqualStrings("testhost", literal);
+    try std.testing.expectEqual(@as(u32, 0), try h.regionCount());
 }
 
 // The conversion library carries a base whose digits are raw byte values. It

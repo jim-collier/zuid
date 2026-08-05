@@ -23,7 +23,7 @@ const vectorPath = "../../testdata/vectors.tsv"
 
 // expectedVectorRows guards against a parsing bug that skips most of the file
 // and then passes. Bump it when rows are added.
-const expectedVectorRows = 187
+const expectedVectorRows = 190
 
 // Injected state for one row. The defaults match the vectors file's header, so
 // a row only spells out what it cares about.
@@ -324,8 +324,8 @@ func TestHashedComponentsFingerprint(t *testing.T) {
 	if strings.Contains(first, "alpha") {
 		t.Errorf("hashed host %q still contains the name", first)
 	}
-	if len([]rune(first)) != zuid.DefaultHashChars {
-		t.Errorf("hashed host %q is %d symbols, want %d", first, len([]rune(first)), zuid.DefaultHashChars)
+	if want := zuid.DefaultHashChars(62); len([]rune(first)) != want {
+		t.Errorf("hashed host %q is %d symbols, want %d", first, len([]rune(first)), want)
 	}
 }
 
@@ -399,10 +399,10 @@ func TestMultiByteBaseComponents(t *testing.T) {
 			want   int
 		}{
 			{"%d", timeWidth},
-			{"%h", zuid.DefaultHashChars},
-			{"%u", zuid.DefaultHashChars},
-			{"%f", zuid.DefaultHashChars},
-			{"%r", zuid.DefaultRandomChars},
+			{"%h", zuid.DefaultHashChars(len(base.Symbols))},
+			{"%u", zuid.DefaultHashChars(len(base.Symbols))},
+			{"%f", zuid.DefaultHashChars(len(base.Symbols))},
+			{"%r", zuid.DefaultRandomChars(len(base.Symbols))},
 		} {
 			got, err := generator.Generate(zuid.Request{Format: tc.format, Base: baseName})
 			if err != nil {
@@ -500,6 +500,67 @@ func TestWidthForCuratedBases(t *testing.T) {
 				t.Errorf("radix %d precision %d: width %d, want %d", radix, precision, got, wantWidth)
 			}
 		}
+	}
+}
+
+// A symbol is worth four bits in base 16 and eleven in 2048tz, so a fixed
+// symbol count would mean wildly different strength per base. The default
+// width is derived from the strength instead, and base 62 - the one the
+// targets were taken from - stays where it was.
+func TestDefaultWidthsCarryTheSameStrength(t *testing.T) {
+	want := map[int]struct{ hash, random, ceiling int }{
+		16:   {12, 9, 64},
+		32:   {10, 7, 52},
+		36:   {10, 7, 50},
+		62:   {8, 6, 43},
+		64:   {8, 6, 43},
+		128:  {7, 5, 37},
+		256:  {6, 5, 32},
+		512:  {6, 4, 29},
+		1024: {5, 4, 26},
+		2048: {5, 4, 24},
+	}
+	for radix, w := range want {
+		if got := zuid.DefaultHashChars(radix); got != w.hash {
+			t.Errorf("radix %d: hash width %d, want %d", radix, got, w.hash)
+		}
+		if got := zuid.DefaultRandomChars(radix); got != w.random {
+			t.Errorf("radix %d: random width %d, want %d", radix, got, w.random)
+		}
+		if got := zuid.MaxHashChars(radix); got != w.ceiling {
+			t.Errorf("radix %d: digest ceiling %d, want %d", radix, got, w.ceiling)
+		}
+		// Every derived default has to sit inside both bounds, or asking for
+		// nothing in particular would fail.
+		if w.hash > w.ceiling || w.hash > zuid.MaxComponentChars {
+			t.Errorf("radix %d: default hash width %d is past its own ceiling", radix, w.hash)
+		}
+	}
+}
+
+// Past the digest's own width the extra symbols are all left-fill, so the
+// identifier grows without the fingerprint getting any stronger.
+func TestHashWiderThanTheDigestIsRefused(t *testing.T) {
+	generator := sharedGenerator(t)
+	applyEnv(t, generator, 0, defaultEnv())
+	for _, tc := range []struct {
+		base    string
+		ceiling int
+	}{{"62", 43}, {"2048tz", 24}, {"16", 64}} {
+		if _, err := generator.Generate(zuid.Request{Format: "%h", Base: tc.base, HashChars: tc.ceiling}); err != nil {
+			t.Errorf("base %s at its ceiling of %d: %v", tc.base, tc.ceiling, err)
+		}
+		if tc.ceiling >= zuid.MaxComponentChars {
+			continue // the option bound bites first, and is tested elsewhere
+		}
+		_, err := generator.Generate(zuid.Request{Format: "%h", Base: tc.base, HashChars: tc.ceiling + 1})
+		if err == nil {
+			t.Errorf("base %s accepted %d symbols of a 256-bit digest", tc.base, tc.ceiling+1)
+		}
+	}
+	// Nothing is hashed with --no-hash, so the ceiling has nothing to say.
+	if _, err := generator.Generate(zuid.Request{Format: "%h", Base: "2048tz", HashChars: 64, NoHash: true}); err != nil {
+		t.Errorf("unhashed name refused for a hash width: %v", err)
 	}
 }
 

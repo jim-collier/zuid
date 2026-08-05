@@ -39,8 +39,13 @@ const help_tail =
     \\                         (default 0).
     \\        --no-hash        Emit the host, user, and FQDN names literally
     \\                         instead of hashing them.
-    \\        --hash-chars <n> Symbols kept from a hashed component (default 8).
-    \\        --rand-chars <n> Symbols %r emits (default 6).
+    \\        --hash-chars <n> Symbols kept from a hashed component. The default
+    \\                         is derived from the base, so that every base
+    \\                         carries the same fingerprint strength rather than
+    \\                         the same symbol count: 12 in base 16, 8 in 62, 5
+    \\                         in 2048tz. Capped at what a SHA-256 fills there.
+    \\        --rand-chars <n> Symbols %r emits, derived the same way: 9 in base
+    \\                         16, 6 in 62, 4 in 2048tz.
     \\    -h, --help           This.
     \\    -v, --version        Version and copyright.
     \\
@@ -141,6 +146,14 @@ pub fn main(init: std.process.Init) !void {
             error.BaseNotText => die(stderr, "That base renders raw bytes rather than text, so it cannot carry an identifier.", .{}),
             error.EnvUnavailable => die(stderr, "This machine could not supply that component - no name, hardware address, or random source.", .{}),
             error.OptionRange => die(stderr, "A symbol count is out of range. Want 1 to {d}.", .{zuid.core.max_component_chars}),
+            error.HashTooWide => {
+                // The ceiling moves with the base, so quote it rather than
+                // leaving the caller to guess what would fit.
+                const name = if (opts.base.len == 0) zuid.core.default_base else opts.base;
+                const radix = wasm_host.converter().radix(name) catch
+                    die(stderr, "A hashed component cannot be wider than a SHA-256 fills in base {s}.", .{name});
+                die(stderr, "Hash width {d}: base {s} carries at most {d} symbols of a 256-bit digest.", .{ opts.hash_chars, name, zuid.core.maxHashChars(radix) });
+            },
             else => die(stderr, "Generation failed: {t}.", .{err}),
         };
     };

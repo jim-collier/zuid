@@ -57,12 +57,15 @@ func CuratedBases() []string {
 const DefaultBase = "62"
 
 const (
-	// DefaultHashChars is how many symbols a hashed component keeps. Eight
-	// base-62 symbols is around 47 bits of fingerprint; narrower bases carry
-	// proportionally less, since the count is symbols rather than bits.
-	DefaultHashChars = 8
-	// DefaultRandomChars is how many symbols %r emits.
-	DefaultRandomChars = 6
+	// HashBits is the fingerprint strength a hashed component carries, and
+	// DefaultHashChars is whatever that comes to in the output base. These are
+	// what eight and six base-62 symbols have always held, so base 62 is
+	// unchanged and every other base is sized to match it rather than to match
+	// its symbol count - a symbol is worth four bits in base 16 and eleven in
+	// 2048tz, so a fixed count would mean wildly different strength.
+	HashBits = 47
+	// RandomBits is the same idea for %r.
+	RandomBits = 35
 	// MaxComponentChars bounds the width of any one component. It does not
 	// bound the whole identifier, since a format string may repeat a component
 	// and may carry literal text of any length.
@@ -72,9 +75,29 @@ const (
 // Bit widths of the fixed-size components, which is what their output widths
 // are derived from.
 const (
-	macBits  = 48
-	uuidBits = 128
+	macBits    = 48
+	uuidBits   = 128
+	digestBits = sha256.Size * 8
 )
+
+// DefaultHashChars is the width a hashed component takes in a base of this
+// radix when the request does not say. Always within MaxHashChars.
+func DefaultHashChars(radix int) int {
+	return widthForValueBits(radix, HashBits)
+}
+
+// DefaultRandomChars is the same for %r.
+func DefaultRandomChars(radix int) int {
+	return widthForValueBits(radix, RandomBits)
+}
+
+// MaxHashChars is how many symbols of a SHA-256 a base of this radix can
+// actually carry: 64 in base 16, down to 24 in 2048tz. Past it the extra
+// symbols are all left-fill, so the identifier grows without the fingerprint
+// getting any stronger - which is worth refusing rather than emitting.
+func MaxHashChars(radix int) int {
+	return widthForValueBits(radix, digestBits)
+}
 
 // Precision selects the time unit, carrying the predecessor's surface
 // forward: -1 minute, 0 second, 1 millisecond. The clock is always taken in
@@ -120,8 +143,8 @@ type Request struct {
 	Base        string    // "" means base 62
 	Precision   Precision // -1 minute, 0 second, 1 millisecond
 	NoHash      bool      // emit host, user, and FQDN literally instead of hashed
-	HashChars   int       // 0 means DefaultHashChars
-	RandomChars int       // 0 means DefaultRandomChars
+	HashChars   int       // 0 means DefaultHashChars for the base
+	RandomChars int       // 0 means DefaultRandomChars for the base
 }
 
 // Generator renders identifiers. Every source of environment - clock, random,
@@ -231,12 +254,6 @@ func (g *Generator) Generate(req Request) (string, error) {
 	if req.Base == "" {
 		req.Base = DefaultBase
 	}
-	if req.HashChars == 0 {
-		req.HashChars = DefaultHashChars
-	}
-	if req.RandomChars == 0 {
-		req.RandomChars = DefaultRandomChars
-	}
 	base, err := g.registry.Lookup(req.Base)
 	if err != nil {
 		return "", fmt.Errorf("base %q: %w", req.Base, err)
@@ -247,11 +264,24 @@ func (g *Generator) Generate(req Request) (string, error) {
 	if _, err := req.Precision.msPerUnit(); err != nil {
 		return "", err
 	}
+	// Widths are settled here rather than at the top, because the defaults
+	// depend on the base and a hashed component's ceiling does too.
+	radix := len(base.Symbols)
+	if req.HashChars == 0 {
+		req.HashChars = DefaultHashChars(radix)
+	}
+	if req.RandomChars == 0 {
+		req.RandomChars = DefaultRandomChars(radix)
+	}
 	if err := checkChars("hash", req.HashChars); err != nil {
 		return "", err
 	}
 	if err := checkChars("random", req.RandomChars); err != nil {
 		return "", err
+	}
+	if ceiling := MaxHashChars(radix); !req.NoHash && req.HashChars > ceiling {
+		return "", fmt.Errorf("hash width %d: base %s carries at most %d symbols of a %d-bit digest",
+			req.HashChars, base.Name(), ceiling, digestBits)
 	}
 
 	var out strings.Builder
@@ -345,15 +375,24 @@ func (g *Generator) timeComponent(base *convertbase.Base, precision Precision) (
 	if err != nil {
 		return "", err
 	}
+	// Fit would truncate an over-wide value, which is right for a hash and
+	// wrong for a timestamp: quietly dropping the high symbols would break the
+	// sort rather than report it. The seconds check above is too coarse to
+	// catch it at millisecond precision, so compare the units themselves - the
+	// width was derived to hold exactly this much.
+	units := ms / divisor
+	if units > horizonMs/divisor {
+		return "", fmt.Errorf("clock reads %s, past the padding horizon", at.Format(time.RFC3339))
+	}
 	width, err := WidthFor(len(base.Symbols), precision)
 	if err != nil {
 		return "", err
 	}
-	converted, err := g.convert(strconv.FormatInt(ms/divisor, 10), g.decimal, base)
+	converted, err := g.convert(strconv.FormatInt(units, 10), g.decimal, base)
 	if err != nil {
 		return "", err
 	}
-	return pad(converted, base, width)
+	return base.Fit(converted, width)
 }
 
 // namedComponent renders host, user, or FQDN. Hashed by default: the name goes
@@ -395,7 +434,9 @@ func (g *Generator) macComponent(base *convertbase.Base) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return pad(converted, base, widthForValueBits(len(base.Symbols), macBits))
+	// The width was derived from macBits and the address is exactly that wide,
+	// so this only ever left-fills.
+	return base.Fit(converted, widthForValueBits(len(base.Symbols), macBits))
 }
 
 // uuidComponent draws a UUID v4 from the random source and renders it as the
@@ -412,7 +453,7 @@ func (g *Generator) uuidComponent(base *convertbase.Base) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return pad(converted, base, widthForValueBits(len(base.Symbols), uuidBits))
+	return base.Fit(converted, widthForValueBits(len(base.Symbols), uuidBits))
 }
 
 // randomComponent draws enough entropy to fill every symbol it emits.
@@ -451,39 +492,6 @@ func (g *Generator) convert(value string, from, to *convertbase.Base) (string, e
 	return converted, nil
 }
 
-// pad left-fills to a derived width with the alphabet's zero digit.
-// Lexicographic compare reads left to right, so a short identifier and a long
-// one cannot sort chronologically - this fixed width is what makes the sort
-// guarantee hold, not the choice of alphabet.
-//
-// Fit would truncate an over-wide value, which is right for a hash and wrong
-// for a timestamp: overflowing here means the clock is past the horizon the
-// width was derived for, and quietly dropping the high symbols would break the
-// sort rather than report it.
-func pad(converted string, base *convertbase.Base, width int) (string, error) {
-	symbols, err := symbolCount(converted, base)
-	if err != nil {
-		return "", err
-	}
-	if symbols > width {
-		return "", fmt.Errorf("value needs %d symbols in base %s, past the %d-symbol width",
-			symbols, base.Name(), width)
-	}
-	if symbols == width {
-		return converted, nil // already the right width; Fit would only re-tokenize
-	}
-	return base.Fit(converted, width)
-}
-
-// Count symbols, not bytes: a base can have multi-byte digits.
-func symbolCount(converted string, base *convertbase.Base) (int, error) {
-	symbols, err := base.Tokenize(converted)
-	if err != nil {
-		return 0, fmt.Errorf("tokenize %q in base %s: %w", converted, base.Name(), err)
-	}
-	return len(symbols), nil
-}
-
 // WidthFor is the symbol count a base needs to carry any timestamp up to the
 // horizon, in the precision's unit. For 32w that pads with '2', because its
 // alphabet starts at '2' - looks wrong at a glance, is not.
@@ -517,10 +525,18 @@ type widthKey struct {
 
 var derivedWidths sync.Map // widthKey -> int
 
-// widthForValueBits is the same derivation as WidthFor for the components whose
-// largest value is a bit count rather than a date: the MAC's 48 and the UUID's
-// 128. Both overflow uint64, hence the big integer, and hence the cache.
+// widthForValueBits is the same derivation as WidthFor wherever the largest
+// value is a bit count rather than a date: the MAC's 48, the UUID's 128, the
+// digest's 256, and the strength targets the hashed and random defaults are
+// sized from. The upper end overflows uint64, hence the big integer and hence
+// the cache.
 func widthForValueBits(radix, valBits int) int {
+	// Below 2 the ladder never terminates. Not reachable from a registry base,
+	// but DefaultHashChars and MaxHashChars are exported, and a hang is a worse
+	// answer to a bad radix than a visibly useless one.
+	if radix < 2 {
+		return 0
+	}
 	key := widthKey{radix: radix, valBits: valBits}
 	if cached, ok := derivedWidths.Load(key); ok {
 		return cached.(int)
