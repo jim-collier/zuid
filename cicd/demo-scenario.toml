@@ -5,44 +5,46 @@
 # clear= forces a blank screen - otherwise the screen only resets when the next
 # step would not fit, so the demo scrolls as little as it clears.
 #
-# Keep the whole thing under about forty seconds. It loops, so anyone wanting a
-# second look gets one for free. Typing pace stays at a human rate on purpose,
-# which means the way to shorten this is fewer words, not faster typing.
+# Keep the whole thing under about forty-five seconds. It loops, so anyone
+# wanting a second look gets one for free. Typing pace stays at a human rate on
+# purpose, which means the way to shorten this is fewer words, not faster typing.
 
 title = "zuid"
 prog  = "zuid"
 seed  = 62
 font  = ["Monaspace Argon SemiBold"]
-end_hold  = 2.2
-end_black = 3.5
+end_hold    = 3.5
+end_black   = 5.0
+clear_pause = 1.7
 
 [[step]]
 note  = "Short, sortable, unique IDs"
 show  = "{prog}"
-notepause = 0.3
-pause = 1.0
+notepause = 0.45
+pause = 1.9
 
 [[step]]
 note  = "Username (hashed)"
-show  = "{prog} -f '%d-%u'"
-notepause = 0.3
-pause = 1.3
+show  = "{prog} -f %u"
+notepause = 0.45
+pause = 2.1
 
 [[step]]
+# Last thing on screen before the clear, so it holds noticeably longer.
 note  = "Random"
-show  = "{prog} -f '%d-%r'"
-notepause = 0.3
-pause = 1.3
+show  = "{prog} -f %r"
+notepause = 0.45
+pause = 3.2
 
 [[step]]
 note  = "Minute precision, base 32 Crockford"
 show  = "{prog} -p -1 -b 32c"
 clear = true
-notepause = 0.3
-pause = 1.2
+notepause = 0.45
+pause = 2.0
 
 [[step]]
 note  = "Millisecond, 256tt"
 show  = "{prog} -p 1 -b 256tt"
-notepause = 0.3
-pause = 1.2
+notepause = 0.45
+pause = 2.0
