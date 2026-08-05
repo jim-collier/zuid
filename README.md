@@ -6,7 +6,7 @@
 <div align="center">
 
 [![License: GPL v2+](https://img.shields.io/badge/License-GPLv2%2B-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html)
-![Lifecycle: Pre-alpha](https://img.shields.io/badge/Lifecycle-Pre--alpha-red)
+![Lifecycle: Alpha](https://img.shields.io/badge/Lifecycle-Alpha-orange)
 ![Support](https://img.shields.io/badge/Support-Maintained-brightgreen)
 ![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go&logoColor=white)
 ![Zig](https://img.shields.io/badge/Zig-0.16%2B-F7A41D?logo=zig&logoColor=white)
@@ -54,7 +54,7 @@ Short, sortable, privacy-preserving unique identifiers - from a command line, a 
 
 </div>
 
-> **Pre-alpha.** Both implementations build and reproduce the shared test vectors, and every component works from the command line, the Go module, and the C module. Configuration files, emitting more than one identifier per run, and releases for platforms other than Linux are still to come. See [project/backlog.md](project/backlog.md) for where it actually stands.
+> **Alpha.** First prerelease is `v1.0.0-alpha.1`. Both implementations build and reproduce the shared test vectors, and every component works from the command line, the Go module, and the C module. Configuration files, emitting more than one identifier per run, and releases for platforms other than Linux are still to come. See [project/backlog.md](project/backlog.md) for where it actually stands.
 
 <!-- TOC ignore:true -->
 ## Table of contents

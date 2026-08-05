@@ -13,7 +13,7 @@
 
 const std = @import("std");
 
-pub const version = "0.1.0";
+pub const version = "1.0.0-alpha.1";
 
 pub const default_base = "62";
 
