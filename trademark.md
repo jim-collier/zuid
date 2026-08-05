@@ -37,7 +37,7 @@ No permission from us is needed to:
 
 ## 4. Uses that require written permission
 
-- Naming your product, service, company, or app the same as, or confusingly similar to, the Marks - including as a prefix, suffix, or misspelling (e.g. "ZUID Pro", "ZUID Cloud", "ZUIDify").
+- Naming your product, service, company, or app the same as, or confusingly similar to, the Marks - including as a prefix, suffix, or misspelling (e.g. "ZUID Cloud", "ZUIDify", etc.).
 
 - Using the Marks in a domain name, social media handle, or app store listing title.
 
