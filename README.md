@@ -165,7 +165,7 @@ A user install is the default when the system location is not writable.
 
 ### Do it yourself
 
-Clone the repository and run `cicd/cicd.bash`. It fetches what it needs, builds both sides, and runs the tests. The command ends up at `zig/zig-out/bin/zuid`, and `cicd/cicd.bash --dogfood` copies it somewhere on your path.
+Clone the repository and run `cicd/cicd.bash`. It fetches what it needs, builds both sides, and runs the tests. The command ends up at `zig/zig-out/bin/zuid`, and a full run also copies it to the first of `~/.local/bin` or `~/bin` that exists, so what is on your path is the build that just passed. `--no-dogfood` turns that off.
 
 For the Go module, no install step is needed:
 

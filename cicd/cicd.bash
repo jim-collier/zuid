@@ -89,14 +89,17 @@ fPrint_Help(){
 		                      to be installed.
 		    --cross           Also cross-compile for: ${crossTargets[*]}
 		    --quick           Skip the slow stages: cross builds, profiling, and the
-		                      demo. Everything that gates a merge still runs.
+		                      demo, plus the dogfood install. Everything that gates
+		                      a merge still runs.
 		    --no-sync         Skip the remote refresh at the start.
 		    -m, --message     Commit message. Implies --commit.
 		    --commit          Commit if everything passed. Refuses on a protected
 		                      branch: ${protectedBranches[*]}
 		    --push            Push the current branch. Implies a remote exists.
 		    --package         Build release artifacts into dist/.
-		    --dogfood         Install the release build for daily use.
+		    --dogfood         Install for daily use even on a quick run. A full run
+		                      installs anyway.
+		    --no-dogfood      Do not install, however the run went.
 		    --publish         Publish a release. Not implemented yet.
 		    -q, --quiet       No banner and no prompting. Without -m the commit
 		                      message is generated.
@@ -110,6 +113,11 @@ fPrint_Help(){
 
 		Every run is logged to cicd/artifacts/, along with any profile and demo it
 		produced. Those are rotated, not kept forever, and none of it is committed.
+
+		A full run that builds the Zig side also copies the command into the first
+		of these that exists, so daily use is always the build that just passed:
+		${dogfoodDirs[*]}
+		It says so and moves on when none of them do.
 
 		Exit code is 0 only if every stage that ran passed.
 	EOF_h7wq4
@@ -179,7 +187,8 @@ fMain(){
 	local -i doCommit=0
 	local -i doPush=0
 	local -i doPackage=0
-	local -i doDogfood=0
+	local -i doDogfood=1
+	local -i dogfoodAsked=0
 	fInit "${@}"
 	readonly onlyToolchain
 	readonly doCross
@@ -187,6 +196,11 @@ fMain(){
 	readonly doSync
 	readonly doPush
 	readonly doPackage
+
+	## Dogfooding rides along with every full run - the whole point is that daily
+	## use is the build that just passed. A quick run is mid-iteration, so it stays
+	## off the path unless asked for by name.
+	if ((doQuick)) && ((! dogfoodAsked)); then doDogfood=0; fi
 	readonly doDogfood
 
 	local -i doGo=1;  [[ "${onlyToolchain}" == "zig" ]] && doGo=0
@@ -205,18 +219,18 @@ fMain(){
 	fStartRunLog
 
 	## Plain 'if', not '&&' - a trailing false in a function trips the ERR trap.
-	if ((doSync));             then fStage_Sync;      fi
+	if ((doSync));                 then fStage_Sync;      fi
 	fPreflight
 	fStage_Shell
-	if ((doGo));               then fStage_Go;        fi
-	if ((doZig));              then fStage_Zig;       fi
-	if ((doCross)) && ((doGo)); then fStage_Go_Cross; fi
-	if ((! doQuick));          then fStage_Profile;   fi
-	if ((! doQuick));          then fStage_Demo;      fi
-	if ((doPackage));          then fStage_Package;   fi
-	if ((doDogfood));          then fStage_Dogfood;   fi
-	if ((doCommit));           then fStage_Commit;    fi
-	if ((doPush));             then fStage_Push;      fi
+	if ((doGo));                   then fStage_Go;        fi
+	if ((doZig));                  then fStage_Zig;       fi
+	if ((doCross)) && ((doGo));    then fStage_Go_Cross;  fi
+	if ((! doQuick));              then fStage_Profile;   fi
+	if ((! doQuick));              then fStage_Demo;      fi
+	if ((doPackage));              then fStage_Package;   fi
+	if ((doZig)) && ((doDogfood)); then fStage_Dogfood;   fi
+	if ((doCommit));               then fStage_Commit;    fi
+	if ((doPush));                 then fStage_Push;      fi
 
 	fEcho_Clean
 	fEcho "Passed."
@@ -259,14 +273,15 @@ fInit(){
 				;;
 
 			## Unitary switches
-			--cross)    doCross=1   ;;
-			--quick)    doQuick=1   ;;
-			--no-sync)  doSync=0    ;;
-			--commit)   doCommit=1  ;;
-			--push)     doPush=1    ;;
-			--package)  doPackage=1 ;;
-			--dogfood)  doDogfood=1 ;;
-			-q|--quiet) doQuietly=1 ;;
+			--cross)      doCross=1   ;;
+			--quick)      doQuick=1   ;;
+			--no-sync)    doSync=0    ;;
+			--commit)     doCommit=1  ;;
+			--push)       doPush=1    ;;
+			--package)    doPackage=1 ;;
+			--dogfood)    doDogfood=1; dogfoodAsked=1 ;;
+			--no-dogfood) doDogfood=0; dogfoodAsked=0 ;;
+			-q|--quiet)   doQuietly=1 ;;
 
 			## Opt-in stages that do not exist yet. Say so rather than pretending.
 			--publish)
@@ -778,26 +793,36 @@ fStage_Package(){
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Installs the optimized native build for daily use, into the first of the
-## preferred directories that exists.
+## preferred directories that exists. Part of every full run, so nothing here is
+## fatal - a machine with none of those directories still built and tested fine.
 fStage_Dogfood(){
 
 	fEcho_Clean
 	fEcho "Dogfood"
 
 	local -r exe="${zigDir}/zig-out/bin/zuid"
-	[[ -x "${exe}" ]] || fThrowError "No release build to install: '${exe}'."  "${FUNCNAME[0]}"
+	if [[ ! -x "${exe}" ]]; then
+		fEcho_Clean "Installed ..: nothing built at '${exe}'"
+		return 0
+	fi
 
 	local target="" candidate=""
 	for candidate in "${dogfoodDirs[@]}"; do
 		if [[ -d "${candidate}" ]]; then target="${candidate}"; break; fi
 	done
-	[[ -n "${target}" ]] || fThrowError "None of the preferred directories exist: ${dogfoodDirs[*]}"  "${FUNCNAME[0]}"
+	if [[ -z "${target}" ]]; then
+		fEcho_Clean "Installed ..: no destination on this machine (${dogfoodDirs[*]})"
+		return 0
+	fi
 
 	if cmp -s "${exe}" "${target}/zuid" 2>/dev/null; then
 		fEcho_Clean "Installed ..: ${target}/zuid already current"
 		return 0
 	fi
-	install -m 0755 "${exe}" "${target}/zuid"
+	if ! install -m 0755 "${exe}" "${target}/zuid"; then
+		fEcho_Clean "Installed ..: could not write '${target}/zuid'"
+		return 0
+	fi
 	fEcho_Clean "Installed ..: ${target}/zuid"
 
 }
