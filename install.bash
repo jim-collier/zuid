@@ -118,12 +118,47 @@ case "$(uname -s)" in
 	*)      osLabel="freebsd" ;;
 esac
 
-api="https://api.github.com/repos/${REPO}/releases/latest"
-[[ "${release}" == "dev" ]] && api="https://api.github.com/repos/${REPO}/releases"
+## GitHub's 'latest' endpoint only ever answers with a full release, so it 404s
+## on a repository whose releases are all prereleases. Listing them instead
+## covers both, and leaves the choice here rather than on the far end.
+## The API prints one field per line, and tag_name/draft/prerelease appear in
+## that order per release and under no other key, so a line scan reads it
+## without needing jq installed.
+fReleaseTags(){  ## tag<TAB>stable|prerelease, newest first
+	local line tag="" draft="" isPre="" kind
+	while IFS= read -r line; do case "${line}" in
+		*'"tag_name":'*)
+			tag="${line#*: \"}"; tag="${tag%%\"*}"; draft=""; isPre="" ;;
+		*'"draft":'*)
+			draft="${line##*: }"; draft="${draft%,}" ;;
+		*'"prerelease":'*)
+			isPre="${line##*: }"; isPre="${isPre%,}"
+			kind="stable"; [[ "${isPre}" == "true" ]] && kind="prerelease"
+			[[ -n "${tag}" && "${draft}" == "false" ]] && printf '%s\t%s\n' "${tag}" "${kind}"
+			tag="" ;;
+	esac; done
+}
 
 fEcho "Looking up the ${release} release"
-tag="$(curl -fsSL "${api}" 2>/dev/null | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1 || true)"
-[[ -n "${tag}" ]] || fDie "could not find a ${release} release for ${REPO}. If the repository has no releases yet, build from source instead - see its README."
+listing="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" 2>/dev/null || true)"
+tags="$(printf '%s\n' "${listing}" | fReleaseTags)"
+[[ -n "${tags}" ]] || fDie "no published release found for ${REPO}. If the repository has none yet, build from source instead - see its README."
+
+if [[ "${release}" == "dev" ]]; then
+	## Newest of anything, prerelease included.
+	kind="$(printf '%s\n' "${tags}" | head -n1 | cut -f2)"
+	tag="$(printf '%s\n' "${tags}" | head -n1 | cut -f1)"
+else
+	kind="stable"
+	tag="$(printf '%s\n' "${tags}" | awk -F'\t' '$2 == "stable" {print $1; exit}')"
+	if [[ -z "${tag}" ]]; then
+		## Nothing final published yet, so the newest prerelease is the only
+		## thing there is to install. Say so rather than failing.
+		kind="prerelease"
+		tag="$(printf '%s\n' "${tags}" | head -n1 | cut -f1)"
+		fLine "  No stable release yet, so this is the newest prerelease."
+	fi
+fi
 
 asset="${PROG}-${osLabel}-${arch}.tgz"
 base="https://github.com/${REPO}/releases/download/${tag}"
@@ -137,7 +172,7 @@ installed=""
 
 fLine ""
 fEcho "Plan"
-fLine "  Version ....: ${tag} (${release})"
+fLine "  Version ....: ${tag} (${kind})"
 fLine "  Platform ...: ${osLabel}/${arch}"
 fLine "  Download ...: ${base}/${asset}"
 fLine "  Verify .....: sha256 against checksums.txt"
@@ -193,4 +228,5 @@ printf '\n'
 
 
 ##	History:
+##		- 20260805 JC: Pick the release from the full list; fall back to a prerelease.
 ##		- 20260804 JC: Created.

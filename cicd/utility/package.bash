@@ -144,6 +144,19 @@ fWarn "windows, macOS, BSD, and cross-architecture builds need a Wasmtime archiv
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## GitHub rewrites '~' to '.' in an uploaded asset filename, so a Debian-style
+## name would reach a downloader spelled differently from the way checksums.txt
+## lists it. Rename before hashing and the two agree. Only the filename changes -
+## the version recorded inside the package keeps the '~' that sorts it ahead of
+## the final release.
+
+for artifact in "${OUT}"/*'~'*; do
+	[[ -e "${artifact}" ]] || continue
+	mv "${artifact}" "${artifact//\~/.}"
+done
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Checksums over everything produced.
 
 ## Built aside and moved into place, so the file being written is never also one
@@ -156,4 +169,5 @@ fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt | wc -l) 
 
 
 ##	History:
+##		- 20260805 JC: Name packages the way GitHub will serve them.
 ##		- 20260804 JC: Created. Host-platform tarball, bare binary, deb, rpm, checksums.
