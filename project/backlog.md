@@ -221,6 +221,7 @@ In each section, items are listed approximately from newest to oldest. A require
 	- ✅ Every run is logged, profiled, and rotated under `cicd/artifacts/`, which is not committed.
 	- ✅ Profiling produces a flamegraph and a hotspot summary each run. The command's own profile needs `kernel.perf_event_paranoid` below 3, and says so when it cannot record.
 	- ✅ A demo animation is rendered from a scenario file and copied to `assets/demo.gif`.
+		- ✅ 20260805: it covers both precision extremes now, and the screen resets only when the next step would not otherwise fit.
 	- ✅ `--dogfood` installs the release build; `--package` builds the host platform's artifacts.
 
 - ✅ Environment values are read once per process rather than once per component, 20260804.

@@ -7,8 +7,8 @@
 ##		the occasional corrected typo), then actually executed so the captured
 ##		output can never go stale. Motion runs at 50 fps, the fastest a GIF can
 ##		go: scrolling is pixel-smooth at a constant velocity and the cursor
-##		eases between cells rather than teleporting. A step whose output is
-##		taller than the window starts on a cleared screen. At the end it holds
+##		eases between cells rather than teleporting. The screen resets only
+##		when the next step would not otherwise fit. At the end it holds
 ##		the last frame still, then
 ##		hard-cuts to a black frame before repeating - a held black frame is one
 ##		cheap frame, not a bloaty fade. Frames share one exact master palette,
@@ -180,6 +180,7 @@ def fLoadScenario(path):
 	##	  wpm_digits = 42               digit typing speed (numbers-heavy demos: raise it)
 	##	  end_hold = 3.0                seconds the final frame holds before the loop
 	##	  end_black = 2.0               seconds of black after the hold, then repeat
+	##	  clear_pause = 0.9             dwell on a freshly cleared screen, seconds
 	##	  [[step]]
 	##	  note = "typed as a # comment first"           (optional; a list = one
 	##	                                                 comment line per element)
@@ -196,8 +197,8 @@ def fLoadScenario(path):
 	##	  preenter = 2.0                cursor holds at the end of the command, seconds
 	##	  typescale = 1.5               command typing speed multiplier (notes unaffected)
 	##	  notepause = 0.5               read time after each note line, seconds
-	##	  clear = true                  start on a blank screen (default: output taller
-	##	                                than the window clears, shorter output does not)
+	##	  clear = true                  force a blank screen (default: clear only when
+	##	                                the step would not otherwise fit)
 	try:
 		with open(path, "rb") as f:
 			sc = tomllib.load(f)
@@ -650,6 +651,7 @@ def fMain():
 
 	mov = Movie()
 	wpmDigits = sc.get("wpm_digits", WPM_DIGITS)
+	clearPause = 1000 * float(sc.get("clear_pause", 0.9))
 	shown = list(scr.fCursorTarget())    # displayed cursor; glides toward its cell
 
 	def snap(ms, cursor=True):
@@ -713,6 +715,20 @@ def fMain():
 			snap(FRAME_MS, cursor=False)
 		scr.scroll = scr.fRestScroll()
 
+	def stepRows(step, outLines):
+		##	Screen rows the step is about to take: its notes, the command line,
+		##	the output, and the blank line plus prompt it leaves behind.
+		rows = sum(len(scr.fWrapSpans(scr.prompt + [("# " + n, "dim")]))
+		           for n in fNotes(step))
+		if not step.get("show"):
+			return rows
+		cmd = step["show"].replace("{prog}", prog).replace("{bin}", prog)
+		rows += len(scr.fWrapSpans(scr.prompt + [(cmd, "fg")]))
+		rows += 1 if step.get("gap") else 0
+		rows += sum(len(scr.fWrap(ln, "fg", step.get("overflow", "truncate")))
+		            for ln in outLines)
+		return rows + 2
+
 	def blinkPause(totalMs):
 		##	Idle at the prompt: block cursor blinking at the usual cadence.
 		on = True
@@ -727,14 +743,15 @@ def fMain():
 	for stepIdx, step in enumerate(sc["step"]):
 		rate = float(step.get("scrollrate", SCROLL_RATE))
 		lineMs = float(step.get("linems", 26))
-		##	Output taller than the window starts on a clean screen, so a long
-		##	list scrolls through once instead of first chasing the previous
-		##	step's output off the top. Nothing types `clear`; the screen just
-		##	resets, the way a full-screen tool would leave it.
-		if step.get("clear", len(stepOut[stepIdx]) > scr.rows) and scr.lines:
+		##	Reset only when this step would otherwise scroll - a reset nobody
+		##	needed is more jarring than the scroll it saves. Nothing types
+		##	`clear`; the screen just resets, the way a full-screen tool leaves
+		##	it, and then holds long enough to register as deliberate.
+		crowded = len(scr.lines) + stepRows(step, stepOut[stepIdx]) > scr.rows
+		if step.get("clear", crowded) and scr.lines:
 			scr.fClear()
 			shown[:] = scr.fCursorTarget()
-			snap(260)
+			blinkPause(clearPause)
 		typing = [("# " + n, "dim", WPM_NOTES, False, 1.0) for n in fNotes(step)]
 		if step.get("show"):
 			typing.append((step["show"].replace("{prog}", prog).replace("{bin}", prog),
@@ -816,6 +833,8 @@ if __name__ == "__main__":
 
 
 ##	History:
+##		- 20260805: The screen resets only when the step would not otherwise
+##			fit, and holds longer once it does. Scenario gained clear_pause.
 ##		- 20260801: Typing 15% faster, smooth scrolling 25% faster. Scenario
 ##			gained pastepause, preenter, typescale, notepause.
 ##		- 20260801: The live prompt line wraps instead of running off the edge.
