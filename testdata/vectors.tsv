@@ -22,8 +22,9 @@
 #   mac=02005E100000              %m, 48 bits of hex, no separators
 #   rand=                         the random stream %g and %r draw from, hex
 #   nohash=0                      1 turns hashing off for %h %u %f
-#   hashchars=8                   symbols kept from a hashed component
-#   randchars=6                   symbols %r emits
+#   hashchars=                    symbols kept from a hashed component; unset
+#                                 means the derived default for the base
+#   randchars=                    symbols %r emits; unset likewise
 #
 # Component rules, in full, because the vectors are the spec:
 #
@@ -44,9 +45,19 @@
 #
 # Output is zero-padded to a fixed width per component, chosen to hold that
 # component's largest value: the horizon year 3000 for %d, 48 bits for %m, 128
-# bits for %g. Hashed and random components are fixed at their configured
-# symbol count. Padding uses each alphabet's zero digit, which for 32w is '2'
+# bits for %g. Padding uses each alphabet's zero digit, which for 32w is '2'
 # rather than '0'.
+#
+# A hashed or random component is sized the same way, from a target strength
+# rather than a value: 47 bits for %h %u %f and 35 for %r, which is what eight
+# and six base-62 symbols have always carried. So the width follows the base -
+# 12 and 9 symbols in base 16, 5 and 4 in 2048tz - and the strength does not.
+# hashchars and randchars override it.
+#
+# A hashed component cannot be wider than a SHA-256 fills in the base, since
+# past that point it is only left-fill: 64 symbols in base 16 down to 24 in
+# 2048tz. Asking for more is an error rather than a longer identifier carrying
+# no more fingerprint.
 #
 # Fixed width is what makes byte-order sort match chronological order, and it
 # also lets a multi-component identifier be split by offset. Identifiers of
@@ -133,18 +144,19 @@ time-min-horizon-eve	%d	36	-1	32503679999999	-	8YJ3ZZ
 time-min-horizon-eve	%d	62	-1	32503679999999	-	af2CN
 
 # Hashed components: SHA-256 of the name, converted from base 16, rightmost
-# hash_chars symbols (default 8).
-hash-host	%h	16	0	0	-	8654C5D9
-hash-host	%h	32w	0	0	-	4W57FVPm
-hash-host	%h	36	0	0	-	A36QQJ89
+# hash_chars symbols. These rows take the derived default, so they also pin
+# the width each base gets: 12, 10, 10, 8.
+hash-host	%h	16	0	0	-	07148654C5D9
+hash-host	%h	32w	0	0	-	C94W57FVPm
+hash-host	%h	36	0	0	-	ZWA36QQJ89
 hash-host	%h	62	0	0	-	rw79Mr05
-hash-user	%u	16	0	0	-	2C1D6684
-hash-user	%u	32w	0	0	-	xcg3pmc6
-hash-user	%u	36	0	0	-	MWV46CUC
+hash-user	%u	16	0	0	-	81FD2C1D6684
+hash-user	%u	32w	0	0	-	c3xcg3pmc6
+hash-user	%u	36	0	0	-	GTMWV46CUC
 hash-user	%u	62	0	0	-	6UI3mO4y
-hash-fqdn	%f	16	0	0	-	E0569E14
-hash-fqdn	%f	32w	0	0	-	cxR7M9Rc
-hash-fqdn	%f	36	0	0	-	D8C0LBMC
+hash-fqdn	%f	16	0	0	-	13A7E0569E14
+hash-fqdn	%f	32w	0	0	-	2XcxR7M9Rc
+hash-fqdn	%f	36	0	0	-	H2D8C0LBMC
 hash-fqdn	%f	62	0	0	-	M6O3MdAC
 
 # hash_chars is configurable. 43 is the full width of a SHA-256 in base 62,
@@ -176,22 +188,23 @@ uuid	%g	62	0	0	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0	0SWftNEX5hXfaeOnU4YWmW
 uuid-zero-draw	%g	16	0	0	rand=00000000000000000000000000000000	00000000000040008000000000000000
 uuid-zero-draw	%g	62	0	0	rand=00000000000000000000000000000000	000000001VgEh72lXvTXkG
 
-# Random: one byte drawn per requested symbol, rightmost random_chars kept.
-random	%r	16	0	0	rand=A1B2C3D4E5F6	D4E5F6
-random	%r	32w	0	0	rand=A1B2C3D4E5F6	3vFmQg
-random	%r	36	0	0	rand=A1B2C3D4E5F6	7OJ5DI
-random	%r	62	0	0	rand=A1B2C3D4E5F6	4pQFxG
+# Random: enough bytes drawn to fill the symbols, rightmost random_chars kept.
+# These rows take the derived default too: 9, 7, 7, 6 symbols.
+random	%r	16	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	5F6071829
+random	%r	32w	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	QGPHvR9
+random	%r	36	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	IMG6807
+random	%r	62	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	4pQFxG
 random-chars-4	%r	62	0	0	rand=A1B2C3D4,randchars=4	apVs
 random-chars-12	%r	62	0	0	rand=0F1E2D3C4B5A69788796A5B4,randchars=12	aTKq6oAW1Age
 random-zero-draw	%r	62	0	0	rand=000000000000	000000
 
 # Composites: components render in format order, and %g then %r draw from the
 # same stream in that order.
-composite-time-random	%d%r	62	0	1785585600000	rand=A1B2C3D4E5F6	1wq8Nk4pQFxG
-composite-literals	%d-%h-%r	62	0	1785585600000	rand=A1B2C3D4E5F6	1wq8Nk-rw79Mr05-4pQFxG
-composite-uuid-then-random	%g%r	62	0	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F6	0SWftNEX5hXfaeOnU4YWmW4pQFxG
-composite-all	%d%h%u%f%m%g%r	62	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F6	0VR2tCvwrw79Mr056UI3mO4yM6O3MdAC00ck3P3Jo0SWftNEX5hXfaeOnU4YWmW4pQFxG
-composite-all	%d%h%u%f%m%g%r	32w	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F6	3XwwX63R24W57FVPmxcg3pmc6cxR7M9Rc2423Q322222Q5jgXjWppF7rCQ7f7gX3v7jQR3vFmQg
+composite-time-random	%d%r	62	0	1785585600000	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	1wq8Nk4pQFxG
+composite-literals	%d-%h-%r	62	0	1785585600000	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	1wq8Nk-rw79Mr05-4pQFxG
+composite-uuid-then-random	%g%r	62	0	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	0SWftNEX5hXfaeOnU4YWmW4pQFxG
+composite-all	%d%h%u%f%m%g%r	62	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	0VR2tCvwrw79Mr056UI3mO4yM6O3MdAC00ck3P3Jo0SWftNEX5hXfaeOnU4YWmW4pQFxG
+composite-all	%d%h%u%f%m%g%r	32w	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	3XwwX63R2C94W57FVPmc3xcg3pmc62XcxR7M9Rc2423Q322222Q5jgXjWppF7rCQ7f7gX3v7jQRQGPHvR9
 
 # The wide bases. Same components, digits of two to four bytes each.
 time-ms-design-date	%d	64tt	1	1785585600000	-	0P¢zCWO0
@@ -225,23 +238,23 @@ time-min-design-date	%d	512tt	-1	1785585600000	-	0ʎጌጻ
 time-min-design-date	%d	1024tz	-1	1785585600000	-	S上ጻ
 time-min-design-date	%d	2048tz	-1	1785585600000	-	7ทጻ
 hash-host	%h	64tt	0	0	-	1nI6LCNP
-hash-host	%h	128tt	0	0	-	ʌ¥ɔµoþBƹ
-hash-host	%h	256tt	0	0	-	Sრ7Kϑŋปბ
-hash-host	%h	512tt	0	0	-	mʞዞʎϱｹɔ𐃢
-hash-host	%h	1024tz	0	0	-	傳七俬ዛøɞᛝ乶
-hash-host	%h	2048tz	0	0	-	𐇰ﾁv匙偃亿佃務
+hash-host	%h	128tt	0	0	-	¥ɔµoþBƹ
+hash-host	%h	256tt	0	0	-	7Kϑŋปბ
+hash-host	%h	512tt	0	0	-	ዞʎϱｹɔ𐃢
+hash-host	%h	1024tz	0	0	-	ዛøɞᛝ乶
+hash-host	%h	2048tz	0	0	-	匙偃亿佃務
 hash-user	%u	64tt	0	0	-	WVqi7MQ4
-hash-user	%u	128tt	0	0	-	÷W£øɐʭÞ4
-hash-user	%u	256tt	0	0	-	®ճξርiTɤψ
-hash-user	%u	512tt	0	0	-	ኮᚨᚢVﾗዛ୧ψ
-hash-user	%u	1024tz	0	0	-	ga→伬傯佭倏伯
-hash-user	%u	2048tz	0	0	-	匪佋兎仒ስ兼健厣
+hash-user	%u	128tt	0	0	-	W£øɐʭÞ4
+hash-user	%u	256tt	0	0	-	ξርiTɤψ
+hash-user	%u	512tt	0	0	-	ᚢVﾗዛ୧ψ
+hash-user	%u	1024tz	0	0	-	伬傯佭倏伯
+hash-user	%u	2048tz	0	0	-	仒ስ兼健厣
 hash-fqdn	%f	64tt	0	0	-	4wVWLfuK
-hash-fqdn	%f	128tt	0	0	-	O4ʬζ2ƾyK
-hash-fqdn	%f	256tt	0	0	-	୬mJրჟƨժK
-hash-fqdn	%f	512tt	0	0	-	𐊀๑ꓕᛪሬLᴚK
-hash-fqdn	%f	1024tz	0	0	-	仦傦ᴖJ佊亨丵亸
-hash-fqdn	%f	2048tz	0	0	-	佇偸剝侳乯ｼ侂匞
+hash-fqdn	%f	128tt	0	0	-	4ʬζ2ƾyK
+hash-fqdn	%f	256tt	0	0	-	JրჟƨժK
+hash-fqdn	%f	512tt	0	0	-	ꓕᛪሬLᴚK
+hash-fqdn	%f	1024tz	0	0	-	J佊亨丵亸
+hash-fqdn	%f	2048tz	0	0	-	侳乯ｼ侂匞
 mac	%m	64tt	0	0	-	0W1U4000
 mac	%m	128tt	0	0	-	0¤5ʌ¤00
 mac	%m	256tt	0	0	-	20ȹG00
@@ -255,14 +268,20 @@ uuid	%g	512tt	0	0	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0	0ͼ𐇒ﾚፀﾺ·ჵU�
 uuid	%g	1024tz	0	0	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0	Fͼ侂俆倐ᛆ偁亄佐侂zవ互
 uuid	%g	2048tz	0	0	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0	7儶劢儉侁伉ጓ∂侊促伇互
 random	%r	64tt	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	B3rENs
-random	%r	128tt	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	siUþ¿ͳ
-random	%r	256tt	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	ձଌท๑ფህ
-random	%r	512tt	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	ግᛔΔᛩሪ7
-random	%r	1024tz	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	ʁ佯倉伊七俌
-random	%r	2048tz	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	倛僻伝𐇦ტf
+random	%r	128tt	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	RMFfɞ
+random	%r	256tt	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	ձଌท๑ფ
+random	%r	512tt	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	s७𐇠ფ
+random	%r	1024tz	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	伱俠ჺფ
+random	%r	2048tz	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	ბ促佇勻
 composite-all	%d%h%u%f%m%g%r	64tt	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	0P¢zCWO01nI6LCNPWVqi7MQ44wVWLfuK0W1U40000F7YqyIrf9U8UMfRJ3qk7mB3rENs
-composite-all	%d%h%u%f%m%g%r	128tt	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	0pΩɷµC0ʌ¥ɔµoþBƹ÷W£øɐʭÞ4O4ʬζ2ƾyK0¤5ʌ¤000UUMæ9røbʎ7¿fsØU¿©ʌsiUþ¿ͳ
-composite-all	%d%h%u%f%m%g%r	256tt	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	1իฆo60Sრ7Kϑŋปბ®ճξርiTɤψ୬mJրჟƨժK20ȹG00FUjy¿ƾ·ͼϖ҂չ୫ทะრჲձଌท๑ფህ
-composite-all	%d%h%u%f%m%g%r	512tt	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	P𐇶ᴖካ0mʞዞʎϱｹɔ𐃢ኮᚨᚢVﾗዛ୧ψ𐊀๑ꓕᛪሬLᴚK0WBꓤ000ͼ𐇒ﾚፀﾺ·ჵU୬ǂԃჹ⊲𐇪ግᛔΔᛩሪ7
-composite-all	%d%h%u%f%m%g%r	1024tz	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	1伩傍ξ亣傳七俬ዛøɞᛝ乶ga→伬傯佭倏伯仦傦ᴖJ佊亨丵亸21乾00Fͼ侂俆倐ᛆ偁亄佐侂zవ互ʁ佯倉伊七俌
-composite-all	%d%h%u%f%m%g%r	2048tz	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	0อ吡卓匇𐇰ﾁv匙偃亿佃務匪佋兎仒ስ兼健厣佇偸剝侳乯ｼ侂匞0ቦ⟅亣07儶劢儉侁伉ጓ∂侊促伇互倛僻伝𐇦ტf
+composite-all	%d%h%u%f%m%g%r	128tt	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	0pΩɷµC0¥ɔµoþBƹW£øɐʭÞ44ʬζ2ƾyK0¤5ʌ¤000UUMæ9røbʎ7¿fsØU¿©ʌRMFfɞ
+composite-all	%d%h%u%f%m%g%r	256tt	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	1իฆo607KϑŋปბξርiTɤψJրჟƨժK20ȹG00FUjy¿ƾ·ͼϖ҂չ୫ทะრჲձଌท๑ფ
+composite-all	%d%h%u%f%m%g%r	512tt	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	P𐇶ᴖካ0ዞʎϱｹɔ𐃢ᚢVﾗዛ୧ψꓕᛪሬLᴚK0WBꓤ000ͼ𐇒ﾚፀﾺ·ჵU୬ǂԃჹ⊲𐇪s७𐇠ფ
+composite-all	%d%h%u%f%m%g%r	1024tz	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	1伩傍ξ亣ዛøɞᛝ乶伬傯佭倏伯J佊亨丵亸21乾00Fͼ侂俆倐ᛆ偁亄佐侂zవ互伱俠ჺფ
+composite-all	%d%h%u%f%m%g%r	2048tz	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	0อ吡卓匇匙偃亿佃務仒ስ兼健厣侳乯ｼ侂匞0ቦ⟅亣07儶劢儉侁伉ጓ∂侊促伇互ბ促佇勻
+
+# The digest ceiling: a hashed component cannot be wider than a SHA-256
+# fills in the base, and these rows sit exactly on it.
+hash-host-digest-ceiling	%h	512tt	0	0	hashchars=29	4ꓘvᴚ𐇝ᛶᴝE𐇻𐂘𐂊ጾᛶϣᚻ𐂇ᛯϧห⦠𐊁mʞዞʎϱｹɔ𐃢
+hash-host-digest-ceiling	%h	1024tz	0	0	hashchars=26	J8偓亡予倊7亝偒俒ϥ傟⊳偱倅°佼侬傳七俬ዛøɞᛝ乶
+hash-host-digest-ceiling	%h	2048tz	0	0	hashchars=24	2侴乩亡傉刽x𐂦俬ﾄ厛儚傖倅ϧ修𐇰ﾁv匙偃亿佃務

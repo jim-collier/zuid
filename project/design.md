@@ -228,7 +228,7 @@ The format string keeps the predecessor's shape, since it reads well and is the 
 
 Every component is rendered as a number in the output base, and every one of them is a fixed number of symbols wide. Fixed width is what makes the leading timestamp sort, and it also means an identifier can be split back into its parts by offset. The single exception is an unhashed name, which is emitted as text.
 
-Hashed components are SHA-256 of the raw name, converted from base 16, keeping the **rightmost 8 symbols** by default. Truncation is what makes them short enough to be useful; it also means they are a fingerprint rather than an identity, which is the intent. Eight base-62 symbols is around 47 bits, so a collision between two hosts is not a practical worry.
+Hashed components are SHA-256 of the raw name, converted from base 16, keeping the rightmost few symbols. Truncation is what makes them short enough to be useful; it also means they are a fingerprint rather than an identity, which is the intent. How many symbols is derived from the base rather than fixed - see [Component widths](#component-widths) - and comes to 8 in base 62, around 47 bits, so a collision between two hosts is not a practical worry.
 
 The byte-valued components all take the same path - hex in, converted from base 16 - because that is the cheapest faithful way to hand bytes to a library whose interface is strings.
 
@@ -245,28 +245,33 @@ It also removes an earlier limit. Truncation used to need single-byte digits, be
 Both implementations reject the same four things before rendering anything, so neither can produce output the other would refuse:
 
 - A component width outside 1 to 64.
+- A hashed component wider than a SHA-256 fills in the output base. Past that point every extra symbol is left-fill, so the identifier gets longer with no more fingerprint behind it. The ceiling runs from 64 symbols in base 16 down to 24 in 2048tz.
 - A precision that is not -1, 0, or 1.
 - A base whose digits are raw bytes rather than text.
 - A clock before the Unix epoch or past the padding horizon. Past the horizon is an error rather than a truncation, because quietly dropping the high symbols would break the sort instead of reporting it.
 
 ### Component widths
 
-`%d` derives its width from the horizon. The other fixed-size components derive theirs from a bit count - 48 for a MAC, 128 for a UUID - by the same rule: the smallest number of symbols that holds the largest possible value.
+Every width is derived rather than tabulated, by one rule: the smallest number of symbols that holds the largest value the component can take. `%d` takes that value from the horizon; `%m` and `%g` take it from a bit count, 48 and 128.
 
-| Base | `%m` (48 bits) | `%g` (128 bits)
-| :-- | --: | --:
-| 16 | 12 | 32
-| 32 | 10 | 26
-| 36 | 10 | 25
-| 62 | 9 | 22
-| 64 | 8 | 22
-| 128 | 7 | 19
-| 256 | 6 | 16
-| 512 | 6 | 15
-| 1024 | 5 | 13
-| 2048 | 5 | 12
+`%h`, `%u`, `%f`, and `%r` have no largest value - a hash is as wide as you cut it - so what gets derived instead is a target *strength*, and the width is whatever carries it in that base. The targets are 47 bits for a hashed name and 35 for `%r`, which is what 8 and 6 base-62 symbols have always held.
 
-Hashed and random components are not derived; their width is whatever symbol count was asked for.
+That distinction matters because a symbol is not a fixed amount of information: four bits in base 16, eleven in 2048tz. A fixed symbol count therefore promises a strength it only delivers in one base - `%r` at 6 symbols is 36 bits in base 62 but 24 in base 16, where a birthday collision arrives after about four thousand draws. Deriving from the target instead keeps the strength constant and lets the width move, which is the same trade the other components already make.
+
+| Base | `%h` `%u` `%f` (47 bits) | `%r` (35 bits) | `%m` (48 bits) | `%g` (128 bits) | Digest ceiling
+| :-- | --: | --: | --: | --: | --:
+| 16 | 12 | 9 | 12 | 32 | 64
+| 32 | 10 | 7 | 10 | 26 | 52
+| 36 | 10 | 7 | 10 | 25 | 50
+| 62 | 8 | 6 | 9 | 22 | 43
+| 64 | 8 | 6 | 8 | 22 | 43
+| 128 | 7 | 5 | 7 | 19 | 37
+| 256 | 6 | 5 | 6 | 16 | 32
+| 512 | 6 | 4 | 6 | 15 | 29
+| 1024 | 5 | 4 | 5 | 13 | 26
+| 2048 | 5 | 4 | 5 | 12 | 24
+
+`--hash-chars` and `--rand-chars` still override the derived width. The last column is the ceiling on that override: a SHA-256 is 256 bits, so past that many symbols the value is only being left-filled.
 
 `%r` is the one component whose *input* depends on the base. It draws one byte per symbol, which is more entropy than a base of 256 symbols or fewer can spend. Above 256 a symbol carries more than eight bits, so a byte each would leave the leading symbols pinned at the zero digit forever; the draw is `ceil(symbols * bits / 8)` bytes there instead. The floor of one byte per symbol keeps the narrow bases drawing exactly what they always did.
 
@@ -280,9 +285,9 @@ Three choices were left open until the vectors froze; all three are now settled:
 
 Four more were settled with the remaining components:
 
-- **Hashed components are 8 symbols, uniformly.** The predecessor used 5 for host and user and 8 for the FQDN. One number is easier to remember than three, and 5 symbols in base 62 is only about 30 bits, which is thin across a large fleet.
+- **All three hashed components are one width, not three.** The predecessor used 5 for host and user and 8 for the FQDN. One number is easier to remember than three, and 5 symbols in base 62 is only about 30 bits, which is thin across a large fleet. That width was itself fixed at 8 to begin with, and is now derived per base from the strength 8 base-62 symbols carry.
 - **Two flags rather than six.** `--no-hash` and `--hash-chars` apply to all three name components, where the predecessor had a hashing switch and a width per component. Per-component control is the kind of surface that grew by accretion there, and it is the thing this project set out to improve on.
-- **`%r` defaults to 6 symbols**, not the predecessor's 4. Around 36 bits: enough that appending `%r` to a same-tick timestamp actually resolves the collision it exists to resolve.
+- **`%r` carries about 36 bits**, where the predecessor's 4 symbols carried around 24. Enough that appending `%r` to a same-tick timestamp actually resolves the collision it exists to resolve. In base 62 that is the same 6 symbols it always was.
 - **`%m` takes the lowest-numbered non-loopback interface**, for the reasons under [Format and components](#format-and-components).
 
 ## Project structure

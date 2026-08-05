@@ -49,7 +49,8 @@ int main(void) {
 	wantCode("generate 32w", zuid_generate(z, "%d", "32w", out, sizeof out), ZUID_OK);
 	want("time, base 32w", out, "2r8pRr2");
 
-	/* Fixed widths, in base 62: hash 8, uuid 22, random 6. */
+	/* Derived widths, in base 62: hash 8, uuid 22, random 6. Every base gets
+	   the width carrying the same strength, not the same symbol count. */
 	wantCode("generate %h", zuid_generate(z, "%h", NULL, out, sizeof out), ZUID_OK);
 	wantLen("host, hashed", out, 8);
 	wantCode("generate %g", zuid_generate(z, "%g", NULL, out, sizeof out), ZUID_OK);
@@ -73,9 +74,19 @@ int main(void) {
 	wantCode("generate resized", zuid_generate(z, "%h%r", NULL, out, sizeof out), ZUID_OK);
 	wantLen("resized components", out, 17);
 
+	/* Zero puts both back on the base's derived default. */
+	wantCode("hash chars 0", zuid_set_hash_chars(z, 0), ZUID_OK);
+	wantCode("random chars 0", zuid_set_random_chars(z, 0), ZUID_OK);
+	wantCode("generate defaulted", zuid_generate(z, "%h%r", NULL, out, sizeof out), ZUID_OK);
+	wantLen("defaulted components", out, 14);
+
 	/* Every rejection path the header documents. */
-	wantCode("hash chars 0", zuid_set_hash_chars(z, 0), ZUID_ERR_OPTION);
+	wantCode("hash chars over cap", zuid_set_hash_chars(z, ZUID_MAX_COMPONENT_CHARS + 1), ZUID_ERR_OPTION);
 	wantCode("random chars over cap", zuid_set_random_chars(z, ZUID_MAX_COMPONENT_CHARS + 1), ZUID_ERR_OPTION);
+	/* Past what a SHA-256 fills in base 62, which is 43 symbols. */
+	wantCode("hash past the digest", zuid_set_hash_chars(z, 44), ZUID_OK);
+	wantCode("generate over-wide hash", zuid_generate(z, "%h", "62", out, sizeof out), ZUID_ERR_OPTION);
+	wantCode("hash chars back to default", zuid_set_hash_chars(z, 0), ZUID_OK);
 	wantCode("precision 2", zuid_set_precision(z, 2), ZUID_ERR_PRECISION);
 	wantCode("unknown base", zuid_generate(z, "%d", "hexx", out, sizeof out), ZUID_ERR_UNKNOWN_BASE);
 	if (strlen(zuid_last_error(z)) == 0) {

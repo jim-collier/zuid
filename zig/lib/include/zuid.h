@@ -42,7 +42,8 @@ enum {
 	ZUID_ERR_CLOCK = 6,         /* the clock predates the Unix epoch */
 	ZUID_ERR_INTERNAL = 7,      /* the embedded runtime or module failed */
 	ZUID_ERR_PRECISION = 8,     /* precision is not -1, 0, or 1 */
-	ZUID_ERR_OPTION = 9,        /* a symbol count is outside 1..ZUID_MAX_COMPONENT_CHARS */
+	ZUID_ERR_OPTION = 9,        /* a symbol count is outside 1..ZUID_MAX_COMPONENT_CHARS, or a hashed
+	                               component is wider than a SHA-256 fills in the base */
 	ZUID_ERR_ENV = 10,          /* no host name, user, hardware address, random source, or clock */
 	ZUID_ERR_BASE_DIGITS = 11,  /* no longer produced; every base can carry every component */
 	ZUID_ERR_HORIZON = 12,      /* the clock is past the padding horizon, so %d no longer fits its width */
@@ -75,7 +76,7 @@ void zuid_free(zuid *z);
 	Every component but an unhashed %h %u %f is a fixed number of symbols
 	wide, so an identifier can be split by offset.
 
-	At the default component widths, 256 bytes of out holds a format naming
+	At the derived component widths, 256 bytes of out holds a format naming
 	every component in any curated base. Raising zuid_set_hash_chars or
 	zuid_set_random_chars, repeating a component, or including literal text
 	all push that up; ZUID_ERR_BUFFER says when out was too small, and
@@ -100,12 +101,24 @@ int zuid_set_precision(zuid *z, int precision);
 */
 void zuid_set_hashing(zuid *z, int enabled);
 
-/* Symbols kept from a hashed component. Default 8. */
+/*
+	Symbols kept from a hashed component. Zero, the initial setting, derives
+	the width from the base so that every base carries the same fingerprint
+	strength rather than the same symbol count - 12 symbols in base 16, 8 in
+	62, 5 in 2048tz. A symbol is worth four bits in base 16 and eleven in
+	2048tz, so one fixed count would mean wildly different strength.
+
+	Asking for more than a SHA-256 fills in the base is ZUID_ERR_OPTION: past
+	that point the extra symbols are all padding, so the identifier grows
+	without the fingerprint getting any stronger. The ceiling runs from 64
+	symbols in base 16 down to 24 in 2048tz, and zuid_last_error names it.
+*/
 int zuid_set_hash_chars(zuid *z, int chars);
 
 /*
-	Symbols %r emits. Default 6. Enough bytes are drawn to fill them, which
-	is one per symbol up to base 256 and more above it.
+	Symbols %r emits, derived from the base the same way when zero: 9 in base
+	16, 6 in 62, 4 in 2048tz. Enough bytes are drawn to fill them, which is
+	one per symbol up to base 256 and more above it.
 */
 int zuid_set_random_chars(zuid *z, int chars);
 

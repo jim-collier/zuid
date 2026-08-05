@@ -29,7 +29,7 @@ fn codeFor(err: core.Error) c_int {
         core.Error.BadInput, core.Error.ConvertFailed => 4,
         core.Error.BufferTooSmall => 5,
         core.Error.ClockBeforeEpoch => 6,
-        core.Error.OptionRange => 9,
+        core.Error.OptionRange, core.Error.HashTooWide => 9,
         core.Error.EnvUnavailable => 10,
         core.Error.WidthOverflow => 12,
         core.Error.BaseNotText => 13,
@@ -45,6 +45,7 @@ fn textFor(err: core.Error) []const u8 {
         core.Error.BareFormatPercent => "the format string ends on a bare '%'",
         core.Error.UnknownComponent => "unknown format component; known: %d %h %u %f %m %g %r, and %% for a literal",
         core.Error.OptionRange => "a symbol count is out of range",
+        core.Error.HashTooWide => "a hashed component cannot be wider than a SHA-256 fills in that base",
         core.Error.EnvUnavailable => "this machine could not supply that component",
         core.Error.BaseNotText => "that base renders raw bytes rather than text, so it cannot carry an identifier",
         else => "",
@@ -75,6 +76,21 @@ const Zuid = struct {
         @memcpy(self.err_buf[0..kept], text[0..kept]);
         self.err_buf[kept] = 0;
     }
+
+    /// Spells out the ceiling for the base actually being rendered in - 64
+    /// symbols in base 16, down to 24 in 2048tz. False if the base could not be
+    /// read, and then the caller falls back to the fixed sentence.
+    fn setHashCeilingText(self: *Zuid, base: []const u8) bool {
+        const name = if (base.len == 0) core.default_base else base;
+        const radix = self.wasm_host.converter().radix(name) catch return false;
+        const written = std.fmt.bufPrint(
+            self.err_buf[0 .. self.err_buf.len - 1],
+            "hash width {d}: base {s} carries at most {d} symbols of a 256-bit digest",
+            .{ self.hash_chars, name, core.maxHashChars(radix) },
+        ) catch return false;
+        self.err_buf[written.len] = 0;
+        return true;
+    }
 };
 
 /// Every entry point goes through this, so a null or already-freed context is
@@ -96,8 +112,9 @@ pub export fn zuid_new() ?*Zuid {
     self.fixed_clock_ms = null;
     self.precision = core.Precision.default;
     self.no_hash = false;
-    self.hash_chars = core.default_hash_chars;
-    self.random_chars = core.default_random_chars;
+    // Zero means the derived default for whatever base each call renders in.
+    self.hash_chars = 0;
+    self.random_chars = 0;
     self.err_buf[0] = 0;
     return self;
 }
@@ -138,7 +155,12 @@ pub export fn zuid_generate(z: ?*Zuid, format: ?[*:0]const u8, base: ?[*:0]const
     var id_buf: [core.out_buf_len]u8 = undefined;
     const id = core.generate(self.wasm_host.converter(), self.live_env.env(), opts, &id_buf) catch |err| {
         const reported = self.wasm_host.lastError();
-        self.setErrText(if (reported.len > 0) reported else textFor(err));
+        // The ceiling depends on the base, so "too wide" on its own leaves the
+        // caller guessing what would fit. Everything else either has the
+        // library's own text or a fixed sentence.
+        if (err != core.Error.HashTooWide or !self.setHashCeilingText(opts.base)) {
+            self.setErrText(if (reported.len > 0) reported else textFor(err));
+        }
         return codeFor(err);
     };
     if (id.len + 1 > out_cap) return 5;
@@ -172,8 +194,9 @@ pub export fn zuid_set_random_chars(z: ?*Zuid, chars: c_int) c_int {
     return 0;
 }
 
+/// Zero is the way back to the derived default, so it is not out of range.
 fn inRange(chars: c_int) bool {
-    return chars >= 1 and chars <= core.max_component_chars;
+    return chars >= 0 and chars <= core.max_component_chars;
 }
 
 pub export fn zuid_set_clock_ms(z: ?*Zuid, ms: c_longlong) void {
