@@ -16,11 +16,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Other work
 -->
 
-## v0.1.0 - unreleased
+## v1.0.0-alpha.1 - 2026-08-05
 
 ### Notes
 
-- Pre-alpha. Nothing has been released yet, so nothing here is a change from a published version.
+- First prerelease. Nothing was published before it, so nothing here is a change from an earlier version.
+- Alpha: the identifier spec is settled and pinned by the shared vectors, but the command-line surface may still move before 1.0.0.
+- Binaries are x86_64 Linux only. The other targets need a per-platform Wasmtime archive first.
 
 ### Added
 
