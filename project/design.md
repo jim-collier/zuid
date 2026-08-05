@@ -14,12 +14,19 @@ Design, requirements, and direction. The active pre-v1.0.0 bug/feature task list
 
 - [What this is](#what-this-is)
 - [Assumptions](#assumptions)
-- [Direction decisions](#direction-decisions)
+- [Overview](#overview)
 	- [Two implementations, one spec](#two-implementations-one-spec)
 	- [Where base conversion comes from](#where-base-conversion-comes-from)
 	- [Reaching the library from C](#reaching-the-library-from-c)
 	- [Which bases to offer](#which-bases-to-offer)
 	- [Memory safety on the Zig side](#memory-safety-on-the-zig-side)
+		- [What is actually detected, and what is not](#what-is-actually-detected-and-what-is-not)
+- [Identifier specification](#identifier-specification)
+	- [One time encoding, not four](#one-time-encoding-not-four)
+	- [Fixed width, because sorting depends on it](#fixed-width-because-sorting-depends-on-it)
+	- [Format and components](#format-and-components)
+	- [Component widths](#component-widths)
+	- [Resolved questions](#resolved-questions)
 - [Project structure](#project-structure)
 	- [Folder structure](#folder-structure)
 	- [Logical code structure](#logical-code-structure)
@@ -45,11 +52,14 @@ The identifier is built from a time component, optionally combined with host, us
 ## Assumptions
 
 - An identifier is generated far more often than it is parsed, so generation speed matters and parsing convenience does not.
+
 - Callers who can start a process should just run the binary. The Go and C modules exist for callers who cannot.
+
 - Sortability is a property worth protecting. Any base whose alphabet does not sort in code-point order breaks it, and that constrains which bases are sensible defaults.
+
 - Privacy defaults matter: host and user components are hashed unless the caller explicitly asks otherwise.
 
-## Direction decisions
+## Overview
 
 ### Two implementations, one spec
 
@@ -104,12 +114,17 @@ Sortability turns out to be the sharpest filter, and it rules on the alphabet ra
 
 | Base | Sorts | Note
 | :-- | :-- | :--
+| 10 | yes |
 | 16 | yes |
+| 26 | yes |
 | 32h, 32c, 32w | yes | base32hex, Crockford, and wordsafe all happen to be ascending
 | 32r | **no** | RFC 4648 puts `A-Z` before `2-7`
 | 36 | yes |
+| 52 | yes |
 | 62 | yes |
 | 64r, 64u | **no** | RFC 4648 puts `A-Z` before `0-9`
+| 62h | yes |
+| *tt | yes |
 
 That removes base 64 from consideration entirely, which is worth spelling out because it was in an earlier draft of the curated list. Base 64 and base 62 need the same 8 characters for a timestamp, and base 62 is already URL-safe and filesystem-safe with no escaping. So base 64 costs the sort guarantee and buys nothing back at this magnitude.
 

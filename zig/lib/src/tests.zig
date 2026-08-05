@@ -171,7 +171,7 @@ fn runVectors(h: *host.Host) !void {
         rows += 1;
     }
     // A parsing bug that skips every row would otherwise pass silently.
-    try std.testing.expect(rows >= 115);
+    try std.testing.expect(rows >= 187);
 }
 
 test "error paths carry the module's error text" {
@@ -203,10 +203,12 @@ test "error paths carry the module's error text" {
     try std.testing.expectEqual(@as(u32, 0), try h.regionCount());
 }
 
-// A base with multi-byte digits pads fine but cannot be truncated: there is no
-// way to split its output at a symbol boundary, and the two implementations
-// have to agree on the answer rather than each guess.
-test "a multi-byte base refuses the truncated components" {
+// Every component works in a base whose digits are several bytes each. This
+// used to be refused outright, because slicing a converted string at a symbol
+// boundary was not something the conversion library could do; fit does it now,
+// so the wide bases carry the truncating components as well as the padded
+// ones. Widths are counted in symbols - byte length says nothing here.
+test "a multi-byte base carries every component" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
     var fixed = FixedEnv{};
@@ -214,19 +216,56 @@ test "a multi-byte base refuses the truncated components" {
     @memset(&fixed.random, 0x5a);
     var out_buf: [core.out_buf_len]u8 = undefined;
 
-    for ([_][]const u8{ "%d", "%m", "%g" }) |format| {
-        fixed.drawn = 0;
-        _ = core.generate(h.converter(), fixed.interface(), .{ .format = format, .base = "2048tt", .clock_ms = 0 }, &out_buf) catch |err| {
-            std.debug.print("{s} in base 2048tt should still pad: {t}\n", .{ format, err });
-            return err;
+    for ([_][]const u8{ "256tt", "512tt", "2048tz" }) |base| {
+        const radix = try h.converter().radix(base);
+        const cases = [_]struct { format: []const u8, want: u32 }{
+            .{ .format = "%d", .want = core.widthFor(radix, .second) },
+            .{ .format = "%h", .want = core.default_hash_chars },
+            .{ .format = "%u", .want = core.default_hash_chars },
+            .{ .format = "%f", .want = core.default_hash_chars },
+            .{ .format = "%r", .want = core.default_random_chars },
         };
+        for (cases) |case| {
+            fixed.drawn = 0;
+            const got = try core.generate(h.converter(), fixed.interface(), .{ .format = case.format, .base = base, .clock_ms = 0 }, &out_buf);
+            const symbols = try h.converter().symbolCount(base, got);
+            try std.testing.expectEqual(@as(u64, case.want), symbols);
+        }
     }
-    for ([_][]const u8{ "%h", "%u", "%f", "%r" }) |format| {
-        fixed.drawn = 0;
-        try std.testing.expectError(
-            error.MultiByteBase,
-            core.generate(h.converter(), fixed.interface(), .{ .format = format, .base = "2048tt", .clock_ms = 0 }, &out_buf),
-        );
+    try std.testing.expectEqual(@as(u32, 0), try h.regionCount());
+}
+
+// A random draw has to fill the symbols it claims. One byte per symbol runs
+// short above 256, where a symbol carries more than eight bits, and the
+// shortfall shows up as a leading zero digit that never varies.
+test "a wide base draws enough randomness to fill its symbols" {
+    var h = try host.Host.init(.auto);
+    defer h.deinit();
+    var out_buf: [core.out_buf_len]u8 = undefined;
+
+    for ([_][]const u8{ "512tt", "1024tz", "2048tz" }) |base| {
+        var first_seen: [core.component_buf_len]u8 = undefined;
+        var first_len: usize = 0;
+        var varied = false;
+        for (0..32) |seed| {
+            var fixed = FixedEnv{};
+            fixed.random_len = fixed.random.len;
+            @memset(&fixed.random, @intCast(seed * 8 + 1));
+            const got = try core.generate(h.converter(), fixed.interface(), .{ .format = "%r", .base = base, .clock_ms = 0 }, &out_buf);
+            // The leading symbol is whatever fit put first; comparing the
+            // prefix byte-wise is enough to see it move.
+            const lead = got[0..@min(got.len, 4)];
+            if (seed == 0) {
+                @memcpy(first_seen[0..lead.len], lead);
+                first_len = lead.len;
+            } else if (!std.mem.eql(u8, first_seen[0..first_len], lead)) {
+                varied = true;
+            }
+        }
+        if (!varied) {
+            std.debug.print("base {s}: the leading %r symbol never varied, so the draw is short\n", .{base});
+            return error.TestUnexpectedResult;
+        }
     }
 }
 

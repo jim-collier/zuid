@@ -34,9 +34,11 @@
 #   %m  the MAC as a 48-bit number, converted from base 16
 #   %g  16 bytes drawn from the random stream with the UUID v4 version and
 #       variant bits forced, converted from base 16 as a 128-bit number
-#   %r  randchars bytes drawn from the random stream - one byte per symbol,
-#       ample for any base - converted from base 16; the rightmost randchars
-#       symbols
+#   %r  enough bytes drawn from the random stream to fill randchars symbols,
+#       converted from base 16; the rightmost randchars symbols. One byte per
+#       symbol covers any base up to 256 symbols; above that a symbol carries
+#       more than eight bits, so the draw is ceil(randchars * bits / 8) instead
+#       and the leading symbol still varies.
 #
 # %g and %r draw from the stream in the order they appear in the format.
 #
@@ -50,6 +52,11 @@
 # also lets a multi-component identifier be split by offset. Identifiers of
 # different precisions have different widths and do not sort against each
 # other - same caveat as mixing bases.
+#
+# Width is counted in symbols throughout, never in bytes. The wide bases at the
+# end of this file, 64tt and up, have digits of two to four bytes each, so
+# every padded and every truncated component there also pins down that the cut
+# lands on a symbol boundary rather than mid-digit.
 #
 # name	format	base	precision	clock_ms	env	expected
 time-ms-epoch	%d	16	1	0	-	000000000000
@@ -185,3 +192,77 @@ composite-literals	%d-%h-%r	62	0	1785585600000	rand=A1B2C3D4E5F6	1wq8Nk-rw79Mr05
 composite-uuid-then-random	%g%r	62	0	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F6	0SWftNEX5hXfaeOnU4YWmW4pQFxG
 composite-all	%d%h%u%f%m%g%r	62	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F6	0VR2tCvwrw79Mr056UI3mO4yM6O3MdAC00ck3P3Jo0SWftNEX5hXfaeOnU4YWmW4pQFxG
 composite-all	%d%h%u%f%m%g%r	32w	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F6	3XwwX63R24W57FVPmxcg3pmc6cxR7M9Rc2423Q322222Q5jgXjWppF7rCQ7f7gX3v7jQR3vFmQg
+
+# The wide bases. Same components, digits of two to four bytes each.
+time-ms-design-date	%d	64tt	1	1785585600000	-	0P¢zCWO0
+time-ms-design-date	%d	128tt	1	1785585600000	-	0pΩɷµC0
+time-ms-design-date	%d	256tt	1	1785585600000	-	1իฆo60
+time-ms-design-date	%d	512tt	1	1785585600000	-	P𐇶ᴖካ0
+time-ms-design-date	%d	1024tz	1	1785585600000	-	1伩傍ξ亣
+time-ms-design-date	%d	2048tz	1	1785585600000	-	0อ吡卓匇
+time-s-epoch	%d	64tt	0	0	-	000000
+time-s-epoch	%d	128tt	0	0	-	00000
+time-s-epoch	%d	256tt	0	0	-	00000
+time-s-epoch	%d	512tt	0	0	-	0000
+time-s-epoch	%d	1024tz	0	0	-	0000
+time-s-epoch	%d	2048tz	0	0	-	0000
+time-s-design-date	%d	64tt	0	1785585600000	-	1gRT£0
+time-s-design-date	%d	128tt	0	1785585600000	-	6þt£¤
+time-s-design-date	%d	256tt	0	1785585600000	-	0ɸʇკฉ
+time-s-design-date	%d	512tt	0	1785585600000	-	Dԋჰ𐀛
+time-s-design-date	%d	1024tz	0	1785585600000	-	1佑倯偹
+time-s-design-date	%d	2048tz	0	1785585600000	-	0主劸𐃃
+time-s-horizon-eve	%d	64tt	0	32503679999999	-	UHNil£
+time-s-horizon-eve	%d	128tt	0	32503679999999	-	ͽAΩNθ
+time-s-horizon-eve	%d	256tt	0	32503679999999	-	7϶ȹศባ
+time-s-horizon-eve	%d	512tt	0	32503679999999	-	ჶƱ↋𐊄
+time-s-horizon-eve	%d	1024tz	0	32503679999999	-	Uᚣ偫傺
+time-s-horizon-eve	%d	2048tz	0	32503679999999	-	3単傓傺
+time-min-design-date	%d	64tt	-1	1785585600000	-	1nXaG
+time-min-design-date	%d	128tt	-1	1785585600000	-	0EOoG
+time-min-design-date	%d	256tt	-1	1785585600000	-	1รPG
+time-min-design-date	%d	512tt	-1	1785585600000	-	0ʎጌጻ
+time-min-design-date	%d	1024tz	-1	1785585600000	-	S上ጻ
+time-min-design-date	%d	2048tz	-1	1785585600000	-	7ทጻ
+hash-host	%h	64tt	0	0	-	1nI6LCNP
+hash-host	%h	128tt	0	0	-	ʌ¥ɔµoþBƹ
+hash-host	%h	256tt	0	0	-	Sრ7Kϑŋปბ
+hash-host	%h	512tt	0	0	-	mʞዞʎϱｹɔ𐃢
+hash-host	%h	1024tz	0	0	-	傳七俬ዛøɞᛝ乶
+hash-host	%h	2048tz	0	0	-	𐇰ﾁv匙偃亿佃務
+hash-user	%u	64tt	0	0	-	WVqi7MQ4
+hash-user	%u	128tt	0	0	-	÷W£øɐʭÞ4
+hash-user	%u	256tt	0	0	-	®ճξርiTɤψ
+hash-user	%u	512tt	0	0	-	ኮᚨᚢVﾗዛ୧ψ
+hash-user	%u	1024tz	0	0	-	ga→伬傯佭倏伯
+hash-user	%u	2048tz	0	0	-	匪佋兎仒ስ兼健厣
+hash-fqdn	%f	64tt	0	0	-	4wVWLfuK
+hash-fqdn	%f	128tt	0	0	-	O4ʬζ2ƾyK
+hash-fqdn	%f	256tt	0	0	-	୬mJրჟƨժK
+hash-fqdn	%f	512tt	0	0	-	𐊀๑ꓕᛪሬLᴚK
+hash-fqdn	%f	1024tz	0	0	-	仦傦ᴖJ佊亨丵亸
+hash-fqdn	%f	2048tz	0	0	-	佇偸剝侳乯ｼ侂匞
+mac	%m	64tt	0	0	-	0W1U4000
+mac	%m	128tt	0	0	-	0¤5ʌ¤00
+mac	%m	256tt	0	0	-	20ȹG00
+mac	%m	512tt	0	0	-	0WBꓤ00
+mac	%m	1024tz	0	0	-	21乾00
+mac	%m	2048tz	0	0	-	0ቦ⟅亣0
+uuid	%g	64tt	0	0	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0	0F7YqyIrf9U8UMfRJ3qk7m
+uuid	%g	128tt	0	0	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0	0UUMæ9røbʎ7¿fsØU¿©ʌ
+uuid	%g	256tt	0	0	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0	FUjy¿ƾ·ͼϖ҂չ୫ทะრჲ
+uuid	%g	512tt	0	0	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0	0ͼ𐇒ﾚፀﾺ·ჵU୬ǂԃჹ⊲𐇪
+uuid	%g	1024tz	0	0	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0	Fͼ侂俆倐ᛆ偁亄佐侂zవ互
+uuid	%g	2048tz	0	0	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0	7儶劢儉侁伉ጓ∂侊促伇互
+random	%r	64tt	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	B3rENs
+random	%r	128tt	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	siUþ¿ͳ
+random	%r	256tt	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	ձଌท๑ფህ
+random	%r	512tt	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	ግᛔΔᛩሪ7
+random	%r	1024tz	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	ʁ佯倉伊七俌
+random	%r	2048tz	0	0	rand=A1B2C3D4E5F60718293A4B5C6D7E8F90	倛僻伝𐇦ტf
+composite-all	%d%h%u%f%m%g%r	64tt	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	0P¢zCWO01nI6LCNPWVqi7MQ44wVWLfuK0W1U40000F7YqyIrf9U8UMfRJ3qk7mB3rENs
+composite-all	%d%h%u%f%m%g%r	128tt	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	0pΩɷµC0ʌ¥ɔµoþBƹ÷W£øɐʭÞ4O4ʬζ2ƾyK0¤5ʌ¤000UUMæ9røbʎ7¿fsØU¿©ʌsiUþ¿ͳ
+composite-all	%d%h%u%f%m%g%r	256tt	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	1իฆo60Sრ7Kϑŋปბ®ճξርiTɤψ୬mJրჟƨժK20ȹG00FUjy¿ƾ·ͼϖ҂չ୫ทะრჲձଌท๑ფህ
+composite-all	%d%h%u%f%m%g%r	512tt	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	P𐇶ᴖካ0mʞዞʎϱｹɔ𐃢ኮᚨᚢVﾗዛ୧ψ𐊀๑ꓕᛪሬLᴚK0WBꓤ000ͼ𐇒ﾚፀﾺ·ჵU୬ǂԃჹ⊲𐇪ግᛔΔᛩሪ7
+composite-all	%d%h%u%f%m%g%r	1024tz	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	1伩傍ξ亣傳七俬ዛøɞᛝ乶ga→伬傯佭倏伯仦傦ᴖJ佊亨丵亸21乾00Fͼ侂俆倐ᛆ偁亄佐侂zవ互ʁ佯倉伊七俌
+composite-all	%d%h%u%f%m%g%r	2048tz	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B4C3D2E1F0A1B2C3D4E5F60718293A4B5C6D7E8F90	0อ吡卓匇𐇰ﾁv匙偃亿佃務匪佋兎仒ስ兼健厣佇偸剝侳乯ｼ侂匞0ቦ⟅亣07儶劢儉侁伉ጓ∂侊促伇互倛僻伝𐇦ტf

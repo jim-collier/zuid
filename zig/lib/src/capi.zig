@@ -31,7 +31,6 @@ fn codeFor(err: core.Error) c_int {
         core.Error.ClockBeforeEpoch => 6,
         core.Error.OptionRange => 9,
         core.Error.EnvUnavailable => 10,
-        core.Error.MultiByteBase => 11,
     };
 }
 

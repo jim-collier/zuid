@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jim-collier/convert-base-v2/lib/convertbase"
 	"github.com/jim-collier/zuid/go/zuid"
 )
 
@@ -161,8 +162,8 @@ func TestVectors(t *testing.T) {
 	generator := sharedGenerator(t)
 	vectors := loadVectors(t)
 	// A parsing bug that skips most rows would otherwise pass silently.
-	if len(vectors) < 115 {
-		t.Fatalf("loaded %d vectors, want at least 115", len(vectors))
+	if len(vectors) < 187 {
+		t.Fatalf("loaded %d vectors, want at least 187", len(vectors))
 	}
 	for _, v := range vectors {
 		applyEnv(t, generator, v.clockMs, v.env)
@@ -352,21 +353,90 @@ func TestFormatErrors(t *testing.T) {
 // A base with multi-byte digits pads fine but cannot be truncated: there is no
 // way to split its output at a symbol boundary, and the two implementations
 // have to agree on the answer rather than each guess.
-func TestMultiByteBaseRefusesTruncation(t *testing.T) {
-	const exotic = "2048tt"
+// Every component works in a base whose digits are several bytes each. This
+// used to be refused outright, because slicing a converted string at a symbol
+// boundary was not something the conversion library could do; Fit does it now,
+// so the wide bases carry the truncating components as well as the padded
+// ones. Widths are counted in symbols, which is the whole point - byte length
+// says nothing here.
+func TestMultiByteBaseComponents(t *testing.T) {
+	registry, err := convertbase.NewRegistry()
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
 	generator := sharedGenerator(t)
 	e := defaultEnv()
-	e.random = bytes.Repeat([]byte{0x5A}, 32)
+	e.random = bytes.Repeat([]byte{0x5A}, 64)
 	applyEnv(t, generator, 0, e)
 
-	for _, format := range []string{"%d", "%m", "%g"} {
-		if _, err := generator.Generate(zuid.Request{Format: format, Base: exotic}); err != nil {
-			t.Errorf("%s in base %s should still pad: %v", format, exotic, err)
+	for _, baseName := range []string{"256tt", "512tt", "2048tz"} {
+		base, err := registry.Lookup(baseName)
+		if err != nil {
+			t.Fatalf("lookup %s: %v", baseName, err)
+		}
+		timeWidth, err := zuid.WidthFor(len(base.Symbols), zuid.PrecisionSecond)
+		if err != nil {
+			t.Fatalf("width for %s: %v", baseName, err)
+		}
+		for _, tc := range []struct {
+			format string
+			want   int
+		}{
+			{"%d", timeWidth},
+			{"%h", zuid.DefaultHashChars},
+			{"%u", zuid.DefaultHashChars},
+			{"%f", zuid.DefaultHashChars},
+			{"%r", zuid.DefaultRandomChars},
+		} {
+			got, err := generator.Generate(zuid.Request{Format: tc.format, Base: baseName})
+			if err != nil {
+				t.Errorf("%s in base %s: %v", tc.format, baseName, err)
+				continue
+			}
+			symbols, err := base.Tokenize(got)
+			if err != nil {
+				t.Errorf("%s in base %s: tokenize %q: %v", tc.format, baseName, got, err)
+				continue
+			}
+			if len(symbols) != tc.want {
+				t.Errorf("%s in base %s: got %d symbols, want %d", tc.format, baseName, len(symbols), tc.want)
+			}
 		}
 	}
-	for _, format := range []string{"%h", "%u", "%f", "%r"} {
-		if _, err := generator.Generate(zuid.Request{Format: format, Base: exotic}); err == nil {
-			t.Errorf("%s in base %s: want an error, got none", format, exotic)
+}
+
+// A random draw has to fill the symbols it claims. One byte per symbol runs
+// short above 256, where a symbol carries more than eight bits, and the
+// shortfall shows up as a leading zero digit that never varies.
+func TestRandomFillsWideBases(t *testing.T) {
+	registry, err := convertbase.NewRegistry()
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	generator := sharedGenerator(t)
+
+	for _, baseName := range []string{"512tt", "1024tz", "2048tz"} {
+		base, err := registry.Lookup(baseName)
+		if err != nil {
+			t.Fatalf("lookup %s: %v", baseName, err)
+		}
+		leading := map[string]bool{}
+		for seed := byte(0); seed < 32; seed++ {
+			e := defaultEnv()
+			e.random = bytes.Repeat([]byte{seed*8 + 1}, 64)
+			applyEnv(t, generator, 0, e)
+			got, err := generator.Generate(zuid.Request{Format: "%r", Base: baseName})
+			if err != nil {
+				t.Fatalf("%%r in base %s: %v", baseName, err)
+			}
+			symbols, err := base.Tokenize(got)
+			if err != nil {
+				t.Fatalf("tokenize %q in base %s: %v", got, baseName, err)
+			}
+			leading[symbols[0]] = true
+		}
+		if len(leading) == 1 {
+			t.Errorf("base %s: the leading %%r symbol never varied, so the draw is short", baseName)
 		}
 	}
 }

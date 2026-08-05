@@ -57,6 +57,17 @@ int main(void) {
 	wantCode("generate %r", zuid_generate(z, "%r", NULL, out, sizeof out), ZUID_OK);
 	wantLen("random", out, 6);
 
+	/* Bases whose digits are several bytes each. The clock is the only source
+	   this API can pin, so %d is what gets an exact value; %h and %r just have
+	   to work, since their widths are in symbols and strlen counts bytes. The
+	   vectors cover those two in these bases from both implementations. */
+	zuid_set_clock_ms(z, 1785585600000LL);
+	wantCode("generate 512tt", zuid_generate(z, "%d", "512tt", out, sizeof out), ZUID_OK);
+	want("time, base 512tt", out, "Dԋჰ𐀛");
+	wantCode("generate 2048tz", zuid_generate(z, "%d", "2048tz", out, sizeof out), ZUID_OK);
+	want("time, base 2048tz", out, "0主劸𐃃");
+	wantCode("truncate in 512tt", zuid_generate(z, "%h%r", "512tt", out, sizeof out), ZUID_OK);
+
 	wantCode("set hash chars", zuid_set_hash_chars(z, 5), ZUID_OK);
 	wantCode("set random chars", zuid_set_random_chars(z, 12), ZUID_OK);
 	wantCode("generate resized", zuid_generate(z, "%h%r", NULL, out, sizeof out), ZUID_OK);
@@ -66,7 +77,6 @@ int main(void) {
 	wantCode("hash chars 0", zuid_set_hash_chars(z, 0), ZUID_ERR_OPTION);
 	wantCode("random chars over cap", zuid_set_random_chars(z, ZUID_MAX_COMPONENT_CHARS + 1), ZUID_ERR_OPTION);
 	wantCode("precision 2", zuid_set_precision(z, 2), ZUID_ERR_PRECISION);
-	wantCode("multi-byte base", zuid_generate(z, "%h", "2048tt", out, sizeof out), ZUID_ERR_BASE_DIGITS);
 	wantCode("unknown base", zuid_generate(z, "%d", "hexx", out, sizeof out), ZUID_ERR_UNKNOWN_BASE);
 	if (strlen(zuid_last_error(z)) == 0) {
 		printf("  unknown base: no error text\n");

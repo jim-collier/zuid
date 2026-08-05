@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"math/bits"
 	"net"
 	"os"
 	"os/user"
@@ -34,8 +35,14 @@ import (
 )
 
 // Curated bases offered in help. --base still accepts anything convertbase
-// knows; these are just the four that sort and that a human can transcribe.
-var CuratedBases = []string{"16", "32w", "36", "62"}
+// knows; these are the ones that sort. The first four transcribe by hand; the
+// wide families trade that away for length, and only one of the two names each
+// radix carries is listed - tt up to 512, tz above it, which is where tt stops
+// existing.
+var CuratedBases = []string{
+	"16", "32w", "36", "62",
+	"64tt", "128tt", "256tt", "512tt", "1024tz", "2048tz",
+}
 
 // DefaultBase is what you get without asking.
 const DefaultBase = "62"
@@ -317,7 +324,10 @@ func (g *Generator) namedComponent(source func() (string, error), base *convertb
 	if err != nil {
 		return "", err
 	}
-	return keepRight(converted, base, req.HashChars)
+	// Rightmost few symbols, which is what makes a 256-bit digest short enough
+	// to sit in an identifier. Fit counts symbols rather than bytes, so the
+	// multi-byte alphabets cut in the right place.
+	return base.Fit(converted, req.HashChars)
 }
 
 // macComponent renders the hardware address as the 48-bit number it is.
@@ -353,11 +363,9 @@ func (g *Generator) uuidComponent(base *convertbase.Base) (string, error) {
 	return pad(converted, base, widthForBits(len(base.Symbols), uuidBits))
 }
 
-// randomComponent draws one byte per requested symbol. That is more entropy
-// than any base of 256 symbols or fewer can spend, so the draw never has to
-// know the radix.
+// randomComponent draws enough entropy to fill every symbol it emits.
 func (g *Generator) randomComponent(base *convertbase.Base, count int) (string, error) {
-	drawn := make([]byte, count)
+	drawn := make([]byte, randomBytesFor(len(base.Symbols), count))
 	if _, err := io.ReadFull(g.random, drawn); err != nil {
 		return "", fmt.Errorf("random source: %w", err)
 	}
@@ -365,7 +373,16 @@ func (g *Generator) randomComponent(base *convertbase.Base, count int) (string, 
 	if err != nil {
 		return "", err
 	}
-	return keepRight(converted, base, count)
+	return base.Fit(converted, count)
+}
+
+// randomBytesFor is how many bytes fill count symbols of the given radix.
+// One byte per symbol covers anything up to 256 symbols and is what the narrow
+// bases have always drawn, so the floor keeps their output unchanged. Above
+// 256 a symbol carries more than eight bits, and one byte each would leave the
+// leading symbols permanently at the zero digit.
+func randomBytesFor(radix, count int) int {
+	return max(count, (count*bits.Len(uint(radix-1))+7)/8)
 }
 
 // convertHex is the path every byte-valued component takes: base 16 in,
@@ -385,9 +402,12 @@ func (g *Generator) convert(value string, from, to *convertbase.Base) (string, e
 // pad left-fills to a derived width with the alphabet's zero digit.
 // Lexicographic compare reads left to right, so a short identifier and a long
 // one cannot sort chronologically - this fixed width is what makes the sort
-// guarantee hold, not the choice of alphabet. Overflowing the width means the
-// value is past the horizon the width was derived for, which is an error
-// rather than something to truncate.
+// guarantee hold, not the choice of alphabet.
+//
+// Fit would truncate an over-wide value, which is right for a hash and wrong
+// for a timestamp: overflowing here means the clock is past the horizon the
+// width was derived for, and quietly dropping the high symbols would break the
+// sort rather than report it.
 func pad(converted string, base *convertbase.Base, width int) (string, error) {
 	symbols, err := symbolCount(converted, base)
 	if err != nil {
@@ -397,30 +417,7 @@ func pad(converted string, base *convertbase.Base, width int) (string, error) {
 		return "", fmt.Errorf("value needs %d symbols in base %s, past the %d-symbol width",
 			symbols, base.Name(), width)
 	}
-	return strings.Repeat(base.Symbols[0], width-symbols) + converted, nil
-}
-
-// keepRight takes the rightmost count symbols of a hash or a random draw,
-// left-filling on the rare occasion the value renders shorter than that.
-// Truncation is what makes a hash short enough to be useful.
-//
-// It needs single-byte digits, because the conversion library offers no way to
-// slice a string at a symbol boundary and the two implementations have to
-// agree on the answer. Every base worth putting in an identifier qualifies;
-// the exotic multi-byte ones are refused rather than guessed at.
-func keepRight(converted string, base *convertbase.Base, count int) (string, error) {
-	symbols, err := symbolCount(converted, base)
-	if err != nil {
-		return "", err
-	}
-	if symbols != len(converted) || len(base.Symbols[0]) != 1 {
-		return "", fmt.Errorf("base %s has multi-byte digits, so a truncated component cannot be split in it",
-			base.Name())
-	}
-	if symbols >= count {
-		return converted[symbols-count:], nil
-	}
-	return strings.Repeat(base.Symbols[0], count-symbols) + converted, nil
+	return base.Fit(converted, width)
 }
 
 // Count symbols, not bytes: a base can have multi-byte digits.

@@ -33,9 +33,10 @@ fConfig(){ :;
 	default_wasmtimeVer="v47.0.3"
 	default_wasmtimeSha256="aaa3621f2a3d8393696702897f8f78a1cc504437d500701496d560125aefd732"
 
-	## The reactor wasm module, refreshed from the sibling checkout until
-	## upstream cuts releases. Path is relative to the repo root.
-	default_reactorWasmSource="../../convert-base-v2/github/lib/dist/convert-base-reactor.wasm"
+	## The reactor wasm module is built from this package, which go.mod pins to
+	## a release, so the Go side and the Zig side cannot end up on two versions
+	## of the conversion library.
+	default_reactorPackage="github.com/jim-collier/convert-base-v2/lib/reactor"
 
 }
 
@@ -89,8 +90,9 @@ fPrint_Help(){
 		    -v, --version     Version and copyright.
 
 		Both toolchains have to reproduce testdata/vectors.tsv, which is what the test
-		stage checks. The Zig stage vendors the Wasmtime C API and the upstream
-		reactor wasm module into zig/vendor/ when they are absent.
+		stage checks. The Zig stage vendors the Wasmtime C API into zig/vendor/ when
+		absent, and builds the reactor wasm module there from the pinned convertbase
+		release.
 
 		Exit code is 0 only if every stage that ran passed.
 	EOF_h7wq4
@@ -119,7 +121,7 @@ fMain(){
 	local -a default_protectedBranches=()
 	local    default_wasmtimeVer=""
 	local    default_wasmtimeSha256=""
-	local    default_reactorWasmSource=""
+	local    default_reactorPackage=""
 	fConfig
 	local -r minVer_Go="${default_minVer_Go}"
 	local -r minVer_Zig="${default_minVer_Zig}"
@@ -127,7 +129,7 @@ fMain(){
 	local -ra protectedBranches=("${default_protectedBranches[@]}")
 	local -r wasmtimeVer="${default_wasmtimeVer}"
 	local -r wasmtimeSha256="${default_wasmtimeSha256}"
-	local -r reactorWasmSource="${default_reactorWasmSource}"
+	local -r reactorPackage="${default_reactorPackage}"
 
 	## Layout. This script lives in the repo's cicd/, so the repo root is one up.
 	local -r repoRoot="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -344,22 +346,34 @@ fStage_Zig_Vendor(){
 		fEcho_Clean "Wasmtime ...: vendored"
 	fi
 
-	## The reactor wasm module. The sibling checkout wins when present, so a
-	## rebuilt upstream artifact flows in; otherwise an already-vendored copy
-	## is good enough to build against.
-	local -r wasmSource="${repoRoot}/${reactorWasmSource}"
+	## The reactor wasm module, built from the same convertbase release go.mod
+	## pins. Building it here rather than copying a prebuilt artifact is what
+	## keeps the two implementations on one version of the library: the Go
+	## module and the wasm module cannot drift apart when they come from the
+	## same verified module. Needs a Go 1.24+ toolchain for //go:wasmexport;
+	## an already-vendored copy carries an offline or Go-less build.
 	local -r wasmVendored="${vendorDir}/convert-base-reactor.wasm"
-	if [[ -f "${wasmSource}" ]]; then
-		if ! cmp -s "${wasmSource}" "${wasmVendored}" 2>/dev/null; then
-			cp "${wasmSource}" "${wasmVendored}"
-			fEcho_Clean "Reactor ....: refreshed from sibling"
+	if command -v go &>/dev/null; then
+		local -r wasmTmp="${wasmVendored}.new"
+		if GOOS=wasip1 GOARCH=wasm go build -C "${goDir}" -trimpath -buildmode=c-shared \
+			-ldflags '-s -w' -o "${wasmTmp}" "${reactorPackage}" 2>/dev/null
+		then
+			if ! cmp -s "${wasmTmp}" "${wasmVendored}" 2>/dev/null; then
+				mv -f "${wasmTmp}" "${wasmVendored}"
+				fEcho_Clean "Reactor ....: rebuilt from the pinned release"
+			else
+				rm -f "${wasmTmp}"
+				fEcho_Clean "Reactor ....: current"
+			fi
 		else
-			fEcho_Clean "Reactor ....: current"
+			rm -f "${wasmTmp}"
+			[[ -f "${wasmVendored}" ]] || fThrowError "Could not build the reactor wasm module, and no vendored copy exists."  "${FUNCNAME[0]}"
+			fEcho_Clean "Reactor ....: build failed, using vendored copy"
 		fi
 	elif [[ -f "${wasmVendored}" ]]; then
-		fEcho_Clean "Reactor ....: sibling absent, using vendored copy"
+		fEcho_Clean "Reactor ....: no Go toolchain, using vendored copy"
 	else
-		fThrowError "No reactor wasm module: neither '${wasmSource}' nor '${wasmVendored}' exists."  "${FUNCNAME[0]}"
+		fThrowError "No reactor wasm module: no Go toolchain to build one, and '${wasmVendored}' does not exist."  "${FUNCNAME[0]}"
 	fi
 
 }
