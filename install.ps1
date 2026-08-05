@@ -141,24 +141,36 @@ if (-not $Arch) {
 	}
 }
 
-$api = if ($Release -eq 'dev') {
-	"https://api.github.com/repos/$repository/releases"
-}
-else {
-	"https://api.github.com/repos/$repository/releases/latest"
-}
+## GitHub's 'latest' endpoint only ever answers with a full release, so it 404s
+## on a repository whose releases are all prereleases. List them and choose here.
 
 Write-Status "Looking up the $Release release"
 try {
-	$found = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = "$program-install" }
-	$tag = if ($found -is [array]) { $found[0].tag_name } else { $found.tag_name }
+	$found = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$repository/releases" -Headers @{ 'User-Agent' = "$program-install" })
 }
 catch {
-	$tag = $null
+	$found = @()
 }
-if (-not $tag) {
-	Stop-WithMessage "could not find a $Release release for $repository. If the repository has no releases yet, build from source instead - see its README."
+$published = @($found | Where-Object { -not $_.draft })
+if (-not $published) {
+	Stop-WithMessage "no published release found for $repository. If the repository has none yet, build from source instead - see its README."
 }
+
+if ($Release -eq 'dev') {
+	## Newest of anything, prerelease included.
+	$chosen = $published[0]
+}
+else {
+	$chosen = $published | Where-Object { -not $_.prerelease } | Select-Object -First 1
+	if (-not $chosen) {
+		## Nothing final published yet, so the newest prerelease is the only
+		## thing there is to install. Say so rather than failing.
+		$chosen = $published[0]
+		Write-Detail '  No stable release yet, so this is the newest prerelease.'
+	}
+}
+$tag = $chosen.tag_name
+$kind = if ($chosen.prerelease) { 'prerelease' } else { 'stable' }
 
 $asset = "$program-$osLabel-$Arch.$archiveExtension"
 $baseUrl = "https://github.com/$repository/releases/download/$tag"
@@ -172,7 +184,7 @@ $installedVersion = if (Test-Path $existing) { (& $existing --version 2>$null | 
 
 Write-Detail ''
 Write-Status 'Plan'
-Write-Detail "  Version ....: $tag ($Release)"
+Write-Detail "  Version ....: $tag ($kind)"
 Write-Detail "  Platform ...: $osLabel/$Arch"
 Write-Detail "  Download ...: $baseUrl/$asset"
 Write-Detail '  Verify .....: sha256 against checksums.txt'
