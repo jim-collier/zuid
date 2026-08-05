@@ -69,14 +69,15 @@ In each section, items are listed approximately from newest to oldest. A require
 	- ✅ Zig stage vendors what it needs rather than assuming a system install.
 	- ✅ Zig stage builds ReleaseSafe, replays the vectors under both Wasmtime compilers, checks `zig fmt`, and then compiles the C smoke test with the system gcc or clang in both link modes. It skips that last part with a note if neither compiler is installed.
 	- 🛠️ Packaging. `--package` builds the host platform's artifacts: a tarball, the bare binary, `.deb`, `.rpm`, and checksums.
+		- ✅ 20260805: GitHub rewrites `~` to `.` in an uploaded filename, so the `.deb` and `.rpm` are named that way to begin with and `checksums.txt` matches what a downloader ends up with. The version recorded inside each package still carries the `~` that sorts it ahead of the final release.
 		- 🔘 Other platforms need a Wasmtime archive vendored per target. Blocked on that, and on the Zig side building for Windows at all.
 		- 🔘 Publishing stays rejected with a reason until there is somewhere to publish to.
 
 - 🛠️ Release-install scripts, runnable as a one-liner and documented in `README.md`.
 	- ✅ `install.bash` for Linux, BSD, macOS, and WSL; `install.ps1` for those plus Windows.
 	- ✅ Both verify the download against the published checksums, state their plan, and ask before touching anything. Re-running one changes nothing, and `--uninstall` reverses it.
-	- 🛠️ Tag resolution and the download were checked against the `v1.0.0-alpha.1` prerelease. The install and uninstall halves are still untried on a clean machine.
-		- Note for whoever tests it: `latest` is a stable-only endpoint, so a repo carrying only prereleases needs `--release dev`.
+	- ✅ Both run end to end against the published prerelease: lookup, download, checksum, unpack, link, re-install over an existing copy, and uninstall. Tested against a throwaway home directory rather than a clean machine, so the system-wide destinations are still untried.
+	- ✅ 20260805: the release is chosen from the full list rather than from `latest`, which only ever answers with a final release. Default takes the newest stable and falls back to the newest prerelease with a line saying so; `--release dev` takes whatever is newest either way.
 
 ### Configuration and persistence
 
