@@ -228,6 +228,7 @@ In each section, items are listed approximately from newest to oldest. A require
 	- ✅ A demo animation is rendered from a scenario file and copied to `assets/demo.gif`.
 		- ✅ 20260805: it covers both precision extremes now, and the screen resets only when the next step would not otherwise fit.
 	- ✅ `--dogfood` installs the release build; `--package` builds the host platform's artifacts.
+		- ✅ 20260805: installing is what a full run does now, rather than something to remember to ask for, so daily use is always the build that just passed. A quick run skips it, `--dogfood` forces it there, `--no-dogfood` turns it off, and a machine with nowhere to install says so instead of failing.
 
 - ✅ Environment values are read once per process rather than once per component, 20260804.
 	- Note: enumerating network interfaces cost twenty times the base conversion it fed, and resolving a qualified name could block on the network.
