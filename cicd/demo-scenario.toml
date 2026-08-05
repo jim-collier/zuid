@@ -8,6 +8,10 @@
 # Keep the whole thing under about forty-five seconds. It loops, so anyone
 # wanting a second look gets one for free. Typing pace stays at a human rate on
 # purpose, which means the way to shorten this is fewer words, not faster typing.
+#
+# Flags are written -flag='value' rather than -flag value. Costs a few
+# characters of typing time and makes it obvious which value belongs to which
+# flag at a glance, which is the whole point of a ten-second look.
 
 title = "zuid"
 prog  = "zuid"
@@ -25,26 +29,26 @@ pause = 1.9
 
 [[step]]
 note  = "Username (hashed)"
-show  = "{prog} -f %u"
+show  = "{prog} -f='%u'"
 notepause = 0.45
 pause = 2.1
 
 [[step]]
 # Last thing on screen before the clear, so it holds noticeably longer.
 note  = "Random"
-show  = "{prog} -f %r"
+show  = "{prog} -f='%r'"
 notepause = 0.45
 pause = 3.2
 
 [[step]]
 note  = "Minute precision, base 32 Crockford"
-show  = "{prog} -p -1 -b 32c"
+show  = "{prog} -p='-1' -b='32c'"
 clear = true
 notepause = 0.45
 pause = 2.0
 
 [[step]]
 note  = "Millisecond, 256tt"
-show  = "{prog} -p 1 -b 256tt"
+show  = "{prog} -p='1' -b='256tt'"
 notepause = 0.45
 pause = 2.0

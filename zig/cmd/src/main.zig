@@ -25,6 +25,9 @@ const help_head =
     \\
     \\Syntax: zuid [options]
     \\
+    \\A value attaches to its flag with '=' or follows it as the next argument,
+    \\so -b=32c, -b 32c, --base=32c, and --base 32c are all the same thing.
+    \\
     \\Options:
     \\    -b, --base <name>    Output base (default 62). Curated set:
     \\
@@ -87,40 +90,50 @@ pub fn main(init: std.process.Init) !void {
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
-        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+
+        // A value may ride along on the flag ("-b=32c") or follow it as the
+        // next argument. Only split a leading-dash argument, so a format
+        // string containing '=' passes through untouched.
+        var name: []const u8 = arg;
+        var attached: ?[]const u8 = null;
+        if (arg.len > 1 and arg[0] == '-') {
+            if (std.mem.indexOfScalar(u8, arg, '=')) |eq| {
+                name = arg[0..eq];
+                attached = arg[eq + 1 ..];
+            }
+        }
+        var vals: Values = .{ .args = args, .at = &i, .attached = attached, .stderr = stderr };
+
+        if (std.mem.eql(u8, name, "-h") or std.mem.eql(u8, name, "--help")) {
+            vals.rejectAttached(name);
             try printVersion(stdout);
             try stdout.print("\n{s}", .{help_text});
             try stdout.flush();
             return;
-        } else if (std.mem.eql(u8, arg, "-v") or std.mem.eql(u8, arg, "--version")) {
+        } else if (std.mem.eql(u8, name, "-v") or std.mem.eql(u8, name, "--version")) {
+            vals.rejectAttached(name);
             try printVersion(stdout);
             try stdout.flush();
             return;
-        } else if (std.mem.eql(u8, arg, "-b") or std.mem.eql(u8, arg, "--base")) {
-            i += 1;
-            if (i == args.len) return die(stderr, "Expecting a base name after {s}.", .{arg});
-            opts.base = args[i];
-        } else if (std.mem.eql(u8, arg, "-f") or std.mem.eql(u8, arg, "--format")) {
-            i += 1;
-            if (i == args.len) return die(stderr, "Expecting a format string after {s}.", .{arg});
-            opts.format = args[i];
-        } else if (std.mem.eql(u8, arg, "-p") or std.mem.eql(u8, arg, "--precision")) {
-            i += 1;
-            if (i == args.len) return die(stderr, "Expecting -1, 0, or 1 after {s}.", .{arg});
-            const parsed = std.fmt.parseInt(i64, args[i], 10) catch {
-                return die(stderr, "Precision '{s}' is not a number. Want -1 (minute), 0 (second), or 1 (millisecond).", .{args[i]});
+        } else if (std.mem.eql(u8, name, "-b") or std.mem.eql(u8, name, "--base")) {
+            opts.base = vals.take(name, "a base name");
+        } else if (std.mem.eql(u8, name, "-f") or std.mem.eql(u8, name, "--format")) {
+            opts.format = vals.take(name, "a format string");
+        } else if (std.mem.eql(u8, name, "-p") or std.mem.eql(u8, name, "--precision")) {
+            const raw = vals.take(name, "-1, 0, or 1");
+            const parsed = std.fmt.parseInt(i64, raw, 10) catch {
+                return die(stderr, "Precision '{s}' is not a number. Want -1 (minute), 0 (second), or 1 (millisecond).", .{raw});
             };
             opts.precision = zuid.core.Precision.fromInt(parsed) orelse {
                 return die(stderr, "Precision {d} is out of range. Want -1 (minute), 0 (second), or 1 (millisecond).", .{parsed});
             };
-        } else if (std.mem.eql(u8, arg, "--no-hash")) {
+        } else if (std.mem.eql(u8, name, "--no-hash")) {
+            vals.rejectAttached(name);
             opts.no_hash = true;
-        } else if (std.mem.eql(u8, arg, "--hash-chars")) {
-            i += 1;
-            opts.hash_chars = charCount(stderr, args, i, arg);
-        } else if (std.mem.eql(u8, arg, "--rand-chars")) {
-            i += 1;
-            opts.random_chars = charCount(stderr, args, i, arg);
+        } else if (std.mem.eql(u8, name, "--hash-chars")) {
+            opts.hash_chars = charCount(stderr, vals.take(name, "a symbol count"), name);
+        } else if (std.mem.eql(u8, name, "--rand-chars")) {
+            opts.random_chars = charCount(stderr, vals.take(name, "a symbol count"), name);
         } else {
             return die(stderr, "Argument invalid or not expected: '{s}'. Try --help.", .{arg});
         }
@@ -162,10 +175,29 @@ pub fn main(init: std.process.Init) !void {
     try stdout.flush();
 }
 
-fn charCount(stderr: *std.Io.Writer, args: []const []const u8, i: usize, flag: []const u8) u32 {
-    if (i == args.len) return die(stderr, "Expecting a symbol count after {s}.", .{flag});
-    const parsed = std.fmt.parseInt(u32, args[i], 10) catch {
-        return die(stderr, "'{s}' is not a symbol count. Want 1 to {d}.", .{ args[i], zuid.core.max_component_chars });
+/// Resolves a flag's value from either spelling - attached with '=', or the
+/// argument after it.
+const Values = struct {
+    args: []const [:0]const u8,
+    at: *usize,
+    attached: ?[]const u8,
+    stderr: *std.Io.Writer,
+
+    fn take(self: @This(), flag: []const u8, what: []const u8) []const u8 {
+        if (self.attached) |v| return v;
+        self.at.* += 1;
+        if (self.at.* == self.args.len) die(self.stderr, "Expecting {s} after {s}.", .{ what, flag });
+        return self.args[self.at.*];
+    }
+
+    fn rejectAttached(self: @This(), flag: []const u8) void {
+        if (self.attached != null) die(self.stderr, "{s} takes no value.", .{flag});
+    }
+};
+
+fn charCount(stderr: *std.Io.Writer, raw: []const u8, flag: []const u8) u32 {
+    const parsed = std.fmt.parseInt(u32, raw, 10) catch {
+        return die(stderr, "'{s}' is not a symbol count. Want 1 to {d}.", .{ raw, zuid.core.max_component_chars });
     };
     if (parsed < 1 or parsed > zuid.core.max_component_chars) {
         return die(stderr, "{d} is out of range for {s}. Want 1 to {d}.", .{ parsed, flag, zuid.core.max_component_chars });
