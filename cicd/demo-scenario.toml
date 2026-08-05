@@ -13,41 +13,36 @@ title = "zuid"
 prog  = "zuid"
 seed  = 62
 font  = ["Monaspace Argon SemiBold"]
-end_hold  = 1.2
-end_black = 2.5
+end_hold  = 2.2
+end_black = 3.5
 
 [[step]]
-note  = "Short, sortable, unique ids"
+note  = "Short, sortable, unique IDs"
 show  = "{prog}"
 notepause = 0.3
 pause = 1.0
 
 [[step]]
-note  = "Random, host, user - hashed"
-show  = "{prog} -f '%d%r-%h-%u'"
+note  = "Username (hashed)"
+show  = "{prog} -f '%d-%u'"
 notepause = 0.3
 pause = 1.3
 
 [[step]]
-note  = "Fixed widths: splits by offset"
-show  = "{prog} -f '%d %h %u %m %g %r'"
+note  = "Random"
+show  = "{prog} -f '%d-%r'"
 notepause = 0.3
-pause = 1.4
+pause = 1.3
 
 [[step]]
-note  = "Minute precision, base 32c"
+note  = "Minute precision, base 32 Crockford"
 show  = "{prog} -p -1 -b 32c"
+clear = true
 notepause = 0.3
 pause = 1.2
 
 [[step]]
-note  = "Millisecond precision, 256tt"
+note  = "Millisecond, 256tt"
 show  = "{prog} -p 1 -b 256tt"
 notepause = 0.3
 pause = 1.2
-
-[[step]]
-note  = "Unknown base? It guesses"
-show  = "{prog} -b 62x"
-notepause = 0.3
-pause = 1.3
