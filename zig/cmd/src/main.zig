@@ -1,4 +1,4 @@
-// Copyright © 2026 Jim Collier
+// Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 // Licensed under the GPL, Version 2 or later. Full text in zig/cmd/LICENSE.txt, or:
 //     https://spdx.org/licenses/GPL-2.0-or-later.html
 // SPDX-License-Identifier: GPL-2.0-or-later
@@ -208,7 +208,7 @@ fn charCount(stderr: *std.Io.Writer, raw: []const u8, flag: []const u8) u32 {
 fn printVersion(w: *std.Io.Writer) !void {
     try w.print(
         \\zuid version {s}
-        \\Copyright (c) 2026 Jim Collier.
+        \\Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ].
         \\License GPLv2+: GNU GPL version 2 or later, full text at:
         \\    https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
         \\There is no warranty, to the extent permitted by law.

@@ -219,15 +219,15 @@ The command is GPL-2.0-or-later. Full text in [LICENSE.txt](LICENSE.txt) and [zi
 
 The Go and C modules are Apache-2.0, so that embedding one carries no obligation beyond attribution. Full text and attribution sit next to each module: [go/LICENSE.txt](go/LICENSE.txt) + [go/NOTICE.txt](go/NOTICE.txt), and [zig/lib/LICENSE.txt](zig/lib/LICENSE.txt) + [zig/lib/NOTICE.txt](zig/lib/NOTICE.txt).
 
-> Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)<br />
+> Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]<br />
 > Licensed under the [GNU General Public License v2.0 or later](https://spdx.org/licenses/GPL-2.0-or-later.html)<br />
 > SPDX-License-Identifier: `GPL-2.0-or-later` <br />
 > No warranty.<br />
 > ZUID™ is a [trademark](trademark.md) of Jim Collier.
 <!--
-> Copyright © 2026 Jim Collier (CryptogID: ѳ6ᴚ℈𐀘𐇦ɛ𐊁¥Mﾏb϶Δ𐌞)<br />
-> Copyright © 2026 t00mietum (CryptogID: กᛦϾ2𐃭ขᚭɘƌფｸᛏﾅh𐌞)<br />
-> Copyright © 2026 Bubbles (CryptogID: 7६⋏𐇤𐃋𐀍หԏ๙ኦ𐇔𐀣ษʭ𐌞)<br />
+> Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]<br />
+> Copyright © 2026 t00mietum (CryptogID: ปʬϝღถɔ4რఠΔթะ9ƾǝu)<br />
+> Copyright (c) 2026 Bubbles<br />
 
 > Licensed under the [MIT License](https://mit-license.org/)<br />
 > SPDX-License-Identifier: `MIT`.<br />

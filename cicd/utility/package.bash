@@ -17,7 +17,7 @@
 ##		package.bash [--out DIR] [--version V]
 ##	History: At bottom.
 
-##	Copyright © 2026 Jim Collier
+##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 ##	Licensed under GNU GPL v2 or later <https://www.gnu.org/licenses/gpl-2.0.html>. No warranty.
 ##	SPDX-License-Identifier: GPL-2.0-or-later
 

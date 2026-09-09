@@ -22,7 +22,7 @@
 	./run-latest.ps1 -- -f '%d%r'
 
 .NOTES
-	Copyright (c) 2026 Jim Collier. MIT licensed: https://mit-license.org/
+	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. MIT licensed: https://mit-license.org/
 	SPDX-License-Identifier: MIT
 #>
 

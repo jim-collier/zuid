@@ -1,4 +1,4 @@
-// Copyright © 2026 Jim Collier
+// Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 // Licensed under the GPL, Version 2 or later. Full text in LICENSE.txt, or:
 //     https://spdx.org/licenses/GPL-2.0-or-later.html
 // SPDX-License-Identifier: GPL-2.0-or-later
