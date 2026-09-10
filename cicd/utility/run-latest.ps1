@@ -1,3 +1,4 @@
+#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
 	Runs the newest release build from a scratch copy, keeping the dogfood

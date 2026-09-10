@@ -1,3 +1,4 @@
+#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
 	Downloads a zuid release, checks it against the published checksums, and installs it.
