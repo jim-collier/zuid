@@ -10,7 +10,7 @@
 ##		install.bash [--release stable|dev] [--target user|system] [--arch x86_64|arm64] [--yes] [--uninstall]
 ##	History: At bottom.
 
-##	Copyright © 2026 Jim Collier
+##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 ##	Licensed under The MIT License (MIT). Full text at:
 ##		https://mit-license.org/
 ##	SPDX-License-Identifier: MIT

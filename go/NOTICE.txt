@@ -1,8 +1,8 @@
 zuid - Go module
-Copyright © 2026 Jim Collier
+Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 
 Licensed under the Apache License, Version 2.0. Full text in LICENSE.txt.
 
 This module builds on convertbase, from convert-base-v2:
-    Copyright © 2026 Jim Collier
+    Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
     Licensed under the Apache License, Version 2.0.
