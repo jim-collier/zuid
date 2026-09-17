@@ -78,8 +78,12 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Fixed: the header's linking paragraph now says where `libwasmtime.a` comes from, and that the shared library exports only the entry points.
 		- Done: two cicd checks. One links the smoke test against a tree holding only what ships, with the header's own link line, deliberately not pointed at `vendor/`. The other refuses an archive with another archive inside it.
 		- Verified: restoring the nesting fails the archive check. The review's reproduction - a tree holding only `libzuid.a` and `zuid.h` - failed with "have you installed the static version of the wasmtime library ?" before, and the unpacked release tarball now links both static and shared.
-	- 🔘 F3, should-fix: a C context that is never freed is not reported as a leak, in tests or in debug builds.
+	- ✅ F3, should-fix: a C context that is never freed is not reported as a leak, in tests or in debug builds.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
+		- Cause: nothing could call the debug allocator's own check. A C caller never says it is finished, so there is no last moment for a `deinit()` to run in.
+		- Fixed: `capi.liveContexts()` and `capi.leakCount()` let the tests ask instead, the second one straight through `DebugAllocator.detectLeaks()` so the stack traces the design promises are real. Both are debug-only, so a release build carries no counter.
+		- Verified: the review's own injection - replacing the three `defer capi.zuid_free(z)` lines with `_ = &z` - reports "expected 0, found 3", and the allocator half names all three leaked addresses on its own when checked first.
+		- Note: the test deliberately does not free twice. The magic check reads memory the allocator has unmapped, so it segfaults rather than returning, which is the recorded reason the header promises no more than C's `free()`.
 	- 🔘 F5, should-fix: the C module reports a buffer too small for any identifier over 4 KB, however large the caller's buffer, and that error never has a message.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
 	- 🔘 F10, should-fix: the PowerShell installer picks a system install on Linux and macOS for users who cannot write there.

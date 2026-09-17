@@ -507,3 +507,25 @@ test "the C module rejects a null context" {
     try std.testing.expectEqual(@as(c_int, 7), capi.zuid_set_hash_chars(null, 8));
     try std.testing.expectEqualStrings("", std.mem.span(capi.zuid_last_error(null)));
 }
+
+// A context that is never freed used to be reported by nothing: no test and no
+// debug build, because the allocator's own check has no moment to run in. A C
+// caller never says it is finished, so the tests have to ask instead. This one
+// runs last on purpose - it asserts that everything above it cleaned up.
+test "a leaked C context is reported" {
+    try std.testing.expectEqual(@as(usize, 0), capi.liveContexts());
+    try std.testing.expectEqual(@as(usize, 0), capi.leakCount());
+
+    // One full cycle, to show the counter moves in both directions rather than
+    // sitting at zero because nothing ever touches it.
+    const z = capi.zuid_new() orelse return error.InitFailed;
+    try std.testing.expectEqual(@as(usize, 1), capi.liveContexts());
+    capi.zuid_free(z);
+    try std.testing.expectEqual(@as(usize, 0), capi.liveContexts());
+    try std.testing.expectEqual(@as(usize, 0), capi.leakCount());
+
+    // Not freed twice here on purpose. The magic check reads memory the
+    // allocator has already unmapped, so the guard segfaults instead of
+    // returning - the recorded reason the header promises no more than C's
+    // own free() does.
+}

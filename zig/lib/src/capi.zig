@@ -21,6 +21,31 @@ const gpa = switch (builtin.mode) {
     else => std.heap.smp_allocator,
 };
 
+// Nothing can call deinit() on that allocator: a C caller never tells the
+// library it is done, so there is no last moment to check in. That left the
+// design's leak-detection claim resting on a check that never ran. These two
+// give the tests somewhere to ask instead.
+//
+// Debug only, so a release build carries neither the counter nor the chance of
+// it wrapping on a caller's double free - which is already outside the
+// contract the header states.
+const counts_contexts = builtin.mode == .Debug;
+var live_contexts: usize = 0;
+
+/// Contexts created and not yet freed. Always zero in a release build.
+pub fn liveContexts() usize {
+    return live_contexts;
+}
+
+/// Allocations the debug allocator can still see, with a stack trace printed
+/// per leak. Always zero in a release build, which has no such allocator.
+pub fn leakCount() usize {
+    return switch (builtin.mode) {
+        .Debug => debug_allocator.detectLeaks(),
+        else => 0,
+    };
+}
+
 // Codes from zuid.h. Kept in one switch so a new core error fails loudly here.
 fn codeFor(err: core.Error) c_int {
     return switch (err) {
@@ -116,6 +141,7 @@ pub export fn zuid_new() ?*Zuid {
     self.hash_chars = 0;
     self.random_chars = 0;
     self.err_buf[0] = 0;
+    if (counts_contexts) live_contexts += 1;
     return self;
 }
 
@@ -124,6 +150,7 @@ pub export fn zuid_free(z: ?*Zuid) void {
     self.magic = 0;
     self.wasm_host.deinit();
     gpa.destroy(self);
+    if (counts_contexts) live_contexts -= 1;
 }
 
 pub export fn zuid_generate(z: ?*Zuid, format: ?[*:0]const u8, base: ?[*:0]const u8, out: ?[*]u8, out_cap: usize) c_int {
