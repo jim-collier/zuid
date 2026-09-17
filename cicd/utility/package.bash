@@ -132,7 +132,10 @@ fClaimOutDir
 stage="${work}/${PKG}-${VERSION}"
 mkdir -p "${stage}/bin" "${stage}/lib" "${stage}/include" "${stage}/share"
 cp "${root}/zig/zig-out/bin/${EXE}"        "${stage}/bin/"
-cp "${root}/zig/zig-out/lib/libzuid."*     "${stage}/lib/"
+## -P, because the shared library carries an soname: zig-out/lib holds
+## libzuid.so and libzuid.so.1 as symlinks onto libzuid.so.1.0.0, and a plain cp
+## would follow them and put three 28 MB copies in the tarball.
+cp -P "${root}/zig/zig-out/lib/libzuid."*  "${stage}/lib/"
 
 ## zuid.h tells a static consumer to link -lzuid -lwasmtime, so the archive it
 ## names has to be in the tree. libzuid.a holds its own objects only, and the
@@ -183,6 +186,13 @@ fEcho "built linux/${label}"
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Linux packages. nfpm writes deb and rpm directly, so neither dpkg nor rpmbuild
 ## has to be installed, and it maps the one arch value to each format's spelling.
+##
+## The command only. These used to install zuid.h with no library behind it, so
+## the one thing a header is for - compiling against it - failed at the link
+## step. The C module ships in the tarball instead, where the static archive can
+## sit next to the Wasmtime archive it needs. A real -dev package, with the
+## shared library in the right per-distro lib directory and ldconfig run after
+## it, is a separate job.
 
 if command -v nfpm >/dev/null 2>&1; then
 	cfg="${work}/nfpm.yaml"
@@ -203,8 +213,6 @@ if command -v nfpm >/dev/null 2>&1; then
 		    dst: /usr/bin/${EXE}
 		    file_info:
 		      mode: 0755
-		  - src: ${stage}/include/zuid.h
-		    dst: /usr/include/zuid.h
 		  - src: ${root}/zig/cmd/LICENSE.txt
 		    dst: /usr/share/doc/${PKG}/copyright
 		    packager: deb
@@ -259,5 +267,6 @@ fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "
 
 
 ##	History:
+##		- 20260917 JC: Drop the header from the deb and rpm; keep the library symlinks.
 ##		- 20260805 JC: Name packages the way GitHub will serve them.
 ##		- 20260804 JC: Created. Host-platform tarball, bare binary, deb, rpm, checksums.

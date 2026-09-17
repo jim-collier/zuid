@@ -21,6 +21,8 @@ All types of contributions are encouraged and valued. See the [Table of Contents
 - [I Want To Contribute](#i-want-to-contribute)
 	- [Reporting Bugs](#reporting-bugs)
 	- [Suggesting Enhancements](#suggesting-enhancements)
+- [Style](#style)
+	- [Commit messages](#commit-messages)
 
 
 ## Code of Conduct
@@ -138,11 +140,19 @@ Updating, improving and correcting the documentation
 
 -->
 
-<!-- TODO
-## Styleguides
-### Commit Messages
+## Style
 
--->
+Two documents carry the whole of it, and both are in the repository root.
+
+[style_guide.md](style_guide.md) is about the code: which formatter each language uses and that its output wins, how names are chosen, what a comment is for, and how errors are returned.
+
+[style-guide_cli.md](style-guide_cli.md) is about the command: which stream output goes on, what the exit code means, how flags and their values are spelled, the shape of an error message, and what belongs on the help screen. Read it before adding a flag.
+
+Neither is a matter of taste to be re-argued in a pull request. If one of them is wrong, say so in an issue and it gets changed there.
+
+### Commit messages
+
+Short, plain, and about what changed. Present tense, no trailing period, no bulleted body for a one-line change. Nothing about how the change was written or tested.
 
 <!-- TODO
 ## Join The Project Team

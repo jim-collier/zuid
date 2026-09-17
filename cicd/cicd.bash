@@ -520,6 +520,31 @@ fStage_Docs(){
 	fEcho_Clean
 	fEcho "Docs: claims that can be counted"
 
+	## Both style guides were written and then pointed at from two places. A
+	## guide nothing links to is one nobody reads, which is how the CLI one came
+	## to be missing in the first place.
+	local guide="" from=""
+	for from in README.md contributing.md; do
+		for guide in style_guide.md style-guide_cli.md; do
+			grep -q "(${guide})" "${repoRoot}/${from}" \
+				|| fThrowError "${from} does not link ${guide}."  "${FUNCNAME[0]}"
+		done
+	done
+	fEcho_Clean "Style ......: both guides are linked from README.md and contributing.md"
+
+	## And every relative link in the root documents goes somewhere.
+	local doc="" target="" missing=0
+	for doc in "${repoRoot}"/*.md; do
+		while read -r target; do
+			[[ -n "${target}" ]] || continue
+			[[ -e "${repoRoot}/${target%%#*}" ]] && continue
+			fEcho_Clean "Broken .....: $(basename "${doc}") -> ${target}"
+			missing=$((missing + 1))
+		done < <(grep -oE '\]\([^):]+\)' "${doc}" | sed -e 's/^](//' -e 's/)$//' || true)
+	done
+	((missing == 0)) || fThrowError "${missing} relative link(s) in the root documents point at nothing."  "${FUNCNAME[0]}"
+	fEcho_Clean "Links ......: every relative link in the root documents resolves"
+
 	local -r design="${repoRoot}/project/design.md"
 	if [[ ! -f "${design}" ]]; then
 		fEcho_Clean "Skipped ....: project/design.md is not present."
@@ -925,6 +950,27 @@ fStage_Zig_CApi(){
 		fThrowError "libzuid.so exports ${exported} symbols that are not zuid_*. lib/zuid.map should be keeping them local."  "${FUNCNAME[0]}"
 	fi
 	fEcho_Clean "Symbols ....: only zuid_* exported"
+
+	## The soname, which is what a linked program records rather than the file
+	## name. Its major is the ABI promise the stable error codes go with, so it
+	## has to match the version constant and the symlink chain has to lead there.
+	local -r libVersion="$(sed -n 's/^pub const version = "\([^"]*\)".*/\1/p' "${zigDir}/lib/src/core.zig")"
+	local -r abiMajor="${libVersion%%.*}"
+	if [[ -z "${abiMajor}" ]]; then
+		fThrowError "Could not read the version constant out of lib/src/core.zig."  "${FUNCNAME[0]}"
+	fi
+	if [[ ! -L "${zigDir}/zig-out/lib/libzuid.so" || ! -e "${zigDir}/zig-out/lib/libzuid.so.${abiMajor}" ]]; then
+		fThrowError "libzuid.so should be a symlink onto libzuid.so.${abiMajor}. build.zig's .version is what makes that chain."  "${FUNCNAME[0]}"
+	fi
+	if [[ -z "$(command -v readelf 2>/dev/null || true)" ]]; then
+		fEcho_Clean "Soname .....: skipped, no readelf"
+	else
+		local -r soname="$(readelf -d "${zigDir}/zig-out/lib/libzuid.so" | sed -n 's/.*Library soname: \[\(.*\)\].*/\1/p')"
+		if [[ "${soname}" != "libzuid.so.${abiMajor}" ]]; then
+			fThrowError "libzuid.so's soname is '${soname}', not libzuid.so.${abiMajor}."  "${FUNCNAME[0]}"
+		fi
+		fEcho_Clean "Soname .....: ${soname}"
+	fi
 
 	## And the same thing from the other side: a program defining one of those
 	## names must not change what the library calls.
