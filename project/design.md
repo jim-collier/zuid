@@ -247,8 +247,10 @@ Both implementations reject the same five things before rendering anything, so n
 - A component width outside 1 to 64.
 - A hashed component wider than a SHA-256 fills in the output base. Past that point every extra symbol is left-fill, so the identifier gets longer with no more fingerprint behind it. The ceiling runs from 64 symbols in base 16 down to 24 in 2048tz.
 - A precision that is not -1, 0, or 1.
-- A base whose digits are raw bytes rather than text.
+- A base whose digits are raw bytes rather than text, or whose alphabet holds a control character. 98keyboard is the second kind: its digits include tab, newline and return, so an identifier in it could carry a line break.
 - A clock before the Unix epoch or past the padding horizon. Past the horizon is an error rather than a truncation, because quietly dropping the high symbols would break the sort instead of reporting it.
+
+The two width rules read only the widths the format spends. A hash width that fits base 16 is past the ceiling in 2048tz, so checking one the format never reaches would fail a bare `%d` over a number it does not read. `--no-hash` puts the hashed width out of reach the same way.
 
 ### Component widths
 

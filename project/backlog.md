@@ -47,20 +47,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ### Bugs
 
-- 🔘 Contact address in `trademark.md` is still a placeholder. Needs a real one.
-	- Use 'zuid@yottacore.com'
-	- Opened: 20260801-090104
-
 ### New features and enhancements
-
-- 🔘 Check only the widths of components the format uses. A hash width that suits one base now fails a plain timestamp in another.
-	- Note: both implementations do this today, and the design says the checks come before rendering.
-	- Origin: code review 20260917-104114, idea I1.
-	- Opened: 20260917-104114
-
-- 🔘 Refuse bases with tabs or line breaks among their digits, not only the raw-byte one. `98keyboard` can put a line break inside an identifier.
-	- Origin: code review 20260917-104114, idea I2. Next to the raw-byte refusal from the 20260804 review.
-	- Opened: 20260917-104114
 
 - 🔘 Fuzz the Zig format parser and the C module's generate call in the pipeline.
 	- Origin: code review 20260917-104114, idea I3.
@@ -74,10 +61,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Origin: code review 20260917-104114, idea I5.
 	- Opened: 20260917-104114
 
-- 🔘 Name the unknown component in the command's error, as the Go module does.
-	- Origin: code review 20260917-104114, idea I6.
-	- Opened: 20260917-104114
-
 - 🔘 The `.deb` and `.rpm` install the C header but no library. Ship the libraries with it, or leave the header out.
 	- Origin: code review 20260917-104114, idea I7.
 	- Opened: 20260917-104114
@@ -86,6 +69,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Opened: 20260917-104114
 
 - 🔘 No UI and UX style guide for the command. Write down how help, flags, output and errors are laid out, and point `README.md` at it.
+	- Write 'style-guide_cli.md'.
 	- Opened: 20260917-104114
 
 - 🔘 The installers' system-wide destinations are untested.
@@ -95,9 +79,11 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - 🔘 Decide whether hashed host and user names need a salt.
 	- Note: they cannot be reversed, but host and user names come from a small space, so an attacker can hash candidates and compare.
 	- Note: a salt would have to live somewhere that still lets the same name hash the same on every machine.
+	- In the code, so the same username hashes the same on any machine. Overridable with a '--salt=[value]' option.
 	- Opened: 20260802-135041
 
 - 🔘 `%m` is Linux-only on the Zig side - it reads `getifaddrs` for `AF_PACKET`, and macOS wants `AF_LINK` instead. The Go module is already portable, and the help text and the C header both say so. Do it alongside the cross targets, since nothing on the Zig side cross-compiles yet either.
+	- Should work on Windows too.
 	- Opened: 20260802-135041
 
 - 🔘 Packaging for other platforms. Needs a Wasmtime archive vendored per target. Blocked on that, and on the Zig side building for Windows at all.
@@ -114,7 +100,9 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - 🔘 Default configuration hard-coded
 	- 🔘 Overridden by per-user config file, created the first time a default setting is changed.
 		- 🔘 Settings live under `~/.config` (YAML or TOML), resistant to errors (e.g. don't bail on the whole thing due to one bad line).
-			- Note: this would be shcl now, not YAML or TOML.
+			- Notes:
+				- This would be shcl now, not YAML or TOML.
+				- Wait for v3 to ship.
 	- 🔘 Overridden by program options at run-time.
 	- 🔘 Config file creation belongs to the command only, never to either module.
 	- Opened: 20260801-090104
@@ -122,13 +110,14 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - 🔘 C module cross targets, cross-compiled with `zig cc`. Needs a vendored Wasmtime archive per target, the same blocker as packaging for other platforms.
 	- Opened: 20260801-090104
 
-- 🔘 No logo. `README.md` dropped the template's `assets/logo.png` references since there is no `assets/`.
-	- Note: `assets/` exists now, but holds only the demo animation.
-	- Opened: 20260801-090104
-
 ### Done
 
 #### Done - Bugs
+
+- ✅ Contact address in `trademark.md` was still a placeholder.
+	- Fixed: `zuid@yottacore.com` in `trademark.md`, `contributing.md` and `code_of_conduct.md`. The last one still named the project it was copied from.
+	- Opened: 20260801-090104
+	- Closed: 20260917-124100
 
 - ✅ The `.deb` and `.rpm` checksums did not match the downloaded files.
 	- Cause: GitHub rewrites `~` to `.` in an uploaded filename.
@@ -263,6 +252,24 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Closed: 20260804-224440
 
 #### Done - New features and enhancements
+
+- ✅ Check only the widths of components the format uses. A hash width that suits one base failed a plain timestamp in another.
+	- Done: both sides scan the format first and check only the widths it spends. `--no-hash` puts the hashed width out of reach the same way. The checks still come before rendering.
+	- Origin: code review 20260917-104114, idea I1.
+	- Opened: 20260917-104114
+	- Closed: 20260917-124100
+
+- ✅ Refuse bases with tabs or line breaks among their digits, not only the raw-byte one.
+	- Done: `98keyboard` is refused on both sides. Its zero digit is `0`, so the alphabet gets read rather than just that one symbol. There is no export that hands back the alphabet, so the Zig side asks the tokenizer one control byte at a time; the Go side reads the same single-byte digits, so neither refuses what the other accepts.
+	- Origin: code review 20260917-104114, idea I2. Next to the raw-byte refusal from the 20260804 review.
+	- Opened: 20260917-104114
+	- Closed: 20260917-124100
+
+- ✅ Name the unknown component in the command's error, as the Go module does.
+	- Done: the command walks the format the way the core does and quotes the verb. A multi-byte one prints whole.
+	- Origin: code review 20260917-104114, idea I6.
+	- Opened: 20260917-104114
+	- Closed: 20260917-124100
 
 - ✅ Add to demo GIF: ships as module too.
 	- Done: the demo closes on the name and the module note. The random step was cut to stay under 45 seconds.
@@ -533,3 +540,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Opened: 20260801-090104
 
 ### Canceled
+
+- 🚫 No logo. `README.md` dropped the template's `assets/logo.png` references since there is no `assets/`.
+	- Note: `assets/` exists now, but holds only the demo animation.
+	- Opened: 20260801-090104

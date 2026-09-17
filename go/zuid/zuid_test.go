@@ -369,6 +369,38 @@ func TestFormatErrors(t *testing.T) {
 	}
 }
 
+// 98keyboard counts tab, newline and return among its digits, so an identifier
+// in it could carry a line break. Its zero digit is '0', which is why the
+// alphabet gets read rather than just that one symbol.
+func TestBaseWithControlDigitsIsRefused(t *testing.T) {
+	generator := sharedGenerator(t)
+	applyEnv(t, generator, 0, defaultEnv())
+	for _, base := range []string{"98keyboard", "bytes"} {
+		if _, err := generator.Generate(zuid.Request{Format: "%d", Base: base}); err == nil {
+			t.Errorf("base %s: want an error, got none", base)
+		}
+	}
+	if _, err := generator.Generate(zuid.Request{Format: "%d", Base: "62"}); err != nil {
+		t.Errorf("base 62 refused: %v", err)
+	}
+}
+
+// A width the format never reads cannot fail the call, so one hash width can
+// serve every base a caller uses.
+func TestUnusedWidthsAreNotChecked(t *testing.T) {
+	generator := sharedGenerator(t)
+	applyEnv(t, generator, 0, defaultEnv())
+	for _, req := range []zuid.Request{
+		{Format: "%d", HashChars: zuid.MaxComponentChars + 1, RandomChars: zuid.MaxComponentChars + 1},
+		{Format: "%d", Base: "2048tz", HashChars: 40},
+		{Format: "%h", Base: "2048tz", HashChars: 40, NoHash: true},
+	} {
+		if _, err := generator.Generate(req); err != nil {
+			t.Errorf("%+v: %v", req, err)
+		}
+	}
+}
+
 // Every component works in a base whose digits are several bytes each. This
 // used to be refused outright, because slicing a converted string at a symbol
 // boundary was not something the conversion library could do; Fit does it now,

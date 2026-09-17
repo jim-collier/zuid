@@ -226,10 +226,10 @@ pub fn main(init: std.process.Init) !void {
             return die(stderr, "{s}", .{detail});
         }
         return switch (err) {
-            error.UnknownComponent => die(stderr, "Unknown format component. Known: %d %h %u %f %m %g %r, and %% for a literal.", .{}),
+            error.UnknownComponent => die(stderr, "Unknown format component '%{s}'. Known: %d %h %u %f %m %g %r, and %% for a literal.", .{unknownVerb(opts.format)}),
             error.BareFormatPercent => die(stderr, "The format string ends on a bare '%'.", .{}),
             error.ClockBeforeEpoch => die(stderr, "The clock predates the Unix epoch.", .{}),
-            error.BaseNotText => die(stderr, "That base renders raw bytes rather than text, so it cannot carry an identifier.", .{}),
+            error.BaseNotText => die(stderr, "That base renders raw bytes or control characters rather than text, so it cannot carry an identifier.", .{}),
             error.EnvUnavailable => die(stderr, "This machine could not supply that component - no name, hardware address, or random source.", .{}),
             error.OptionRange => die(stderr, "A symbol count is out of range. Want 1 to {d}.", .{zuid.core.max_component_chars}),
             error.BufferTooSmall => die(stderr, "That format renders more than {d} bytes, which is past what this command will print.", .{max_out_len}),
@@ -239,6 +239,26 @@ pub fn main(init: std.process.Init) !void {
 
     try stdout.print("{s}\n", .{id});
     try stdout.flush();
+}
+
+/// The first verb the core would not know. It reports which error happened,
+/// not which character caused it, so the command walks the format the same way
+/// the core's loop does. A multi-byte verb prints whole rather than as the
+/// Latin-1 reading of its first byte.
+fn unknownVerb(format: []const u8) []const u8 {
+    var i: usize = 0;
+    while (i + 1 < format.len) : (i += 1) {
+        if (format[i] != '%') continue;
+        i += 1;
+        switch (format[i]) {
+            '%', 'd', 'h', 'u', 'f', 'm', 'g', 'r' => {},
+            else => {
+                const len = std.unicode.utf8ByteSequenceLength(format[i]) catch 1;
+                return format[i..@min(i + len, format.len)];
+            },
+        }
+    }
+    return "";
 }
 
 /// Where the growing below gives up. Only here so a runaway format ends in a

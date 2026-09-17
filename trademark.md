@@ -4,8 +4,6 @@
 <!-- markdownlint-disable MD055 -- Table pipe style [Expected: leading_and_trailing; Actual: leading_only; Missing trailing pipe] -->
 <!-- markdownlint-disable MD041 -- First line in a file should be a top-level heading -->
 
-<!-- Still to fill: the contact address on the last line. -->
-
 # Trademark Policy
 
 **Short version:** the code is free; the name is not. You may fork and redistribute the software under its license, but you may not use our name or logo to identify your version, without written permission.
@@ -63,7 +61,7 @@ When using the Marks under Section 3:
 
 ## 7. Enforcement and changes
 
-**We may revoke permission for any use that damages the Marks or misleads users**. We may revise this policy at any time; the current version lives at <https://github.com/jim-collier/zuid/blob/main/trademark.md>. Requests for permission, and reports of misuse, go to zuidⒶubx9.com
+**We may revoke permission for any use that damages the Marks or misleads users**. We may revise this policy at any time; the current version lives at <https://github.com/jim-collier/zuid/blob/main/trademark.md>. Requests for permission, and reports of misuse, go to zuidⒶyottacore.com
 
 ---
 

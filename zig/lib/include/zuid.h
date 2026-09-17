@@ -51,7 +51,7 @@ enum {
 	ZUID_ERR_ENV = 10,          /* no host name, user, hardware address, random source, or clock */
 	ZUID_ERR_BASE_DIGITS = 11,  /* no longer produced; every base can carry every component */
 	ZUID_ERR_HORIZON = 12,      /* the clock is past the padding horizon, so %d no longer fits its width */
-	ZUID_ERR_BASE_NOT_TEXT = 13 /* the base renders raw bytes rather than text */
+	ZUID_ERR_BASE_NOT_TEXT = 13 /* the base renders raw bytes or control characters, not text */
 };
 
 /* Upper bound on zuid_set_hash_chars and zuid_set_random_chars. */

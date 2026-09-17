@@ -274,15 +274,23 @@ func (g *Generator) Generate(req Request) (string, error) {
 	if req.RandomChars == 0 {
 		req.RandomChars = DefaultRandomChars(radix)
 	}
-	if err := checkChars("hash", req.HashChars); err != nil {
-		return "", err
+	// Only the widths this format actually spends get checked. A hash width
+	// that fits base 16 is past the ceiling in 2048tz, and a bare %d has no
+	// business failing over a number it never reads.
+	spendsHash, spendsRandom := spentWidths(req.Format)
+	if spendsHash && !req.NoHash {
+		if err := checkChars("hash", req.HashChars); err != nil {
+			return "", err
+		}
+		if ceiling := MaxHashChars(radix); req.HashChars > ceiling {
+			return "", fmt.Errorf("hash width %d: base %s carries at most %d symbols of a %d-bit digest",
+				req.HashChars, base.Name(), ceiling, digestBits)
+		}
 	}
-	if err := checkChars("random", req.RandomChars); err != nil {
-		return "", err
-	}
-	if ceiling := MaxHashChars(radix); !req.NoHash && req.HashChars > ceiling {
-		return "", fmt.Errorf("hash width %d: base %s carries at most %d symbols of a %d-bit digest",
-			req.HashChars, base.Name(), ceiling, digestBits)
+	if spendsRandom {
+		if err := checkChars("random", req.RandomChars); err != nil {
+			return "", err
+		}
 	}
 
 	var out strings.Builder
@@ -331,6 +339,25 @@ func (g *Generator) Generate(req Request) (string, error) {
 	return out.String(), nil
 }
 
+// spentWidths reports which of the two width options a format reaches. Unknown
+// verbs and a trailing bare '%' are left alone here; the render loop reports
+// those, and it stays the one place that knows what a verb means.
+func spentWidths(format string) (hash, random bool) {
+	for i := 0; i+1 < len(format); i++ {
+		if format[i] != '%' {
+			continue
+		}
+		i++
+		switch format[i] {
+		case 'h', 'u', 'f':
+			hash = true
+		case 'r':
+			random = true
+		}
+	}
+	return hash, random
+}
+
 func checkChars(what string, count int) error {
 	if count < 1 || count > MaxComponentChars {
 		return fmt.Errorf("%s width %d: want 1 to %d", what, count, MaxComponentChars)
@@ -344,6 +371,11 @@ func checkChars(what string, count int) error {
 // of control characters and invalid UTF-8. It also cannot hold a decimal
 // timestamp at all, so a format mixing %d with anything else would half work.
 // The test is the zero digit, which both implementations can read.
+//
+// One text-looking base is a problem too: 98keyboard holds tab, newline and
+// return among its digits, so an identifier can carry a line break without the
+// zero digit ever showing it. Single-byte digits are what the Zig side can ask
+// about one at a time, so both sides look at exactly those.
 func checkRenderable(base *convertbase.Base) error {
 	zero := ""
 	if len(base.Symbols) > 0 {
@@ -352,6 +384,11 @@ func checkRenderable(base *convertbase.Base) error {
 	for _, symbol := range zero {
 		if symbol < 0x20 || symbol == 0x7f {
 			return fmt.Errorf("base %s renders raw bytes, not text", base.Name())
+		}
+	}
+	for _, digit := range base.Symbols {
+		if len(digit) == 1 && (digit[0] < 0x20 || digit[0] == 0x7f) {
+			return fmt.Errorf("base %s has a control character among its digits, so an identifier could carry one", base.Name())
 		}
 	}
 	return nil

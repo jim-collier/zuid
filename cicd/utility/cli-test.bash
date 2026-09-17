@@ -117,8 +117,10 @@ fWantFailure "a runaway format is refused by size" "past what this command will 
 
 ## The refusals, each by its own message rather than an error name.
 fWantFailure "an unknown component is refused" "Unknown format component" --format '%x'
+fWantFailure "the unknown component is named"  "'%x'" --format '%x'
 fWantFailure "a bare percent is refused"       "bare" --format '%d%'
 fWantFailure "a raw-byte base is refused"      "raw bytes" --base bytes
+fWantFailure "a base with tab digits refused"  "control characters" --base 98keyboard
 fWantFailure "an unknown base is refused"      "no-such-base-here" --base no-such-base-here
 fWantFailure "a bad precision is refused"      "out of range" --precision 2
 fWantFailure "a missing value is refused"      "base" --base
