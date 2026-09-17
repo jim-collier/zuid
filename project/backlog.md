@@ -114,8 +114,12 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
 		- Fixed: the command treats an empty format as `%d`, so all three surfaces agree. A script running `zuid -f "$FMT"` with the variable unset no longer gets an empty identifier and success.
 		- Verified: three CLI cases, covering an empty format, an empty base, and both together. The first and third go red without the fix. An empty base already defaulted correctly.
-	- 🔘 F14, should-fix: the Go module reads the host name again for every identifier, though the design says each source is read once.
+	- ✅ F14, should-fix: the Go module reads the host name again for every identifier, though the design says each source is read once.
 		- Origin: 27d8bc1. Not seen by an earlier review. Confirmed.
+		- Cause: `liveFQDN` and `liveMAC` were wrapped in `sync.OnceValues` and `liveHostname` was not, so a long-running process whose name changed emitted two `%h` fingerprints for one machine, and `%h` could disagree with the cached `%f`.
+		- Fixed: both `liveHostname` and `liveUsername` are wrapped now. The user name was not actually being re-read, since `user.Current` caches internally, but every source in the file answers the same way now.
+		- Done: `go/zuid/live_test.go`, inside the package, counts reads of each of the four sources and asserts at most one per process. Plus a case that two host-name reads agree, which is the property the caching exists for.
+		- Verified: unwrapping `liveHostname` reports "read the hostname 5 times". The vectors and `TestLiveSources` still pass.
 	- 🔘 F6, nit: the C header says a context takes tens of milliseconds to create. It takes about half a second.
 		- Origin: 7677deb. Confirmed.
 	- 🔘 F7, nit: an empty `SOURCE_DATE_EPOCH` drops the build number instead of falling back to the commit date.

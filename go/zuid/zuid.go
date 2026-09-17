@@ -30,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -554,7 +555,22 @@ func widthForValueBits(radix, valBits int) int {
 	return width
 }
 
-func liveHostname() (string, error) {
+// Reads of the machine itself, counted so a test can show each one happens
+// once per process. They only ever increment on the uncached path, so this
+// costs one atomic add per source for the life of the process.
+var (
+	hostnameReads atomic.Int64
+	usernameReads atomic.Int64
+	fqdnReads     atomic.Int64
+	macReads      atomic.Int64
+)
+
+// Read once per process, like liveFQDN and liveMAC below. Without this the host
+// name was re-read for every identifier, so a long-running process whose name
+// changed emitted two %h fingerprints for one machine, and %h then disagreed
+// with the cached %f.
+var liveHostname = sync.OnceValues(func() (string, error) {
+	hostnameReads.Add(1)
 	name, err := os.Hostname()
 	if err != nil {
 		return "", fmt.Errorf("host name: %w", err)
@@ -564,9 +580,12 @@ func liveHostname() (string, error) {
 		name = name[:cut]
 	}
 	return name, nil
-}
+})
 
-func liveUsername() (string, error) {
+// user.Current caches internally, so this was not re-reading anything. Wrapped
+// anyway, so every source in this file answers the same way.
+var liveUsername = sync.OnceValues(func() (string, error) {
+	usernameReads.Add(1)
 	if current, err := user.Current(); err == nil && current.Username != "" {
 		return current.Username, nil
 	}
@@ -576,7 +595,7 @@ func liveUsername() (string, error) {
 		}
 	}
 	return "", errors.New("no user name available")
-}
+})
 
 // liveFQDN is best-effort. A host with no domain has no qualified name to
 // find, and falling back to the short name beats failing the identifier.
@@ -585,6 +604,7 @@ func liveUsername() (string, error) {
 // which does not belong in the middle of generating an identifier, and a host
 // that changed its answer mid-run would emit two fingerprints for one machine.
 var liveFQDN = sync.OnceValues(func() (string, error) {
+	fqdnReads.Add(1)
 	name, err := os.Hostname()
 	if err != nil {
 		return "", fmt.Errorf("host name: %w", err)
@@ -609,6 +629,7 @@ var liveFQDN = sync.OnceValues(func() (string, error) {
 // interface costs far more than the conversion it feeds, and an identifier
 // should not change because a link came up.
 var liveMAC = sync.OnceValues(func() ([]byte, error) {
+	macReads.Add(1)
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return nil, fmt.Errorf("network interfaces: %w", err)
