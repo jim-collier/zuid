@@ -110,8 +110,10 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Done: a cicd stage builds and runs a scratch program importing the module, pointed at this tree so it covers what is about to merge. It also refuses a README that tells people to fetch the module root.
 		- Verified: reproduced both halves in a scratch module - the missing `go.sum` entry, and the tag resolving to a pseudo-version of `main`. The corrected command pulls `convertbase` v0.1.0, builds, and prints an identifier. Restoring the old README line fails the stage.
 		- Note: the `go/` tag itself is deferred, since pushing a public tag is a release decision.
-	- 🔘 F13, should-fix: `zuid -f ''` prints an empty identifier and succeeds, where the Go and C modules treat an empty format as `%d`.
+	- ✅ F13, should-fix: `zuid -f ''` prints an empty identifier and succeeds, where the Go and C modules treat an empty format as `%d`.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
+		- Fixed: the command treats an empty format as `%d`, so all three surfaces agree. A script running `zuid -f "$FMT"` with the variable unset no longer gets an empty identifier and success.
+		- Verified: three CLI cases, covering an empty format, an empty base, and both together. The first and third go red without the fix. An empty base already defaulted correctly.
 	- 🔘 F14, should-fix: the Go module reads the host name again for every identifier, though the design says each source is read once.
 		- Origin: 27d8bc1. Not seen by an earlier review. Confirmed.
 	- 🔘 F6, nit: the C header says a context takes tens of milliseconds to create. It takes about half a second.

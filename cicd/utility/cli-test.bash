@@ -98,6 +98,14 @@ fWantLen "random is 6 symbols"                 6  --format '%r'
 fWantLen "and a literal passes through"        3  --format 'abc'
 fWantExact "a doubled percent is one percent"  "%" --format '%%'
 
+## An empty value means the default on both flags, which is what the Go module's
+## zero Request.Format and the C module's empty format already did. The command
+## passed an empty format straight through and printed an empty identifier, so
+## 'zuid -f "$FMT"' with the variable unset succeeded and produced nothing.
+fWantLen "an empty format means %d" 6 --format ''
+fWantLen "an empty base means 62"   6 --base ''
+fWantLen "and both at once"         6 --format '' --base ''
+
 ## An identifier used to be capped by a fixed 4096-byte buffer inside the
 ## module, so a repeated component or a long literal was refused outright.
 fWantLen "200 uuids render"       4400 --format "$(python3 -c 'print("%g" * 200)')"

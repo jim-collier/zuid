@@ -206,6 +206,12 @@ pub fn main(init: std.process.Init) !void {
             return die(stderr, "Argument invalid or not expected: '{s}'. Try --help.", .{arg});
         }
     }
+    // An empty format means %d, the same as the Go module's zero Request.Format
+    // and the C module's NULL or empty format. Passed straight through it
+    // rendered an empty identifier and exited 0, so a script running
+    // 'zuid -f "$FMT"' with the variable unset got nothing and no error.
+    if (opts.format.len == 0) opts.format = "%d";
+
     opts.clock_ms = zuid.clock.nowMs() orelse return die(stderr, "The system clock could not be read.", .{});
 
     var wasm_host = zuid.host.Host.init(.auto) catch |err| {
