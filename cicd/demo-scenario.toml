@@ -30,15 +30,9 @@ notepause = 0.45
 pause = 1.9
 
 [[step]]
+# Last thing on screen before the clear, so it holds noticeably longer.
 note  = "Username (hashed)"
 show  = "{prog} --format='%u'"
-notepause = 0.45
-pause = 2.1
-
-[[step]]
-# Last thing on screen before the clear, so it holds noticeably longer.
-note  = "Random"
-show  = "{prog} --format='%r'"
 notepause = 0.45
 pause = 3.2
 
@@ -54,3 +48,10 @@ note  = "Millisecond, 256tt"
 show  = "{prog} --precision=1 --base=256tt"
 notepause = 0.45
 pause = 2.0
+
+[[step]]
+# Closing notes only, so the name is the last thing read before the loop. The
+# end hold is the read time, so the pause itself stays short.
+note  = ["zuid", "Ships as module too, with Apache license"]
+notepause = 0.45
+pause = 0.5

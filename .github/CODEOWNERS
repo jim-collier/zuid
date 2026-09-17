@@ -2,7 +2,7 @@
 # code owners" to enforce). Last match wins.
 
 # Licensing and trademark: not to be changed loosely.
-/LICENSE.txt         @jim-collier
+/license.md          @jim-collier
 /trademark.md        @jim-collier
 /go/LICENSE.txt      @jim-collier
 /go/NOTICE.txt       @jim-collier

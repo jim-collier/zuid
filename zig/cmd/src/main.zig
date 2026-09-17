@@ -59,9 +59,25 @@ const version_line = zuid.version ++ (if (build_number.len > 0) " (build " ++ bu
 
 const about_text = "zuid " ++ version_line ++ "\n" ++
     \\Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ].
+    \\Project: https://github.com/jim-collier/zuid
     \\License GPLv2+: GNU GPL version 2 or later, full text at:
     \\    https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+    \\The Go module and the C library are Apache-2.0.
     \\There is no warranty, to the extent permitted by law.
+    \\
+    \\Short, sortable, privacy-preserving unique identifiers. Components are
+    \\zero-padded to fixed widths, so identifiers sort by time as plain text.
+    \\
+;
+
+const donate_text =
+    \\zuid is free software, and stays that way.
+    \\
+    \\If it saves you time and you want to give something back:
+    \\    https://github.com/sponsors/jim-collier
+    \\
+    \\A star on the project, a clear bug report, or a mention to someone who needs
+    \\it are worth just as much.
     \\
 ;
 
@@ -93,6 +109,7 @@ const help_tail =
     \\    -h, --help                This.
     \\    -v, --version             Version and build number.
     \\        --about               Version, copyright, and license.
+    \\        --donate              How to support the project.
     \\
     \\Format components:
     \\    %d  Time, as the count of units since the Unix epoch, UTC.
@@ -113,7 +130,7 @@ const help_tail =
     \\
 ;
 
-// Help and about stand clear of the prompt with a blank line either side.
+// Help, about, and donate stand clear of the prompt with a blank line either side.
 // --version stays bare, since scripts capture it.
 const help_text = "\nzuid " ++ version_line ++ "\n\n" ++ help_head ++ curated_list ++ help_tail ++ "\n";
 
@@ -161,6 +178,11 @@ pub fn main(init: std.process.Init) !void {
         } else if (std.mem.eql(u8, name, "--about")) {
             vals.rejectAttached(name);
             try stdout.writeAll("\n" ++ about_text ++ "\n");
+            try stdout.flush();
+            return;
+        } else if (std.mem.eql(u8, name, "--donate")) {
+            vals.rejectAttached(name);
+            try stdout.writeAll("\n" ++ donate_text ++ "\n");
             try stdout.flush();
             return;
         } else if (std.mem.eql(u8, name, "-b") or std.mem.eql(u8, name, "--base")) {

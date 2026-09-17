@@ -5,7 +5,8 @@
 <!-- markdownlint-disable MD041 -- First line in a file should be a top-level heading -->
 <div align="center">
 
-[![License: GPL v2+](https://img.shields.io/badge/License-GPLv2%2B-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html)
+[![Command: GPL v2+](https://img.shields.io/badge/Command-GPLv2%2B-blue.svg)](license.md)
+[![Modules: Apache 2.0](https://img.shields.io/badge/Modules-Apache_2.0-green.svg)](license.md)
 ![Lifecycle: Alpha](https://img.shields.io/badge/Lifecycle-Alpha-orange)
 ![Support](https://img.shields.io/badge/Support-Maintained-brightgreen)
 ![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go&logoColor=white)
@@ -215,9 +216,7 @@ Run logs, profiles, and demo renders land under `cicd/artifacts/`, which is rota
 
 ## Copyright and license
 
-The command is GPL-2.0-or-later. Full text in [LICENSE.txt](LICENSE.txt) and [zig/cmd/LICENSE.txt](zig/cmd/LICENSE.txt).
-
-The Go and C modules are Apache-2.0, so that embedding one carries no obligation beyond attribution. Full text and attribution sit next to each module: [go/LICENSE.txt](go/LICENSE.txt) + [go/NOTICE.txt](go/NOTICE.txt), and [zig/lib/LICENSE.txt](zig/lib/LICENSE.txt) + [zig/lib/NOTICE.txt](zig/lib/NOTICE.txt).
+The command is GPL-2.0-or-later. The Go and C modules are Apache-2.0, so embedding one carries no obligation beyond attribution. [license.md](license.md) says which license covers which directory, and links the full text of each.
 
 > Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]<br />
 > Licensed under the [GNU General Public License v2.0 or later](https://spdx.org/licenses/GPL-2.0-or-later.html)<br />

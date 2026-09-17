@@ -18,7 +18,7 @@ That said, asking is free - and we'd prefer to say yes. Forks that credibly carr
 
 ## 2. Relationship to the software license
 
-ZUID is distributed under the GNU General Public License v2.0 or later. That license grants rights in **copyright** only. It does not grant, and must not be read as granting, any
+The ZUID command is distributed under the GNU General Public License v2.0 or later, and its modules under the Apache License 2.0 (see license.md). Those licenses grant rights in **copyright** only. They do not grant, and must not be read as granting, any
 license or right to use the Marks. Trademark rights are expressly reserved.
 
 ## 3. Uses that are always permitted
