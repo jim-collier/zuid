@@ -228,3 +228,4 @@ fLine ""
 
 ##	History:
 ##		- 20260917 JC: Created, for the buffer ceiling and the empty format.
+##		- 20260917 JC: --count, its refusals, and the closed-pipe case.
