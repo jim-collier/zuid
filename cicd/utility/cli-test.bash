@@ -199,7 +199,7 @@ fWantWarning "a narrow draw still counts" "identifiers repeat" \
 
 fWantFailure "a zero count is refused"     "out of range" --count 0
 fWantFailure "a negative count is refused" "out of range" --count -1
-fWantFailure "a count past the ceiling"    "Want 1 to 100000" --count 100001
+fWantFailure "a count past the ceiling"    "Want 1 to 1000000" --count 1000001
 fWantFailure "a non-numeric count"         "is not a number" --count abc
 fWantFailure "a missing count is refused"  "count" --count
 

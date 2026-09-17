@@ -69,16 +69,17 @@ pub const Host = struct {
 
     pub const err_buf_len = 512;
 
-    /// A base's radix and zero digit do not change, and every component asks
-    /// for one or the other. One slot is enough: an identifier renders in a
-    /// single base, and a name too long for the slot just misses and calls the
-    /// module, which is correct if slower.
+    /// A base's radix, zero digit and text verdict do not change, and every
+    /// component asks for one of them. One slot is enough: an identifier
+    /// renders in a single base, and a name too long for the slot just misses
+    /// and calls the module, which is correct if slower.
     const BaseCache = struct {
         name: [64]u8 = undefined,
         name_len: usize = 0,
         radix: ?u64 = null,
         zero: [16]u8 = undefined,
         zero_len: ?usize = null,
+        is_text: ?bool = null,
 
         fn holds(self: *const BaseCache, base: []const u8) bool {
             return self.name_len == base.len and std.mem.eql(u8, self.name[0..self.name_len], base);
@@ -90,6 +91,7 @@ pub const Host = struct {
             self.name_len = 0;
             self.radix = null;
             self.zero_len = null;
+            self.is_text = null;
             if (base.len > self.name.len) return;
             @memcpy(self.name[0..base.len], base);
             self.name_len = base.len;
@@ -250,6 +252,8 @@ pub const Host = struct {
         .radix = vtRadix,
         .symbolCount = vtSymbolCount,
         .zeroSymbol = vtZeroSymbol,
+        .textVerdict = vtTextVerdict,
+        .noteTextVerdict = vtNoteTextVerdict,
     };
 
     /// One crossing for what used to be two. Converting and then fitting
@@ -321,6 +325,20 @@ pub const Host = struct {
             self.base_cache.zero_len = zero.len;
         }
         return zero;
+    }
+
+    fn vtTextVerdict(ctx: *anyopaque, base: []const u8) ?bool {
+        const self: *Host = @ptrCast(@alignCast(ctx));
+        self.base_cache.aim(base);
+        return self.base_cache.is_text;
+    }
+
+    fn vtNoteTextVerdict(ctx: *anyopaque, base: []const u8, is_text: bool) void {
+        const self: *Host = @ptrCast(@alignCast(ctx));
+        self.base_cache.aim(base);
+        // A name too long for the slot is not held, so nothing is written under
+        // another base's name.
+        if (self.base_cache.holds(base)) self.base_cache.is_text = is_text;
     }
 
     fn vtSymbolCount(ctx: *anyopaque, base: []const u8, digits: []const u8) core.Error!u64 {

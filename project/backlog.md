@@ -51,11 +51,6 @@ None open.
 
 ### New features and enhancements
 
-- 🔘 A batch spends about a third of a millisecond an identifier, nearly all of it crossing into the wasm module. Every `generate` re-asks the module whether the base renders text, which is 33 round trips through the tokenizer with an alloc and a free each. The answer only changes with the base, so the host could keep it beside the radix and the zero digit it already caches.
-	- Note: found while testing `--count`, which is what made the per-identifier cost visible. It is also about half a millisecond off every single run.
-	- Note: `--count`'s ceiling of 100000 is set by this. Raise it once the cost comes down.
-	- Opened: 20260917-224500
-
 - 🔘 Run the Zig fuzz tests in fuzz mode, once a Zig release can build one.
 	- Note: the tests are written and replay their corpus on every run. `zig build test --fuzz` fails to compile inside 0.16.0's own test runner, so nothing on this side can fix it. `details.md` has the error.
 	- Opened: 20260917-131500
@@ -254,6 +249,16 @@ None open.
 	- Closed: 20260804-224440
 
 #### Done - New features and enhancements
+
+- ✅ A batch spent about a third of a millisecond an identifier, nearly all of it crossing into the wasm module. Every `generate` re-asked whether the base renders text, which is 33 round trips through the tokenizer with an alloc and a free each.
+	- Cause: the 98keyboard fix added the control-byte probe and nothing measured after it. The cost was flat across every format, which is what a per-call fixed overhead looks like.
+	- Fixed: the verdict is remembered on the host beside the radix and the zero digit, and thrown away when the slot points at another base. The check itself stays in `core`, since which bytes are refused is spec; only the remembering moved.
+	- Verified: 16.6 us an identifier for `%r` against 357 us, and 170 us for all seven against 452 us, measured A/B against a library built from the previous commit. `details.md` has the full table.
+	- Verified: an injected fault - the slot not cleared when it is aimed at a new base - turns three cases red, including a new one that alternates good, raw-byte and unknown bases on one host.
+	- Done: `--count`'s ceiling goes from 100000 to 1000000, which is the same half a minute of work the old ceiling stood for.
+	- Note: a single run still pays the probe once, so nothing there got faster. It is about a third of a millisecond against 600 ms of startup.
+	- Opened: 20260917-224500
+	- Closed: 20260917-233000
 
 - ✅ Generate more than one identifier per invocation. A time-only format repeats within one tick.
 	- Decided: output stays literal - nothing is appended silently - but repeats in one invocation's output get a stderr warning suggesting `%r`.
