@@ -81,13 +81,39 @@ else {
 	$archiveExtension = 'tgz'
 }
 
+## Whether the system location can be written, not whether it is there. Testing
+## existence meant a normal user on any box with /usr/local/bin got a system
+## install, which then failed at New-Item after the whole download - and there
+## is no elevation path here the way install.bash has sudo. install.bash tests
+## -w for the same reason.
+function Test-DirectoryWritable {
+	param([string] $Path)
+	## The install creates the leaf, so what matters is the nearest thing that
+	## already exists.
+	$probeDir = $Path
+	while ($probeDir -and -not (Test-Path $probeDir -PathType Container)) {
+		$parent = Split-Path -Parent $probeDir
+		if ($parent -eq $probeDir) { return $false }
+		$probeDir = $parent
+	}
+	if (-not $probeDir) { return $false }
+	## Actually write, rather than read a mode or an ACL. Those disagree with
+	## the filesystem often enough, and this is one file in a directory the
+	## script is about to use anyway.
+	$probe = Join-Path $probeDir ".$program-write-probe-$PID"
+	try {
+		[System.IO.File]::WriteAllText($probe, '')
+		Remove-Item -Force -ErrorAction SilentlyContinue $probe
+		return $true
+	}
+	catch { return $false }
+}
+
 if (-not $Target) {
-	$Target = if ($IsWindows) {
-		if (Test-Path $systemDir -PathType Container) { 'system' } else { 'user' }
-	}
-	else {
-		if (Test-Path '/usr/local/bin' -PathType Container) { 'system' } else { 'user' }
-	}
+	## On Windows the install directory is the whole story. Elsewhere it is the
+	## link directory that decides, which is what install.bash tests.
+	$systemProbe = if ($IsWindows) { $systemDir } else { '/usr/local/bin' }
+	$Target = if (Test-DirectoryWritable $systemProbe) { 'system' } else { 'user' }
 }
 
 $installDirectory = if ($Target -eq 'system') { $systemDir } else { $userDir }

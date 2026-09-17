@@ -190,10 +190,12 @@ fi
 ## Each case gets its own HOME, so nothing leaks between them and nothing
 ## outside the scratch tree is ever a target.
 
-caseNumber=0
-fNewHome(){
-	caseNumber=$((caseNumber + 1))
-	local -r home="${work}/home-${caseNumber}"
+## Named rather than counted. A counter here would be incremented inside the
+## command substitution that reads it, so the subshell would keep the new value
+## and every case would quietly share one directory.
+fNewHome(){  ## label
+	local -r home="${work}/home-$1"
+	rm -rf "${home}"
 	mkdir -p "${home}/.local/bin"
 	printf '%s' "${home}"
 }
@@ -251,7 +253,7 @@ fCase_ReleaseChoice(){  ## label, runner
 	local -r label="$1" runner="$2"
 	local home="" out="" got=""
 
-	home="$(fNewHome)"
+	home="$(fNewHome "${label}-stable")"
 	out="$("${runner}" "${home}" user yes)" || true
 	got="$(fInstalledVersion "${home}")"
 	if [[ "${got}" == "2.0.0" ]]
@@ -259,7 +261,7 @@ fCase_ReleaseChoice(){  ## label, runner
 		else fFail "${label}: the default should take v2.0.0, got ${got}. Output: ${out}"
 	fi
 
-	home="$(fNewHome)"
+	home="$(fNewHome "${label}-dev")"
 	out="$("${runner}" "${home}" user dev yes)" || true
 	got="$(fInstalledVersion "${home}")"
 	if [[ "${got}" == "2.1.0-beta.1" ]]
@@ -319,12 +321,37 @@ fCase_PackageOutDir(){
 	fi
 }
 
+## With no target named, the choice has to come from whether the system location
+## can be written, not whether it exists. install.ps1 tested existence, so a
+## normal user on a box with /usr/local/bin - which is to say any box - got a
+## system install that failed after the download, with no elevation path.
+##
+## Skipped where the system location happens to be writable, such as a run as
+## root, since then system is the right answer and there is nothing to catch.
+fCase_DefaultTarget(){  ## label, runner
+	local -r label="$1" runner="$2"
+	if [[ -w /usr/local/bin ]]; then
+		fLine "  skipped: /usr/local/bin is writable here, so system is the right default."
+		return 0
+	fi
+
+	local home="" out="" got=""
+	home="$(fNewHome "${label}-default-target")"
+	out="$("${runner}" "${home}" yes)" || true
+	got="$(fInstalledVersion "${home}")"
+	if [[ "${got}" == "2.0.0" ]]
+		then fPass "${label}: an unwritable system location falls back to a user install"
+		else fFail "${label}: should have installed under HOME, got ${got}. Output: ${out}"
+	fi
+}
+
 fEcho "Installers: against a local release listing on port ${port}"
 fLine ""
 
 if [[ "${only}" != "ps1" ]]; then
 	fLine "install.bash"
 	fCase_ReleaseChoice "bash" "fRunBash"
+	fCase_DefaultTarget "bash" "fRunBash"
 fi
 
 if [[ "${only}" != "bash" ]]; then
@@ -334,6 +361,7 @@ if [[ "${only}" != "bash" ]]; then
 		fLine "  skipped: pwsh not installed."
 	else
 		fCase_ReleaseChoice "ps1" "fRunPs1"
+		fCase_DefaultTarget "ps1" "fRunPs1"
 	fi
 fi
 

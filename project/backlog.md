@@ -91,8 +91,13 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Swept: the command had the same fixed 4096 buffer and reported `BufferTooSmall` by its error name. It now grows the buffer until the identifier fits, up to 1 MB, and says so in words past that. The Go module returns a string and never had the limit.
 		- Done: `cicd/utility/cli-test.bash` is new - 15 cases over what the command prints and exits with, which nothing covered before - and is a cicd stage.
 		- Verified: before the fix all four probe cases returned code 5 with empty text, including two that should have rendered. Reverting the module fails the Zig test and three `capi_smoke.c` checks; reverting the command fails three CLI cases.
-	- 🔘 F10, should-fix: the PowerShell installer picks a system install on Linux and macOS for users who cannot write there.
+	- ✅ F10, should-fix: the PowerShell installer picks a system install on Linux and macOS for users who cannot write there.
 		- Origin: 08c6996. Not seen by an earlier review. Confirmed.
+		- Cause: the test was whether `/usr/local/bin` exists, which it does everywhere, rather than whether it can be written. The install then failed after the whole download, with no elevation path of the kind `install.bash` has through sudo.
+		- Fixed: `Test-DirectoryWritable` writes a probe file into the nearest existing ancestor and removes it, rather than reading a mode or an ACL. On Windows the install directory decides; elsewhere the link directory does, which is what `install.bash` tests.
+		- Verified: a new harness case. Before the fix nothing landed under `HOME`; after it, the user install happens. It skips itself where the system location is writable, such as a run as root, since system is then the right answer.
+		- Note: an explicit `-Target system` never reaches the probe, so that path is unchanged. Not covered by a test, since a system install needs root.
+		- Note: the harness gave every case its own `HOME` only on paper - the counter naming them was incremented inside the command substitution that read it, so the subshell kept the new value and all of them shared one directory. Named directories now.
 	- 🔘 F11, should-fix: re-running either installer on the installed version downloads and reinstalls it, though both say that is a no-op.
 		- Origin: 08c6996. Reopens the done installer item, whose re-run claim had no test. Confirmed.
 	- 🔘 F12, should-fix: the `go get` line in `README.md` leaves a program that imports the package unable to build, and the prerelease cannot be asked for by version.
