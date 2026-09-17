@@ -288,8 +288,15 @@ pub fn generate(conv: Converter, env: Env, opts: Options, out: []u8) Error![]con
         .hash = if (opts.hash_chars == 0) defaultHashChars(radix) else opts.hash_chars,
         .random = if (opts.random_chars == 0) defaultRandomChars(radix) else opts.random_chars,
     };
-    if (widths.hash > max_component_chars or widths.random > max_component_chars) return Error.OptionRange;
-    if (!opts.no_hash and widths.hash > maxHashChars(radix)) return Error.HashTooWide;
+    // Only the widths this format actually spends get checked. A hash width
+    // that fits base 16 is past the ceiling in 2048tz, and a bare %d has no
+    // business failing over a number it never reads.
+    const spends = spentWidths(opts.format);
+    if (spends.hash and !opts.no_hash) {
+        if (widths.hash > max_component_chars) return Error.OptionRange;
+        if (widths.hash > maxHashChars(radix)) return Error.HashTooWide;
+    }
+    if (spends.random and widths.random > max_component_chars) return Error.OptionRange;
 
     var used: usize = 0;
     var i: usize = 0;
@@ -325,18 +332,58 @@ pub fn generate(conv: Converter, env: Env, opts: Options, out: []u8) Error![]con
     return out[0..used];
 }
 
+const SpentWidths = struct { hash: bool = false, random: bool = false };
+
+/// Which of the two width options a format reaches. Unknown verbs and a
+/// trailing bare '%' are left alone here; the render loop reports those, and
+/// it stays the one place that knows what a verb means.
+fn spentWidths(format: []const u8) SpentWidths {
+    var spends = SpentWidths{};
+    var i: usize = 0;
+    while (i + 1 < format.len) : (i += 1) {
+        if (format[i] != '%') continue;
+        i += 1;
+        switch (format[i]) {
+            'h', 'u', 'f' => spends.hash = true,
+            'r' => spends.random = true,
+            else => {},
+        }
+    }
+    return spends;
+}
+
 /// The conversion library carries a base whose 256 digits are literal byte
 /// values. It converts happily, which is the problem - an identifier full of
 /// control characters and invalid UTF-8 is not an identifier, and that base
 /// cannot hold a decimal timestamp at all, so a format mixing %d with anything
 /// else would half work. The zero digit is the cheapest thing to test, and it
 /// is the one piece of base metadata both implementations can read.
+///
+/// One text-looking base is a problem too: 98keyboard holds tab, newline and
+/// return among its digits, so an identifier can carry a line break without
+/// the zero digit ever showing it. Each control byte gets asked after.
 fn rejectRawByteBase(conv: Converter, base: []const u8) Error!void {
     var zero_buf: [16]u8 = undefined;
     const zero = try conv.zeroSymbol(base, &zero_buf);
     for (zero) |byte| {
         if (byte < 0x20 or byte == 0x7f) return Error.BaseNotText;
     }
+
+    var byte: u8 = 0;
+    while (byte < 0x20) : (byte += 1) {
+        if (isDigitOf(conv, base, byte)) return Error.BaseNotText;
+    }
+    if (isDigitOf(conv, base, 0x7f)) return Error.BaseNotText;
+}
+
+/// Whether one byte is a digit of the base. There is no export that hands back
+/// the alphabet, so this asks the tokenizer instead: a byte the base does not
+/// know is an error, not a count. The base has already answered for its zero
+/// digit by here, so a failure means "not a digit" rather than a broken base.
+fn isDigitOf(conv: Converter, base: []const u8, byte: u8) bool {
+    const probe = [_]u8{byte};
+    const count = conv.symbolCount(base, &probe) catch return false;
+    return count > 0;
 }
 
 /// The clock as the precision's unit count since the Unix epoch UTC,

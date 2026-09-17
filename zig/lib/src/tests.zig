@@ -188,8 +188,13 @@ test "error paths carry the module's error text" {
     try std.testing.expectError(error.UnknownComponent, core.generate(h.converter(), e, .{ .format = "%z", .clock_ms = 0 }, &out_buf));
     try std.testing.expectError(error.BareFormatPercent, core.generate(h.converter(), e, .{ .format = "abc%", .clock_ms = 0 }, &out_buf));
     try std.testing.expectError(error.ClockBeforeEpoch, core.generate(h.converter(), e, .{ .clock_ms = -1 }, &out_buf));
-    try std.testing.expectError(error.OptionRange, core.generate(h.converter(), e, .{ .clock_ms = 0, .hash_chars = 65 }, &out_buf));
-    try std.testing.expectError(error.OptionRange, core.generate(h.converter(), e, .{ .clock_ms = 0, .random_chars = 65 }, &out_buf));
+    try std.testing.expectError(error.OptionRange, core.generate(h.converter(), e, .{ .format = "%h", .clock_ms = 0, .hash_chars = 65 }, &out_buf));
+    try std.testing.expectError(error.OptionRange, core.generate(h.converter(), e, .{ .format = "%r", .clock_ms = 0, .random_chars = 65 }, &out_buf));
+
+    // A width the format never reads cannot fail the call, so one hash width
+    // can serve every base a caller uses.
+    _ = try core.generate(h.converter(), e, .{ .clock_ms = 0, .hash_chars = 65, .random_chars = 65 }, &out_buf);
+    _ = try core.generate(h.converter(), e, .{ .base = "2048tz", .clock_ms = 0, .hash_chars = 40 }, &out_buf);
 
     // An exhausted random source fails the identifier rather than quietly
     // producing a short or repeated one.
@@ -450,6 +455,22 @@ test "a raw-byte base is refused" {
         );
         try std.testing.expectError(core.Error.BaseNotText, attempt);
     }
+    try std.testing.expectEqual(@as(u32, 0), try h.regionCount());
+}
+
+// 98keyboard counts tab, newline and return among its digits, so an identifier
+// in it could carry a line break. Its zero digit is '0', which is why the
+// alphabet gets asked about rather than just that one symbol.
+test "a base with control digits is refused" {
+    var h = try host.Host.init(.auto);
+    defer h.deinit();
+    var fixed: FixedEnv = .{};
+    var out_buf: [core.out_buf_len]u8 = undefined;
+
+    const attempt = core.generate(h.converter(), fixed.interface(), .{ .format = "%d", .base = "98keyboard", .clock_ms = 0 }, &out_buf);
+    try std.testing.expectError(core.Error.BaseNotText, attempt);
+
+    _ = try core.generate(h.converter(), fixed.interface(), .{ .format = "%d", .base = "62", .clock_ms = 0 }, &out_buf);
     try std.testing.expectEqual(@as(u32, 0), try h.regionCount());
 }
 
