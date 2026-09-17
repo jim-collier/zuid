@@ -171,8 +171,12 @@ Clone the repository and run `cicd/cicd.bash`. It fetches what it needs, builds 
 For the Go module, no install step is needed:
 
 ~~~bash
-go get github.com/jim-collier/zuid/go
+go get github.com/jim-collier/zuid/go/zuid
 ~~~
+
+Name the package rather than the module root. `go get` on the root adds the module without what its package needs, and the build then stops on a missing `go.sum` entry for `convertbase`.
+
+The module sits in a subdirectory, so pinning it to a release needs a `go/`-prefixed tag, and there is not one yet. Until there is, that command tracks `main`. To pin, name a commit: `go get github.com/jim-collier/zuid/go/zuid@<commit>`.
 
 ## Setting up a development environment
 

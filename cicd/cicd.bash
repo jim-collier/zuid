@@ -561,6 +561,71 @@ fStage_Go(){
 	## Generate is safe to call concurrently.
 	go test -p "${buildJobs}" -race ./...
 
+	fStage_Go_Consumer
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## A program that imports the module, built the way somebody following README
+## would. Its own tests import by relative package path and so prove nothing
+## about that.
+fStage_Go_Consumer(){
+
+	fEcho_Clean
+	fEcho "Go: a consumer of the module"
+
+	## README's command has to name the package, not the module root. On the root
+	## go get adds the module without what its package needs, and the build stops
+	## on a missing go.sum entry for convertbase.
+	local -r readme="${repoRoot}/README.md"
+	if [[ -f "${readme}" ]] && grep -q 'go get github.com/jim-collier/zuid/go$' "${readme}"; then
+		fThrowError "README tells people 'go get <module root>', which leaves the build unable to resolve convertbase. It should name the package."  "${FUNCNAME[0]}"
+	fi
+	fEcho_Clean "README .....: names the package path"
+
+	local consumerDir=""
+	consumerDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	_scratchDirs+=("${consumerDir}")
+
+	cat > "${consumerDir}/main.go" <<-'EOF'
+		package main
+
+		import (
+			"fmt"
+
+			"github.com/jim-collier/zuid/go/zuid"
+		)
+
+		func main() {
+			g, err := zuid.New()
+			if err != nil {
+				panic(err)
+			}
+			id, err := g.Generate(zuid.Request{Format: "%d"})
+			if err != nil {
+				panic(err)
+			}
+			fmt.Println(id)
+		}
+	EOF
+
+	## Pointed at this tree rather than the published module, so the check says
+	## whether what is about to be merged can be imported, and needs no network
+	## beyond what the module cache already holds.
+	(
+		cd "${consumerDir}" || exit 1
+		go mod init zuid-consumer-check >/dev/null 2>&1 || exit 1
+		go mod edit -require="github.com/jim-collier/zuid/go@v0.0.0" \
+			-replace="github.com/jim-collier/zuid/go=${goDir}" || exit 1
+		go mod tidy >/dev/null 2>&1 || exit 1
+		go build -o "${consumerDir}/consumer" . || exit 1
+		"${consumerDir}/consumer" >/dev/null || exit 1
+	) || fThrowError "a program importing github.com/jim-collier/zuid/go/zuid did not build and run."  "${FUNCNAME[0]}"
+	fEcho_Clean "Import .....: builds and runs"
+
+	rm -rf "${consumerDir}"
+
 }
 
 

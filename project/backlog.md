@@ -103,8 +103,13 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Cause: both read the installed version for the plan's "Replacing" line and neither compared it with the chosen tag.
 		- Fixed: both compare, and a match prints "Already installed" with the version and location, then exits without fetching anything. Reinstalling means `--uninstall` first, which the message says.
 		- Verified: the harness counts what the local server was asked for, so the no-op is measured rather than taken from the script's own output. Before the fix a re-run made two requests, the tarball and the checksums. A different version still installs over the old one, in both states, so the check is not a blanket refusal.
-	- 🔘 F12, should-fix: the `go get` line in `README.md` leaves a program that imports the package unable to build, and the prerelease cannot be asked for by version.
+	- ✅ F12, should-fix: the `go get` line in `README.md` leaves a program that imports the package unable to build, and the prerelease cannot be asked for by version.
 		- Origin: 2209333. Not seen by an earlier review. Confirmed.
+		- Cause: the line named the module root. `go get` on a root adds the module without what its package needs, so the build stopped on a missing `go.sum` entry for `convertbase`.
+		- Fixed: `README.md` names the package, `github.com/jim-collier/zuid/go/zuid`, and says why. It also states that pinning needs a `go/`-prefixed tag, which does not exist yet, and how to pin a commit instead.
+		- Done: a cicd stage builds and runs a scratch program importing the module, pointed at this tree so it covers what is about to merge. It also refuses a README that tells people to fetch the module root.
+		- Verified: reproduced both halves in a scratch module - the missing `go.sum` entry, and the tag resolving to a pseudo-version of `main`. The corrected command pulls `convertbase` v0.1.0, builds, and prints an identifier. Restoring the old README line fails the stage.
+		- Note: the `go/` tag itself is deferred, since pushing a public tag is a release decision.
 	- 🔘 F13, should-fix: `zuid -f ''` prints an empty identifier and succeeds, where the Go and C modules treat an empty format as `%d`.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
 	- 🔘 F14, should-fix: the Go module reads the host name again for every identifier, though the design says each source is read once.
@@ -487,6 +492,9 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Closed: 20260804-234122
 
 ### Future and/or deferred
+
+- ✋ Tag the Go module as `go/v<version>` at the next release, so it can be asked for by version. A module in a subdirectory needs the prefix, and the plain `v1.0.0-alpha.1` tag does not reach it - `go get ...@v1.0.0-alpha.1` answers "found, but does not contain package". Deferred because pushing a public tag is a release decision, not a code fix. `README.md` says how to pin a commit meanwhile.
+	- Opened: 20260917-104114
 
 - ✋ CLI startup is ~0.5 s, nearly all of it the module's own `_initialize` building the base registry inside the wasm. Options if it starts to matter: ask upstream about lazier registry construction, or cache a precompiled module per machine. Deferred until the surface settles.
 	- Opened: 20260802-104116
