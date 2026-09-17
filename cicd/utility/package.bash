@@ -160,11 +160,11 @@ fNormalizeArchive(){  ## path
 		fWarn "no llvm-ar; $(basename "${archive}") keeps this machine's paths in its member names"
 		return 0
 	fi
-	local -r unpack="${work}/ar-$(basename "${archive}")"
-	rm -rf "${unpack}"; mkdir -p "${unpack}"
+	local -r extractDir="${work}/ar-$(basename "${archive}")"
+	rm -rf "${extractDir}"; mkdir -p "${extractDir}"
 	## llvm-ar extracts on basenames into the working directory, which is the
 	## whole point: the paths go away here.
-	( cd "${unpack}" && "${llvmAr}" x "${archive}" && "${llvmAr}" rcsD "${archive}.new" ./*.o )
+	( cd "${extractDir}" && "${llvmAr}" x "${archive}" && "${llvmAr}" rcsD "${archive}.new" ./*.o )
 	mv "${archive}.new" "${archive}"
 }
 fNormalizeArchive "${stage}/lib/libzuid.a"

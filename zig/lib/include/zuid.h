@@ -20,7 +20,7 @@
 	Linking: the shared libzuid exports only these entry points and carries
 	its own runtime, so -lzuid is the whole story. The static libzuid.a holds
 	its own objects only, so it needs the Wasmtime C API archive next to it -
-	the release ships libwasmtime.a in the same lib/ directory - plus the usual
+	the release puts libwasmtime.a in the same lib/ directory - plus the usual
 	system libraries:
 		-lzuid -lwasmtime -lpthread -ldl -lm
 */
