@@ -53,9 +53,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ### New features and enhancements
 
-- 🔘 Add to demo GIF: ships as module too.
-	- Opened: 20260917-092933
-
 - 🔘 The installers' system-wide destinations are untested.
 	- Note: both have only run against a throwaway home directory.
 	- Opened: 20260804-224440
@@ -129,6 +126,20 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Closed: 20260804-224440
 
 #### Done - New features and enhancements
+
+- ✅ Add to demo GIF: ships as module too.
+	- Done: the demo closes on the name and the module note. The random step was cut to stay under 45 seconds.
+	- Opened: 20260917-092933
+	- Closed: 20260917-101749
+
+- ✅ `--donate`, and a fuller `--about`, the same as shcl.
+	- Opened: 20260917-095900
+	- Closed: 20260917-101749
+
+- ✅ Make the licensing clear. The GPL file at the repo root read as covering everything.
+	- Done: renamed to `license.md`, which now maps each directory to its license. The modules stay Apache-2.0.
+	- Opened: 20260917-100900
+	- Closed: 20260917-101749
 
 - ✅ Command help and version output cleaned up.
 	- Done: `--hash-chars` is gone from the command. Hashed names always use the width derived from the base, and the libraries can still set it.

@@ -382,9 +382,12 @@ The two goals this architecture exists to serve - exercising the upstream Go mod
 ## Licensing
 
 - The command is GPL-2.0-or-later.
+
 - Both modules are Apache-2.0, matching the library they build on, so that neither is encumbered for a caller embedding it.
 
 This split is the same arrangement the sister project uses, and for the same reason: attribution should follow the code into somebody else's product, without reciprocity obligations that would stop anyone linking it.
+
+The repo root has no license text of its own. `license.md` there maps each directory to its license, because a GPL file at the root read as covering the modules too.
 
 ## Plan
 

@@ -82,7 +82,8 @@ mkdir -p "${stage}/bin" "${stage}/lib" "${stage}/include" "${stage}/share"
 cp "${root}/zig/zig-out/bin/${EXE}"        "${stage}/bin/"
 cp "${root}/zig/zig-out/lib/libzuid."*     "${stage}/lib/"
 cp "${root}/zig/zig-out/include/zuid.h"    "${stage}/include/"
-cp "${root}/LICENSE.txt"                   "${stage}/share/"
+cp "${root}/license.md"                    "${stage}/share/"
+cp "${root}/zig/cmd/LICENSE.txt"           "${stage}/share/"
 cp "${root}/zig/lib/LICENSE.txt"           "${stage}/share/LICENSE-module.txt"
 cp "${root}/zig/lib/NOTICE.txt"            "${stage}/share/"
 cp "${root}/README.md"                     "${stage}/share/"
@@ -107,7 +108,7 @@ if command -v nfpm >/dev/null 2>&1; then
 		  ${SUMMARY}.
 		  ${DESC_LONG}
 		homepage: ${HOMEPAGE}
-		license: GPL-2.0-or-later
+		license: GPL-2.0-or-later AND Apache-2.0
 		section: utils
 		priority: optional
 		contents:
@@ -117,10 +118,10 @@ if command -v nfpm >/dev/null 2>&1; then
 		      mode: 0755
 		  - src: ${stage}/include/zuid.h
 		    dst: /usr/include/zuid.h
-		  - src: ${root}/LICENSE.txt
+		  - src: ${root}/zig/cmd/LICENSE.txt
 		    dst: /usr/share/doc/${PKG}/copyright
 		    packager: deb
-		  - src: ${root}/LICENSE.txt
+		  - src: ${root}/zig/cmd/LICENSE.txt
 		    dst: /usr/share/licenses/${PKG}/LICENSE.txt
 		    packager: rpm
 	EOF
