@@ -507,6 +507,50 @@ fStage_Shell(){
 	fEcho_Clean "Clean."
 
 	fStage_Shell_Installers
+	fStage_Docs
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## A number written in front of a list drifts the moment the list grows, and no
+## linter counts. design.md said "four things" above five bullets.
+fStage_Docs(){
+
+	fEcho_Clean
+	fEcho "Docs: claims that can be counted"
+
+	local -r design="${repoRoot}/project/design.md"
+	if [[ ! -f "${design}" ]]; then
+		fEcho_Clean "Skipped ....: project/design.md is not present."
+		return 0
+	fi
+
+	## The sentence, then the bullets directly under it up to the blank line that
+	## ends the list.
+	local -r claimLine="$(grep -n 'reject the same .* things before rendering' "${design}" | head -n1 || true)"
+	if [[ -z "${claimLine}" ]]; then
+		fEcho_Clean "Skipped ....: the rejection-list sentence has moved or been reworded."
+		return 0
+	fi
+
+	local -r claimNumber="$(sed -n "${claimLine%%:*}p" "${design}" | sed -E 's/.*reject the same ([a-z]+) things.*/\1/')"
+	local -r bulletCount="$(awk -v start="$((${claimLine%%:*} + 1))" 'NR >= start { if ($0 ~ /^- /) n++; else if ($0 !~ /^[[:space:]]*$/ && n > 0) exit } END { print n + 0 }' "${design}")"
+
+	local spelled=""
+	case "${bulletCount}" in
+		3) spelled="three" ;; 4) spelled="four" ;; 5) spelled="five" ;;
+		6) spelled="six" ;;   7) spelled="seven" ;;
+		*) spelled="" ;;
+	esac
+	if [[ -z "${spelled}" ]]; then
+		fEcho_Clean "Skipped ....: ${bulletCount} bullets, which this check has no word for."
+		return 0
+	fi
+	if [[ "${claimNumber}" != "${spelled}" ]]; then
+		fThrowError "design.md says it rejects '${claimNumber}' things and then lists ${bulletCount}."  "${FUNCNAME[0]}"
+	fi
+	fEcho_Clean "design.md ..: the rejection count matches its list"
 
 }
 

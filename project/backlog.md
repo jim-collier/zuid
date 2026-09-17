@@ -141,8 +141,11 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Fixed: install still replaces what is there, which is what an installer does, but the plan now names it rather than doing it quietly.
 		- Verified: four cases per installer. A plain file planted at the link path survives uninstall, the output says it is being kept, install names what it overwrites, and the installer's own link is still removed. All go red on the old scripts.
 		- Note: this is a real collision, not a hypothetical - `README.md` tells a source build that a full cicd run copies the command to `~/.local/bin`.
-	- 🔘 F17, nit: `README.md` says nothing is published yet, and `design.md` says "four things" before a list of five.
+	- ✅ F17, nit: `README.md` says nothing is published yet, and `design.md` says "four things" before a list of five.
 		- Origin: 2209333. Confirmed.
+		- Fixed: "Packages and installers" says `v1.0.0-alpha.1` is published for x86_64 Linux, and points at the source build for every other platform. `design.md` says five.
+		- Done: a cicd check reads the count out of that sentence and compares it with the bullets under it. A number in front of a list drifts as soon as the list grows, and no linter counts.
+		- Verified: putting "four" back fails the stage with both numbers named.
 	- Opened: 20260917-104114
 
 - 🔘 Contact address in `trademark.md` is still a placeholder. Needs a real one.

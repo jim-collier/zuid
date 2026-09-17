@@ -127,7 +127,7 @@ The Go module stays free of cgo and cross-compiles statically. The Zig side prod
 
 ### Packages and installers
 
-Preferred, once there are releases to install. Nothing is published yet, so for now use [Do it yourself](#do-it-yourself) below.
+Preferred. `v1.0.0-alpha.1` is published for x86_64 Linux; on any other platform, build from source with [Do it yourself](#do-it-yourself) below.
 
 | Platform | Package |
 | :-- | :-- |
