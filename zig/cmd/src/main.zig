@@ -106,6 +106,11 @@ const help_tail =
     \\        --rand-chars <count>  How many random symbols %r emits. The default
     \\                              depends on the base: 9 in base 16, 6 in 62, 4
     \\                              in 2048tz.
+    \\        --salt <text>         Secret hashed ahead of the host, user, and
+    \\                              FQDN names, so a name cannot be confirmed by
+    \\                              hashing guesses. Machines being compared need
+    \\                              the same one, and it shows in the process
+    \\                              list.
     \\    -h, --help                This.
     \\    -v, --version             Version and build number.
     \\        --about               Version, copyright, and license.
@@ -208,6 +213,8 @@ pub fn main(init: std.process.Init) !void {
             opts.no_hash = true;
         } else if (std.mem.eql(u8, name, "--rand-chars")) {
             opts.random_chars = charCount(stderr, vals.take(name, "a symbol count"), name);
+        } else if (std.mem.eql(u8, name, "--salt")) {
+            opts.salt = vals.take(name, "a salt");
         } else {
             return die(stderr, "Argument invalid or not expected: '{s}'. Try --help.", .{arg});
         }
@@ -245,6 +252,7 @@ pub fn main(init: std.process.Init) !void {
             error.BaseNotText => die(stderr, "That base renders raw bytes or control characters rather than text, so it cannot carry an identifier.", .{}),
             error.EnvUnavailable => die(stderr, "This machine could not supply that component - no name, hardware address, or random source.", .{}),
             error.OptionRange => die(stderr, "A symbol count is out of range. Want 1 to {d}.", .{zuid.core.max_component_chars}),
+            error.SaltTooLong => die(stderr, "The salt is {d} bytes. Want at most {d}.", .{ opts.salt.len, zuid.core.max_salt_bytes }),
             error.BufferTooSmall => die(stderr, "That format renders more than {d} bytes, which is past what this command will print.", .{max_out_len}),
             else => die(stderr, "Generation failed: {t}.", .{err}),
         };

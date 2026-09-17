@@ -104,7 +104,7 @@ Every component is a fixed width, so identifiers line up in a column, sort as te
 
 - Uniqueness and length are yours to trade off.
 
-- Private by default. Host and user are hashed unless asked otherwise.
+- Private by default. Host and user are hashed unless asked otherwise, and `--salt` puts a secret of your own in front of the hash so candidate names cannot be tried against the output.
 
 - A curated set of bases suited to identifiers, with the library's full set of seventy-odd still available.
 

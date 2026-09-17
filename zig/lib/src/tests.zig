@@ -109,6 +109,8 @@ fn applyEnv(spec: []const u8, fixed: *FixedEnv, opts: *core.Options) !void {
             fixed.random_len = value.len / 2;
         } else if (std.mem.eql(u8, key, "nohash")) {
             opts.no_hash = std.mem.eql(u8, value, "1");
+        } else if (std.mem.eql(u8, key, "salt")) {
+            opts.salt = value;
         } else if (std.mem.eql(u8, key, "hashchars")) {
             opts.hash_chars = try std.fmt.parseInt(u32, value, 10);
         } else if (std.mem.eql(u8, key, "randchars")) {
@@ -171,7 +173,7 @@ fn runVectors(h: *host.Host) !void {
         rows += 1;
     }
     // A parsing bug that skips every row would otherwise pass silently.
-    try std.testing.expect(rows >= 190);
+    try std.testing.expect(rows >= 201);
 }
 
 test "error paths carry the module's error text" {
@@ -377,6 +379,28 @@ test "C surface end to end" {
     try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h", "16", &out, out.len));
     try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_hash_chars(z, 0));
 
+    // The salt is sticky too, and copied: the caller's string is free to change
+    // or go away afterwards.
+    var salt_buf = [_:0]u8{ 'p', 'e', 'p', 'p', 'e', 'r' };
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h", "62", &out, out.len));
+    const unsalted = try std.testing.allocator.dupe(u8, std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
+    defer std.testing.allocator.free(unsalted);
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_salt(z, &salt_buf));
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h", "62", &out, out.len));
+    const salted = try std.testing.allocator.dupe(u8, std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
+    defer std.testing.allocator.free(salted);
+    try std.testing.expect(!std.mem.eql(u8, unsalted, salted));
+    salt_buf[0] = 'P';
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h", "62", &out, out.len));
+    try std.testing.expectEqualStrings(salted, std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
+
+    // NULL is the way back to no salt, and a salt past the buffer is refused
+    // where it is set rather than where it would be used.
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_salt(z, null));
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h", "62", &out, out.len));
+    try std.testing.expectEqualStrings(unsalted, std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
+    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_set_salt(z, "s" ** (core.max_salt_bytes + 1)));
+
     // Error text survives into the C string.
     try std.testing.expectEqual(@as(c_int, 1), capi.zuid_generate(z, "%d", "hexx", &out, out.len));
     try std.testing.expect(std.mem.span(capi.zuid_last_error(z)).len > 0);
@@ -443,6 +467,44 @@ test "a hash wider than the digest is refused" {
     // Nothing is hashed with no_hash, so the ceiling has nothing to say.
     const literal = try core.generate(h.converter(), fixed.interface(), .{ .format = "%h", .base = "2048tz", .hash_chars = 64, .no_hash = true, .clock_ms = 0 }, &out_buf);
     try std.testing.expectEqualStrings("testhost", literal);
+    try std.testing.expectEqual(@as(u32, 0), try h.regionCount());
+}
+
+// Host and user names come from a small space, so the point of the salt is
+// that hashing candidate names no longer confirms one. The vectors pin the
+// values; this pins the edges around them.
+test "a salt moves the hashed names and leaves the rest alone" {
+    var h = try host.Host.init(.auto);
+    defer h.deinit();
+    var fixed: FixedEnv = .{};
+    var plain_buf: [core.out_buf_len]u8 = undefined;
+    var salted_buf: [core.out_buf_len]u8 = undefined;
+
+    const plain = try core.generate(h.converter(), fixed.interface(), .{ .format = "%h", .clock_ms = 0 }, &plain_buf);
+    const salted = try core.generate(h.converter(), fixed.interface(), .{ .format = "%h", .salt = "pepper", .clock_ms = 0 }, &salted_buf);
+    try std.testing.expect(!std.mem.eql(u8, plain, salted));
+    try std.testing.expectEqual(plain.len, salted.len);
+
+    // An empty salt hashes the name on its own, which is what keeps every
+    // identifier generated before the salt existed valid.
+    const empty = try core.generate(h.converter(), fixed.interface(), .{ .format = "%h", .salt = "", .clock_ms = 0 }, &salted_buf);
+    try std.testing.expectEqualStrings(plain, empty);
+
+    // The time component is not hashed, so the salt has nothing to change.
+    const time_plain = try core.generate(h.converter(), fixed.interface(), .{ .format = "%d", .clock_ms = 946684800000 }, &plain_buf);
+    const time_salted = try core.generate(h.converter(), fixed.interface(), .{ .format = "%d", .salt = "pepper", .clock_ms = 946684800000 }, &salted_buf);
+    try std.testing.expectEqualStrings(time_plain, time_salted);
+
+    // Neither is an unhashed name.
+    const literal = try core.generate(h.converter(), fixed.interface(), .{ .format = "%h", .salt = "pepper", .no_hash = true, .clock_ms = 0 }, &salted_buf);
+    try std.testing.expectEqualStrings("testhost", literal);
+
+    // The ceiling is where the C module's fixed buffer stops.
+    const at_max = "s" ** core.max_salt_bytes;
+    _ = try core.generate(h.converter(), fixed.interface(), .{ .format = "%h", .salt = at_max, .clock_ms = 0 }, &salted_buf);
+    const past_max = core.generate(h.converter(), fixed.interface(), .{ .format = "%h", .salt = at_max ++ "s", .clock_ms = 0 }, &salted_buf);
+    try std.testing.expectError(core.Error.SaltTooLong, past_max);
+
     try std.testing.expectEqual(@as(u32, 0), try h.regionCount());
 }
 
