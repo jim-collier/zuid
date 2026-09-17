@@ -598,3 +598,58 @@ test "a leaked C context is reported" {
     // returning - the recorded reason the header promises no more than C's
     // own free() does.
 }
+
+// The format string is the one part of a request that arrives verbatim from
+// whoever ran the command, and both surfaces parse it themselves. Run normally
+// these replay their corpus and an empty input; real fuzzing is
+// 'zig build test --fuzz'.
+test "the format parser survives arbitrary input" {
+    var h = try host.Host.init(.auto);
+    defer h.deinit();
+    try std.testing.fuzz(&h, fuzzFormat, .{
+        .corpus = &.{ "%d", "%", "%%", "%z", "%d-%h-%u-%f-%m-%g-%r", "%%%%%d", "\x00%d", "%\xff" },
+    });
+}
+
+fn fuzzFormat(h: *host.Host, smith: *std.testing.Smith) !void {
+    var fmt_buf: [128]u8 = undefined;
+    const len = smith.slice(&fmt_buf);
+
+    var fixed = FixedEnv{};
+    @memset(&fixed.random, 0x5a);
+    fixed.random_len = fixed.random.len;
+
+    var out_buf: [core.out_buf_len]u8 = undefined;
+    _ = core.generate(h.converter(), fixed.interface(), .{ .format = fmt_buf[0..len], .clock_ms = 0 }, &out_buf) catch {};
+
+    // Failing part way through still has to hand every wasm region back.
+    try std.testing.expectEqual(@as(u32, 0), try h.regionCount());
+}
+
+test "the C generate call survives arbitrary input" {
+    const z = capi.zuid_new() orelse return error.InitFailed;
+    defer capi.zuid_free(z);
+    capi.zuid_set_clock_ms(z, 946684800000);
+    try std.testing.fuzz(z, fuzzCapi, .{
+        .corpus = &.{ "%d", "%q", "%d%d%d", "%r" },
+    });
+}
+
+fn fuzzCapi(z: *capi.Zuid, smith: *std.testing.Smith) !void {
+    // An interior NUL just ends the string early, which is the C contract.
+    var fmt_buf: [128:0]u8 = undefined;
+    const fmt_len = smith.slice(&fmt_buf);
+    fmt_buf[fmt_len] = 0;
+    var base_buf: [32:0]u8 = undefined;
+    const base_len = smith.slice(&base_buf);
+    base_buf[base_len] = 0;
+
+    var out: [core.out_buf_len]u8 = undefined;
+    const code = capi.zuid_generate(z, &fmt_buf, &base_buf, &out, out.len);
+
+    // What the header promises on a failure: an empty string and a reason.
+    if (code != 0) {
+        try std.testing.expectEqual(@as(u8, 0), out[0]);
+        try std.testing.expect(std.mem.span(capi.zuid_last_error(z)).len > 0);
+    }
+}

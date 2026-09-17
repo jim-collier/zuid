@@ -49,16 +49,12 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ### New features and enhancements
 
-- 🔘 Fuzz the Zig format parser and the C module's generate call in the pipeline.
-	- Origin: code review 20260917-104114, idea I3.
-	- Opened: 20260917-104114
+- 🔘 Run the Zig fuzz tests in fuzz mode, once a Zig release can build one.
+	- Note: the tests are written and replay their corpus on every run. `zig build test --fuzz` fails to compile inside 0.16.0's own test runner, so nothing on this side can fix it. `details.md` has the error.
+	- Opened: 20260917-131500
 
 - 🔘 Give the shared C library a versioned name such as `libzuid.so.1`, to go with the error codes that are kept stable.
 	- Origin: code review 20260917-104114, idea I4.
-	- Opened: 20260917-104114
-
-- 🔘 Fuzz the Go module's `Generate` call in the pipeline, the same as the Zig side.
-	- Origin: code review 20260917-104114, idea I5.
 	- Opened: 20260917-104114
 
 - 🔘 The `.deb` and `.rpm` install the C header but no library. Ship the libraries with it, or leave the header out.
@@ -252,6 +248,14 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Closed: 20260804-224440
 
 #### Done - New features and enhancements
+
+- ✅ Fuzz the Go module's `Generate` call in the pipeline, and the Zig format parser and C generate call alongside it.
+	- Done: `FuzzGenerate` drives the format and base name over a fixed environment, and checks that a failed call returns nothing and that the same request twice returns the same identifier. A full run fuzzes for 20 seconds and retries once on Go's own deadline-as-failure bug.
+	- Done: the Zig side has the matching pair, over the core parser and over `zuid_generate`, which also check that a call failing part way through handed every wasm region back.
+	- Note: the Zig pair only replays its corpus - fuzz mode does not compile on 0.16.0. Split out as its own item above.
+	- Origin: code review 20260917-104114, ideas I3 and I5.
+	- Opened: 20260917-104114
+	- Closed: 20260917-131500
 
 - ✅ Check only the widths of components the format uses. A hash width that suits one base failed a plain timestamp in another.
 	- Done: both sides scan the format first and check only the widths it spends. `--no-hash` puts the hashed width out of reach the same way. The checks still come before rendering.

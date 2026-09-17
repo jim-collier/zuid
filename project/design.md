@@ -364,6 +364,8 @@ Two things follow from acquisition being outside the vectors:
 
 The expected column comes from a third independent derivation, working from this document rather than from either implementation, so that "both sides agree" cannot mean "both sides are wrong the same way".
 
+The vectors say nothing about what happens to a format string nobody sane would write, so both sides fuzz that separately. The Go module's `FuzzGenerate` drives the format and the base name, and asks for two things: a failed call returns no identifier, and the same request twice returns the same one. A full pipeline run gives it twenty seconds. The Zig side has the matching pair - one over the core parser, one over the C `zuid_generate` - and they additionally check that a call which failed part way through handed every wasm region back. Those only replay their corpus for now, because Zig 0.16.0's own test runner does not compile in fuzz mode.
+
 ## Relationship to x9muid1
 
 `cicd/utility/x9muid1` is the 2023 bash predecessor, kept as reference. It defines the problem, not the solution.
