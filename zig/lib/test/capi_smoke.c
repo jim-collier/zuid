@@ -107,6 +107,23 @@ int main(void) {
 	wantCode("past the horizon", zuid_generate(z, "%d", "62", out, sizeof out), ZUID_ERR_HORIZON);
 	zuid_clear_clock(z);
 
+	/* ZUID_ERR_BUFFER used to fire for a fixed 4096-byte buffer inside the
+	   module, whatever out_cap said, and it never carried any text. */
+	{
+		static char big[65536];
+		char many[401];
+		for (size_t i = 0; i < 200; i++) { many[i * 2] = '%'; many[i * 2 + 1] = 'g'; }
+		many[400] = '\0';
+		wantCode("200 uuids", zuid_generate(z, many, "62", big, sizeof big), ZUID_OK);
+		wantLen("200 uuids", big, 200 * 22);
+
+		wantCode("short buffer text", zuid_generate(z, "%d", "62", big, 4), ZUID_ERR_BUFFER);
+		if (strlen(zuid_last_error(z)) == 0) {
+			printf("  short buffer: no error text\n");
+			fails++;
+		}
+	}
+
 	zuid_free(z);
 	if (fails) {
 		printf("  %d check(s) failed\n", fails);

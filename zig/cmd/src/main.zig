@@ -214,8 +214,7 @@ pub fn main(init: std.process.Init) !void {
     defer wasm_host.deinit();
     var live: zuid.env.Live = .{};
 
-    var out_buf: [zuid.core.out_buf_len]u8 = undefined;
-    const id = zuid.core.generate(wasm_host.converter(), live.env(), opts, &out_buf) catch |err| {
+    const id = generateGrowing(arena, wasm_host.converter(), live.env(), opts) catch |err| {
         const detail = wasm_host.lastError();
         if (detail.len > 0) {
             return die(stderr, "{s}", .{detail});
@@ -227,12 +226,36 @@ pub fn main(init: std.process.Init) !void {
             error.BaseNotText => die(stderr, "That base renders raw bytes rather than text, so it cannot carry an identifier.", .{}),
             error.EnvUnavailable => die(stderr, "This machine could not supply that component - no name, hardware address, or random source.", .{}),
             error.OptionRange => die(stderr, "A symbol count is out of range. Want 1 to {d}.", .{zuid.core.max_component_chars}),
+            error.BufferTooSmall => die(stderr, "That format renders more than {d} bytes, which is past what this command will print.", .{max_out_len}),
             else => die(stderr, "Generation failed: {t}.", .{err}),
         };
     };
 
     try stdout.print("{s}\n", .{id});
     try stdout.flush();
+}
+
+/// Where the growing below gives up. Only here so a runaway format ends in a
+/// message instead of eating memory; an identifier anyone wants is far shorter.
+const max_out_len = 1 << 20;
+
+/// Renders into a buffer that grows until the identifier fits. A fixed one
+/// refused anything past it, whether the format repeated a component or just
+/// carried a long literal, and the module renders into whatever it is handed.
+fn generateGrowing(
+    arena: std.mem.Allocator,
+    conv: zuid.core.Converter,
+    live_env: zuid.core.Env,
+    opts: zuid.core.Options,
+) ![]const u8 {
+    var cap: usize = zuid.core.out_buf_len;
+    while (true) {
+        const buf = try arena.alloc(u8, cap);
+        if (zuid.core.generate(conv, live_env, opts, buf)) |id| return id else |err| {
+            if (err != error.BufferTooSmall or cap >= max_out_len) return err;
+            cap *= 2;
+        }
+    }
 }
 
 /// Resolves a flag's value from either spelling - attached with '=', or the

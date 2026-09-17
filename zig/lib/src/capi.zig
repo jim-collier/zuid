@@ -73,6 +73,7 @@ fn textFor(err: core.Error) []const u8 {
         core.Error.HashTooWide => "a hashed component cannot be wider than a SHA-256 fills in that base",
         core.Error.EnvUnavailable => "this machine could not supply that component",
         core.Error.BaseNotText => "that base renders raw bytes rather than text, so it cannot carry an identifier",
+        core.Error.BufferTooSmall => "out_cap is too small for the identifier plus its terminating NUL",
         else => "",
     };
 }
@@ -155,13 +156,22 @@ pub export fn zuid_free(z: ?*Zuid) void {
 
 pub export fn zuid_generate(z: ?*Zuid, format: ?[*:0]const u8, base: ?[*:0]const u8, out: ?[*]u8, out_cap: usize) c_int {
     const self = checked(z) orelse return 7;
-    const out_ptr = out orelse return 5;
-    if (out_cap == 0) return 5;
+    // Cleared before the buffer is checked, so a rejected buffer reports its own
+    // reason rather than whatever the previous call left behind.
     self.err_buf[0] = 0;
     // The host keeps its text until something overwrites it, and the failures
     // below can happen before the converter is ever called. Without this,
     // zuid_last_error would answer with the previous call's message.
     self.wasm_host.clearErr();
+
+    const out_ptr = out orelse {
+        self.setErrText("out is NULL, so there is nowhere to write the identifier");
+        return 5;
+    };
+    if (out_cap == 0) {
+        self.setErrText("out_cap is 0, which leaves no room even for the terminating NUL");
+        return 5;
+    }
     out_ptr[0] = 0;
 
     const fmt: []const u8 = if (format) |format_z| std.mem.span(format_z) else "";
@@ -179,8 +189,16 @@ pub export fn zuid_generate(z: ?*Zuid, format: ?[*:0]const u8, base: ?[*:0]const
         .random_chars = self.random_chars,
     };
 
-    var id_buf: [core.out_buf_len]u8 = undefined;
-    const id = core.generate(self.wasm_host.converter(), self.live_env.env(), opts, &id_buf) catch |err| {
+    // Straight into the caller's buffer, minus the byte the NUL needs. This
+    // used to render into a fixed 4096-byte buffer first, which meant any
+    // identifier over that size was refused as ZUID_ERR_BUFFER however large
+    // out_cap was - a format the Go module renders happily. The only limit now
+    // is the one the header documents.
+    const room = out_ptr[0 .. out_cap - 1];
+    const id = core.generate(self.wasm_host.converter(), self.live_env.env(), opts, room) catch |err| {
+        // Rendering happens in place now, so a failure part way through leaves
+        // its own partial output behind. The header promises an empty string.
+        out_ptr[0] = 0;
         const reported = self.wasm_host.lastError();
         // The ceiling depends on the base, so "too wide" on its own leaves the
         // caller guessing what would fit. Everything else either has the
@@ -190,8 +208,6 @@ pub export fn zuid_generate(z: ?*Zuid, format: ?[*:0]const u8, base: ?[*:0]const
         }
         return codeFor(err);
     };
-    if (id.len + 1 > out_cap) return 5;
-    @memcpy(out_ptr[0..id.len], id);
     out_ptr[id.len] = 0;
     return 0;
 }

@@ -508,6 +508,54 @@ test "the C module rejects a null context" {
     try std.testing.expectEqualStrings("", std.mem.span(capi.zuid_last_error(null)));
 }
 
+// ZUID_ERR_BUFFER used to mean two unrelated things: the caller's buffer really
+// was too small, or the identifier had passed a fixed 4096-byte buffer inside
+// the module that no out_cap could raise. It carried no text either way, so
+// there was nothing to tell them apart by. The Go module has no such limit, so
+// a format Go rendered, C refused.
+test "a long identifier is bounded only by the caller's buffer" {
+    const z = capi.zuid_new() orelse return error.InitFailed;
+    defer capi.zuid_free(z);
+
+    var big: [65536]u8 = undefined;
+    const spanOf = struct {
+        fn f(buf: []const u8) []const u8 {
+            return std.mem.span(@as([*:0]const u8, @ptrCast(buf.ptr)));
+        }
+    }.f;
+
+    // 200 UUIDs in base 62, 22 symbols each: 4400 bytes, past the old ceiling.
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%g" ** 200, "62", &big, big.len));
+    try std.testing.expectEqual(@as(usize, 200 * 22), spanOf(&big).len);
+
+    // A literal that long as well, since the old buffer bounded the whole
+    // rendering rather than any one component.
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "x" ** 5000, "62", &big, big.len));
+    try std.testing.expectEqual(@as(usize, 5000), spanOf(&big).len);
+
+    // Exactly enough room, and one byte short of it. %d in base 62 is 6
+    // symbols at second precision, so 7 bytes is the least that can hold it.
+    capi.zuid_set_clock_ms(z, 946684800000);
+    var tight: [7]u8 = undefined;
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%d", "62", &tight, tight.len));
+    try std.testing.expectEqualStrings("124Bxg", spanOf(&tight));
+    try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%d", "62", &tight, tight.len - 1));
+    capi.zuid_clear_clock(z);
+
+    // And every way of being refused now says something.
+    try std.testing.expect(std.mem.indexOf(u8, std.mem.span(capi.zuid_last_error(z)), "out_cap") != null);
+    try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%d", "62", &big, 0));
+    try std.testing.expect(std.mem.indexOf(u8, std.mem.span(capi.zuid_last_error(z)), "out_cap") != null);
+    try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%d", "62", null, 16));
+    try std.testing.expect(std.mem.indexOf(u8, std.mem.span(capi.zuid_last_error(z)), "NULL") != null);
+
+    // Nothing readable is left behind when a render runs out of room part way,
+    // which it now does inside the caller's own buffer.
+    var partial: [12]u8 = undefined;
+    try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%g%g", "62", &partial, partial.len));
+    try std.testing.expectEqual(@as(u8, 0), partial[0]);
+}
+
 // A context that is never freed used to be reported by nothing: no test and no
 // debug build, because the allocator's own check has no moment to run in. A C
 // caller never says it is finished, so the tests have to ask instead. This one

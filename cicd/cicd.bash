@@ -686,7 +686,27 @@ fStage_Zig(){
 		fThrowError "zig fmt would rewrite: ${unformattedZig//$'\n'/, }"  "${FUNCNAME[0]}"
 	fi
 
+	fStage_Zig_Cli
 	fStage_Zig_CApi
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The vectors cover the two modules. What the command itself prints, and what
+## it exits with, is only checked here.
+fStage_Zig_Cli(){
+
+	fEcho_Clean
+	fEcho "Zig: command surface"
+
+	local -r runner="${utilityDir}/cli-test.bash"
+	if [[ ! -f "${runner}" ]]; then
+		fEcho_Clean "Skipped ....: cli-test.bash is not present."
+		return 0
+	fi
+
+	bash "${runner}" --bin "${zigDir}/zig-out/bin/zuid"
 
 }
 

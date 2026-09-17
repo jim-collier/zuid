@@ -84,8 +84,13 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Fixed: `capi.liveContexts()` and `capi.leakCount()` let the tests ask instead, the second one straight through `DebugAllocator.detectLeaks()` so the stack traces the design promises are real. Both are debug-only, so a release build carries no counter.
 		- Verified: the review's own injection - replacing the three `defer capi.zuid_free(z)` lines with `_ = &z` - reports "expected 0, found 3", and the allocator half names all three leaked addresses on its own when checked first.
 		- Note: the test deliberately does not free twice. The magic check reads memory the allocator has unmapped, so it segfaults rather than returning, which is the recorded reason the header promises no more than C's `free()`.
-	- 🔘 F5, should-fix: the C module reports a buffer too small for any identifier over 4 KB, however large the caller's buffer, and that error never has a message.
+	- ✅ F5, should-fix: the C module reports a buffer too small for any identifier over 4 KB, however large the caller's buffer, and that error never has a message.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
+		- Fixed: `zuid_generate` renders straight into the caller's buffer, less the byte the NUL needs, so the only limit is the one the header documents. The error path now re-terminates that buffer, since a failure part way through leaves its own partial output where a separate buffer used to hide it.
+		- Fixed: `ZUID_ERR_BUFFER` carries text in all three cases - a short `out_cap`, a zero `out_cap`, and a NULL `out`. The clearing moved above the buffer checks so a rejected buffer reports its own reason rather than the previous call's.
+		- Swept: the command had the same fixed 4096 buffer and reported `BufferTooSmall` by its error name. It now grows the buffer until the identifier fits, up to 1 MB, and says so in words past that. The Go module returns a string and never had the limit.
+		- Done: `cicd/utility/cli-test.bash` is new - 15 cases over what the command prints and exits with, which nothing covered before - and is a cicd stage.
+		- Verified: before the fix all four probe cases returned code 5 with empty text, including two that should have rendered. Reverting the module fails the Zig test and three `capi_smoke.c` checks; reverting the command fails three CLI cases.
 	- 🔘 F10, should-fix: the PowerShell installer picks a system install on Linux and macOS for users who cannot write there.
 		- Origin: 08c6996. Not seen by an earlier review. Confirmed.
 	- 🔘 F11, should-fix: re-running either installer on the installed version downloads and reinstalls it, though both say that is a no-op.
