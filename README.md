@@ -72,6 +72,7 @@ Short, sortable, privacy-preserving unique identifiers - from a command line, a 
 - [Setting up a development environment](#setting-up-a-development-environment)
 	- [Prerequisites](#prerequisites)
 	- [Building and testing](#building-and-testing)
+	- [House style](#house-style)
 - [Copyright and license](#copyright-and-license)
 
 <!-- /TOC -->
@@ -219,6 +220,16 @@ Underneath it is just `cd go && go build ./...` and `cd zig && zig build`. The Z
 Both sides have to reproduce every row of `testdata/vectors.tsv` before anything merges. That file is the specification in executable form, so a change to the identifier format means regenerating it and re-running both.
 
 Run logs, profiles, and demo renders land under `cicd/artifacts/`, which is rotated and not committed.
+
+### House style
+
+Three documents, and between them they answer most of what a patch gets sent back for.
+
+- Formatters, naming, comments and error handling are in [style_guide.md](style_guide.md).
+
+- [style-guide_cli.md](style-guide_cli.md) covers the surface a user meets: which stream things print on, what the exit code means, how a flag is spelled, and what an error message looks like.
+
+- For the process side - where to report a bug, and what a useful report has in it - read [contributing.md](contributing.md).
 
 ## Copyright and license
 

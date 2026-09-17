@@ -520,6 +520,31 @@ fStage_Docs(){
 	fEcho_Clean
 	fEcho "Docs: claims that can be counted"
 
+	## Both style guides were written and then pointed at from two places. A
+	## guide nothing links to is one nobody reads, which is how the CLI one came
+	## to be missing in the first place.
+	local guide="" from=""
+	for from in README.md contributing.md; do
+		for guide in style_guide.md style-guide_cli.md; do
+			grep -q "(${guide})" "${repoRoot}/${from}" \
+				|| fThrowError "${from} does not link ${guide}."  "${FUNCNAME[0]}"
+		done
+	done
+	fEcho_Clean "Style ......: both guides are linked from README.md and contributing.md"
+
+	## And every relative link in the root documents goes somewhere.
+	local doc="" target="" missing=0
+	for doc in "${repoRoot}"/*.md; do
+		while read -r target; do
+			[[ -n "${target}" ]] || continue
+			[[ -e "${repoRoot}/${target%%#*}" ]] && continue
+			fEcho_Clean "Broken .....: $(basename "${doc}") -> ${target}"
+			missing=$((missing + 1))
+		done < <(grep -oE '\]\([^):]+\)' "${doc}" | sed -e 's/^](//' -e 's/)$//' || true)
+	done
+	((missing == 0)) || fThrowError "${missing} relative link(s) in the root documents point at nothing."  "${FUNCNAME[0]}"
+	fEcho_Clean "Links ......: every relative link in the root documents resolves"
+
 	local -r design="${repoRoot}/project/design.md"
 	if [[ ! -f "${design}" ]]; then
 		fEcho_Clean "Skipped ....: project/design.md is not present."

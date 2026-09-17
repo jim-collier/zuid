@@ -47,18 +47,20 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ### Bugs
 
+- 🔘 One error message reads in a different style from every other one. A base the conversion library does not know comes back as `zuid: unknown base "nope"; did you mean "nice"?` - lower case, double quotes - because the library's own text is passed straight through. Every message the command writes itself is a capitalized sentence with the value in single quotes.
+	- Note: found while writing `style-guide_cli.md`, which records the convention. The guide names this as the one exception.
+	- Note: the suggestion is worth keeping, so this is about reshaping the text rather than dropping it.
+	- Opened: 20260917-133000
+
+- 🔘 Several `.md` files run their top-level bullets tight, with no blank line between them. `contributing.md` and `style_guide.md` are the two.
+	- Note: `contributing.md` came from a generator and arrived that way. Decide whether its lists get reflowed or left as the template wrote them.
+	- Opened: 20260917-133000
+
 ### New features and enhancements
 
 - 🔘 Run the Zig fuzz tests in fuzz mode, once a Zig release can build one.
 	- Note: the tests are written and replay their corpus on every run. `zig build test --fuzz` fails to compile inside 0.16.0's own test runner, so nothing on this side can fix it. `details.md` has the error.
 	- Opened: 20260917-131500
-
-- 🔘 Nothing points at `style_guide.md`. `README.md` should, and so should `contributing.md`, whose style section is still a commented-out stub.
-	- Opened: 20260917-104114
-
-- 🔘 No UI and UX style guide for the command. Write down how help, flags, output and errors are laid out, and point `README.md` at it.
-	- Write 'style-guide_cli.md'.
-	- Opened: 20260917-104114
 
 - 🔘 The installers' system-wide destinations are untested.
 	- Note: both have only run against a throwaway home directory.
@@ -240,6 +242,19 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Closed: 20260804-224440
 
 #### Done - New features and enhancements
+
+- ✅ No UI and UX style guide for the command. Write down how help, flags, output and errors are laid out, and point `README.md` at it.
+	- Done: `style-guide_cli.md` covers streams and exit codes, flag spelling and value attachment, the shape of an error message, the order of the help screen, and what `--version`, `--about` and `--donate` each print.
+	- Done: every claim in it was read off the built command rather than from the source, so it describes what a user meets.
+	- Note: it turned up one message that does not follow the convention. Filed as a bug; the guide names it as the exception meanwhile.
+	- Opened: 20260917-104114
+	- Closed: 20260917-133000
+
+- ✅ Nothing points at `style_guide.md`. `README.md` should, and so should `contributing.md`, whose style section is still a commented-out stub.
+	- Done: `README.md` has a House style section under development setup, listing both style guides and `contributing.md`.
+	- Done: `contributing.md`'s stub is a real Style section now, pointing at both guides, with the commit message rules under it.
+	- Opened: 20260917-104114
+	- Closed: 20260917-133000
 
 - ✅ Give the shared C library a versioned name such as `libzuid.so.1`, to go with the error codes that are kept stable.
 	- Done: `build.zig` sets the library version from the one version constant in `core.zig`, dropping the prerelease tag. The build now writes `libzuid.so.1.0.0` with `libzuid.so.1` and `libzuid.so` as symlinks onto it, and the soname a linked program records is `libzuid.so.1`.
