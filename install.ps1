@@ -214,6 +214,24 @@ $baseUrl = "https://github.com/$repository/releases/download/$tag"
 $existing = Join-Path $installDirectory (Join-Path 'bin' $binaryName)
 $installedVersion = if (Test-Path $existing) { (& $existing --version 2>$null | Select-Object -First 1) } else { $null }
 
+## --version is "1.0.0-alpha.1 (build dcrb0)", and the tag carries a leading v.
+## Nothing used to compare the two, so a second run downloaded the same release,
+## deleted the install directory and copied it back - while the help, the README
+## and the backlog all said re-running changes nothing.
+if ($installedVersion) {
+	$installedTag = ($installedVersion -split ' ')[0]
+	if ($installedTag -eq ($tag -replace '^v', '')) {
+		Write-Detail ''
+		Write-Status 'Already installed'
+		Write-Detail "  Version ....: $tag ($kind)"
+		Write-Detail "  Location ...: $installDirectory"
+		Write-Detail ''
+		Write-Detail '  Nothing to do. To reinstall, run -Uninstall first.'
+		Write-Host ''
+		return
+	}
+}
+
 Write-Detail ''
 Write-Status 'Plan'
 Write-Detail "  Version ....: $tag ($kind)"

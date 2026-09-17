@@ -170,6 +170,22 @@ base="https://github.com/${REPO}/releases/download/${tag}"
 installed=""
 [[ -x "${linkPath}" ]] && installed="$("${linkPath}" --version 2>/dev/null | head -n1 || true)"
 
+## --version is "1.0.0-alpha.1 (build dcrb0)", and the tag carries a leading v.
+## Nothing used to compare the two, so a second run downloaded the same release,
+## deleted the install directory and copied it back - while the help, the README
+## and the backlog all said re-running changes nothing.
+installedVer="${installed%% *}"
+if [[ -n "${installedVer}" && "${installedVer}" == "${tag#v}" ]]; then
+	fLine ""
+	fEcho "Already installed"
+	fLine "  Version ....: ${tag} (${kind})"
+	fLine "  Location ...: ${installDir}"
+	fLine ""
+	fLine "  Nothing to do. To reinstall, run --uninstall first."
+	printf '\n'
+	exit 0
+fi
+
 fLine ""
 fEcho "Plan"
 fLine "  Version ....: ${tag} (${kind})"

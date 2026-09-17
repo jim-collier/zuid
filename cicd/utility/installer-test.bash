@@ -133,18 +133,28 @@ fMakeRelease "v2.1.0-beta.1"
 fMakeRelease "v2.0.0"
 
 ## Port 0 lets the kernel pick, so parallel runs and a busy box cannot collide.
-python3 - "${srvRoot}" "${work}/port" <<'PY' &
+## Every path asked for is logged, which is how the re-run case tells a no-op
+## from a script that merely says it did nothing.
+python3 - "${srvRoot}" "${work}/port" "${work}/requests.log" <<'PY' &
 import http.server, socketserver, sys, os
-root, portFile = sys.argv[1], sys.argv[2]
+root, portFile, logFile = sys.argv[1], sys.argv[2], sys.argv[3]
 os.chdir(root)
-class Quiet(http.server.SimpleHTTPRequestHandler):
+class Logged(http.server.SimpleHTTPRequestHandler):
 	def log_message(self, *a): pass
-with socketserver.TCPServer(("127.0.0.1", 0), Quiet) as httpd:
+	def do_GET(self):
+		with open(logFile, "a") as f:
+			f.write(self.path + "\n")
+		super().do_GET()
+with socketserver.TCPServer(("127.0.0.1", 0), Logged) as httpd:
 	with open(portFile, "w") as f:
 		f.write(str(httpd.server_address[1]))
 	httpd.serve_forever()
 PY
 serverPid=$!
+
+## Downloads only. The release listing is read on every run by design, so
+## counting that would say nothing about whether anything was fetched.
+fRequestCount(){ grep -c '/dl/' "${work}/requests.log" 2>/dev/null || printf '0' ;}
 
 for _ in $(seq 1 50); do
 	[[ -s "${work}/port" ]] && break
@@ -345,6 +355,46 @@ fCase_DefaultTarget(){  ## label, runner
 	fi
 }
 
+## Re-running on the version already installed. Both scripts' help, the README
+## and the closed backlog item all said that changes nothing, and nothing
+## compared the installed version with the chosen tag, so a second run
+## downloaded the release again, deleted the install directory and copied it
+## back. Counted by what the server was asked for, not by what the script says.
+fCase_Rerun(){  ## label, runner
+	local -r label="$1" runner="$2"
+	local home="" first="" second="" got=""
+	home="$(fNewHome "${label}-rerun")"
+
+	first="$("${runner}" "${home}" user yes)" || true
+	got="$(fInstalledVersion "${home}")"
+	if [[ "${got}" != "2.0.0" ]]; then
+		fFail "${label}: the first run did not install. Output: ${first}"
+		return 0
+	fi
+
+	local -r before="$(fRequestCount)"
+	second="$("${runner}" "${home}" user yes)" || true
+	local -r after="$(fRequestCount)"
+
+	if [[ "${after}" == "${before}" ]]
+		then fPass "${label}: a re-run on the same version downloads nothing"
+		else fFail "${label}: the re-run made $((after - before)) request(s). Output: ${second}"
+	fi
+	if [[ "${second}" == *"Already installed"* ]]
+		then fPass "${label}: and says it is already installed"
+		else fFail "${label}: said nothing about being already installed. Output: ${second}"
+	fi
+
+	## A different version still replaces it, so the check cannot be a blanket
+	## refusal to do anything.
+	second="$("${runner}" "${home}" user dev yes)" || true
+	got="$(fInstalledVersion "${home}")"
+	if [[ "${got}" == "2.1.0-beta.1" ]]
+		then fPass "${label}: a different version still installs over it"
+		else fFail "${label}: expected the beta to replace it, got ${got}. Output: ${second}"
+	fi
+}
+
 fEcho "Installers: against a local release listing on port ${port}"
 fLine ""
 
@@ -352,6 +402,7 @@ if [[ "${only}" != "ps1" ]]; then
 	fLine "install.bash"
 	fCase_ReleaseChoice "bash" "fRunBash"
 	fCase_DefaultTarget "bash" "fRunBash"
+	fCase_Rerun "bash" "fRunBash"
 fi
 
 if [[ "${only}" != "bash" ]]; then
@@ -362,6 +413,7 @@ if [[ "${only}" != "bash" ]]; then
 	else
 		fCase_ReleaseChoice "ps1" "fRunPs1"
 		fCase_DefaultTarget "ps1" "fRunPs1"
+		fCase_Rerun "ps1" "fRunPs1"
 	fi
 fi
 

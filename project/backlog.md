@@ -98,8 +98,11 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Verified: a new harness case. Before the fix nothing landed under `HOME`; after it, the user install happens. It skips itself where the system location is writable, such as a run as root, since system is then the right answer.
 		- Note: an explicit `-Target system` never reaches the probe, so that path is unchanged. Not covered by a test, since a system install needs root.
 		- Note: the harness gave every case its own `HOME` only on paper - the counter naming them was incremented inside the command substitution that read it, so the subshell kept the new value and all of them shared one directory. Named directories now.
-	- 🔘 F11, should-fix: re-running either installer on the installed version downloads and reinstalls it, though both say that is a no-op.
+	- ✅ F11, should-fix: re-running either installer on the installed version downloads and reinstalls it, though both say that is a no-op.
 		- Origin: 08c6996. Reopens the done installer item, whose re-run claim had no test. Confirmed.
+		- Cause: both read the installed version for the plan's "Replacing" line and neither compared it with the chosen tag.
+		- Fixed: both compare, and a match prints "Already installed" with the version and location, then exits without fetching anything. Reinstalling means `--uninstall` first, which the message says.
+		- Verified: the harness counts what the local server was asked for, so the no-op is measured rather than taken from the script's own output. Before the fix a re-run made two requests, the tarball and the checksums. A different version still installs over the old one, in both states, so the check is not a blanket refusal.
 	- 🔘 F12, should-fix: the `go get` line in `README.md` leaves a program that imports the package unable to build, and the prerelease cannot be asked for by version.
 		- Origin: 2209333. Not seen by an earlier review. Confirmed.
 	- 🔘 F13, should-fix: `zuid -f ''` prints an empty identifier and succeeds, where the Go and C modules treat an empty format as `%d`.
