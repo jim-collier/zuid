@@ -41,6 +41,11 @@ pub const random_bits: u16 = 35;
 /// bounded separately, by the output buffer the caller supplies.
 pub const max_component_chars: u32 = 64;
 
+/// Longest salt a hashed component will take. SHA-256 works on 64-byte blocks,
+/// so a longer secret than this is not buying anything, and a fixed ceiling
+/// lets the C context hold the salt without a second allocation.
+pub const max_salt_bytes: u32 = 256;
+
 /// Bit widths of the fixed-size components, which is what their output widths
 /// are derived from.
 const mac_bits: u16 = 48;
@@ -130,6 +135,8 @@ pub const Error = error{
     /// hash_chars is past what a SHA-256 fills in this base, so the extra
     /// symbols would all be left-fill. maxHashChars has the ceiling.
     HashTooWide,
+    /// salt is longer than max_salt_bytes.
+    SaltTooLong,
 };
 
 /// What the core needs from base conversion, and nothing more: one-shot
@@ -217,6 +224,10 @@ pub const Options = struct {
     clock_ms: i64,
     /// Emit host, user, and FQDN literally instead of hashed.
     no_hash: bool = false,
+    /// Secret mixed into the hashed names. Empty, the default, hashes the name
+    /// on its own, which is what every identifier ever generated did before
+    /// this existed. Anything else changes %h %u %f and nothing else.
+    salt: []const u8 = "",
     /// Zero means the default width for the output base, which is derived
     /// rather than fixed - see hash_bits.
     hash_chars: u32 = 0,
@@ -278,6 +289,7 @@ pub fn maxHashChars(radix: u64) u32 {
 /// Renders one identifier into out and returns the filled slice.
 pub fn generate(conv: Converter, env: Env, opts: Options, out: []u8) Error![]const u8 {
     const base = if (opts.base.len == 0) default_base else opts.base;
+    if (opts.salt.len > max_salt_bytes) return Error.SaltTooLong;
     try rejectRawByteBase(conv, base);
 
     // Widths settle here rather than in Options, because the defaults depend on
@@ -413,6 +425,10 @@ const NameKind = enum { host, user, fqdn };
 /// only the rightmost few symbols survive, so the identifier carries a
 /// fingerprint rather than an identity. Opting out emits the name itself,
 /// which is the one component that is not fixed width.
+///
+/// The salt goes in ahead of the name, with nothing between them. An empty
+/// salt therefore hashes exactly the name, which is what keeps every existing
+/// identifier and every vector unchanged.
 fn nameComponent(conv: Converter, env: Env, base: []const u8, opts: Options, width: u32, kind: NameKind, out: []u8) Error![]const u8 {
     var name_buf: [name_buf_len]u8 = undefined;
     const name = switch (kind) {
@@ -427,8 +443,11 @@ fn nameComponent(conv: Converter, env: Env, base: []const u8, opts: Options, wid
         @memcpy(out[0..name.len], name);
         return out[0..name.len];
     }
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    hasher.update(opts.salt);
+    hasher.update(name);
     var digest: [digest_bits / 8]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(name, &digest, .{});
+    hasher.final(&digest);
     return bytesComponent(conv, base, &digest, width, out);
 }
 

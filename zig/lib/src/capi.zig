@@ -54,7 +54,7 @@ fn codeFor(err: core.Error) c_int {
         core.Error.BadInput, core.Error.ConvertFailed => 4,
         core.Error.BufferTooSmall => 5,
         core.Error.ClockBeforeEpoch => 6,
-        core.Error.OptionRange, core.Error.HashTooWide => 9,
+        core.Error.OptionRange, core.Error.HashTooWide, core.Error.SaltTooLong => 9,
         core.Error.EnvUnavailable => 10,
         core.Error.WidthOverflow => 12,
         core.Error.BaseNotText => 13,
@@ -71,6 +71,7 @@ fn textFor(err: core.Error) []const u8 {
         core.Error.UnknownComponent => "unknown format component; known: %d %h %u %f %m %g %r, and %% for a literal",
         core.Error.OptionRange => "a symbol count is out of range",
         core.Error.HashTooWide => "a hashed component cannot be wider than a SHA-256 fills in that base",
+        core.Error.SaltTooLong => "the salt is longer than ZUID_MAX_SALT_BYTES",
         core.Error.EnvUnavailable => "this machine could not supply that component",
         core.Error.BaseNotText => "that base renders raw bytes rather than text, so it cannot carry an identifier",
         core.Error.BufferTooSmall => "out_cap is too small for the identifier plus its terminating NUL",
@@ -95,6 +96,10 @@ pub const Zuid = struct {
     no_hash: bool,
     hash_chars: u32,
     random_chars: u32,
+    // Copied rather than kept by pointer: a caller is free to free or reuse the
+    // string it passed, and the context has to outlive that.
+    salt_buf: [core.max_salt_bytes]u8,
+    salt_len: usize,
     // The host's error text plus a NUL, so zuid_last_error can hand out a C string.
     err_buf: [host.Host.err_buf_len + 1]u8,
 
@@ -142,6 +147,7 @@ pub export fn zuid_new() ?*Zuid {
     // Zero means the derived default for whatever base each call renders in.
     self.hash_chars = 0;
     self.random_chars = 0;
+    self.salt_len = 0;
     self.err_buf[0] = 0;
     if (counts_contexts) live_contexts += 1;
     return self;
@@ -188,6 +194,7 @@ pub export fn zuid_generate(z: ?*Zuid, format: ?[*:0]const u8, base: ?[*:0]const
         .no_hash = self.no_hash,
         .hash_chars = self.hash_chars,
         .random_chars = self.random_chars,
+        .salt = self.salt_buf[0..self.salt_len],
     };
 
     // Straight into the caller's buffer, minus the byte the NUL needs. This
@@ -222,6 +229,15 @@ pub export fn zuid_set_precision(z: ?*Zuid, precision: c_int) c_int {
 pub export fn zuid_set_hashing(z: ?*Zuid, enabled: c_int) void {
     const self = checked(z) orelse return;
     self.no_hash = enabled == 0;
+}
+
+pub export fn zuid_set_salt(z: ?*Zuid, salt: ?[*:0]const u8) c_int {
+    const self = checked(z) orelse return 7;
+    const text: []const u8 = if (salt) |salt_z| std.mem.span(salt_z) else "";
+    if (text.len > self.salt_buf.len) return 9;
+    @memcpy(self.salt_buf[0..text.len], text);
+    self.salt_len = text.len;
+    return 0;
 }
 
 pub export fn zuid_set_hash_chars(z: ?*Zuid, chars: c_int) c_int {

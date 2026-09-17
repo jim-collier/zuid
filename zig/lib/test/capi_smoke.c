@@ -80,6 +80,25 @@ int main(void) {
 	wantCode("generate defaulted", zuid_generate(z, "%h%r", NULL, out, sizeof out), ZUID_OK);
 	wantLen("defaulted components", out, 14);
 
+	/* The salt is sticky, and only the hashed names read it. */
+	{
+		char salted[256], unsalted[256], over[ZUID_MAX_SALT_BYTES + 2];
+		wantCode("generate unsalted", zuid_generate(z, "%h", "62", unsalted, sizeof unsalted), ZUID_OK);
+		wantCode("set salt", zuid_set_salt(z, "pepper"), ZUID_OK);
+		wantCode("generate salted", zuid_generate(z, "%h", "62", salted, sizeof salted), ZUID_OK);
+		if (strcmp(salted, unsalted) == 0) {
+			printf("  salted and unsalted host both came out %s\n", salted);
+			fails++;
+		}
+		wantLen("salted host", salted, 8);
+		wantCode("clear salt", zuid_set_salt(z, NULL), ZUID_OK);
+		wantCode("generate unsalted again", zuid_generate(z, "%h", "62", out, sizeof out), ZUID_OK);
+		want("salt cleared", out, unsalted);
+		memset(over, 's', sizeof over - 1);
+		over[sizeof over - 1] = '\0';
+		wantCode("salt over cap", zuid_set_salt(z, over), ZUID_ERR_OPTION);
+	}
+
 	/* Every rejection path the header documents. */
 	wantCode("hash chars over cap", zuid_set_hash_chars(z, ZUID_MAX_COMPONENT_CHARS + 1), ZUID_ERR_OPTION);
 	wantCode("random chars over cap", zuid_set_random_chars(z, ZUID_MAX_COMPONENT_CHARS + 1), ZUID_ERR_OPTION);

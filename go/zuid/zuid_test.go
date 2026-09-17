@@ -23,7 +23,7 @@ const vectorPath = "../../testdata/vectors.tsv"
 
 // expectedVectorRows guards against a parsing bug that skips most of the file
 // and then passes. Bump it when rows are added.
-const expectedVectorRows = 190
+const expectedVectorRows = 201
 
 // Injected state for one row. The defaults match the vectors file's header, so
 // a row only spells out what it cares about.
@@ -74,6 +74,8 @@ func parseEnv(t *testing.T, spec string, req *zuid.Request) env {
 			result.random, err = hex.DecodeString(value)
 		case "nohash":
 			req.NoHash = value == "1"
+		case "salt":
+			req.Salt = value
 		case "hashchars":
 			req.HashChars, err = strconv.Atoi(value)
 		case "randchars":
@@ -326,6 +328,48 @@ func TestHashedComponentsFingerprint(t *testing.T) {
 	}
 	if want := zuid.DefaultHashChars(62); len([]rune(first)) != want {
 		t.Errorf("hashed host %q is %d symbols, want %d", first, len([]rune(first)), want)
+	}
+}
+
+// A salt is what stops someone holding identifiers from confirming a host name
+// by hashing candidates. The vectors pin the values; this covers the edges.
+func TestSalt(t *testing.T) {
+	generator := sharedGenerator(t)
+	render := func(req zuid.Request) string {
+		t.Helper()
+		applyEnv(t, generator, 0, defaultEnv())
+		got, err := generator.Generate(req)
+		if err != nil {
+			t.Fatalf("salt %q: %v", req.Salt, err)
+		}
+		return got
+	}
+
+	plain := render(zuid.Request{Format: "%h"})
+	salted := render(zuid.Request{Format: "%h", Salt: "pepper"})
+	if plain == salted {
+		t.Errorf("salted and unsalted host both rendered %q", plain)
+	}
+	if len([]rune(plain)) != len([]rune(salted)) {
+		t.Errorf("salt changed the width: %q against %q", plain, salted)
+	}
+	// An empty salt hashes the name on its own, which is what keeps every
+	// identifier generated before the salt existed valid.
+	if empty := render(zuid.Request{Format: "%h", Salt: ""}); empty != plain {
+		t.Errorf("empty salt rendered %q, want %q", empty, plain)
+	}
+	// A literal name never reads the salt.
+	if literal := render(zuid.Request{Format: "%h", Salt: "pepper", NoHash: true}); literal != "testhost" {
+		t.Errorf("unhashed host rendered %q, want the name itself", literal)
+	}
+
+	applyEnv(t, generator, 0, defaultEnv())
+	if _, err := generator.Generate(zuid.Request{Format: "%h", Salt: strings.Repeat("s", zuid.MaxSaltBytes)}); err != nil {
+		t.Errorf("salt of exactly %d bytes: %v", zuid.MaxSaltBytes, err)
+	}
+	applyEnv(t, generator, 0, defaultEnv())
+	if _, err := generator.Generate(zuid.Request{Format: "%h", Salt: strings.Repeat("s", zuid.MaxSaltBytes+1)}); err == nil {
+		t.Errorf("salt of %d bytes was accepted", zuid.MaxSaltBytes+1)
 	}
 }
 

@@ -59,12 +59,6 @@ None open.
 	- Note: both have only run against a throwaway home directory.
 	- Opened: 20260804-224440
 
-- 🔘 Decide whether hashed host and user names need a salt.
-	- Note: they cannot be reversed, but host and user names come from a small space, so an attacker can hash candidates and compare.
-	- Note: a salt would have to live somewhere that still lets the same name hash the same on every machine.
-	- In the code, so the same username hashes the same on any machine. Overridable with a '--salt=[value]' option.
-	- Opened: 20260802-135041
-
 - 🔘 `%m` is Linux-only on the Zig side - it reads `getifaddrs` for `AF_PACKET`, and macOS wants `AF_LINK` instead. The Go module is already portable, and the help text and the C header both say so. Do it alongside the cross targets, since nothing on the Zig side cross-compiles yet either.
 	- Should work on Windows too.
 	- Opened: 20260802-135041
@@ -256,6 +250,14 @@ None open.
 	- Closed: 20260804-224440
 
 #### Done - New features and enhancements
+
+- ✅ Decide whether hashed host and user names need a salt.
+	- Decided: supplied, not built in. A constant compiled into a public binary is public, so it would only have defeated a plain SHA-256 table, and it would have changed every identifier ever generated.
+	- Done: `--salt` on the command, `Request.Salt` in Go, `zuid_set_salt` in the C module. Empty by default, and an empty salt hashes the name on its own, so the existing 190 vectors are untouched.
+	- Done: 11 new vectors cover the salted case, including an empty salt, a one-byte difference, a wide base and a literal name ignoring it.
+	- Note: a salt on a command line shows in the process list. Said so in the help and in `design.md`.
+	- Opened: 20260802-135041
+	- Closed: 20260917-184500
 
 - ✅ No UI and UX style guide for the command. Write down how help, flags, output and errors are laid out, and point `README.md` at it.
 	- Done: `style-guide_cli.md` covers streams and exit codes, flag spelling and value attachment, the shape of an error message, the order of the help screen, and what `--version`, `--about` and `--donate` each print.
@@ -469,7 +471,7 @@ None open.
 
 - ✅ Confirm the hashed host/user components cannot be reversed to the originals.
 	- ✅ Not reversible by construction: a hashed component keeps about 47 bits of a 256-bit SHA-256 whatever the base, discarding more than 200, so nothing can be inverted back to a unique name.
-	- Note: whether they need a salt against a dictionary attack is still open.
+	- Note: a dictionary attack was the open half of this, and `--salt` closed it on 20260917.
 	- Opened: 20260801-090104
 	- Closed: 20260802-135041
 

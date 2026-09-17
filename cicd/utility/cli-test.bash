@@ -136,6 +136,21 @@ fWantFailure "a blank base is refused"            "is blank" --base '  '
 fWantFailure "a very long base is still a base" "Unknown base" \
 	--base "$(python3 -c 'print("a" * 1000)')"
 
+## The salt changes the hashed names and nothing else. An empty one hashes the
+## name on its own, which is what keeps older identifiers comparable.
+fWantLen "a salted host is the same width"  8 --format '%h' --salt pepper
+fWantExact "an empty salt is the default"   "$(fRun --format '%h')" --format '%h' --salt ''
+fWantExact "a literal name ignores the salt" "$(fRun --format '%h' --no-hash)" --format '%h' --no-hash --salt pepper
+fWantFailure "a missing salt is refused"    "salt" --salt
+fWantFailure "an over-long salt is refused" "Want at most 256" \
+	--format '%h' --salt "$(python3 -c 'print("s" * 257)')"
+
+## Two salts have to differ, or the flag is doing nothing.
+if [[ "$(fRun --format '%h' --salt pepper)" == "$(fRun --format '%h' --salt Pepper)" ]]
+	then fFail "two salts give two fingerprints"
+	else fPass "two salts give two fingerprints"
+fi
+
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
 fLine ""

@@ -48,8 +48,9 @@ enum {
 	ZUID_ERR_CLOCK = 6,         /* the clock predates the Unix epoch */
 	ZUID_ERR_INTERNAL = 7,      /* the embedded runtime or module failed */
 	ZUID_ERR_PRECISION = 8,     /* precision is not -1, 0, or 1 */
-	ZUID_ERR_OPTION = 9,        /* a symbol count is outside 1..ZUID_MAX_COMPONENT_CHARS, or a hashed
-	                               component is wider than a SHA-256 fills in the base */
+	ZUID_ERR_OPTION = 9,        /* a symbol count is outside 1..ZUID_MAX_COMPONENT_CHARS, a hashed
+	                               component is wider than a SHA-256 fills in the base, or the salt
+	                               is longer than ZUID_MAX_SALT_BYTES */
 	ZUID_ERR_ENV = 10,          /* no host name, user, hardware address, random source, or clock */
 	ZUID_ERR_BASE_DIGITS = 11,  /* no longer produced; every base can carry every component */
 	ZUID_ERR_HORIZON = 12,      /* the clock is past the padding horizon, so %d no longer fits its width */
@@ -58,6 +59,9 @@ enum {
 
 /* Upper bound on zuid_set_hash_chars and zuid_set_random_chars. */
 #define ZUID_MAX_COMPONENT_CHARS 64
+
+/* Upper bound on zuid_set_salt. */
+#define ZUID_MAX_SALT_BYTES 256
 
 /* NULL when the embedded runtime cannot start. */
 zuid *zuid_new(void);
@@ -106,6 +110,21 @@ int zuid_set_precision(zuid *z, int precision);
 	which is then the one component that is not fixed width.
 */
 void zuid_set_hashing(zuid *z, int enabled);
+
+/*
+	Secret mixed into %h, %u, and %f before hashing. Empty or NULL, the initial
+	setting, hashes the name on its own.
+
+	Host and user names come from a small space, so anyone holding identifiers
+	can hash candidate names and compare. A salt closes that off, at the cost of
+	being something every machine whose fingerprints are compared has to share:
+	the same name under two salts gives two different components.
+
+	The string is copied, so the caller may free it afterwards. Longer than
+	ZUID_MAX_SALT_BYTES is ZUID_ERR_OPTION - SHA-256 works on 64-byte blocks, so
+	a longer secret adds nothing.
+*/
+int zuid_set_salt(zuid *z, const char *salt);
 
 /*
 	Symbols kept from a hashed component. Zero, the initial setting, derives

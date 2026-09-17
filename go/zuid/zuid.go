@@ -71,6 +71,10 @@ const (
 	// bound the whole identifier, since a format string may repeat a component
 	// and may carry literal text of any length.
 	MaxComponentChars = 64
+	// MaxSaltBytes is the longest Request.Salt accepted. SHA-256 works on
+	// 64-byte blocks, so a longer secret is not buying anything, and the C
+	// module holds the salt in a fixed buffer of this size.
+	MaxSaltBytes = 256
 )
 
 // Bit widths of the fixed-size components, which is what their output widths
@@ -146,6 +150,12 @@ type Request struct {
 	NoHash      bool      // emit host, user, and FQDN literally instead of hashed
 	HashChars   int       // 0 means DefaultHashChars for the base
 	RandomChars int       // 0 means DefaultRandomChars for the base
+	// Salt is mixed in ahead of the name when hashing %h, %u, and %f. Empty
+	// hashes the name on its own. Host and user names come from a small space,
+	// so anyone holding identifiers can hash candidates and compare; a salt
+	// closes that off, at the cost of being something every machine whose
+	// fingerprints are compared has to share.
+	Salt string
 }
 
 // Generator renders identifiers. Every source of environment - clock, random,
@@ -254,6 +264,9 @@ func (g *Generator) Generate(req Request) (string, error) {
 	}
 	if req.Base == "" {
 		req.Base = DefaultBase
+	}
+	if len(req.Salt) > MaxSaltBytes {
+		return "", fmt.Errorf("salt is %d bytes: want at most %d", len(req.Salt), MaxSaltBytes)
 	}
 	base, err := g.registry.Lookup(req.Base)
 	if err != nil {
@@ -448,7 +461,9 @@ func (g *Generator) namedComponent(source func() (string, error), base *convertb
 	if req.NoHash {
 		return name, nil
 	}
-	digest := sha256.Sum256([]byte(name))
+	// The salt goes in ahead of the name with nothing between them, so an empty
+	// one hashes exactly the name and leaves every existing identifier alone.
+	digest := sha256.Sum256([]byte(req.Salt + name))
 	converted, err := g.convertHex(digest[:], base)
 	if err != nil {
 		return "", err

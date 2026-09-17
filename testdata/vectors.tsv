@@ -22,16 +22,24 @@
 #   mac=02005E100000              %m, 48 bits of hex, no separators
 #   rand=                         the random stream %g and %r draw from, hex
 #   nohash=0                      1 turns hashing off for %h %u %f
+#   salt=                         secret hashed ahead of the name; unset means
+#                                 the name is hashed on its own
 #   hashchars=                    symbols kept from a hashed component; unset
 #                                 means the derived default for the base
 #   randchars=                    symbols %r emits; unset likewise
 #
+# A value in this column cannot carry a comma, an '=' or a tab, which is what
+# separates the pairs. No salt here needs one.
+#
 # Component rules, in full, because the vectors are the spec:
 #
 #   %d  the clock as the precision's unit count since the Unix epoch UTC
-#   %h  %u  %f  SHA-256 of the raw name, hex uppercase, converted from base 16;
-#       the rightmost hashchars symbols. With nohash=1 the name goes out
-#       literally instead, unconverted and unpadded.
+#   %h  %u  %f  SHA-256 of the salt followed by the raw name, with nothing
+#       between them, hex uppercase, converted from base 16; the rightmost
+#       hashchars symbols. An empty salt therefore hashes the name alone, which
+#       is what all the unsalted rows below pin down. With nohash=1 the name
+#       goes out literally instead, unconverted and unpadded, and the salt is
+#       not read at all.
 #   %m  the MAC as a 48-bit number, converted from base 16
 #   %g  16 bytes drawn from the random stream with the UUID v4 version and
 #       variant bits forced, converted from base 16 as a 128-bit number
@@ -170,6 +178,22 @@ hash-chars-64	%u	16	0	0	hashchars=64	AE5DEB822E0D71992900471A7199D0D95B8E7C9D05C
 nohash-host	%h	62	0	0	nohash=1	testhost
 nohash-user	%u	62	0	0	nohash=1	testuser
 nohash-fqdn	%f	62	0	0	nohash=1	testhost.example.com
+
+# A salt is hashed ahead of the name, so one machine's fingerprints cannot be
+# confirmed by hashing candidate names. An empty salt hashes the name alone,
+# which is what every unsalted row above depends on. Salting changes nothing
+# else, and a literal name never reads it.
+salt-host	%h	16	0	0	salt=pepper	8328E5510623
+salt-host	%h	32w	0	0	salt=pepper	6575Wf43V5
+salt-host	%h	36	0	0	salt=pepper	R3L0D7CPB7
+salt-host	%h	62	0	0	salt=pepper	hj7y1fG7
+salt-user	%u	62	0	0	salt=pepper	GdY3lPyO
+salt-fqdn	%f	62	0	0	salt=pepper	wP4FQvkh
+salt-one-byte-apart	%h	62	0	0	salt=Pepper	Dm3JXtdI
+salt-empty	%h	62	0	0	salt=	rw79Mr05
+salt-nohash	%h	62	0	0	nohash=1,salt=pepper	testhost
+salt-wide	%h	2048tz	0	0	salt=pepper	仳丙偎仉匭
+salt-chars-5	%h	62	0	0	salt=pepper,hashchars=5	y1fG7
 
 # MAC: 48 bits, so the width holds any address. The low row is the padding case.
 mac	%m	16	0	0	-	02005E100000

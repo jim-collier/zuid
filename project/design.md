@@ -230,6 +230,8 @@ Every component is rendered as a number in the output base, and every one of the
 
 Hashed components are SHA-256 of the raw name, converted from base 16, keeping the rightmost few symbols. Truncation is what makes them short enough to be useful; it also means they are a fingerprint rather than an identity, which is the intent. How many symbols is derived from the base rather than fixed - see [Component widths](#component-widths) - and comes to 8 in base 62, around 47 bits, so a collision between two hosts is not a practical worry.
 
+A salt can be hashed in ahead of the name, with `--salt` on the command and a matching option on the Go and C interfaces. It defaults to empty, and an empty salt hashes the name on its own, so every identifier generated without one is what it always was. The threat it answers is that host and user names come from a small space: a truncated hash cannot be reversed, but it can be confirmed, by hashing candidate names and comparing. A salt closes that off for anyone who does not have it. The cost is that the salt becomes something every machine whose identifiers are compared has to share - the same name under two salts is two different components - and that a salt given on a command line is visible in the process list while the command runs.
+
 The byte-valued components all take the same path - hex in, converted from base 16 - because that is the cheapest faithful way to hand bytes to a library whose interface is strings.
 
 - `%m` is the 48-bit address as a number. The predecessor picked the interface holding the default route, which needs the routing table on three different platforms; the lowest-numbered non-loopback interface is stable enough for a value whose only job is to differ between machines, and it needs no route parsing and no subprocess.
@@ -242,9 +244,10 @@ It also removes an earlier limit. Truncation used to need single-byte digits, be
 
 ### What a caller cannot ask for
 
-Both implementations reject the same five things before rendering anything, so neither can produce output the other would refuse:
+Both implementations reject the same six things before rendering anything, so neither can produce output the other would refuse:
 
 - A component width outside 1 to 64.
+- A salt longer than 256 bytes. SHA-256 works on 64-byte blocks, so a longer secret adds nothing, and the fixed ceiling lets the C context hold the salt without a second allocation.
 - A hashed component wider than a SHA-256 fills in the output base. Past that point every extra symbol is left-fill, so the identifier gets longer with no more fingerprint behind it. The ceiling runs from 64 symbols in base 16 down to 24 in 2048tz.
 - A precision that is not -1, 0, or 1.
 - A base whose digits are raw bytes rather than text, or whose alphabet holds a control character. 98keyboard is the second kind: its digits include tab, newline and return, so an identifier in it could carry a line break.
@@ -285,12 +288,13 @@ Three choices were left open until the vectors froze; all three are now settled:
 - **Precision: selectable, `-1|0|1`, defaulting to seconds.** The predecessor already worked through this trade-off, and its answer carries forward: minute, second, and millisecond, second as the default. What was dropped is the algorithm choice, not the precision choice.
 - **Same-tick repeats stay literal, with a warning.** A time-only format is fully determined by the clock, so several identifiers generated within one tick come out identical - verified, not hypothetical. The format means what it says: nothing is appended silently. When the command grows the ability to emit more than one identifier per invocation, it will warn on stderr when the output contains repeats and suggest `%r`; callers wanting uniqueness say so in the format.
 
-Four more were settled with the remaining components:
+Five more were settled with the remaining components:
 
 - **All three hashed components are one width, not three.** The predecessor used 5 for host and user and 8 for the FQDN. One number is easier to remember than three, and 5 symbols in base 62 is only about 30 bits, which is thin across a large fleet. That width was itself fixed at 8 to begin with, and is now derived per base from the strength 8 base-62 symbols carry.
 - **One flag rather than six.** `--no-hash` applies to all three name components, where the predecessor had a hashing switch and a width per component. A `--hash-chars` flag once set the shared width too, and was dropped as more confusing than useful, since the derived width already carries the same strength in every base. Per-component control is the kind of surface that grew by accretion there, and it is the thing this project set out to improve on.
 - **`%r` carries about 36 bits**, where the predecessor's 4 symbols carried around 24. Enough that appending `%r` to a same-tick timestamp actually resolves the collision it exists to resolve. In base 62 that is the same 6 symbols it always was.
 - **`%m` takes the lowest-numbered non-loopback interface**, for the reasons under [Format and components](#format-and-components).
+- **The salt is supplied, not built in.** A salt compiled into the program would have made hashed names unguessable by default, and it was rejected: the binary is public, so the constant in it is public too, and it would only have defeated a plain SHA-256 table rather than anyone holding a copy of the program. It would also have changed every identifier ever generated. An empty default keeps the existing output, and anyone who wants names that cannot be confirmed supplies a secret of their own.
 
 ## Project structure
 
