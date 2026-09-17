@@ -135,6 +135,8 @@ Preferred. `v1.0.0-alpha.1` is published for x86_64 Linux; on any other platform
 | Fedora, RHEL, openSUSE | `zuid-<version>.x86_64.rpm` |
 | Anything else | the `.tgz`, or the bare binary |
 
+The `.deb` and `.rpm` install the command. The C module - the header, the static and shared libraries, and the Wasmtime archive the static one needs - comes in the `.tgz`.
+
 Windows, macOS, BSD, and ARM builds are not produced yet. The command embeds a WebAssembly runtime, and one is vendored per platform; the rest follow once those are in place.
 
 ### Direct install script

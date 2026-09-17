@@ -53,14 +53,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Note: the tests are written and replay their corpus on every run. `zig build test --fuzz` fails to compile inside 0.16.0's own test runner, so nothing on this side can fix it. `details.md` has the error.
 	- Opened: 20260917-131500
 
-- 🔘 Give the shared C library a versioned name such as `libzuid.so.1`, to go with the error codes that are kept stable.
-	- Origin: code review 20260917-104114, idea I4.
-	- Opened: 20260917-104114
-
-- 🔘 The `.deb` and `.rpm` install the C header but no library. Ship the libraries with it, or leave the header out.
-	- Origin: code review 20260917-104114, idea I7.
-	- Opened: 20260917-104114
-
 - 🔘 Nothing points at `style_guide.md`. `README.md` should, and so should `contributing.md`, whose style section is still a commented-out stub.
 	- Opened: 20260917-104114
 
@@ -248,6 +240,24 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Closed: 20260804-224440
 
 #### Done - New features and enhancements
+
+- ✅ Give the shared C library a versioned name such as `libzuid.so.1`, to go with the error codes that are kept stable.
+	- Done: `build.zig` sets the library version from the one version constant in `core.zig`, dropping the prerelease tag. The build now writes `libzuid.so.1.0.0` with `libzuid.so.1` and `libzuid.so` as symlinks onto it, and the soname a linked program records is `libzuid.so.1`.
+	- Done: the header says what the major means, so it is not read as the product version. It moves only if an entry point or an error code does.
+	- Verified: the C module stage checks the soname and the symlink chain against the version constant. Dropping the version from `build.zig` turns it red.
+	- Note: `package.bash` copies with `cp -P` now. A plain `cp` followed the new symlinks and put three copies of a 28 MB library in the tarball.
+	- Origin: code review 20260917-104114, idea I4.
+	- Opened: 20260917-104114
+	- Closed: 20260917-130524
+
+- ✅ The `.deb` and `.rpm` install the C header but no library. Ship the libraries with it, or leave the header out.
+	- Done: the header is out. Both packages install the command and its license, nothing else.
+	- Why that way round: the shared library is 28 MB, which doubles the download for everyone who only wants the command, and it would need a per-distro library directory and an `ldconfig` step to be found at all. The tarball already ships the whole C module, including the Wasmtime archive the static library needs.
+	- Verified: `installer-test.bash` reads the nfpm contents list and fails if a header is listed with no library. Putting the header entry back turns it red.
+	- Note: a proper `-dev` package is the real answer eventually. Listed under Future.
+	- Origin: code review 20260917-104114, idea I7.
+	- Opened: 20260917-104114
+	- Closed: 20260917-130524
 
 - ✅ Fuzz the Go module's `Generate` call in the pipeline, and the Zig format parser and C generate call alongside it.
 	- Done: `FuzzGenerate` drives the format and base name over a fixed environment, and checks that a failed call returns nothing and that the same request twice returns the same identifier. A full run fuzzes for 20 seconds and retries once on Go's own deadline-as-failure bug.
@@ -542,6 +552,9 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 - ✋ Hand-written bindings for other languages, if the C module turns out not to cover them.
 	- Opened: 20260801-090104
+
+- ✋ A `-dev` package, so the C module can be installed by a package manager rather than unpacked from the tarball. Needs the shared library in each distro's own library directory and an `ldconfig` step after it, which is a second nfpm config and a postinstall script. The tarball covers the same ground meanwhile.
+	- Opened: 20260917-130524
 
 ### Canceled
 

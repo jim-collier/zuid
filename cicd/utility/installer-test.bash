@@ -331,6 +331,32 @@ fCase_PackageOutDir(){
 	fi
 }
 
+## The .deb and .rpm shipped zuid.h with no library behind it, so anything that
+## included it failed at the link step. Building a real package here would need
+## nfpm and a full release build, so this reads the nfpm contents list instead:
+## a header may only be in there if a library is too.
+
+fCase_PackageHeader(){
+	local -r packager="${repoRoot}/cicd/utility/package.bash"
+	if [[ ! -f "${packager}" ]]; then
+		fLine "  skipped: package.bash is not present."
+		return 0
+	fi
+
+	## The heredoc that becomes nfpm.yaml, from its 'contents:' line to the EOF
+	## that closes it.
+	local -r contents="$(awk '/^\t\tcontents:/ { on = 1 } on { print } /^\tEOF$/ { on = 0 }' "${packager}")"
+	if [[ -z "${contents}" ]]; then
+		fLine "  skipped: no nfpm contents list found in package.bash."
+		return 0
+	fi
+
+	if [[ "${contents}" != *"/usr/include"* || "${contents}" == *"libzuid.so"* ]]
+		then fPass "package: the packages do not install a header with no library"
+		else fFail "package: the nfpm contents list has /usr/include and no libzuid.so."
+	fi
+}
+
 ## With no target named, the choice has to come from whether the system location
 ## can be written, not whether it exists. install.ps1 tested existence, so a
 ## normal user on a box with /usr/local/bin - which is to say any box - got a
@@ -477,6 +503,7 @@ fi
 fLine ""
 fLine "package.bash"
 fCase_PackageOutDir
+fCase_PackageHeader
 
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
@@ -485,4 +512,5 @@ fLine ""
 
 
 ##	History:
+##		- 20260917 JC: Check what the deb and rpm contents list installs.
 ##		- 20260917 JC: Created, for the release-choice, re-run and link-path cases.

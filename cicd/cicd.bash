@@ -926,6 +926,27 @@ fStage_Zig_CApi(){
 	fi
 	fEcho_Clean "Symbols ....: only zuid_* exported"
 
+	## The soname, which is what a linked program records rather than the file
+	## name. Its major is the ABI promise the stable error codes go with, so it
+	## has to match the version constant and the symlink chain has to lead there.
+	local -r libVersion="$(sed -n 's/^pub const version = "\([^"]*\)".*/\1/p' "${zigDir}/lib/src/core.zig")"
+	local -r abiMajor="${libVersion%%.*}"
+	if [[ -z "${abiMajor}" ]]; then
+		fThrowError "Could not read the version constant out of lib/src/core.zig."  "${FUNCNAME[0]}"
+	fi
+	if [[ ! -L "${zigDir}/zig-out/lib/libzuid.so" || ! -e "${zigDir}/zig-out/lib/libzuid.so.${abiMajor}" ]]; then
+		fThrowError "libzuid.so should be a symlink onto libzuid.so.${abiMajor}. build.zig's .version is what makes that chain."  "${FUNCNAME[0]}"
+	fi
+	if [[ -z "$(command -v readelf 2>/dev/null || true)" ]]; then
+		fEcho_Clean "Soname .....: skipped, no readelf"
+	else
+		local -r soname="$(readelf -d "${zigDir}/zig-out/lib/libzuid.so" | sed -n 's/.*Library soname: \[\(.*\)\].*/\1/p')"
+		if [[ "${soname}" != "libzuid.so.${abiMajor}" ]]; then
+			fThrowError "libzuid.so's soname is '${soname}', not libzuid.so.${abiMajor}."  "${FUNCNAME[0]}"
+		fi
+		fEcho_Clean "Soname .....: ${soname}"
+	fi
+
 	## And the same thing from the other side: a program defining one of those
 	## names must not change what the library calls.
 	local -r interposeSrc="${zigDir}/lib/test/capi_interpose.c"

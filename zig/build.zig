@@ -11,6 +11,17 @@
 
 const std = @import("std");
 
+/// The shared library's soname version. Read from the one version constant so
+/// there is nothing to keep in step, with any prerelease tag dropped - an
+/// soname has no room for one. The major is the C ABI promise that goes with
+/// the error codes: a consumer records libzuid.so.1 and keeps working as long
+/// as that number holds.
+const abi_version: std.SemanticVersion = v: {
+    const parsed = std.SemanticVersion.parse(@import("lib/src/core.zig").version) catch
+        @compileError("core.zig version is not a semantic version");
+    break :v .{ .major = parsed.major, .minor = parsed.minor, .patch = parsed.patch };
+};
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -71,6 +82,7 @@ pub fn build(b: *std.Build) void {
         .name = "zuid",
         .linkage = .dynamic,
         .root_module = capi_shared_mod,
+        .version = abi_version,
         .use_llvm = true,
     });
     // Only the zuid_* entry points are visible, and everything else binds
