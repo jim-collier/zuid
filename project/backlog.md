@@ -59,8 +59,12 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Fixed: the response lands in a variable before it is wrapped. It was the only site of that pattern; the two `Invoke-WebRequest -OutFile` calls do not go through the pipeline.
 		- Done: `cicd/utility/installer-test.bash` is new, and runs both installers against a local four-release listing. It is a cicd stage, and the copies it patches assert every rewrite, so a script that moves its URLs fails the harness rather than testing nothing.
 		- Verified: reverting the lookup turns both ps1 cases red with "no published release found", which is the reported symptom. A single-release listing still reads correctly.
-	- 🔘 F9, blocking: `package.bash` wipes whatever directory `--out` names, before it builds anything.
+	- ✅ F9, blocking: `package.bash` wipes whatever directory `--out` names, before it builds anything.
 		- Origin: 08c6996. Not seen by an earlier review. Confirmed.
+		- Fixed: a `--out` directory is only emptied when the script can show it is one of its own - it left a `.zuid-package-dir` marker there, or the directory is empty or new. Anything else is refused by name. The default `dist/` counts as the script's own, since the script picked that path rather than a caller.
+		- Fixed: the clearing moved to after the build, so a failed build now leaves the previous run's artifacts alone. The check still runs up front, so a mistyped `--out` fails in a second rather than after a ReleaseSafe build.
+		- Fixed: the contents are cleared rather than the directory itself, so a mount point or a directory with granted permissions survives being reused.
+		- Verified: four cases in `installer-test.bash`. Restoring the old `rm -rf "${OUT}"` turns the first two red. Repeated real runs against `dist/` replace the artifacts, and the marker is hashed by nothing and counted in nothing.
 	- 🔘 F1, should-fix: the shared C library exposes every Wasmtime function it contains, so a program with its own copy takes over the library's calls.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
 	- 🔘 F2, should-fix: the static C library holds the Wasmtime archive inside itself, where no linker looks, and the release has no separate copy to link.

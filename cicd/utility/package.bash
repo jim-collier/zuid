@@ -37,13 +37,17 @@ DESC_LONG="Generates identifiers built from a timestamp and optional host, user,
 
 VERSION="$(cd "${root}" && git describe --tags --always --dirty 2>/dev/null || echo dev)"
 OUT="${root}/dist"
+## dist/ is this script's own directory, so it counts as ours whatever is in it.
+## A path that came from --out does not, and has to prove itself below.
+outIsDefault=1
 
 fEcho(){ printf '[ %s ]\n' "$*"; }
 fWarn(){ printf '[ WARNING: %s ]\n' "$*" >&2; }
+fDie(){  printf '\n%s: %s\n\n' "package" "$*" >&2; exit 2; }
 fUsage(){ sed -n '/^##	Purpose:/,/^##	History:/p' "${BASH_SOURCE[0]}" | sed '$d; s/^##	\{0,1\}//'; }
 
 while (($#)); do case "$1" in
-	--out)     OUT="${2:?}";     shift 2 ;;
+	--out)     OUT="${2:?}"; outIsDefault=0; shift 2 ;;
 	--version) VERSION="${2:?}"; shift 2 ;;
 	-h|--help) fUsage; exit 0 ;;
 	*) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
@@ -68,7 +72,52 @@ esac
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 
-rm -rf "${OUT}"; mkdir -p "${OUT}"
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## --out comes from whoever ran this, and it used to be handed straight to
+## 'rm -rf'. So the directory has to be one of ours before anything in it is
+## touched: either it does not exist, or it is empty, or it carries the marker a
+## previous run left. Anything else is somebody's work and gets refused.
+##
+## The check runs now and the clearing runs after the build, so a mistyped --out
+## fails in a second rather than after a ReleaseSafe build, and a build that
+## fails leaves the last good run's artifacts alone.
+
+outMarker=".${PKG}-package-dir"
+
+## Empty prints nothing. Cheaper than counting, and it stops at the first entry.
+fDirHasContent(){ [[ -n "$(find "$1" -mindepth 1 -maxdepth 1 -print -quit)" ]] ;}
+
+## Ours if this script picked the path, if a previous run left its marker, or if
+## there is nothing there to lose. The marker is what carries a --out directory
+## from one run to the next.
+fOutDirIsOurs(){
+	((outIsDefault))                  && return 0
+	[[ -e "${OUT}/${outMarker}" ]]    && return 0
+	fDirHasContent "${OUT}"           || return 0
+	return 1
+}
+
+fCheckOutDir(){
+	[[ -e "${OUT}" ]] || return 0
+	[[ -d "${OUT}" ]] || fDie "--out names something that is not a directory: ${OUT}"
+	fOutDirIsOurs && return 0
+	fDie "refusing to empty ${OUT}: it holds files and carries no ${outMarker} marker, so it is not a previous run's output. Pass --out somewhere this script made, or an empty or new directory."
+}
+
+## Only reached once the build has produced something to put here. Clears the
+## contents rather than the directory itself, so a mount point or a directory
+## somebody granted permissions on survives being reused.
+fClaimOutDir(){
+	mkdir -p "${OUT}"
+	if fDirHasContent "${OUT}"; then
+		fOutDirIsOurs || fDie "${OUT} gained files while the build ran, and carries no ${outMarker} marker. Refusing to empty it."
+		find "${OUT}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+	fi
+	: > "${OUT}/${outMarker}"
+}
+
+fCheckOutDir
 fEcho "packaging ${PKG} ${VERSION} -> ${OUT}"
 
 
@@ -76,6 +125,9 @@ fEcho "packaging ${PKG} ${VERSION} -> ${OUT}"
 ## The release tree: the command, both C libraries, the header, and the licenses.
 
 ( cd "${root}/zig" && zig build -Doptimize=ReleaseSafe )
+
+## The build worked, so there is something to publish. Safe to clear now.
+fClaimOutDir
 
 stage="${work}/${PKG}-${VERSION}"
 mkdir -p "${stage}/bin" "${stage}/lib" "${stage}/include" "${stage}/share"
@@ -162,11 +214,13 @@ done
 
 ## Built aside and moved into place, so the file being written is never also one
 ## of the files being hashed.
-( cd "${OUT}" && find . -maxdepth 1 -type f -printf '%P\n' | sort \
+## The marker is bookkeeping, not an artifact, so it is hashed by nothing and
+## counted in nothing.
+( cd "${OUT}" && find . -maxdepth 1 -type f ! -name "${outMarker}" -printf '%P\n' | sort \
 	| xargs -r sha256sum > "${work}/checksums.txt" )
 mv "${work}/checksums.txt" "${OUT}/checksums.txt"
 
-fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt | wc -l) artifacts in ${OUT}"
+fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "${outMarker}" | wc -l) artifacts in ${OUT}"
 
 
 ##	History:

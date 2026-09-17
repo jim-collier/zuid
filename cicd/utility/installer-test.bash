@@ -3,12 +3,13 @@
 # shellcheck disable=2155  ## 'Declare and assign separately.' Cumbersome for locals.
 
 ##	Purpose:
-##		Runs install.bash and install.ps1 against a local release listing, so the
-##		parts that only a real download can reach get covered: which release is
-##		chosen, what a re-run does, and what happens to a file already sitting at
-##		the link path.
+##		Covers the install and release path, which nothing else can reach without
+##		a real download. Runs install.bash and install.ps1 against a local release
+##		listing: which release is chosen, what a re-run does, and what happens to
+##		a file already sitting at the link path. Also package.bash's --out, since
+##		that is the other script handed a caller's path.
 ##
-##		The scripts are copied and their two base URLs rewritten to point here.
+##		The installers are copied and their two base URLs rewritten to point here.
 ##		Every rewrite is checked, so a script that moves its URLs fails this
 ##		rather than quietly testing nothing.
 ##	Syntax:
@@ -267,6 +268,57 @@ fCase_ReleaseChoice(){  ## label, runner
 	fi
 }
 
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## package.bash's --out. It used to be handed straight to 'rm -rf', so a stray
+## --out emptied whatever it named, before the build had produced anything to
+## put there. A stub zig that fails is enough: the removal came first.
+
+fCase_PackageOutDir(){
+	local -r packager="${repoRoot}/cicd/utility/package.bash"
+	if [[ ! -f "${packager}" ]]; then
+		fLine "  skipped: package.bash is not present."
+		return 0
+	fi
+
+	local -r area="${work}/pkg"
+	mkdir -p "${area}/bin"
+	printf '#!/bin/sh\nexit 3\n' > "${area}/bin/zig"
+	chmod +x "${area}/bin/zig"
+
+	## A directory holding somebody else's work, which is the case that hurt.
+	local -r victim="${area}/victim"
+	mkdir -p "${victim}/subdir"
+	echo "keep me" > "${victim}/canary.txt"
+	echo "me too"  > "${victim}/subdir/other.txt"
+
+	local out=""
+	out="$(PATH="${area}/bin:${PATH}" bash "${packager}" --out "${victim}" --version v0 2>&1)" || true
+	if [[ -f "${victim}/canary.txt" && -f "${victim}/subdir/other.txt" ]]
+		then fPass "package: an --out it did not make is left alone"
+		else fFail "package: --out was emptied. Output: ${out}"
+	fi
+	if [[ "${out}" == *"carries no"* ]]
+		then fPass "package: and says why it refused"
+		else fFail "package: refused without saying why. Output: ${out}"
+	fi
+
+	## An empty directory is nobody's work, so it gets adopted rather than refused.
+	local -r fresh="${area}/fresh"
+	mkdir -p "${fresh}"
+	out="$(PATH="${area}/bin:${PATH}" bash "${packager}" --out "${fresh}" --version v0 2>&1)" || true
+	if [[ "${out}" != *"carries no"* ]]
+		then fPass "package: an empty --out is accepted"
+		else fFail "package: an empty --out was refused. Output: ${out}"
+	fi
+
+	## And a path that does not exist yet, which is what dist/ is on a clean tree.
+	out="$(PATH="${area}/bin:${PATH}" bash "${packager}" --out "${area}/brand-new" --version v0 2>&1)" || true
+	if [[ "${out}" != *"carries no"* ]]
+		then fPass "package: a new --out is accepted"
+		else fFail "package: a new --out was refused. Output: ${out}"
+	fi
+}
+
 fEcho "Installers: against a local release listing on port ${port}"
 fLine ""
 
@@ -284,6 +336,10 @@ if [[ "${only}" != "bash" ]]; then
 		fCase_ReleaseChoice "ps1" "fRunPs1"
 	fi
 fi
+
+fLine ""
+fLine "package.bash"
+fCase_PackageOutDir
 
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
