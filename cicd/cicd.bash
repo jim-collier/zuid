@@ -750,6 +750,29 @@ fStage_Zig_CApi(){
 	"${buildDir}/smoke-static"
 	fEcho_Clean "Static .....: passed"
 
+	## Now the same thing the way somebody who downloaded the release does it:
+	## against a tree holding only what gets shipped, with the link line the
+	## header prints. libzuid.a used to nest the whole wasmtime archive inside
+	## itself, where no linker looks, and the release carried no separate copy,
+	## so this is the check that would have caught it. Deliberately not pointed
+	## at vendor/.
+	local -r relTree="${buildDir}/release"
+	mkdir -p "${relTree}/lib" "${relTree}/include"
+	cp "${zigDir}/zig-out/include/zuid.h"                  "${relTree}/include/"
+	cp "${zigDir}/zig-out/lib/libzuid.a"                   "${relTree}/lib/"
+	cp "${zigDir}/vendor/wasmtime/lib/libwasmtime.a"       "${relTree}/lib/"
+	"${systemCc}" -I "${relTree}/include" "${smokeSrc}" \
+		-L "${relTree}/lib" -Wl,-Bstatic -lzuid -lwasmtime -Wl,-Bdynamic \
+		-lpthread -ldl -lm -o "${buildDir}/smoke-release"
+	"${buildDir}/smoke-release"
+	fEcho_Clean "Release ....: static link against the shipped tree passed"
+
+	## And nothing nested, since that is what made the archive unusable.
+	if ar t "${zigDir}/zig-out/lib/libzuid.a" | grep -q '\.a$'; then
+		fThrowError "libzuid.a has another archive inside it. Only its own objects belong there."  "${FUNCNAME[0]}"
+	fi
+	fEcho_Clean "Archive ....: objects only"
+
 	rm -rf "${buildDir}"
 
 }

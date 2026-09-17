@@ -49,7 +49,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    wireWasmtime(b, capi_static_mod);
+    wireWasmtimeNoArchive(b, capi_static_mod);
     const static_lib = b.addLibrary(.{
         .name = "zuid",
         .linkage = .static,
@@ -116,12 +116,26 @@ fn buildEpoch(b: *std.Build) i64 {
 /// Everything a module needs to host the reactor: the embedded wasm bytes,
 /// the Wasmtime headers, and the static archive with its link dependencies.
 fn wireWasmtime(b: *std.Build, mod: *std.Build.Module) void {
+    wireWasmtimeInner(b, mod, true);
+}
+
+/// The static C library's variant. Same headers and wasm bytes, but the
+/// Wasmtime archive is left out: whoever links the static library supplies it,
+/// which is what zuid.h has always told them to do. Adding it here instead
+/// nested a 67 MB archive inside libzuid.a, where no linker looks for it.
+fn wireWasmtimeNoArchive(b: *std.Build, mod: *std.Build.Module) void {
+    wireWasmtimeInner(b, mod, false);
+}
+
+fn wireWasmtimeInner(b: *std.Build, mod: *std.Build.Module, link_archive: bool) void {
     mod.link_libc = true;
     mod.addAnonymousImport("convert-base-reactor.wasm", .{
         .root_source_file = b.path("vendor/convert-base-reactor.wasm"),
     });
     mod.addIncludePath(b.path("vendor/wasmtime/include"));
-    mod.addObjectFile(b.path("vendor/wasmtime/lib/libwasmtime.a"));
-    // Wasmtime registers unwind frames for its jitted code; Zig bundles this.
-    mod.linkSystemLibrary("unwind", .{});
+    if (link_archive) {
+        mod.addObjectFile(b.path("vendor/wasmtime/lib/libwasmtime.a"));
+        // Wasmtime registers unwind frames for its jitted code; Zig bundles this.
+        mod.linkSystemLibrary("unwind", .{});
+    }
 }

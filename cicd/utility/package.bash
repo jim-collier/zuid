@@ -133,6 +133,41 @@ stage="${work}/${PKG}-${VERSION}"
 mkdir -p "${stage}/bin" "${stage}/lib" "${stage}/include" "${stage}/share"
 cp "${root}/zig/zig-out/bin/${EXE}"        "${stage}/bin/"
 cp "${root}/zig/zig-out/lib/libzuid."*     "${stage}/lib/"
+
+## zuid.h tells a static consumer to link -lzuid -lwasmtime, so the archive it
+## names has to be in the tree. libzuid.a holds its own objects only, and the
+## release used to carry no wasmtime at all, which left that link line with
+## nothing to satisfy it.
+wasmtimeArchive="${root}/zig/vendor/wasmtime/lib/libwasmtime.a"
+[[ -f "${wasmtimeArchive}" ]] || fDie "missing ${wasmtimeArchive}. Run cicd.bash first; it vendors Wasmtime."
+cp "${wasmtimeArchive}" "${stage}/lib/"
+
+## Member names come out holding this machine's cache paths, which is both a
+## build path in a published file and a difference between two builds of the
+## same commit. Re-archive on basenames, deterministically, so neither shows.
+##
+## GNU ar cannot address the members Zig writes - it lists them and then reports
+## "no entry" for the same name - so this needs llvm-ar. Cosmetic either way, so
+## a box without it gets a warning rather than a failure.
+llvmAr=""
+for candidate in llvm-ar llvm-ar-19 llvm-ar-18 llvm-ar-17 llvm-ar-16; do
+	if command -v "${candidate}" >/dev/null 2>&1; then llvmAr="${candidate}"; break; fi
+done
+
+fNormalizeArchive(){  ## path
+	local -r archive="$1"
+	if [[ -z "${llvmAr}" ]]; then
+		fWarn "no llvm-ar; $(basename "${archive}") keeps this machine's paths in its member names"
+		return 0
+	fi
+	local -r unpack="${work}/ar-$(basename "${archive}")"
+	rm -rf "${unpack}"; mkdir -p "${unpack}"
+	## llvm-ar extracts on basenames into the working directory, which is the
+	## whole point: the paths go away here.
+	( cd "${unpack}" && "${llvmAr}" x "${archive}" && "${llvmAr}" rcsD "${archive}.new" ./*.o )
+	mv "${archive}.new" "${archive}"
+}
+fNormalizeArchive "${stage}/lib/libzuid.a"
 cp "${root}/zig/zig-out/include/zuid.h"    "${stage}/include/"
 cp "${root}/license.md"                    "${stage}/share/"
 cp "${root}/zig/cmd/LICENSE.txt"           "${stage}/share/"

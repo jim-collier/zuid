@@ -70,8 +70,14 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Fixed: `zig/lib/zuid.map`, a linker version script naming `zuid_*` global and everything else local. Exports went from 834 to 11. The local half is what matters: the library's internal calls now bind inside it and cannot be displaced at all.
 		- Done: two cicd checks. One asserts nothing but `zuid_*` is exported; the other is `zig/lib/test/capi_interpose.c`, a program that defines `wasm_config_new` and must still get a working context.
 		- Verified: dropping the version script reports 823 stray symbols and fails the stage. Before the fix that program got a NULL context and its own function was called.
-	- 🔘 F2, should-fix: the static C library holds the Wasmtime archive inside itself, where no linker looks, and the release has no separate copy to link.
+	- ✅ F2, should-fix: the static C library holds the Wasmtime archive inside itself, where no linker looks, and the release has no separate copy to link.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
+		- Fixed: the static module no longer links the Wasmtime archive, so `libzuid.a` holds its own two objects and went from 75 MB to 9.8 MB. Whoever links it supplies Wasmtime, which is what the header always said.
+		- Fixed: `package.bash` ships `libwasmtime.a` in the release `lib/`, so the link line the header prints has something to satisfy it.
+		- Fixed: member names are re-archived on basenames, so a published archive no longer carries the build machine's cache paths. That needs llvm-ar, since GNU ar lists the members Zig writes and then cannot address them; without it the step warns instead of failing.
+		- Fixed: the header's linking paragraph now says where `libwasmtime.a` comes from, and that the shared library exports only the entry points.
+		- Done: two cicd checks. One links the smoke test against a tree holding only what ships, with the header's own link line, deliberately not pointed at `vendor/`. The other refuses an archive with another archive inside it.
+		- Verified: restoring the nesting fails the archive check. The review's reproduction - a tree holding only `libzuid.a` and `zuid.h` - failed with "have you installed the static version of the wasmtime library ?" before, and the unpacked release tarball now links both static and shared.
 	- 🔘 F3, should-fix: a C context that is never freed is not reported as a leak, in tests or in debug builds.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
 	- 🔘 F5, should-fix: the C module reports a buffer too small for any identifier over 4 KB, however large the caller's buffer, and that error never has a message.
