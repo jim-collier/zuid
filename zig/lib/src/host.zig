@@ -370,7 +370,7 @@ pub const Host = struct {
         const packed_str: u64 = @bitCast(results[0].of.i64);
         if (packed_str != 0) {
             var text_buf: [err_buf_len]u8 = undefined;
-            const text = self.readPacked(packed_str, &text_buf) catch return core.Error.ConvertFailed;
+            const text = self.readPackedClamped(packed_str, &text_buf) catch return core.Error.ConvertFailed;
             self.setErr(text);
         }
         return switch (code) {
@@ -442,6 +442,22 @@ pub const Host = struct {
         if (@as(usize, ptr) + len > memory.len) return core.Error.ConvertFailed;
         @memcpy(out[0..len], memory[ptr..][0..len]);
         return out[0..len];
+    }
+
+    /// Keeps what fits rather than refusing. Error text is advisory and quotes
+    /// what the caller passed, so an over-long base name used to cost the error
+    /// code that came with it. Cuts on a codepoint boundary here rather than in
+    /// setErr, which by then cannot tell a truncated message from a whole one.
+    fn readPackedClamped(self: *Host, packed_str: u64, out: []u8) core.Error![]const u8 {
+        const ptr: u32 = @truncate(packed_str >> 32);
+        const len: u32 = @truncate(packed_str);
+        const memory = self.memoryBytes();
+        if (@as(usize, ptr) + len > memory.len) return core.Error.ConvertFailed;
+        const full = memory[ptr..][0..len];
+        var kept = @min(@as(usize, len), out.len);
+        while (kept > 0 and kept < full.len and full[kept] & 0xc0 == 0x80) kept -= 1;
+        @memcpy(out[0..kept], full[0..kept]);
+        return out[0..kept];
     }
 };
 

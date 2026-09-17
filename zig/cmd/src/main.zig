@@ -187,6 +187,12 @@ pub fn main(init: std.process.Init) !void {
             return;
         } else if (std.mem.eql(u8, name, "-b") or std.mem.eql(u8, name, "--base")) {
             opts.base = vals.take(name, "a base name");
+            // The library trims, so a blank name reaches it as empty and comes
+            // back in its words rather than these. An absent value is still
+            // the default, the same as an empty format.
+            if (opts.base.len > 0 and std.mem.trim(u8, opts.base, " \t\r\n").len == 0) {
+                return die(stderr, "Base name '{s}' is blank. Want a base name; --help lists the curated set.", .{opts.base});
+            }
         } else if (std.mem.eql(u8, name, "-f") or std.mem.eql(u8, name, "--format")) {
             opts.format = vals.take(name, "a format string");
         } else if (std.mem.eql(u8, name, "-p") or std.mem.eql(u8, name, "--precision")) {
@@ -222,6 +228,13 @@ pub fn main(init: std.process.Init) !void {
 
     const id = generateGrowing(arena, wasm_host.converter(), live.env(), opts) catch |err| {
         const detail = wasm_host.lastError();
+        if (err == error.UnknownBase) {
+            const hint = nearestBase(detail);
+            if (hint.len > 0) {
+                return die(stderr, "Unknown base '{s}'. Did you mean '{s}'?", .{ opts.base, hint });
+            }
+            return die(stderr, "Unknown base '{s}'. Want one the conversion library knows; --help lists the curated set.", .{opts.base});
+        }
         if (detail.len > 0) {
             return die(stderr, "{s}", .{detail});
         }
@@ -239,6 +252,17 @@ pub fn main(init: std.process.Init) !void {
 
     try stdout.print("{s}\n", .{id});
     try stdout.flush();
+}
+
+/// The near-match the conversion library suggested, or empty when it had none.
+/// Its message is `unknown base "x"; did you mean "y"?`, which reads in its
+/// style rather than this command's, so only the suggestion is kept.
+fn nearestBase(detail: []const u8) []const u8 {
+    const lead = "did you mean \"";
+    const at = std.mem.indexOf(u8, detail, lead) orelse return "";
+    const rest = detail[at + lead.len ..];
+    const end = std.mem.indexOfScalar(u8, rest, '"') orelse return "";
+    return rest[0..end];
 }
 
 /// The first verb the core would not know. It reports which error happened,
