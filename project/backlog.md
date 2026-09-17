@@ -47,11 +47,45 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ### Bugs
 
+- 🔘 Code review 20260917-104114. Defects by finding id and rank. Details are in the review document.
+	- 🔘 F4, blocking: several C module error codes are checked by no test, so a renumbering would go unnoticed.
+		- Origin: 8ba15ef, the 20260804 review fixes, which added codes 12 and 13. Confirmed.
+	- 🔘 F1, should-fix: the shared C library exposes every Wasmtime function it contains, so a program with its own copy takes over the library's calls.
+		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
+	- 🔘 F2, should-fix: the static C library holds the Wasmtime archive inside itself, where no linker looks, and the release has no separate copy to link.
+		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
+	- 🔘 F3, should-fix: a C context that is never freed is not reported as a leak, in tests or in debug builds.
+		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
+	- 🔘 F5, should-fix: the C module reports a buffer too small for any identifier over 4 KB, however large the caller's buffer, and that error never has a message.
+		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
+	- 🔘 F6, nit: the C header says a context takes tens of milliseconds to create. It takes about half a second.
+		- Origin: 7677deb. Confirmed.
+	- 🔘 F7, nit: an empty `SOURCE_DATE_EPOCH` drops the build number instead of falling back to the commit date.
+		- Origin: e8442fb. Confirmed.
+	- Opened: 20260917-104114
+
 - 🔘 Contact address in `trademark.md` is still a placeholder. Needs a real one.
 	- Use 'zuid@yottacore.com'
 	- Opened: 20260801-090104
 
 ### New features and enhancements
+
+- 🔘 Check only the widths of components the format uses. A hash width that suits one base now fails a plain timestamp in another.
+	- Note: both implementations do this today, and the design says the checks come before rendering.
+	- Origin: code review 20260917-104114, idea I1.
+	- Opened: 20260917-104114
+
+- 🔘 Refuse bases with tabs or line breaks among their digits, not only the raw-byte one. `98keyboard` can put a line break inside an identifier.
+	- Origin: code review 20260917-104114, idea I2. Next to the raw-byte refusal from the 20260804 review.
+	- Opened: 20260917-104114
+
+- 🔘 Fuzz the Zig format parser and the C module's generate call in the pipeline.
+	- Origin: code review 20260917-104114, idea I3.
+	- Opened: 20260917-104114
+
+- 🔘 Give the shared C library a versioned name such as `libzuid.so.1`, to go with the error codes that are kept stable.
+	- Origin: code review 20260917-104114, idea I4.
+	- Opened: 20260917-104114
 
 - 🔘 Nothing points at `style_guide.md`. `README.md` should, and so should `contributing.md`, whose style section is still a commented-out stub.
 	- Opened: 20260917-104114
