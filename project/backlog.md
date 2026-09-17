@@ -65,8 +65,11 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Fixed: the clearing moved to after the build, so a failed build now leaves the previous run's artifacts alone. The check still runs up front, so a mistyped `--out` fails in a second rather than after a ReleaseSafe build.
 		- Fixed: the contents are cleared rather than the directory itself, so a mount point or a directory with granted permissions survives being reused.
 		- Verified: four cases in `installer-test.bash`. Restoring the old `rm -rf "${OUT}"` turns the first two red. Repeated real runs against `dist/` replace the artifacts, and the marker is hashed by nothing and counted in nothing.
-	- 🔘 F1, should-fix: the shared C library exposes every Wasmtime function it contains, so a program with its own copy takes over the library's calls.
+	- ✅ F1, should-fix: the shared C library exposes every Wasmtime function it contains, so a program with its own copy takes over the library's calls.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
+		- Fixed: `zig/lib/zuid.map`, a linker version script naming `zuid_*` global and everything else local. Exports went from 834 to 11. The local half is what matters: the library's internal calls now bind inside it and cannot be displaced at all.
+		- Done: two cicd checks. One asserts nothing but `zuid_*` is exported; the other is `zig/lib/test/capi_interpose.c`, a program that defines `wasm_config_new` and must still get a working context.
+		- Verified: dropping the version script reports 823 stray symbols and fails the stage. Before the fix that program got a NULL context and its own function was called.
 	- 🔘 F2, should-fix: the static C library holds the Wasmtime archive inside itself, where no linker looks, and the release has no separate copy to link.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
 	- 🔘 F3, should-fix: a C context that is never freed is not reported as a leak, in tests or in debug builds.

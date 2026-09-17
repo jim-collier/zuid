@@ -722,6 +722,25 @@ fStage_Zig_CApi(){
 	LD_LIBRARY_PATH="${zigDir}/zig-out/lib" "${buildDir}/smoke-shared"
 	fEcho_Clean "Shared .....: passed"
 
+	## Only the entry points are visible. The library used to export all of
+	## Wasmtime, which let any program holding one of those names displace the
+	## calls it makes internally.
+	local -r exported="$(nm -D --defined-only "${zigDir}/zig-out/lib/libzuid.so" | awk '{print $3}' | grep -cv '^zuid_' || true)"
+	if [[ "${exported}" != "0" ]]; then
+		fThrowError "libzuid.so exports ${exported} symbols that are not zuid_*. lib/zuid.map should be keeping them local."  "${FUNCNAME[0]}"
+	fi
+	fEcho_Clean "Symbols ....: only zuid_* exported"
+
+	## And the same thing from the other side: a program defining one of those
+	## names must not change what the library calls.
+	local -r interposeSrc="${zigDir}/lib/test/capi_interpose.c"
+	if [[ -f "${interposeSrc}" ]]; then
+		"${systemCc}" -I "${zigDir}/zig-out/include" "${interposeSrc}" \
+			-L "${zigDir}/zig-out/lib" -lzuid -o "${buildDir}/interpose"
+		LD_LIBRARY_PATH="${zigDir}/zig-out/lib" "${buildDir}/interpose"
+		fEcho_Clean "Interpose ..: passed"
+	fi
+
 	## Static: the consumer supplies wasmtime and the system libraries itself.
 	## No -lunwind here on purpose - libgcc already provides __register_frame,
 	## and the header says so.

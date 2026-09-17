@@ -73,6 +73,10 @@ pub fn build(b: *std.Build) void {
         .root_module = capi_shared_mod,
         .use_llvm = true,
     });
+    // Only the zuid_* entry points are visible, and everything else binds
+    // inside the library. zuid.h calls the shared library self-contained, and
+    // without this it exported the whole Wasmtime C API for anyone to displace.
+    shared_lib.setVersionScript(b.path("lib/zuid.map"));
     shared_lib.installHeader(b.path("lib/include/zuid.h"), "zuid.h");
     b.installArtifact(shared_lib);
 
