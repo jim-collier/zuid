@@ -250,6 +250,15 @@ None open.
 
 #### Done - New features and enhancements
 
+- ✅ The backup archived every build cache it walked past. Here that was a 12 GB `.zig-cache` and 957 MB of Panoplia audit scratch, and no other project excluded any of it.
+	- Cause: the exclude was set from this project's cicd stage, on the reasoning that about 20 projects carry their own fork of the helper and a fix in one reaches none of the others. That left the helper's own generic list with no cache patterns at all, so every other project kept paying.
+	- Fixed: the patterns moved into the helper's generic list, in all 22 project copies plus the canonical one, as one dir-and-contents block. It covers `.zig-cache`, ccache, ccls, `CMakeFiles`, `.cache`, and the JS, Haskell and Python caches. The Panoplia `working/audit-*` trees go with them, since each subagent gets a whole copy of the build; the reports beside them are small and stay in.
+	- Fixed: `default_rarExcludes` is empty now, with the hook left plumbed for a pattern only this project would want. The stage line says so rather than printing nothing.
+	- Verified: archiving the live tree drops from 14 GB to 299 MB, and from 1.1 GB for this project specifically, which was already excluding its Zig cache. `zig-out`, `dist/` and the audit reports are all still in.
+	- Note: `zig-out` is deliberately not excluded. The block promises release builds stay in.
+	- Opened: 20260917-160000
+	- Closed: 20260917-163000
+
 - ✅ A batch spent about a third of a millisecond an identifier, nearly all of it crossing into the wasm module. Every `generate` re-asked whether the base renders text, which is 33 round trips through the tokenizer with an alloc and a free each.
 	- Cause: the 98keyboard fix added the control-byte probe and nothing measured after it. The cost was flat across every format, which is what a per-call fixed overhead looks like.
 	- Fixed: the verdict is remembered on the host beside the radix and the zero digit, and thrown away when the slot points at another base. The check itself stays in `core`, since which bytes are refused is spec; only the remembering moved.
