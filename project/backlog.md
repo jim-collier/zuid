@@ -55,10 +55,6 @@ None open.
 	- Note: the tests are written and replay their corpus on every run. `zig build test --fuzz` fails to compile inside 0.16.0's own test runner, so nothing on this side can fix it. `details.md` has the error.
 	- Opened: 20260917-131500
 
-- 🔘 The installers' system-wide destinations are untested.
-	- Note: both have only run against a throwaway home directory.
-	- Opened: 20260804-224440
-
 - 🔘 `%m` is Linux-only on the Zig side - it reads `getifaddrs` for `AF_PACKET`, and macOS wants `AF_LINK` instead. The Go module is already portable, and the help text and the C header both say so. Do it alongside the cross targets, since nothing on the Zig side cross-compiles yet either.
 	- Should work on Windows too.
 	- Opened: 20260802-135041
@@ -90,6 +86,13 @@ None open.
 ### Done
 
 #### Done - Bugs
+
+- ✅ `install.ps1 -Target system` with nowhere to write downloaded and verified the whole release, then threw a raw permissions error from `New-Item`.
+	- Cause: the writability test only ran when no target was named. Asked for by name it was taken on trust, and the write is the last thing the script does. There is no elevation on that side the way `install.bash` has sudo.
+	- Fixed: one predicate now answers both questions, and it tests the install directory as well as the link directory - a box where `/usr/local/bin` is writable but `/opt` is not used to pick a system install and fail late. With no target named it still falls back to a user install; asked for by name it stops before downloading and names `-Target user`.
+	- Note: found while writing the system-target cases. `install.bash` needs no equivalent.
+	- Opened: 20260917-203000
+	- Closed: 20260917-210000
 
 - ✅ One error message read in a different style from every other one. An unknown base came back as the conversion library's own text: lower case, double quotes.
 	- Fixed: the command writes its own sentence and keeps the near match the library found, so a typo now reads `Unknown base 'nope'. Did you mean 'nice'?`. With no near match it says where the list is.
@@ -250,6 +253,14 @@ None open.
 	- Closed: 20260804-224440
 
 #### Done - New features and enhancements
+
+- ✅ The installers' system-wide destinations are untested.
+	- Done: `installer-test.bash` patches a second pair of copies with `/opt` and `/usr/local` moved under its scratch tree, so `--target system` runs with no root anywhere. `sudo` is a shim that runs the command as-is and records that it was asked.
+	- Done: covers where the install lands, that the link is a symlink onto it, that nothing is written under `HOME`, that a re-run fetches nothing, and that uninstall takes both the directory and the link. `install.bash` also has to elevate, and say so in the plan beforehand; the user target has to not.
+	- Verified: three injected faults - a system target writing into `HOME`, a missing `sudo` prefix, and an uninstall that leaves the link - each fail the new cases.
+	- Note: 28 cases before, 49 after.
+	- Opened: 20260804-224440
+	- Closed: 20260917-210000
 
 - ✅ Decide whether hashed host and user names need a salt.
 	- Decided: supplied, not built in. A constant compiled into a public binary is public, so it would only have defeated a plain SHA-256 table, and it would have changed every identifier ever generated.

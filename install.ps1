@@ -109,11 +109,23 @@ function Test-DirectoryWritable {
 	catch { return $false }
 }
 
+## Both locations get written, so both have to be writable. On Windows the
+## install directory is the whole story, since there is no link.
+function Test-SystemTargetUsable {
+	if (-not (Test-DirectoryWritable $systemDir)) { return $false }
+	if ($IsWindows) { return $true }
+	return Test-DirectoryWritable '/usr/local/bin'
+}
+
 if (-not $Target) {
-	## On Windows the install directory is the whole story. Elsewhere it is the
-	## link directory that decides, which is what install.bash tests.
-	$systemProbe = if ($IsWindows) { $systemDir } else { '/usr/local/bin' }
-	$Target = if (Test-DirectoryWritable $systemProbe) { 'system' } else { 'user' }
+	$Target = if (Test-SystemTargetUsable) { 'system' } else { 'user' }
+}
+elseif ($Target -eq 'system' -and -not (Test-SystemTargetUsable)) {
+	## Asked for by name, with nowhere to write. There is no elevation here the
+	## way install.bash has sudo, and the write is the last thing this script
+	## does - so without this the whole release downloaded and verified before
+	## New-Item threw a raw permissions error.
+	Stop-WithMessage "the system target needs write access to $systemDir and its link directory. Re-run elevated, or use -Target user."
 }
 
 $installDirectory = if ($Target -eq 'system') { $systemDir } else { $userDir }
