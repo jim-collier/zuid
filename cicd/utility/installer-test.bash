@@ -10,8 +10,10 @@
 ##		that is the other script handed a caller's path.
 ##
 ##		The installers are copied and their two base URLs rewritten to point here.
-##		Every rewrite is checked, so a script that moves its URLs fails this
-##		rather than quietly testing nothing.
+##		A second pair of copies has /opt and /usr/local moved under the scratch
+##		tree, which is how --target system gets run without root. Every rewrite is
+##		checked, so a script that moves its URLs or its paths fails this rather
+##		than quietly testing nothing.
 ##	Syntax:
 ##		installer-test.bash [--keep] [--only bash|ps1]
 ##	History: At bottom.
@@ -195,6 +197,44 @@ if ((hasPwsh)) && [[ -f "${repoRoot}/install.ps1" ]]; then
 	fRewrite "${ps1Copy}" "the download URL"     -e "s|https://github\.com/|${baseUrl}/dl/|"
 fi
 
+## A second pair, with /opt and /usr/local moved under a scratch root. That is
+## the only way to reach --target system here: the real locations need root, and
+## a test that asks for root is a test nobody runs. Kept separate from the copies
+## above so the default-target case still sees the real /usr/local/bin, which is
+## the whole point of that case.
+sysRoot="${work}/sysroot"
+
+bashSysCopy="${work}/install-sys.bash"
+cp "${bashCopy}" "${bashSysCopy}"
+fRewrite "${bashSysCopy}" "the system install directory" -e "s|systemDir=\"/|systemDir=\"${sysRoot}/|g"
+fRewrite "${bashSysCopy}" "the system link path"         -e "s|systemLink=\"/|systemLink=\"${sysRoot}/|g"
+
+ps1SysCopy=""
+if [[ -n "${ps1Copy:-}" ]]; then
+	ps1SysCopy="${work}/install-sys.ps1"
+	cp "${ps1Copy}" "${ps1SysCopy}"
+	fRewrite "${ps1SysCopy}" "the system install directory" -e "s|\"/opt/\$program\"|\"${sysRoot}/opt/\$program\"|g"
+	fRewrite "${ps1SysCopy}" "the system link directory"    -e "s|'/usr/local/bin'|'${sysRoot}/usr/local/bin'|g"
+fi
+
+## install.bash prefixes every write of a system install with sudo. A shim runs
+## the command as-is and records that it was asked, which is also how the user
+## target proves it never reaches for root.
+shimDir="${work}/shim"
+sudoLog="${work}/sudo.log"
+mkdir -p "${shimDir}"
+{
+	printf '#!/usr/bin/env bash\n'
+	printf 'printf "%%s\\n" "$*" >> "%s"\n' "${sudoLog}"
+	printf 'exec "$@"\n'
+} > "${shimDir}/sudo"
+chmod +x "${shimDir}/sudo"
+
+fSudoCount(){
+	[[ -f "${sudoLog}" ]] || { printf '0'; return 0 ;}
+	wc -l < "${sudoLog}" | tr -d ' '
+}
+
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Each case gets its own HOME, so nothing leaks between them and nothing
@@ -211,9 +251,10 @@ fNewHome(){  ## label
 }
 
 ## The two installers spell the same switches differently, so cases name them
-## once, in the neutral words below, and each runner translates.
-fRunBash(){  ## home, verb...
-	local -r home="$1"; shift
+## once, in the neutral words below, and each runner translates. The pathPrefix
+## is where the sudo shim goes; it is empty for everything but a system case.
+fRunBashAs(){  ## script, pathPrefix, home, verb...
+	local -r script="$1" pathPrefix="$2" home="$3"; shift 3
 	local -a args=()
 	local verb
 	for verb in "$@"; do case "${verb}" in
@@ -224,11 +265,11 @@ fRunBash(){  ## home, verb...
 		uninstall) args+=(--uninstall) ;;
 		*) fDie "unknown verb: ${verb}" ;;
 	esac; done
-	HOME="${home}" bash "${bashCopy}" "${args[@]}" 2>&1
+	HOME="${home}" PATH="${pathPrefix}${PATH}" bash "${script}" "${args[@]}" 2>&1
 }
 
-fRunPs1(){  ## home, verb...
-	local -r home="$1"; shift
+fRunPs1As(){  ## script, pathPrefix, home, verb...
+	local -r script="$1" pathPrefix="$2" home="$3"; shift 3
 	local -a args=()
 	local verb
 	for verb in "$@"; do case "${verb}" in
@@ -239,8 +280,13 @@ fRunPs1(){  ## home, verb...
 		uninstall) args+=(-Uninstall) ;;
 		*) fDie "unknown verb: ${verb}" ;;
 	esac; done
-	HOME="${home}" pwsh -NoProfile -File "${ps1Copy}" "${args[@]}" 2>&1
+	HOME="${home}" PATH="${pathPrefix}${PATH}" pwsh -NoProfile -File "${script}" "${args[@]}" 2>&1
 }
+
+fRunBash(){     local -r home="$1"; shift; fRunBashAs "${bashCopy}"    ""              "${home}" "$@" ;}
+fRunPs1(){      local -r home="$1"; shift; fRunPs1As  "${ps1Copy}"     ""              "${home}" "$@" ;}
+fRunBashSys(){  local -r home="$1"; shift; fRunBashAs "${bashSysCopy}" "${shimDir}:"   "${home}" "$@" ;}
+fRunPs1Sys(){   local -r home="$1"; shift; fRunPs1As  "${ps1SysCopy}"  "${shimDir}:"   "${home}" "$@" ;}
 
 ## What ended up on the link path, per the stand-in's own --version.
 fInstalledVersion(){  ## home
@@ -381,6 +427,126 @@ fCase_DefaultTarget(){  ## label, runner
 	fi
 }
 
+## A system install, which until now nothing had ever run. Everything it touches
+## is outside HOME, so the paths, the elevation prefix and an uninstall that has
+## to reach a link in /usr/local/bin were all untested. The copies used here have
+## those two locations moved under the scratch tree.
+##
+## elevates is "yes" for a script that shells out to sudo and "no" for one that
+## just writes and hopes, which is what install.ps1 does.
+fCase_SystemTarget(){  ## label, runner, elevates
+	local -r label="$1" runner="$2" elevates="$3"
+	local home="" out="" got=""
+	local -r installed="${sysRoot}/opt/${PROG}"
+	local -r link="${sysRoot}/usr/local/bin/${PROG}"
+
+	rm -rf "${sysRoot}"
+	mkdir -p "${sysRoot}/usr/local/bin"
+	: > "${sudoLog}"
+
+	## The user target through the same copy, so "no sudo here" is a comparison
+	## against a run that could have used it and did not.
+	home="$(fNewHome "${label}-system-user")"
+	out="$("${runner}" "${home}" user yes)" || true
+	if [[ "$(fSudoCount)" == "0" ]]
+		then fPass "${label}: a user install never reaches for root"
+		else fFail "${label}: a user install called sudo $(fSudoCount) time(s). Output: ${out}"
+	fi
+
+	home="$(fNewHome "${label}-system")"
+	out="$("${runner}" "${home}" system yes)" || true
+
+	if [[ -x "${installed}/bin/${PROG}" ]]
+		then fPass "${label}: a system install lands under /opt/${PROG}"
+		else fFail "${label}: nothing at ${installed}/bin/${PROG}. Output: ${out}"
+	fi
+
+	got="none"
+	[[ -x "${link}" ]] && got="$("${link}" --version 2>/dev/null | head -n1 | cut -d' ' -f1)"
+	if [[ "${got}" == "2.0.0" ]]
+		then fPass "${label}: and /usr/local/bin runs the installed version"
+		else fFail "${label}: ${link} gave ${got}. Output: ${out}"
+	fi
+	if [[ -L "${link}" ]]
+		then fPass "${label}: and the link is a symlink, not a copy"
+		else fFail "${label}: ${link} is not a symlink. Output: ${out}"
+	fi
+
+	## The two targets are meant to be separate installs, not one with a second
+	## name. A system run writing into HOME would make uninstall miss half of it.
+	if [[ -e "${home}/.local/share/${PROG}" || -e "${home}/.local/bin/${PROG}" ]]
+		then fFail "${label}: a system install also wrote under HOME. Output: ${out}"
+		else fPass "${label}: and leaves HOME alone"
+	fi
+
+	if [[ "${elevates}" == "yes" ]]; then
+		if (($(fSudoCount) > 0))
+			then fPass "${label}: and does its writing through sudo"
+			else fFail "${label}: never called sudo. Output: ${out}"
+		fi
+		if [[ "${out}" == *"this needs root"* ]]
+			then fPass "${label}: and the plan says so beforehand"
+			else fFail "${label}: the plan did not mention root. Output: ${out}"
+		fi
+	fi
+
+	## The re-run check reads --version off the link path, which for a system
+	## install is somewhere the user target never looks.
+	local -r before="$(fRequestCount)"
+	out="$("${runner}" "${home}" system yes)" || true
+	if [[ "$(fRequestCount)" == "${before}" ]]
+		then fPass "${label}: a system re-run downloads nothing"
+		else fFail "${label}: the re-run fetched again. Output: ${out}"
+	fi
+
+	out="$("${runner}" "${home}" system uninstall yes)" || true
+	if [[ ! -e "${installed}" ]]
+		then fPass "${label}: uninstall removes the system directory"
+		else fFail "${label}: ${installed} is still there. Output: ${out}"
+	fi
+	if [[ ! -e "${link}" && ! -L "${link}" ]]
+		then fPass "${label}: and the link with it"
+		else fFail "${label}: ${link} is still there. Output: ${out}"
+	fi
+}
+
+## install.ps1 asked for a system target it cannot write. It has no sudo, and
+## the write is the last thing it does, so it used to download and verify the
+## whole release and then throw a raw permissions error from New-Item. Counted
+## by what the server was asked for: the point is that nothing is fetched.
+##
+## install.bash needs no equivalent - a system install there goes through sudo.
+fCase_SystemUnwritable(){
+	if [[ "$(id -u)" == "0" ]]; then
+		fLine "  skipped: running as root, so there is no unwritable location to test."
+		return 0
+	fi
+
+	rm -rf "${sysRoot}"
+	mkdir -p "${sysRoot}"
+	chmod a-w "${sysRoot}"
+
+	local -r before="$(fRequestCount)"
+	local -r home="$(fNewHome "ps1-system-unwritable")"
+	local out="" rc=0
+	out="$(fRunPs1Sys "${home}" system yes)" || rc=$?
+
+	chmod u+w "${sysRoot}"
+
+	if ((rc != 0))
+		then fPass "ps1: an unwritable system target fails"
+		else fFail "ps1: an unwritable system target succeeded. Output: ${out}"
+	fi
+	if [[ "$(fRequestCount)" == "${before}" ]]
+		then fPass "ps1: and refuses before downloading anything"
+		else fFail "ps1: it downloaded first. Output: ${out}"
+	fi
+	if [[ "${out}" == *"-Target user"* ]]
+		then fPass "ps1: and names the alternative"
+		else fFail "ps1: gave no way forward. Output: ${out}"
+	fi
+}
+
 ## Re-running on the version already installed. Both scripts' help, the README
 ## and the closed backlog item all said that changes nothing, and nothing
 ## compared the installed version with the chosen tag, so a second run
@@ -482,6 +648,7 @@ if [[ "${only}" != "ps1" ]]; then
 	fLine "install.bash"
 	fCase_ReleaseChoice "bash" "fRunBash"
 	fCase_DefaultTarget "bash" "fRunBash"
+	fCase_SystemTarget "bash" "fRunBashSys" "yes"
 	fCase_Rerun "bash" "fRunBash"
 	fCase_MissingValue
 	fCase_ForeignLink "bash" "fRunBash"
@@ -495,6 +662,8 @@ if [[ "${only}" != "bash" ]]; then
 	else
 		fCase_ReleaseChoice "ps1" "fRunPs1"
 		fCase_DefaultTarget "ps1" "fRunPs1"
+		fCase_SystemTarget "ps1" "fRunPs1Sys" "no"
+		fCase_SystemUnwritable
 		fCase_Rerun "ps1" "fRunPs1"
 		fCase_ForeignLink "ps1" "fRunPs1"
 	fi
@@ -512,5 +681,6 @@ fLine ""
 
 
 ##	History:
+##		- 20260917 JC: Cover --target system, against a scratch /opt and /usr/local.
 ##		- 20260917 JC: Check what the deb and rpm contents list installs.
 ##		- 20260917 JC: Created, for the release-choice, re-run and link-path cases.
