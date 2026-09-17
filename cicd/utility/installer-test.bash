@@ -395,6 +395,60 @@ fCase_Rerun(){  ## label, runner
 	fi
 }
 
+## A flag with its value left off reached 'shift 2' with one argument left.
+## That fails, and under set -e the script ended with nothing printed at all.
+## install.ps1 needs no equivalent: PowerShell's own parameter binding reports
+## a missing argument by name.
+fCase_MissingValue(){
+	local flag="" out="" rc=0
+	for flag in --release --target --arch; do
+		rc=0
+		out="$(HOME="$(fNewHome "missing-value")" bash "${bashCopy}" "${flag}" 2>&1)" || rc=$?
+		if ((rc != 0)) && [[ "${out}" == *"${flag}"* && "${out}" == *"needs a value"* ]]
+			then fPass "bash: ${flag} with no value names the flag"
+			else fFail "bash: ${flag} with no value gave rc=${rc} and '${out}'"
+		fi
+	done
+}
+
+## A zuid at the link path that the installer did not put there. The README
+## tells a source build that a full cicd run copies one to ~/.local/bin, so this
+## is a real collision, and uninstall used to delete it.
+fCase_ForeignLink(){  ## label, runner
+	local -r label="$1" runner="$2"
+	local home="" out=""
+
+	home="$(fNewHome "${label}-foreign-link")"
+	local -r planted="${home}/.local/bin/${PROG}"
+	printf '#!/bin/sh\necho somebody else\n' > "${planted}"
+	chmod +x "${planted}"
+
+	out="$("${runner}" "${home}" user uninstall yes)" || true
+	if [[ -f "${planted}" ]]
+		then fPass "${label}: uninstall leaves a file it did not create"
+		else fFail "${label}: uninstall deleted a file it did not create. Output: ${out}"
+	fi
+	if [[ "${out}" == *"not this installer's link"* ]]
+		then fPass "${label}: and says it is keeping it"
+		else fFail "${label}: said nothing about keeping it. Output: ${out}"
+	fi
+
+	## Installing over it does replace it - that is what an installer does - but
+	## the plan has to name it rather than do it quietly.
+	out="$("${runner}" "${home}" user yes)" || true
+	if [[ "${out}" == *"is not this installer's link"* ]]
+		then fPass "${label}: install names what it is overwriting"
+		else fFail "${label}: overwrote it without saying so. Output: ${out}"
+	fi
+
+	## And once it is the installer's own link, uninstall does remove it.
+	out="$("${runner}" "${home}" user uninstall yes)" || true
+	if [[ ! -e "${planted}" ]]
+		then fPass "${label}: uninstall removes its own link"
+		else fFail "${label}: left its own link behind. Output: ${out}"
+	fi
+}
+
 fEcho "Installers: against a local release listing on port ${port}"
 fLine ""
 
@@ -403,6 +457,8 @@ if [[ "${only}" != "ps1" ]]; then
 	fCase_ReleaseChoice "bash" "fRunBash"
 	fCase_DefaultTarget "bash" "fRunBash"
 	fCase_Rerun "bash" "fRunBash"
+	fCase_MissingValue
+	fCase_ForeignLink "bash" "fRunBash"
 fi
 
 if [[ "${only}" != "bash" ]]; then
@@ -414,6 +470,7 @@ if [[ "${only}" != "bash" ]]; then
 		fCase_ReleaseChoice "ps1" "fRunPs1"
 		fCase_DefaultTarget "ps1" "fRunPs1"
 		fCase_Rerun "ps1" "fRunPs1"
+		fCase_ForeignLink "ps1" "fRunPs1"
 	fi
 fi
 

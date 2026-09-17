@@ -129,10 +129,18 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Cause: the value was parsed with `catch 0`, so both an empty and an unparsable one became zero, which means "no build number".
 		- Fixed: an empty or whitespace-only value falls through to the commit date, as does an unparsable one, and that last case warns rather than passing silently. `-Dbuild-epoch` still wins over the variable, and a valid value still wins over the commit date.
 		- Done: a cicd check builds with the variable empty and asserts a build number. It fails on the old `build.zig`, reporting the bare version.
-	- 🔘 F15, nit: `install.bash --release` with no value exits without a message.
+	- ✅ F15, nit: `install.bash --release` with no value exits without a message.
 		- Origin: 08c6996. Confirmed.
-	- 🔘 F16, nit: both installers remove or replace a `zuid` at the link path that they did not put there.
+		- Cause: with one argument left, `shift 2` fails, and under `set -e` the script ended with nothing printed.
+		- Fixed: `fNeedValue` checks first, so the message names the flag and points at `--help`.
+		- Swept: `--target` and `--arch` did the same thing and are fixed with it. `install.ps1` needs nothing - PowerShell's own parameter binding already reports a missing argument by name.
+		- Verified: three harness cases, one per flag. All three go red on the old script, exiting 1 with empty output.
+	- ✅ F16, nit: both installers remove or replace a `zuid` at the link path that they did not put there.
 		- Origin: 08c6996. Confirmed.
+		- Fixed: both work out whether the link is their own - a symlink pointing into the install directory - before touching anything, since once that directory is gone the link dangles and there is nothing left to recognize. Uninstall keeps anything else and says so.
+		- Fixed: install still replaces what is there, which is what an installer does, but the plan now names it rather than doing it quietly.
+		- Verified: four cases per installer. A plain file planted at the link path survives uninstall, the output says it is being kept, install names what it overwrites, and the installer's own link is still removed. All go red on the old scripts.
+		- Note: this is a real collision, not a hypothetical - `README.md` tells a source build that a full cicd run copies the command to `~/.local/bin`.
 	- 🔘 F17, nit: `README.md` says nothing is published yet, and `design.md` says "four things" before a list of five.
 		- Origin: 2209333. Confirmed.
 	- Opened: 20260917-104114

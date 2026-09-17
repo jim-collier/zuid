@@ -131,10 +131,38 @@ else {
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Uninstall is the same plan in reverse.
 
+## Only this installer's own link. A zuid at that path the installer did not put
+## there is somebody's own build - the README tells a source build that a full
+## cicd run copies one to ~/.local/bin - and uninstall is the plan in reverse,
+## which only covers what the install made.
+function Test-OurLink {
+	param([string] $Link, [string] $InstallDirectory)
+	$item = Get-Item -LiteralPath $Link -Force -ErrorAction SilentlyContinue
+	if (-not $item) { return $false }
+	## A plain file is never ours, however it got there.
+	if (-not $item.LinkTarget) { return $false }
+	$target = $item.LinkTarget
+	if (-not [System.IO.Path]::IsPathRooted($target)) {
+		$target = Join-Path (Split-Path -Parent $Link) $target
+	}
+	$expected = Join-Path $InstallDirectory 'bin'
+	return $target.StartsWith($expected, [System.StringComparison]::Ordinal)
+}
+
 if ($Uninstall) {
+	## Decided before anything is removed: once the install directory is gone
+	## the link dangles and there is no target left to recognize.
+	$link = if ($linkDirectory) { Join-Path $linkDirectory $program } else { $null }
+	$ownsLink = if ($link) { Test-OurLink $link $installDirectory } else { $false }
+
 	Write-Status 'Uninstall'
 	Write-Detail "  Remove: $installDirectory"
-	if ($linkDirectory) { Write-Detail "  Remove: $(Join-Path $linkDirectory $program)" }
+	if ($ownsLink) {
+		Write-Detail "  Remove: $link"
+	}
+	elseif ($link -and (Test-Path -LiteralPath $link)) {
+		Write-Detail "  Keep ..: $link (not this installer's link, so it stays)"
+	}
 	Write-Detail ''
 	if (-not $Yes) {
 		$answer = Read-Host '  Proceed? [y/N]'
@@ -147,10 +175,7 @@ if ($Uninstall) {
 		Write-Detail ''
 	}
 	if (Test-Path $installDirectory) { Remove-Item -Recurse -Force $installDirectory }
-	if ($linkDirectory) {
-		$link = Join-Path $linkDirectory $program
-		if (Test-Path $link) { Remove-Item -Force $link }
-	}
+	if ($ownsLink) { Remove-Item -Force -LiteralPath $link }
 	Write-Status 'Removed.'
 	Write-Host ''
 	return
@@ -240,6 +265,14 @@ Write-Detail "  Download ...: $baseUrl/$asset"
 Write-Detail '  Verify .....: sha256 against checksums.txt'
 Write-Detail "  Install to .: $installDirectory"
 if ($linkDirectory) { Write-Detail "  Link .......: $(Join-Path $linkDirectory $program)" }
+## Naming it, because the thing being overwritten may not be ours - a build
+## copied there by hand or by a cicd run, rather than a previous install.
+if ($linkDirectory) {
+	$plannedLink = Join-Path $linkDirectory $program
+	if ((Test-Path -LiteralPath $plannedLink) -and -not (Test-OurLink $plannedLink $installDirectory)) {
+		Write-Detail "  Overwriting : $plannedLink is not this installer's link"
+	}
+}
 else { Write-Detail "  PATH .......: add $(Join-Path $installDirectory 'bin') yourself" }
 if ($installedVersion) { Write-Detail "  Replacing ..: $installedVersion" }
 Write-Detail ''
