@@ -127,7 +127,7 @@ The Go module stays free of cgo and cross-compiles statically. The Zig side prod
 
 ### Packages and installers
 
-Preferred, once there are releases to install. Nothing is published yet, so for now use [Do it yourself](#do-it-yourself) below.
+Preferred. `v1.0.0-alpha.1` is published for x86_64 Linux; on any other platform, build from source with [Do it yourself](#do-it-yourself) below.
 
 | Platform | Package |
 | :-- | :-- |
@@ -171,8 +171,12 @@ Clone the repository and run `cicd/cicd.bash`. It fetches what it needs, builds 
 For the Go module, no install step is needed:
 
 ~~~bash
-go get github.com/jim-collier/zuid/go
+go get github.com/jim-collier/zuid/go/zuid
 ~~~
+
+Name the package rather than the module root. `go get` on the root adds the module without what its package needs, and the build then stops on a missing `go.sum` entry for `convertbase`.
+
+The module sits in a subdirectory, so pinning it to a release needs a `go/`-prefixed tag, and there is not one yet. Until there is, that command tracks `main`. To pin, name a commit: `go get github.com/jim-collier/zuid/go/zuid@<commit>`.
 
 ## Setting up a development environment
 

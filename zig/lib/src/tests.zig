@@ -374,6 +374,36 @@ test "C surface end to end" {
     try std.testing.expectEqualStrings(core.version, std.mem.span(capi.zuid_version()));
 }
 
+// The header's enum is a C ABI, so each code a call can return is pinned here
+// rather than only at the core error level. A renumbering in codeFor then
+// fails the build instead of quietly reaching compiled callers.
+test "the C module's error codes are the ones zuid.h documents" {
+    const z = capi.zuid_new() orelse return error.InitFailed;
+    defer capi.zuid_free(z);
+    var out: [256]u8 = undefined;
+
+    // 2, both ways in: an unknown component and a format ending on a bare '%'.
+    try std.testing.expectEqual(@as(c_int, 2), capi.zuid_generate(z, "%q", "62", &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 2), capi.zuid_generate(z, "%d%", "62", &out, out.len));
+
+    // 13, the raw-byte base. Its digits are byte values, not text.
+    try std.testing.expectEqual(@as(c_int, 13), capi.zuid_generate(z, "%d", "bytes", &out, out.len));
+
+    // 6, a clock before the epoch, and 12, one past the padding horizon.
+    capi.zuid_set_clock_ms(z, -1);
+    try std.testing.expectEqual(@as(c_int, 6), capi.zuid_generate(z, "%d", "62", &out, out.len));
+    capi.zuid_set_clock_ms(z, @intCast(core.horizon_ms * 1000));
+    try std.testing.expectEqual(@as(c_int, 12), capi.zuid_generate(z, "%d", "62", &out, out.len));
+    capi.zuid_clear_clock(z);
+
+    // Every one of them says something. 10 is left out: it needs a machine that
+    // cannot supply a component, and nothing here can stage that.
+    for ([_][*:0]const u8{ "%q", "%d%" }) |format| {
+        try std.testing.expect(capi.zuid_generate(z, format, "62", &out, out.len) != 0);
+        try std.testing.expect(std.mem.span(capi.zuid_last_error(z)).len > 0);
+    }
+}
+
 // Past what a SHA-256 fills in the base, the extra symbols are all left-fill:
 // a longer identifier carrying no more fingerprint.
 test "a hash wider than the digest is refused" {
@@ -476,4 +506,74 @@ test "the C module rejects a null context" {
     try std.testing.expectEqual(@as(c_int, 7), capi.zuid_set_precision(null, 0));
     try std.testing.expectEqual(@as(c_int, 7), capi.zuid_set_hash_chars(null, 8));
     try std.testing.expectEqualStrings("", std.mem.span(capi.zuid_last_error(null)));
+}
+
+// ZUID_ERR_BUFFER used to mean two unrelated things: the caller's buffer really
+// was too small, or the identifier had passed a fixed 4096-byte buffer inside
+// the module that no out_cap could raise. It carried no text either way, so
+// there was nothing to tell them apart by. The Go module has no such limit, so
+// a format Go rendered, C refused.
+test "a long identifier is bounded only by the caller's buffer" {
+    const z = capi.zuid_new() orelse return error.InitFailed;
+    defer capi.zuid_free(z);
+
+    var big: [65536]u8 = undefined;
+    const spanOf = struct {
+        fn f(buf: []const u8) []const u8 {
+            return std.mem.span(@as([*:0]const u8, @ptrCast(buf.ptr)));
+        }
+    }.f;
+
+    // 200 UUIDs in base 62, 22 symbols each: 4400 bytes, past the old ceiling.
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%g" ** 200, "62", &big, big.len));
+    try std.testing.expectEqual(@as(usize, 200 * 22), spanOf(&big).len);
+
+    // A literal that long as well, since the old buffer bounded the whole
+    // rendering rather than any one component.
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "x" ** 5000, "62", &big, big.len));
+    try std.testing.expectEqual(@as(usize, 5000), spanOf(&big).len);
+
+    // Exactly enough room, and one byte short of it. %d in base 62 is 6
+    // symbols at second precision, so 7 bytes is the least that can hold it.
+    capi.zuid_set_clock_ms(z, 946684800000);
+    var tight: [7]u8 = undefined;
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%d", "62", &tight, tight.len));
+    try std.testing.expectEqualStrings("124Bxg", spanOf(&tight));
+    try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%d", "62", &tight, tight.len - 1));
+    capi.zuid_clear_clock(z);
+
+    // And every way of being refused now says something.
+    try std.testing.expect(std.mem.indexOf(u8, std.mem.span(capi.zuid_last_error(z)), "out_cap") != null);
+    try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%d", "62", &big, 0));
+    try std.testing.expect(std.mem.indexOf(u8, std.mem.span(capi.zuid_last_error(z)), "out_cap") != null);
+    try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%d", "62", null, 16));
+    try std.testing.expect(std.mem.indexOf(u8, std.mem.span(capi.zuid_last_error(z)), "NULL") != null);
+
+    // Nothing readable is left behind when a render runs out of room part way,
+    // which it now does inside the caller's own buffer.
+    var partial: [12]u8 = undefined;
+    try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%g%g", "62", &partial, partial.len));
+    try std.testing.expectEqual(@as(u8, 0), partial[0]);
+}
+
+// A context that is never freed used to be reported by nothing: no test and no
+// debug build, because the allocator's own check has no moment to run in. A C
+// caller never says it is finished, so the tests have to ask instead. This one
+// runs last on purpose - it asserts that everything above it cleaned up.
+test "a leaked C context is reported" {
+    try std.testing.expectEqual(@as(usize, 0), capi.liveContexts());
+    try std.testing.expectEqual(@as(usize, 0), capi.leakCount());
+
+    // One full cycle, to show the counter moves in both directions rather than
+    // sitting at zero because nothing ever touches it.
+    const z = capi.zuid_new() orelse return error.InitFailed;
+    try std.testing.expectEqual(@as(usize, 1), capi.liveContexts());
+    capi.zuid_free(z);
+    try std.testing.expectEqual(@as(usize, 0), capi.liveContexts());
+    try std.testing.expectEqual(@as(usize, 0), capi.leakCount());
+
+    // Not freed twice here on purpose. The magic check reads memory the
+    // allocator has already unmapped, so the guard segfaults instead of
+    // returning - the recorded reason the header promises no more than C's
+    // own free() does.
 }

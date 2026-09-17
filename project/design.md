@@ -242,7 +242,7 @@ It also removes an earlier limit. Truncation used to need single-byte digits, be
 
 ### What a caller cannot ask for
 
-Both implementations reject the same four things before rendering anything, so neither can produce output the other would refuse:
+Both implementations reject the same five things before rendering anything, so neither can produce output the other would refuse:
 
 - A component width outside 1 to 64.
 - A hashed component wider than a SHA-256 fills in the output base. Past that point every extra symbol is left-fill, so the identifier gets longer with no more fingerprint behind it. The ceiling runs from 64 symbols in base 16 down to 24 in 2048tz.

@@ -21,6 +21,31 @@ const gpa = switch (builtin.mode) {
     else => std.heap.smp_allocator,
 };
 
+// Nothing can call deinit() on that allocator: a C caller never tells the
+// library it is done, so there is no last moment to check in. That left the
+// design's leak-detection claim resting on a check that never ran. These two
+// give the tests somewhere to ask instead.
+//
+// Debug only, so a release build carries neither the counter nor the chance of
+// it wrapping on a caller's double free - which is already outside the
+// contract the header states.
+const counts_contexts = builtin.mode == .Debug;
+var live_contexts: usize = 0;
+
+/// Contexts created and not yet freed. Always zero in a release build.
+pub fn liveContexts() usize {
+    return live_contexts;
+}
+
+/// Allocations the debug allocator can still see, with a stack trace printed
+/// per leak. Always zero in a release build, which has no such allocator.
+pub fn leakCount() usize {
+    return switch (builtin.mode) {
+        .Debug => debug_allocator.detectLeaks(),
+        else => 0,
+    };
+}
+
 // Codes from zuid.h. Kept in one switch so a new core error fails loudly here.
 fn codeFor(err: core.Error) c_int {
     return switch (err) {
@@ -48,6 +73,7 @@ fn textFor(err: core.Error) []const u8 {
         core.Error.HashTooWide => "a hashed component cannot be wider than a SHA-256 fills in that base",
         core.Error.EnvUnavailable => "this machine could not supply that component",
         core.Error.BaseNotText => "that base renders raw bytes rather than text, so it cannot carry an identifier",
+        core.Error.BufferTooSmall => "out_cap is too small for the identifier plus its terminating NUL",
         else => "",
     };
 }
@@ -116,6 +142,7 @@ pub export fn zuid_new() ?*Zuid {
     self.hash_chars = 0;
     self.random_chars = 0;
     self.err_buf[0] = 0;
+    if (counts_contexts) live_contexts += 1;
     return self;
 }
 
@@ -124,17 +151,27 @@ pub export fn zuid_free(z: ?*Zuid) void {
     self.magic = 0;
     self.wasm_host.deinit();
     gpa.destroy(self);
+    if (counts_contexts) live_contexts -= 1;
 }
 
 pub export fn zuid_generate(z: ?*Zuid, format: ?[*:0]const u8, base: ?[*:0]const u8, out: ?[*]u8, out_cap: usize) c_int {
     const self = checked(z) orelse return 7;
-    const out_ptr = out orelse return 5;
-    if (out_cap == 0) return 5;
+    // Cleared before the buffer is checked, so a rejected buffer reports its own
+    // reason rather than whatever the previous call left behind.
     self.err_buf[0] = 0;
     // The host keeps its text until something overwrites it, and the failures
     // below can happen before the converter is ever called. Without this,
     // zuid_last_error would answer with the previous call's message.
     self.wasm_host.clearErr();
+
+    const out_ptr = out orelse {
+        self.setErrText("out is NULL, so there is nowhere to write the identifier");
+        return 5;
+    };
+    if (out_cap == 0) {
+        self.setErrText("out_cap is 0, which leaves no room even for the terminating NUL");
+        return 5;
+    }
     out_ptr[0] = 0;
 
     const fmt: []const u8 = if (format) |format_z| std.mem.span(format_z) else "";
@@ -152,8 +189,16 @@ pub export fn zuid_generate(z: ?*Zuid, format: ?[*:0]const u8, base: ?[*:0]const
         .random_chars = self.random_chars,
     };
 
-    var id_buf: [core.out_buf_len]u8 = undefined;
-    const id = core.generate(self.wasm_host.converter(), self.live_env.env(), opts, &id_buf) catch |err| {
+    // Straight into the caller's buffer, minus the byte the NUL needs. This
+    // used to render into a fixed 4096-byte buffer first, which meant any
+    // identifier over that size was refused as ZUID_ERR_BUFFER however large
+    // out_cap was - a format the Go module renders happily. The only limit now
+    // is the one the header documents.
+    const room = out_ptr[0 .. out_cap - 1];
+    const id = core.generate(self.wasm_host.converter(), self.live_env.env(), opts, room) catch |err| {
+        // Rendering happens in place now, so a failure part way through leaves
+        // its own partial output behind. The header promises an empty string.
+        out_ptr[0] = 0;
         const reported = self.wasm_host.lastError();
         // The ceiling depends on the base, so "too wide" on its own leaves the
         // caller guessing what would fit. Everything else either has the
@@ -163,8 +208,6 @@ pub export fn zuid_generate(z: ?*Zuid, format: ?[*:0]const u8, base: ?[*:0]const
         }
         return codeFor(err);
     };
-    if (id.len + 1 > out_cap) return 5;
-    @memcpy(out_ptr[0..id.len], id);
     out_ptr[id.len] = 0;
     return 0;
 }

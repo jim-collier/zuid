@@ -49,7 +49,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    wireWasmtime(b, capi_static_mod);
+    wireWasmtimeNoArchive(b, capi_static_mod);
     const static_lib = b.addLibrary(.{
         .name = "zuid",
         .linkage = .static,
@@ -73,6 +73,10 @@ pub fn build(b: *std.Build) void {
         .root_module = capi_shared_mod,
         .use_llvm = true,
     });
+    // Only the zuid_* entry points are visible, and everything else binds
+    // inside the library. zuid.h calls the shared library self-contained, and
+    // without this it exported the whole Wasmtime C API for anyone to displace.
+    shared_lib.setVersionScript(b.path("lib/zuid.map"));
     shared_lib.installHeader(b.path("lib/include/zuid.h"), "zuid.h");
     b.installArtifact(shared_lib);
 
@@ -101,9 +105,24 @@ pub fn build(b: *std.Build) void {
 /// no build number.
 fn buildEpoch(b: *std.Build) i64 {
     if (b.option(i64, "build-epoch", "Unix seconds to stamp the build number from (default: the HEAD commit date)")) |secs| return secs;
+
+    // An empty SOURCE_DATE_EPOCH is what a tarball script exports when its own
+    // lookup came back empty, so it means "no answer" rather than "epoch zero".
+    // Taking it literally dropped the build number from a build that had a
+    // perfectly good commit date sitting there.
     if (b.graph.environ_map.get("SOURCE_DATE_EPOCH")) |raw| {
-        return std.fmt.parseInt(i64, std.mem.trim(u8, raw, " \r\n"), 10) catch 0;
+        const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+        if (trimmed.len > 0) {
+            if (std.fmt.parseInt(i64, trimmed, 10)) |secs| {
+                return secs;
+            } else |_| {
+                // Not fatal, but not silent either: a typo here would otherwise
+                // change the build stamp with nothing to show why.
+                std.log.warn("SOURCE_DATE_EPOCH is not a number ('{s}'); using the HEAD commit date instead", .{trimmed});
+            }
+        }
     }
+
     var code: u8 = 0;
     const out = b.runAllowFail(&.{ "git", "-C", b.build_root.path orelse ".", "log", "-1", "--format=%ct" }, &code, .ignore) catch return 0;
     return std.fmt.parseInt(i64, std.mem.trim(u8, out, " \r\n"), 10) catch 0;
@@ -112,12 +131,26 @@ fn buildEpoch(b: *std.Build) i64 {
 /// Everything a module needs to host the reactor: the embedded wasm bytes,
 /// the Wasmtime headers, and the static archive with its link dependencies.
 fn wireWasmtime(b: *std.Build, mod: *std.Build.Module) void {
+    wireWasmtimeInner(b, mod, true);
+}
+
+/// The static C library's variant. Same headers and wasm bytes, but the
+/// Wasmtime archive is left out: whoever links the static library supplies it,
+/// which is what zuid.h has always told them to do. Adding it here instead
+/// nested a 67 MB archive inside libzuid.a, where no linker looks for it.
+fn wireWasmtimeNoArchive(b: *std.Build, mod: *std.Build.Module) void {
+    wireWasmtimeInner(b, mod, false);
+}
+
+fn wireWasmtimeInner(b: *std.Build, mod: *std.Build.Module, link_archive: bool) void {
     mod.link_libc = true;
     mod.addAnonymousImport("convert-base-reactor.wasm", .{
         .root_source_file = b.path("vendor/convert-base-reactor.wasm"),
     });
     mod.addIncludePath(b.path("vendor/wasmtime/include"));
-    mod.addObjectFile(b.path("vendor/wasmtime/lib/libwasmtime.a"));
-    // Wasmtime registers unwind frames for its jitted code; Zig bundles this.
-    mod.linkSystemLibrary("unwind", .{});
+    if (link_archive) {
+        mod.addObjectFile(b.path("vendor/wasmtime/lib/libwasmtime.a"));
+        // Wasmtime registers unwind frames for its jitted code; Zig bundles this.
+        mod.linkSystemLibrary("unwind", .{});
+    }
 }

@@ -47,43 +47,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ### Bugs
 
-- 🔘 Code review 20260917-104114. Defects by finding id and rank. Details are in the review document.
-	- 🔘 F4, blocking: several C module error codes are checked by no test, so a renumbering would go unnoticed.
-		- Origin: 8ba15ef, the 20260804 review fixes, which added codes 12 and 13. Confirmed.
-	- 🔘 F8, blocking: the PowerShell installer finds no release at all once more than one is published.
-		- Origin: 39f7403, the fix for the earlier "default install found no release" bug. Confirmed.
-	- 🔘 F9, blocking: `package.bash` wipes whatever directory `--out` names, before it builds anything.
-		- Origin: 08c6996. Not seen by an earlier review. Confirmed.
-	- 🔘 F1, should-fix: the shared C library exposes every Wasmtime function it contains, so a program with its own copy takes over the library's calls.
-		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
-	- 🔘 F2, should-fix: the static C library holds the Wasmtime archive inside itself, where no linker looks, and the release has no separate copy to link.
-		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
-	- 🔘 F3, should-fix: a C context that is never freed is not reported as a leak, in tests or in debug builds.
-		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
-	- 🔘 F5, should-fix: the C module reports a buffer too small for any identifier over 4 KB, however large the caller's buffer, and that error never has a message.
-		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
-	- 🔘 F10, should-fix: the PowerShell installer picks a system install on Linux and macOS for users who cannot write there.
-		- Origin: 08c6996. Not seen by an earlier review. Confirmed.
-	- 🔘 F11, should-fix: re-running either installer on the installed version downloads and reinstalls it, though both say that is a no-op.
-		- Origin: 08c6996. Reopens the done installer item, whose re-run claim had no test. Confirmed.
-	- 🔘 F12, should-fix: the `go get` line in `README.md` leaves a program that imports the package unable to build, and the prerelease cannot be asked for by version.
-		- Origin: 2209333. Not seen by an earlier review. Confirmed.
-	- 🔘 F13, should-fix: `zuid -f ''` prints an empty identifier and succeeds, where the Go and C modules treat an empty format as `%d`.
-		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
-	- 🔘 F14, should-fix: the Go module reads the host name again for every identifier, though the design says each source is read once.
-		- Origin: 27d8bc1. Not seen by an earlier review. Confirmed.
-	- 🔘 F6, nit: the C header says a context takes tens of milliseconds to create. It takes about half a second.
-		- Origin: 7677deb. Confirmed.
-	- 🔘 F7, nit: an empty `SOURCE_DATE_EPOCH` drops the build number instead of falling back to the commit date.
-		- Origin: e8442fb. Confirmed.
-	- 🔘 F15, nit: `install.bash --release` with no value exits without a message.
-		- Origin: 08c6996. Confirmed.
-	- 🔘 F16, nit: both installers remove or replace a `zuid` at the link path that they did not put there.
-		- Origin: 08c6996. Confirmed.
-	- 🔘 F17, nit: `README.md` says nothing is published yet, and `design.md` says "four things" before a list of five.
-		- Origin: 2209333. Confirmed.
-	- Opened: 20260917-104114
-
 - 🔘 Contact address in `trademark.md` is still a placeholder. Needs a real one.
 	- Use 'zuid@yottacore.com'
 	- Opened: 20260801-090104
@@ -179,6 +142,108 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Fixed: the release is chosen from the full list. Default takes the newest stable and falls back to the newest prerelease with a line saying so; `--release dev` takes whatever is newest either way.
 	- Opened: 20260805-014016
 	- Closed: 20260805-014958
+
+- ✅ Code review 20260917-104114. Defects by finding id and rank. Details are in the review document.
+	- ✅ F4, blocking: several C module error codes are checked by no test, so a renumbering would go unnoticed.
+		- Origin: 8ba15ef, the 20260804 review fixes, which added codes 12 and 13. Confirmed.
+		- Fixed: codes 2, 6, 12 and 13 are now asserted at the C surface, in both the Zig test and `capi_smoke.c`.
+		- Verified: three separate renumberings of `codeFor` each turn both runners red, and the codes they pin go green again once restored.
+		- Note: code 10 is left unpinned. It needs a machine that cannot supply a component, and nothing available can stage that.
+	- ✅ F8, blocking: the PowerShell installer finds no release at all once more than one is published.
+		- Origin: 39f7403, the fix for the earlier "default install found no release" bug. Confirmed.
+		- Cause: `Invoke-RestMethod` hands a JSON array to the pipeline as one object, so `@(irm ...)` inline gave a single element holding the whole list, and each release's `draft` flag was then tested as an array.
+		- Fixed: the response goes into a variable before it is wrapped. It was the only site of that pattern; the two `Invoke-WebRequest -OutFile` calls do not go through the pipeline.
+		- Done: `cicd/utility/installer-test.bash` is new, and runs both installers against a local four-release listing. It is a cicd stage, and the copies it patches assert every rewrite, so a script that moves its URLs fails the harness rather than testing nothing.
+		- Verified: reverting the lookup turns both ps1 cases red with "no published release found", which is the reported symptom. A single-release listing still reads correctly.
+	- ✅ F9, blocking: `package.bash` wipes whatever directory `--out` names, before it builds anything.
+		- Origin: 08c6996. Not seen by an earlier review. Confirmed.
+		- Fixed: a `--out` directory is only emptied when the script can show it is one of its own - it left a `.zuid-package-dir` marker there, or the directory is empty or new. Anything else is refused by name. The default `dist/` counts as the script's own, since the script picked that path rather than a caller.
+		- Fixed: the clearing moved to after the build, so a failed build now leaves the previous run's artifacts alone. The check still runs up front, so a mistyped `--out` fails in a second rather than after a ReleaseSafe build.
+		- Fixed: the contents are cleared rather than the directory itself, so a mount point or a directory with granted permissions survives being reused.
+		- Verified: four cases in `installer-test.bash`. Restoring the old `rm -rf "${OUT}"` turns the first two red. Repeated real runs against `dist/` replace the artifacts, and the marker is hashed by nothing and counted in nothing.
+	- ✅ F1, should-fix: the shared C library exposes every Wasmtime function it contains, so a program with its own copy takes over the library's calls.
+		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
+		- Fixed: `zig/lib/zuid.map`, a linker version script naming `zuid_*` global and everything else local. Exports went from 834 to 11. The local half is what matters: the library's internal calls now bind inside it and cannot be displaced at all.
+		- Done: two cicd checks. One asserts nothing but `zuid_*` is exported; the other is `zig/lib/test/capi_interpose.c`, a program that defines `wasm_config_new` and must still get a working context.
+		- Verified: dropping the version script reports 823 stray symbols and fails the stage. Before the fix that program got a NULL context and its own function was called.
+	- ✅ F2, should-fix: the static C library holds the Wasmtime archive inside itself, where no linker looks, and the release has no separate copy to link.
+		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
+		- Fixed: the static module no longer links the Wasmtime archive, so `libzuid.a` holds its own two objects and went from 75 MB to 9.8 MB. Whoever links it supplies Wasmtime, which is what the header always said.
+		- Fixed: `package.bash` puts `libwasmtime.a` in the release `lib/`, so the link line the header prints has something to satisfy it.
+		- Fixed: member names are re-archived on basenames, so a published archive no longer carries the build machine's cache paths. That needs llvm-ar, since GNU ar lists the members Zig writes and then cannot address them; without it the step warns instead of failing.
+		- Fixed: the header's linking paragraph now says where `libwasmtime.a` comes from, and that the shared library exports only the entry points.
+		- Done: two cicd checks. One links the smoke test against a tree holding only what is released, with the header's own link line, deliberately not pointed at `vendor/`. The other refuses an archive with another archive inside it.
+		- Verified: restoring the nesting fails the archive check. The review's reproduction - a tree holding only `libzuid.a` and `zuid.h` - failed with "have you installed the static version of the wasmtime library ?" before, and the unpacked release tarball now links both static and shared.
+	- ✅ F3, should-fix: a C context that is never freed is not reported as a leak, in tests or in debug builds.
+		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
+		- Cause: nothing could call the debug allocator's own check. A C caller never says it is finished, so there is no last moment for a `deinit()` to run in.
+		- Fixed: `capi.liveContexts()` and `capi.leakCount()` let the tests ask instead, the second one straight through `DebugAllocator.detectLeaks()` so the stack traces the design promises are real. Both are debug-only, so a release build carries no counter.
+		- Verified: the review's own injection - replacing the three `defer capi.zuid_free(z)` lines with `_ = &z` - reports "expected 0, found 3", and the allocator half names all three leaked addresses on its own when checked first.
+		- Note: the test deliberately does not free twice. The magic check reads memory the allocator has unmapped, so it segfaults rather than returning, which is the recorded reason the header promises no more than C's `free()`.
+	- ✅ F5, should-fix: the C module reports a buffer too small for any identifier over 4 KB, however large the caller's buffer, and that error never has a message.
+		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
+		- Fixed: `zuid_generate` renders straight into the caller's buffer, less the byte the NUL needs, so the only limit is the one the header documents. The error path now re-terminates that buffer, since a failure part way through leaves its own partial output where a separate buffer used to hide it.
+		- Fixed: `ZUID_ERR_BUFFER` carries text in all three cases - a short `out_cap`, a zero `out_cap`, and a NULL `out`. The clearing moved above the buffer checks so a rejected buffer reports its own reason rather than the previous call's.
+		- Swept: the command had the same fixed 4096 buffer and reported `BufferTooSmall` by its error name. It now grows the buffer until the identifier fits, up to 1 MB, and says so in words past that. The Go module returns a string and never had the limit.
+		- Done: `cicd/utility/cli-test.bash` is new - 15 cases over what the command prints and exits with, which nothing covered before - and is a cicd stage.
+		- Verified: before the fix all four probe cases returned code 5 with empty text, including two that should have rendered. Reverting the module fails the Zig test and three `capi_smoke.c` checks; reverting the command fails three CLI cases.
+	- ✅ F10, should-fix: the PowerShell installer picks a system install on Linux and macOS for users who cannot write there.
+		- Origin: 08c6996. Not seen by an earlier review. Confirmed.
+		- Cause: the test was whether `/usr/local/bin` exists, which it does everywhere, rather than whether it can be written. The install then failed after the whole download, with no elevation path of the kind `install.bash` has through sudo.
+		- Fixed: `Test-DirectoryWritable` writes a probe file into the nearest existing ancestor and removes it, rather than reading a mode or an ACL. On Windows the install directory decides; elsewhere the link directory does, which is what `install.bash` tests.
+		- Verified: a new harness case. Before the fix nothing landed under `HOME`; after it, the user install happens. It skips itself where the system location is writable, such as a run as root, since system is then the right answer.
+		- Note: an explicit `-Target system` never reaches the probe, so that path is unchanged. Not covered by a test, since a system install needs root.
+		- Note: the harness gave every case its own `HOME` only on paper - the counter naming them was incremented inside the command substitution that read it, so the subshell kept the new value and all of them shared one directory. Named directories now.
+	- ✅ F11, should-fix: re-running either installer on the installed version downloads and reinstalls it, though both say that is a no-op.
+		- Origin: 08c6996. Reopens the done installer item, whose re-run claim had no test. Confirmed.
+		- Cause: both read the installed version for the plan's "Replacing" line and neither compared it with the chosen tag.
+		- Fixed: both compare, and a match prints "Already installed" with the version and location, then exits without fetching anything. Reinstalling means `--uninstall` first, which the message says.
+		- Verified: the harness counts what the local server was asked for, so the no-op is measured rather than taken from the script's own output. Before the fix a re-run made two requests, the tarball and the checksums. A different version still installs over the old one, in both states, so the check is not a blanket refusal.
+	- ✅ F12, should-fix: the `go get` line in `README.md` leaves a program that imports the package unable to build, and the prerelease cannot be asked for by version.
+		- Origin: 2209333. Not seen by an earlier review. Confirmed.
+		- Cause: the line named the module root. `go get` on a root adds the module without what its package needs, so the build stopped on a missing `go.sum` entry for `convertbase`.
+		- Fixed: `README.md` names the package, `github.com/jim-collier/zuid/go/zuid`, and says why. It also states that pinning needs a `go/`-prefixed tag, which does not exist yet, and how to pin a commit instead.
+		- Done: a cicd stage builds and runs a scratch program importing the module, pointed at this tree so it covers what is about to merge. It also refuses a README that tells people to fetch the module root.
+		- Verified: reproduced both halves in a scratch module - the missing `go.sum` entry, and the tag resolving to a pseudo-version of `main`. The corrected command pulls `convertbase` v0.1.0, builds, and prints an identifier. Restoring the old README line fails the stage.
+		- Note: the `go/` tag itself is deferred, since pushing a public tag is a release decision.
+	- ✅ F13, should-fix: `zuid -f ''` prints an empty identifier and succeeds, where the Go and C modules treat an empty format as `%d`.
+		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
+		- Fixed: the command treats an empty format as `%d`, so all three surfaces agree. A script running `zuid -f "$FMT"` with the variable unset no longer gets an empty identifier and success.
+		- Verified: three CLI cases, covering an empty format, an empty base, and both together. The first and third go red without the fix. An empty base already defaulted correctly.
+	- ✅ F14, should-fix: the Go module reads the host name again for every identifier, though the design says each source is read once.
+		- Origin: 27d8bc1. Not seen by an earlier review. Confirmed.
+		- Cause: `liveFQDN` and `liveMAC` were wrapped in `sync.OnceValues` and `liveHostname` was not, so a long-running process whose name changed emitted two `%h` fingerprints for one machine, and `%h` could disagree with the cached `%f`.
+		- Fixed: both `liveHostname` and `liveUsername` are wrapped now. The user name was not actually being re-read, since `user.Current` caches internally, but every source in the file answers the same way now.
+		- Done: `go/zuid/live_test.go`, inside the package, counts reads of each of the four sources and asserts at most one per process. Plus a case that two host-name reads agree, which is the property the caching exists for.
+		- Verified: unwrapping `liveHostname` reports "read the hostname 5 times". The vectors and `TestLiveSources` still pass.
+	- ✅ F6, nit: the C header says a context takes tens of milliseconds to create. It takes about half a second.
+		- Origin: 7677deb. Confirmed.
+		- Fixed: the header says around half a second, and names the reason - the module building its base registry - since that is why keeping one context matters.
+		- Verified: measured 450 to 570 ms over five runs in both Debug and ReleaseSafe, which matches the deferred note on CLI startup. No test; it is a comment.
+	- ✅ F7, nit: an empty `SOURCE_DATE_EPOCH` drops the build number instead of falling back to the commit date.
+		- Origin: e8442fb. Confirmed.
+		- Cause: the value was parsed with `catch 0`, so both an empty and an unparsable one became zero, which means "no build number".
+		- Fixed: an empty or whitespace-only value falls through to the commit date, as does an unparsable one, and that last case warns rather than passing silently. `-Dbuild-epoch` still wins over the variable, and a valid value still wins over the commit date.
+		- Done: a cicd check builds with the variable empty and asserts a build number. It fails on the old `build.zig`, reporting the bare version.
+	- ✅ F15, nit: `install.bash --release` with no value exits without a message.
+		- Origin: 08c6996. Confirmed.
+		- Cause: with one argument left, `shift 2` fails, and under `set -e` the script ended with nothing printed.
+		- Fixed: `fNeedValue` checks first, so the message names the flag and points at `--help`.
+		- Swept: `--target` and `--arch` did the same thing and are fixed with it. `install.ps1` needs nothing - PowerShell's own parameter binding already reports a missing argument by name.
+		- Verified: three harness cases, one per flag. All three go red on the old script, exiting 1 with empty output.
+	- ✅ F16, nit: both installers remove or replace a `zuid` at the link path that they did not put there.
+		- Origin: 08c6996. Confirmed.
+		- Fixed: both work out whether the link is their own - a symlink pointing into the install directory - before touching anything, since once that directory is gone the link dangles and there is nothing left to recognize. Uninstall keeps anything else and says so.
+		- Fixed: install still replaces what is there, which is what an installer does, but the plan now names it rather than doing it quietly.
+		- Verified: four cases per installer. A plain file planted at the link path survives uninstall, the output says it is being kept, install names what it overwrites, and the installer's own link is still removed. All go red on the old scripts.
+		- Note: this is a real collision, not a hypothetical - `README.md` tells a source build that a full cicd run copies the command to `~/.local/bin`.
+	- ✅ F17, nit: `README.md` says nothing is published yet, and `design.md` says "four things" before a list of five.
+		- Origin: 2209333. Confirmed.
+		- Fixed: "Packages and installers" says `v1.0.0-alpha.1` is published for x86_64 Linux, and points at the source build for every other platform. `design.md` says five.
+		- Done: a cicd check reads the count out of that sentence and compares it with the bullets under it. A number in front of a list drifts as soon as the list grows, and no linter counts.
+		- Verified: putting "four" back fails the stage with both numbers named.
+	- Opened: 20260917-104114
+	- Closed: 20260917-121500
 
 - ✅ Code review 20260804. Twelve defects, from an adversarial pass over both implementations and the build script.
 	- ✅ Fixed: a raw-byte base produced identifiers full of control characters. Both sides now refuse it.
@@ -450,6 +515,9 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Closed: 20260804-234122
 
 ### Future and/or deferred
+
+- ✋ Tag the Go module as `go/v<version>` at the next release, so it can be asked for by version. A module in a subdirectory needs the prefix, and the plain `v1.0.0-alpha.1` tag does not reach it - `go get ...@v1.0.0-alpha.1` answers "found, but does not contain package". Deferred because pushing a public tag is a release decision, not a code fix. `README.md` says how to pin a commit meanwhile.
+	- Opened: 20260917-104114
 
 - ✋ CLI startup is ~0.5 s, nearly all of it the module's own `_initialize` building the base registry inside the wasm. Options if it starts to matter: ask upstream about lazier registry construction, or cache a precompiled module per machine. Deferred until the surface settles.
 	- Opened: 20260802-104116

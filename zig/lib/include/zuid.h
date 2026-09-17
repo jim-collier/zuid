@@ -7,18 +7,22 @@
 	zuid: short, sortable, privacy-preserving unique identifiers.
 
 	A zuid context owns an embedded WebAssembly runtime hosting the upstream
-	convert-base module, so creation is not free (tens of milliseconds);
-	create one and keep it. Contexts are not thread-safe - one per thread,
-	or serialize access.
+	convert-base module, so creation is not free: expect around half a
+	second, nearly all of it the module building its base registry. Create
+	one and keep it. Contexts are not thread-safe - one per thread, or
+	serialize access.
 
 	A freed context must not be used again, and must not be freed again -
 	the same contract C's own free() carries. Every entry point rejects a
 	pointer it can see is stale, but nothing can make that reliable once the
 	memory is gone.
 
-	Linking: the shared libzuid is self-contained. The static libzuid.a needs
-	the Wasmtime C API archive alongside it, plus the usual system libraries:
-	-lzuid -lwasmtime -lpthread -ldl -lm.
+	Linking: the shared libzuid exports only these entry points and carries
+	its own runtime, so -lzuid is the whole story. The static libzuid.a holds
+	its own objects only, so it needs the Wasmtime C API archive next to it -
+	the release puts libwasmtime.a in the same lib/ directory - plus the usual
+	system libraries:
+		-lzuid -lwasmtime -lpthread -ldl -lm
 */
 
 #ifndef ZUID_H

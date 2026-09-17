@@ -81,13 +81,39 @@ else {
 	$archiveExtension = 'tgz'
 }
 
+## Whether the system location can be written, not whether it is there. Testing
+## existence meant a normal user on any box with /usr/local/bin got a system
+## install, which then failed at New-Item after the whole download - and there
+## is no elevation path here the way install.bash has sudo. install.bash tests
+## -w for the same reason.
+function Test-DirectoryWritable {
+	param([string] $Path)
+	## The install creates the leaf, so what matters is the nearest thing that
+	## already exists.
+	$probeDir = $Path
+	while ($probeDir -and -not (Test-Path $probeDir -PathType Container)) {
+		$parent = Split-Path -Parent $probeDir
+		if ($parent -eq $probeDir) { return $false }
+		$probeDir = $parent
+	}
+	if (-not $probeDir) { return $false }
+	## Actually write, rather than read a mode or an ACL. Those disagree with
+	## the filesystem often enough, and this is one file in a directory the
+	## script is about to use anyway.
+	$probe = Join-Path $probeDir ".$program-write-probe-$PID"
+	try {
+		[System.IO.File]::WriteAllText($probe, '')
+		Remove-Item -Force -ErrorAction SilentlyContinue $probe
+		return $true
+	}
+	catch { return $false }
+}
+
 if (-not $Target) {
-	$Target = if ($IsWindows) {
-		if (Test-Path $systemDir -PathType Container) { 'system' } else { 'user' }
-	}
-	else {
-		if (Test-Path '/usr/local/bin' -PathType Container) { 'system' } else { 'user' }
-	}
+	## On Windows the install directory is the whole story. Elsewhere it is the
+	## link directory that decides, which is what install.bash tests.
+	$systemProbe = if ($IsWindows) { $systemDir } else { '/usr/local/bin' }
+	$Target = if (Test-DirectoryWritable $systemProbe) { 'system' } else { 'user' }
 }
 
 $installDirectory = if ($Target -eq 'system') { $systemDir } else { $userDir }
@@ -105,10 +131,38 @@ else {
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Uninstall is the same plan in reverse.
 
+## Only this installer's own link. A zuid at that path the installer did not put
+## there is somebody's own build - the README tells a source build that a full
+## cicd run copies one to ~/.local/bin - and uninstall is the plan in reverse,
+## which only covers what the install made.
+function Test-OurLink {
+	param([string] $Link, [string] $InstallDirectory)
+	$item = Get-Item -LiteralPath $Link -Force -ErrorAction SilentlyContinue
+	if (-not $item) { return $false }
+	## A plain file is never ours, however it got there.
+	if (-not $item.LinkTarget) { return $false }
+	$target = $item.LinkTarget
+	if (-not [System.IO.Path]::IsPathRooted($target)) {
+		$target = Join-Path (Split-Path -Parent $Link) $target
+	}
+	$expected = Join-Path $InstallDirectory 'bin'
+	return $target.StartsWith($expected, [System.StringComparison]::Ordinal)
+}
+
 if ($Uninstall) {
+	## Decided before anything is removed: once the install directory is gone
+	## the link dangles and there is no target left to recognize.
+	$link = if ($linkDirectory) { Join-Path $linkDirectory $program } else { $null }
+	$ownsLink = if ($link) { Test-OurLink $link $installDirectory } else { $false }
+
 	Write-Status 'Uninstall'
 	Write-Detail "  Remove: $installDirectory"
-	if ($linkDirectory) { Write-Detail "  Remove: $(Join-Path $linkDirectory $program)" }
+	if ($ownsLink) {
+		Write-Detail "  Remove: $link"
+	}
+	elseif ($link -and (Test-Path -LiteralPath $link)) {
+		Write-Detail "  Keep ..: $link (not this installer's link, so it stays)"
+	}
 	Write-Detail ''
 	if (-not $Yes) {
 		$answer = Read-Host '  Proceed? [y/N]'
@@ -121,10 +175,7 @@ if ($Uninstall) {
 		Write-Detail ''
 	}
 	if (Test-Path $installDirectory) { Remove-Item -Recurse -Force $installDirectory }
-	if ($linkDirectory) {
-		$link = Join-Path $linkDirectory $program
-		if (Test-Path $link) { Remove-Item -Force $link }
-	}
+	if ($ownsLink) { Remove-Item -Force -LiteralPath $link }
 	Write-Status 'Removed.'
 	Write-Host ''
 	return
@@ -146,8 +197,13 @@ if (-not $Arch) {
 ## on a repository whose releases are all prereleases. List them and choose here.
 
 Write-Status "Looking up the $Release release"
+## The response has to land in a variable before it is wrapped. Invoke-RestMethod
+## hands a JSON array to the pipeline as one object, so @(irm ...) inline gives a
+## single element holding the whole list, and every later per-release test then
+## runs against an array of flags instead of one flag.
 try {
-	$found = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$repository/releases" -Headers @{ 'User-Agent' = "$program-install" })
+	$response = Invoke-RestMethod -Uri "https://api.github.com/repos/$repository/releases" -Headers @{ 'User-Agent' = "$program-install" }
+	$found = @($response)
 }
 catch {
 	$found = @()
@@ -183,6 +239,24 @@ $baseUrl = "https://github.com/$repository/releases/download/$tag"
 $existing = Join-Path $installDirectory (Join-Path 'bin' $binaryName)
 $installedVersion = if (Test-Path $existing) { (& $existing --version 2>$null | Select-Object -First 1) } else { $null }
 
+## --version is "1.0.0-alpha.1 (build dcrb0)", and the tag carries a leading v.
+## Nothing used to compare the two, so a second run downloaded the same release,
+## deleted the install directory and copied it back - while the help, the README
+## and the backlog all said re-running changes nothing.
+if ($installedVersion) {
+	$installedTag = ($installedVersion -split ' ')[0]
+	if ($installedTag -eq ($tag -replace '^v', '')) {
+		Write-Detail ''
+		Write-Status 'Already installed'
+		Write-Detail "  Version ....: $tag ($kind)"
+		Write-Detail "  Location ...: $installDirectory"
+		Write-Detail ''
+		Write-Detail '  Nothing to do. To reinstall, run -Uninstall first.'
+		Write-Host ''
+		return
+	}
+}
+
 Write-Detail ''
 Write-Status 'Plan'
 Write-Detail "  Version ....: $tag ($kind)"
@@ -191,6 +265,14 @@ Write-Detail "  Download ...: $baseUrl/$asset"
 Write-Detail '  Verify .....: sha256 against checksums.txt'
 Write-Detail "  Install to .: $installDirectory"
 if ($linkDirectory) { Write-Detail "  Link .......: $(Join-Path $linkDirectory $program)" }
+## Naming it, because the thing being overwritten may not be ours - a build
+## copied there by hand or by a cicd run, rather than a previous install.
+if ($linkDirectory) {
+	$plannedLink = Join-Path $linkDirectory $program
+	if ((Test-Path -LiteralPath $plannedLink) -and -not (Test-OurLink $plannedLink $installDirectory)) {
+		Write-Detail "  Overwriting : $plannedLink is not this installer's link"
+	}
+}
 else { Write-Detail "  PATH .......: add $(Join-Path $installDirectory 'bin') yourself" }
 if ($installedVersion) { Write-Detail "  Replacing ..: $installedVersion" }
 Write-Detail ''

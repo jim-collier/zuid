@@ -31,10 +31,14 @@ fLine(){ printf '%s\n' "$*"; }
 fDie(){ printf '\n%s: %s\n\n' "${PROG}-install" "$*" >&2; exit 1; }
 fUsage(){ sed -n '/^##	Purpose:/,/^##	History:/p' "${BASH_SOURCE[0]}" | sed '$d; s/^##	\{0,1\}//'; }
 
+## A flag with its value left off used to reach 'shift 2' with one argument
+## left. That fails, and under set -e it ended the script with nothing printed.
+fNeedValue(){ (($# >= 2)) || fDie "$1 needs a value (try --help)" ;}
+
 while (($#)); do case "$1" in
-	--release)   release="${2:-}"; shift 2 ;;
-	--target)    target="${2:-}";  shift 2 ;;
-	--arch)      arch="${2:-}";    shift 2 ;;
+	--release)   fNeedValue "$@"; release="$2"; shift 2 ;;
+	--target)    fNeedValue "$@"; target="$2";  shift 2 ;;
+	--arch)      fNeedValue "$@"; arch="$2";    shift 2 ;;
 	-y|--yes)    assumeYes=1;      shift ;;
 	--uninstall) doUninstall=1;    shift ;;
 	-h|--help)   fUsage; exit 0 ;;
@@ -79,10 +83,31 @@ fi
 ## Uninstall is the same plan in reverse, so it lives here rather than in a
 ## second script.
 
+## Only this installer's own link. A zuid at that path the installer did not put
+## there is somebody's own build - the README tells a source build that a full
+## cicd run copies one to ~/.local/bin - and uninstall is the plan in reverse,
+## which only covers what the install made.
+fLinkIsOurs(){
+	[[ -L "${linkPath}" ]] || return 1
+	local target="" owned=""
+	target="$(readlink -f "${linkPath}" 2>/dev/null || true)"
+	owned="$(readlink -f "${installDir}" 2>/dev/null || true)"
+	[[ -n "${target}" && -n "${owned}" && "${target}" == "${owned}"/* ]]
+}
+
 if ((doUninstall)); then
+	## Decided before anything is removed: once installDir is gone the link
+	## dangles and there is no target left to recognize.
+	ownsLink=0
+	if fLinkIsOurs; then ownsLink=1; fi
+
 	fEcho "Uninstall"
 	fLine "  Remove: ${installDir}"
-	fLine "  Remove: ${linkPath}"
+	if ((ownsLink)); then
+		fLine "  Remove: ${linkPath}"
+	elif [[ -e "${linkPath}" || -L "${linkPath}" ]]; then
+		fLine "  Keep ..: ${linkPath} (not this installer's link, so it stays)"
+	fi
 	fLine ""
 	if ((! assumeYes)); then
 		read -r -p "  Proceed? [y/N] " answer
@@ -90,7 +115,7 @@ if ((doUninstall)); then
 		fLine ""
 	fi
 	"${runAs[@]}" rm -rf "${installDir}"
-	"${runAs[@]}" rm -f "${linkPath}"
+	if ((ownsLink)); then "${runAs[@]}" rm -f "${linkPath}"; fi
 	fEcho "Removed."
 	printf '\n'
 	exit 0
@@ -170,6 +195,22 @@ base="https://github.com/${REPO}/releases/download/${tag}"
 installed=""
 [[ -x "${linkPath}" ]] && installed="$("${linkPath}" --version 2>/dev/null | head -n1 || true)"
 
+## --version is "1.0.0-alpha.1 (build dcrb0)", and the tag carries a leading v.
+## Nothing used to compare the two, so a second run downloaded the same release,
+## deleted the install directory and copied it back - while the help, the README
+## and the backlog all said re-running changes nothing.
+installedVer="${installed%% *}"
+if [[ -n "${installedVer}" && "${installedVer}" == "${tag#v}" ]]; then
+	fLine ""
+	fEcho "Already installed"
+	fLine "  Version ....: ${tag} (${kind})"
+	fLine "  Location ...: ${installDir}"
+	fLine ""
+	fLine "  Nothing to do. To reinstall, run --uninstall first."
+	printf '\n'
+	exit 0
+fi
+
 fLine ""
 fEcho "Plan"
 fLine "  Version ....: ${tag} (${kind})"
@@ -178,6 +219,11 @@ fLine "  Download ...: ${base}/${asset}"
 fLine "  Verify .....: sha256 against checksums.txt"
 fLine "  Install to .: ${installDir}"
 fLine "  Link .......: ${linkPath}"
+## Naming it, because the thing being overwritten may not be ours - a build
+## copied there by hand or by a cicd run, rather than a previous install.
+if [[ -e "${linkPath}" || -L "${linkPath}" ]] && ! fLinkIsOurs; then
+	fLine "  Overwriting : ${linkPath} is not this installer's link"
+fi
 [[ -n "${installed}" ]] && fLine "  Replacing ..: ${installed}"
 ((needsRoot)) && fLine "  Privileges .: system install, so this needs root"
 fLine ""

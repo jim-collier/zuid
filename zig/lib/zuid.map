@@ -1,0 +1,19 @@
+## Linker version script for the shared C module.
+##
+## Without it the library exported all 834 symbols it contains, and only 11 of
+## those are ours - the rest is the whole Wasmtime C API. ELF resolves a
+## library's own calls through the global scope, so a program that defined any
+## of those names, or linked its own Wasmtime, took over the calls libzuid makes
+## internally. With a different Wasmtime version that means mismatched ABIs
+## rather than a clean failure.
+##
+## 'local: *' is the half that matters most: everything not named below becomes
+## local, so libzuid's internal calls bind inside the library and cannot be
+## interposed at all.
+
+{
+	global:
+		zuid_*;
+	local:
+		*;
+};

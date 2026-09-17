@@ -37,13 +37,17 @@ DESC_LONG="Generates identifiers built from a timestamp and optional host, user,
 
 VERSION="$(cd "${root}" && git describe --tags --always --dirty 2>/dev/null || echo dev)"
 OUT="${root}/dist"
+## dist/ is this script's own directory, so it counts as ours whatever is in it.
+## A path that came from --out does not, and has to prove itself below.
+outIsDefault=1
 
 fEcho(){ printf '[ %s ]\n' "$*"; }
 fWarn(){ printf '[ WARNING: %s ]\n' "$*" >&2; }
+fDie(){  printf '\n%s: %s\n\n' "package" "$*" >&2; exit 2; }
 fUsage(){ sed -n '/^##	Purpose:/,/^##	History:/p' "${BASH_SOURCE[0]}" | sed '$d; s/^##	\{0,1\}//'; }
 
 while (($#)); do case "$1" in
-	--out)     OUT="${2:?}";     shift 2 ;;
+	--out)     OUT="${2:?}"; outIsDefault=0; shift 2 ;;
 	--version) VERSION="${2:?}"; shift 2 ;;
 	-h|--help) fUsage; exit 0 ;;
 	*) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
@@ -68,7 +72,52 @@ esac
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 
-rm -rf "${OUT}"; mkdir -p "${OUT}"
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## --out comes from whoever ran this, and it used to be handed straight to
+## 'rm -rf'. So the directory has to be one of ours before anything in it is
+## touched: either it does not exist, or it is empty, or it carries the marker a
+## previous run left. Anything else is somebody's work and gets refused.
+##
+## The check runs now and the clearing runs after the build, so a mistyped --out
+## fails in a second rather than after a ReleaseSafe build, and a build that
+## fails leaves the last good run's artifacts alone.
+
+outMarker=".${PKG}-package-dir"
+
+## Empty prints nothing. Cheaper than counting, and it stops at the first entry.
+fDirHasContent(){ [[ -n "$(find "$1" -mindepth 1 -maxdepth 1 -print -quit)" ]] ;}
+
+## Ours if this script picked the path, if a previous run left its marker, or if
+## there is nothing there to lose. The marker is what carries a --out directory
+## from one run to the next.
+fOutDirIsOurs(){
+	((outIsDefault))                  && return 0
+	[[ -e "${OUT}/${outMarker}" ]]    && return 0
+	fDirHasContent "${OUT}"           || return 0
+	return 1
+}
+
+fCheckOutDir(){
+	[[ -e "${OUT}" ]] || return 0
+	[[ -d "${OUT}" ]] || fDie "--out names something that is not a directory: ${OUT}"
+	fOutDirIsOurs && return 0
+	fDie "refusing to empty ${OUT}: it holds files and carries no ${outMarker} marker, so it is not a previous run's output. Pass --out somewhere this script made, or an empty or new directory."
+}
+
+## Only reached once the build has produced something to put here. Clears the
+## contents rather than the directory itself, so a mount point or a directory
+## somebody granted permissions on survives being reused.
+fClaimOutDir(){
+	mkdir -p "${OUT}"
+	if fDirHasContent "${OUT}"; then
+		fOutDirIsOurs || fDie "${OUT} gained files while the build ran, and carries no ${outMarker} marker. Refusing to empty it."
+		find "${OUT}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+	fi
+	: > "${OUT}/${outMarker}"
+}
+
+fCheckOutDir
 fEcho "packaging ${PKG} ${VERSION} -> ${OUT}"
 
 
@@ -77,10 +126,48 @@ fEcho "packaging ${PKG} ${VERSION} -> ${OUT}"
 
 ( cd "${root}/zig" && zig build -Doptimize=ReleaseSafe )
 
+## The build worked, so there is something to publish. Safe to clear now.
+fClaimOutDir
+
 stage="${work}/${PKG}-${VERSION}"
 mkdir -p "${stage}/bin" "${stage}/lib" "${stage}/include" "${stage}/share"
 cp "${root}/zig/zig-out/bin/${EXE}"        "${stage}/bin/"
 cp "${root}/zig/zig-out/lib/libzuid."*     "${stage}/lib/"
+
+## zuid.h tells a static consumer to link -lzuid -lwasmtime, so the archive it
+## names has to be in the tree. libzuid.a holds its own objects only, and the
+## release used to carry no wasmtime at all, which left that link line with
+## nothing to satisfy it.
+wasmtimeArchive="${root}/zig/vendor/wasmtime/lib/libwasmtime.a"
+[[ -f "${wasmtimeArchive}" ]] || fDie "missing ${wasmtimeArchive}. Run cicd.bash first; it vendors Wasmtime."
+cp "${wasmtimeArchive}" "${stage}/lib/"
+
+## Member names come out holding this machine's cache paths, which is both a
+## build path in a published file and a difference between two builds of the
+## same commit. Re-archive on basenames, deterministically, so neither shows.
+##
+## GNU ar cannot address the members Zig writes - it lists them and then reports
+## "no entry" for the same name - so this needs llvm-ar. Cosmetic either way, so
+## a box without it gets a warning rather than a failure.
+llvmAr=""
+for candidate in llvm-ar llvm-ar-19 llvm-ar-18 llvm-ar-17 llvm-ar-16; do
+	if command -v "${candidate}" >/dev/null 2>&1; then llvmAr="${candidate}"; break; fi
+done
+
+fNormalizeArchive(){  ## path
+	local -r archive="$1"
+	if [[ -z "${llvmAr}" ]]; then
+		fWarn "no llvm-ar; $(basename "${archive}") keeps this machine's paths in its member names"
+		return 0
+	fi
+	local -r extractDir="${work}/ar-$(basename "${archive}")"
+	rm -rf "${extractDir}"; mkdir -p "${extractDir}"
+	## llvm-ar extracts on basenames into the working directory, which is the
+	## whole point: the paths go away here.
+	( cd "${extractDir}" && "${llvmAr}" x "${archive}" && "${llvmAr}" rcsD "${archive}.new" ./*.o )
+	mv "${archive}.new" "${archive}"
+}
+fNormalizeArchive "${stage}/lib/libzuid.a"
 cp "${root}/zig/zig-out/include/zuid.h"    "${stage}/include/"
 cp "${root}/license.md"                    "${stage}/share/"
 cp "${root}/zig/cmd/LICENSE.txt"           "${stage}/share/"
@@ -162,11 +249,13 @@ done
 
 ## Built aside and moved into place, so the file being written is never also one
 ## of the files being hashed.
-( cd "${OUT}" && find . -maxdepth 1 -type f -printf '%P\n' | sort \
+## The marker is bookkeeping, not an artifact, so it is hashed by nothing and
+## counted in nothing.
+( cd "${OUT}" && find . -maxdepth 1 -type f ! -name "${outMarker}" -printf '%P\n' | sort \
 	| xargs -r sha256sum > "${work}/checksums.txt" )
 mv "${work}/checksums.txt" "${OUT}/checksums.txt"
 
-fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt | wc -l) artifacts in ${OUT}"
+fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "${outMarker}" | wc -l) artifacts in ${OUT}"
 
 
 ##	History:

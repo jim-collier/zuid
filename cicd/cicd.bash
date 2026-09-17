@@ -502,8 +502,81 @@ fStage_Shell(){
 
 	## Only what this project wrote. x9muid1 under utility/ is 2023 reference
 	## code, and the copied helpers keep their own upstream's lint state.
-	shellcheck "${repoRoot}/cicd/cicd.bash" "${repoRoot}/install.bash"
+	shellcheck "${repoRoot}/cicd/cicd.bash" "${repoRoot}/install.bash" \
+		"${utilityDir}/installer-test.bash"
 	fEcho_Clean "Clean."
+
+	fStage_Shell_Installers
+	fStage_Docs
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## A number written in front of a list drifts the moment the list grows, and no
+## linter counts. design.md said "four things" above five bullets.
+fStage_Docs(){
+
+	fEcho_Clean
+	fEcho "Docs: claims that can be counted"
+
+	local -r design="${repoRoot}/project/design.md"
+	if [[ ! -f "${design}" ]]; then
+		fEcho_Clean "Skipped ....: project/design.md is not present."
+		return 0
+	fi
+
+	## The sentence, then the bullets directly under it up to the blank line that
+	## ends the list.
+	local -r claimLine="$(grep -n 'reject the same .* things before rendering' "${design}" | head -n1 || true)"
+	if [[ -z "${claimLine}" ]]; then
+		fEcho_Clean "Skipped ....: the rejection-list sentence has moved or been reworded."
+		return 0
+	fi
+
+	local -r claimNumber="$(sed -n "${claimLine%%:*}p" "${design}" | sed -E 's/.*reject the same ([a-z]+) things.*/\1/')"
+	local -r bulletCount="$(awk -v start="$((${claimLine%%:*} + 1))" 'NR >= start { if ($0 ~ /^- /) n++; else if ($0 !~ /^[[:space:]]*$/ && n > 0) exit } END { print n + 0 }' "${design}")"
+
+	local spelled=""
+	case "${bulletCount}" in
+		3) spelled="three" ;; 4) spelled="four" ;; 5) spelled="five" ;;
+		6) spelled="six" ;;   7) spelled="seven" ;;
+		*) spelled="" ;;
+	esac
+	if [[ -z "${spelled}" ]]; then
+		fEcho_Clean "Skipped ....: ${bulletCount} bullets, which this check has no word for."
+		return 0
+	fi
+	if [[ "${claimNumber}" != "${spelled}" ]]; then
+		fThrowError "design.md says it rejects '${claimNumber}' things and then lists ${bulletCount}."  "${FUNCNAME[0]}"
+	fi
+	fEcho_Clean "design.md ..: the rejection count matches its list"
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The installers only reach their interesting paths against a real listing and
+## a real download, so they get a local one. Nothing here touches the network or
+## anything outside its own scratch tree.
+fStage_Shell_Installers(){
+
+	fEcho_Clean
+	fEcho "Installers"
+
+	local -r runner="${utilityDir}/installer-test.bash"
+	if [[ ! -f "${runner}" ]]; then
+		fEcho_Clean "Skipped ....: installer-test.bash is not present."
+		return 0
+	fi
+
+	## python3 serves the listing; without it there is nothing to test against.
+	if [[ -z "$(command -v python3 2>/dev/null || true)" ]]; then
+		fEcho_Clean "Skipped ....: python3 not installed."
+		return 0
+	fi
+
+	bash "${runner}"
 
 }
 
@@ -531,6 +604,71 @@ fStage_Go(){
 	## The race detector is the only thing defending the documented promise that
 	## Generate is safe to call concurrently.
 	go test -p "${buildJobs}" -race ./...
+
+	fStage_Go_Consumer
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## A program that imports the module, built the way somebody following README
+## would. Its own tests import by relative package path and so prove nothing
+## about that.
+fStage_Go_Consumer(){
+
+	fEcho_Clean
+	fEcho "Go: a consumer of the module"
+
+	## README's command has to name the package, not the module root. On the root
+	## go get adds the module without what its package needs, and the build stops
+	## on a missing go.sum entry for convertbase.
+	local -r readme="${repoRoot}/README.md"
+	if [[ -f "${readme}" ]] && grep -q 'go get github.com/jim-collier/zuid/go$' "${readme}"; then
+		fThrowError "README tells people 'go get <module root>', which leaves the build unable to resolve convertbase. It should name the package."  "${FUNCNAME[0]}"
+	fi
+	fEcho_Clean "README .....: names the package path"
+
+	local consumerDir=""
+	consumerDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	_scratchDirs+=("${consumerDir}")
+
+	cat > "${consumerDir}/main.go" <<-'EOF'
+		package main
+
+		import (
+			"fmt"
+
+			"github.com/jim-collier/zuid/go/zuid"
+		)
+
+		func main() {
+			g, err := zuid.New()
+			if err != nil {
+				panic(err)
+			}
+			id, err := g.Generate(zuid.Request{Format: "%d"})
+			if err != nil {
+				panic(err)
+			}
+			fmt.Println(id)
+		}
+	EOF
+
+	## Pointed at this tree rather than the published module, so the check says
+	## whether what is about to be merged can be imported, and needs no network
+	## beyond what the module cache already holds.
+	(
+		cd "${consumerDir}" || exit 1
+		go mod init zuid-consumer-check >/dev/null 2>&1 || exit 1
+		go mod edit -require="github.com/jim-collier/zuid/go@v0.0.0" \
+			-replace="github.com/jim-collier/zuid/go=${goDir}" || exit 1
+		go mod tidy >/dev/null 2>&1 || exit 1
+		go build -o "${consumerDir}/consumer" . || exit 1
+		"${consumerDir}/consumer" >/dev/null || exit 1
+	) || fThrowError "a program importing github.com/jim-collier/zuid/go/zuid did not build and run."  "${FUNCNAME[0]}"
+	fEcho_Clean "Import .....: builds and runs"
+
+	rm -rf "${consumerDir}"
 
 }
 
@@ -657,7 +795,56 @@ fStage_Zig(){
 		fThrowError "zig fmt would rewrite: ${unformattedZig//$'\n'/, }"  "${FUNCNAME[0]}"
 	fi
 
+	fStage_Zig_Cli
 	fStage_Zig_CApi
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The vectors cover the two modules. What the command itself prints, and what
+## it exits with, is only checked here.
+fStage_Zig_Cli(){
+
+	fEcho_Clean
+	fEcho "Zig: command surface"
+
+	local -r runner="${utilityDir}/cli-test.bash"
+	if [[ ! -f "${runner}" ]]; then
+		fEcho_Clean "Skipped ....: cli-test.bash is not present."
+		return 0
+	fi
+
+	bash "${runner}" --bin "${zigDir}/zig-out/bin/zuid"
+
+	fStage_Zig_BuildStamp
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The build number comes from -Dbuild-epoch, then SOURCE_DATE_EPOCH, then the
+## HEAD commit date. An empty SOURCE_DATE_EPOCH is what a tarball script exports
+## when its own lookup came back empty, and taking it literally used to drop the
+## build number from a build that had a commit date available.
+fStage_Zig_BuildStamp(){
+
+	local stampDir=""
+	stampDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	_scratchDirs+=("${stampDir}")
+
+	(
+		cd "${zigDir}" || exit 1
+		SOURCE_DATE_EPOCH="" zig build "-j${buildJobs}" --prefix "${stampDir}" || exit 1
+	) || fThrowError "the build failed with SOURCE_DATE_EPOCH empty."  "${FUNCNAME[0]}"
+
+	local -r stamped="$("${stampDir}/bin/zuid" --version 2>&1 || true)"
+	if [[ "${stamped}" != *"(build "* ]]; then
+		fThrowError "an empty SOURCE_DATE_EPOCH dropped the build number: --version said '${stamped}'. It should fall through to the commit date."  "${FUNCNAME[0]}"
+	fi
+	fEcho_Clean "Stamp ......: survives an empty SOURCE_DATE_EPOCH"
+
+	rm -rf "${stampDir}"
 
 }
 
@@ -693,6 +880,25 @@ fStage_Zig_CApi(){
 	LD_LIBRARY_PATH="${zigDir}/zig-out/lib" "${buildDir}/smoke-shared"
 	fEcho_Clean "Shared .....: passed"
 
+	## Only the entry points are visible. The library used to export all of
+	## Wasmtime, which let any program holding one of those names displace the
+	## calls it makes internally.
+	local -r exported="$(nm -D --defined-only "${zigDir}/zig-out/lib/libzuid.so" | awk '{print $3}' | grep -cv '^zuid_' || true)"
+	if [[ "${exported}" != "0" ]]; then
+		fThrowError "libzuid.so exports ${exported} symbols that are not zuid_*. lib/zuid.map should be keeping them local."  "${FUNCNAME[0]}"
+	fi
+	fEcho_Clean "Symbols ....: only zuid_* exported"
+
+	## And the same thing from the other side: a program defining one of those
+	## names must not change what the library calls.
+	local -r interposeSrc="${zigDir}/lib/test/capi_interpose.c"
+	if [[ -f "${interposeSrc}" ]]; then
+		"${systemCc}" -I "${zigDir}/zig-out/include" "${interposeSrc}" \
+			-L "${zigDir}/zig-out/lib" -lzuid -o "${buildDir}/interpose"
+		LD_LIBRARY_PATH="${zigDir}/zig-out/lib" "${buildDir}/interpose"
+		fEcho_Clean "Interpose ..: passed"
+	fi
+
 	## Static: the consumer supplies wasmtime and the system libraries itself.
 	## No -lunwind here on purpose - libgcc already provides __register_frame,
 	## and the header says so.
@@ -701,6 +907,29 @@ fStage_Zig_CApi(){
 		-lpthread -ldl -lm -o "${buildDir}/smoke-static"
 	"${buildDir}/smoke-static"
 	fEcho_Clean "Static .....: passed"
+
+	## Now the same thing the way somebody who downloaded the release does it:
+	## against a tree holding only what gets shipped, with the link line the
+	## header prints. libzuid.a used to nest the whole wasmtime archive inside
+	## itself, where no linker looks, and the release carried no separate copy,
+	## so this is the check that would have caught it. Deliberately not pointed
+	## at vendor/.
+	local -r relTree="${buildDir}/release"
+	mkdir -p "${relTree}/lib" "${relTree}/include"
+	cp "${zigDir}/zig-out/include/zuid.h"                  "${relTree}/include/"
+	cp "${zigDir}/zig-out/lib/libzuid.a"                   "${relTree}/lib/"
+	cp "${zigDir}/vendor/wasmtime/lib/libwasmtime.a"       "${relTree}/lib/"
+	"${systemCc}" -I "${relTree}/include" "${smokeSrc}" \
+		-L "${relTree}/lib" -Wl,-Bstatic -lzuid -lwasmtime -Wl,-Bdynamic \
+		-lpthread -ldl -lm -o "${buildDir}/smoke-release"
+	"${buildDir}/smoke-release"
+	fEcho_Clean "Release ....: static link against the shipped tree passed"
+
+	## And nothing nested, since that is what made the archive unusable.
+	if ar t "${zigDir}/zig-out/lib/libzuid.a" | grep -q '\.a$'; then
+		fThrowError "libzuid.a has another archive inside it. Only its own objects belong there."  "${FUNCNAME[0]}"
+	fi
+	fEcho_Clean "Archive ....: objects only"
 
 	rm -rf "${buildDir}"
 
