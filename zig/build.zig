@@ -29,6 +29,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     cmd_mod.addImport("zuid", lib_mod);
+    const build_options = b.addOptions();
+    build_options.addOption(i64, "build_epoch", buildEpoch(b));
+    cmd_mod.addOptions("build_options", build_options);
 
     const exe = b.addExecutable(.{
         .name = "zuid",
@@ -90,6 +93,20 @@ pub fn build(b: *std.Build) void {
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Replay the shared vectors and the error paths");
     test_step.dependOn(&run_tests.step);
+}
+
+/// Unix seconds the build number comes from. The commit date rather than the
+/// clock, so one commit always builds to the same bytes. A tarball build has
+/// no history, so -Dbuild-epoch or SOURCE_DATE_EPOCH can supply it. Zero means
+/// no build number.
+fn buildEpoch(b: *std.Build) i64 {
+    if (b.option(i64, "build-epoch", "Unix seconds to stamp the build number from (default: the HEAD commit date)")) |secs| return secs;
+    if (b.graph.environ_map.get("SOURCE_DATE_EPOCH")) |raw| {
+        return std.fmt.parseInt(i64, std.mem.trim(u8, raw, " \r\n"), 10) catch 0;
+    }
+    var code: u8 = 0;
+    const out = b.runAllowFail(&.{ "git", "-C", b.build_root.path orelse ".", "log", "-1", "--format=%ct" }, &code, .ignore) catch return 0;
+    return std.fmt.parseInt(i64, std.mem.trim(u8, out, " \r\n"), 10) catch 0;
 }
 
 /// Everything a module needs to host the reactor: the embedded wasm bytes,

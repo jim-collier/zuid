@@ -10,15 +10,60 @@
 const std = @import("std");
 const zuid = @import("zuid");
 
-/// The curated list, spelled out at compile time so help cannot drift from
-/// what the library actually offers.
+const build_options = @import("build_options");
+
+/// The curated list, spelled out and wrapped at compile time so help cannot
+/// drift from what the library actually offers.
 const curated_list = blk: {
-    var joined: []const u8 = "";
+    // Where help descriptions start, and where they wrap.
+    const desc_col = 30;
+    const wrap_col = 80;
+    const indent = " " ** desc_col;
+    var joined: []const u8 = indent;
+    var line_len: usize = desc_col;
     for (zuid.core.curated_bases, 0..) |base, i| {
-        joined = joined ++ (if (i == 0) "" else ", ") ++ base;
+        const last = i + 1 == zuid.core.curated_bases.len;
+        const word = base ++ (if (last) "" else ",");
+        if (i > 0) {
+            if (line_len + 1 + word.len > wrap_col) {
+                joined = joined ++ "\n" ++ indent;
+                line_len = desc_col;
+            } else {
+                joined = joined ++ " ";
+                line_len += 1;
+            }
+        }
+        joined = joined ++ word;
+        line_len += word.len;
     }
     break :blk joined;
 };
+
+/// Minutes since 2000-01-01 UTC in lower-case Crockford base32, stamped from
+/// the commit date by build.zig. Empty when nothing stamped it.
+const build_number = blk: {
+    const epoch_2000 = 946684800;
+    const alphabet = "0123456789abcdefghjkmnpqrstvwxyz";
+    if (build_options.build_epoch < epoch_2000) break :blk "";
+    var minutes: u64 = @intCast(@divFloor(build_options.build_epoch - epoch_2000, 60));
+    var digits: []const u8 = "";
+    while (true) {
+        digits = alphabet[minutes % 32 .. minutes % 32 + 1] ++ digits;
+        minutes /= 32;
+        if (minutes == 0) break;
+    }
+    break :blk digits;
+};
+
+const version_line = zuid.version ++ (if (build_number.len > 0) " (build " ++ build_number ++ ")" else "");
+
+const about_text = "zuid " ++ version_line ++ "\n" ++
+    \\Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ].
+    \\License GPLv2+: GNU GPL version 2 or later, full text at:
+    \\    https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+    \\There is no warranty, to the extent permitted by law.
+    \\
+;
 
 const help_head =
     \\Generates short, sortable, privacy-preserving unique identifiers.
@@ -29,28 +74,25 @@ const help_head =
     \\so -b=32c, -b 32c, --base=32c, and --base 32c are all the same thing.
     \\
     \\Options:
-    \\    -b, --base <name>    Output base (default 62). Curated set:
+    \\    -b, --base <name>         Output base (default 62). Curated set:
     \\
 ;
 
 const help_tail =
     \\
-    \\                         Any base the conversion library knows is also
-    \\                         accepted, including ones that do not sort.
-    \\    -f, --format <fmt>   Format string (default "%d"). See below.
-    \\    -p, --precision <n>  Time precision: -1 minute, 0 second, 1 millisecond
-    \\                         (default 0).
-    \\        --no-hash        Emit the host, user, and FQDN names literally
-    \\                         instead of hashing them.
-    \\        --hash-chars <n> Symbols kept from a hashed component. The default
-    \\                         is derived from the base, so that every base
-    \\                         carries the same fingerprint strength rather than
-    \\                         the same symbol count: 12 in base 16, 8 in 62, 5
-    \\                         in 2048tz. Capped at what a SHA-256 fills there.
-    \\        --rand-chars <n> Symbols %r emits, derived the same way: 9 in base
-    \\                         16, 6 in 62, 4 in 2048tz.
-    \\    -h, --help           This.
-    \\    -v, --version        Version and copyright.
+    \\                              Any base the conversion library knows is also
+    \\                              accepted, including ones that do not sort.
+    \\    -f, --format <fmt>        Format string (default "%d"). See below.
+    \\    -p, --precision <-1|0|1>  Time precision: -1 minute, 0 second (default),
+    \\                              1 millisecond.
+    \\        --no-hash             Emit the host, user, and FQDN names literally
+    \\                              instead of hashing them.
+    \\        --rand-chars <count>  How many random symbols %r emits. The default
+    \\                              depends on the base: 9 in base 16, 6 in 62, 4
+    \\                              in 2048tz.
+    \\    -h, --help                This.
+    \\    -v, --version             Version and build number.
+    \\        --about               Version, copyright, and license.
     \\
     \\Format components:
     \\    %d  Time, as the count of units since the Unix epoch, UTC.
@@ -59,7 +101,7 @@ const help_tail =
     \\    %f  Fully-qualified host and domain name, hashed by default.
     \\    %m  Hardware address of the lowest-numbered non-loopback interface.
     \\        Linux only so far.
-    \\    %g  A UUID v4, rendered as the 128-bit number it is.
+    \\    %g  A random UUID v4, as a plain number in the output base. No dashes.
     \\    %r  Random symbols from a cryptographic source.
     \\    %%  A literal '%'. Anything else in the format goes out as itself.
     \\
@@ -71,7 +113,9 @@ const help_tail =
     \\
 ;
 
-const help_text = help_head ++ "                         " ++ curated_list ++ "\n" ++ help_tail;
+// Help and about stand clear of the prompt with a blank line either side.
+// --version stays bare, since scripts capture it.
+const help_text = "\nzuid " ++ version_line ++ "\n\n" ++ help_head ++ curated_list ++ help_tail ++ "\n";
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
@@ -106,13 +150,17 @@ pub fn main(init: std.process.Init) !void {
 
         if (std.mem.eql(u8, name, "-h") or std.mem.eql(u8, name, "--help")) {
             vals.rejectAttached(name);
-            try printVersion(stdout);
-            try stdout.print("\n{s}", .{help_text});
+            try stdout.writeAll(help_text);
             try stdout.flush();
             return;
         } else if (std.mem.eql(u8, name, "-v") or std.mem.eql(u8, name, "--version")) {
             vals.rejectAttached(name);
-            try printVersion(stdout);
+            try stdout.writeAll(version_line ++ "\n");
+            try stdout.flush();
+            return;
+        } else if (std.mem.eql(u8, name, "--about")) {
+            vals.rejectAttached(name);
+            try stdout.writeAll("\n" ++ about_text ++ "\n");
             try stdout.flush();
             return;
         } else if (std.mem.eql(u8, name, "-b") or std.mem.eql(u8, name, "--base")) {
@@ -130,8 +178,6 @@ pub fn main(init: std.process.Init) !void {
         } else if (std.mem.eql(u8, name, "--no-hash")) {
             vals.rejectAttached(name);
             opts.no_hash = true;
-        } else if (std.mem.eql(u8, name, "--hash-chars")) {
-            opts.hash_chars = charCount(stderr, vals.take(name, "a symbol count"), name);
         } else if (std.mem.eql(u8, name, "--rand-chars")) {
             opts.random_chars = charCount(stderr, vals.take(name, "a symbol count"), name);
         } else {
@@ -159,14 +205,6 @@ pub fn main(init: std.process.Init) !void {
             error.BaseNotText => die(stderr, "That base renders raw bytes rather than text, so it cannot carry an identifier.", .{}),
             error.EnvUnavailable => die(stderr, "This machine could not supply that component - no name, hardware address, or random source.", .{}),
             error.OptionRange => die(stderr, "A symbol count is out of range. Want 1 to {d}.", .{zuid.core.max_component_chars}),
-            error.HashTooWide => {
-                // The ceiling moves with the base, so quote it rather than
-                // leaving the caller to guess what would fit.
-                const name = if (opts.base.len == 0) zuid.core.default_base else opts.base;
-                const radix = wasm_host.converter().radix(name) catch
-                    die(stderr, "A hashed component cannot be wider than a SHA-256 fills in base {s}.", .{name});
-                die(stderr, "Hash width {d}: base {s} carries at most {d} symbols of a 256-bit digest.", .{ opts.hash_chars, name, zuid.core.maxHashChars(radix) });
-            },
             else => die(stderr, "Generation failed: {t}.", .{err}),
         };
     };
@@ -203,17 +241,6 @@ fn charCount(stderr: *std.Io.Writer, raw: []const u8, flag: []const u8) u32 {
         return die(stderr, "{d} is out of range for {s}. Want 1 to {d}.", .{ parsed, flag, zuid.core.max_component_chars });
     }
     return parsed;
-}
-
-fn printVersion(w: *std.Io.Writer) !void {
-    try w.print(
-        \\zuid version {s}
-        \\Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ].
-        \\License GPLv2+: GNU GPL version 2 or later, full text at:
-        \\    https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
-        \\There is no warranty, to the extent permitted by law.
-        \\
-    , .{zuid.version});
 }
 
 fn die(stderr: *std.Io.Writer, comptime fmt: []const u8, args: anytype) noreturn {
