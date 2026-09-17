@@ -48,8 +48,11 @@ Markdown is never hard-wrapped. One paragraph or one bullet is one physical line
 Names should be findable. Someone reading the code has to be able to search for a name and get the places that actually mean it.
 
 - Prefer a descriptive word to an abbreviation: `upperBound`, not `ub`.
+
 - Single letters are fine for loop indices, and only there.
+
 - Do not overcorrect. Longer is not automatically better, and a short conventional name in a small scope is clear.
+
 - Follow each language's own conventions for case and ordering.
 
 ## Comments
@@ -57,9 +60,13 @@ Names should be findable. Someone reading the code has to be able to search for 
 Comments say *why*. The code already says what.
 
 - No comment that restates the line below it.
+
 - No banner dividers inside a file. The one exception is the full-width `#•••` rule between major sections of a Bash script, which is an established convention here.
+
 - ASCII only. Write `->` rather than an arrow character, and `-` rather than a dash character. `©` is the exception, and is preferred over `(C)`.
+
 - Terse. A comment that has grown into a paragraph usually wants to be in `project/design.md` instead.
+
 - Describe what the code does and why, never how it was written, tested, or arrived at.
 
 Every source file opens with a copyright and SPDX header. Helper scripts under `cicd/utility/` are MIT regardless of the rest of the project, since they are useful on their own.
@@ -67,8 +74,11 @@ Every source file opens with a copyright and SPDX header. Helper scripts under `
 ## Errors
 
 - Errors are values, returned and then handled or propagated immediately. Nothing is discarded silently.
+
 - No panic, `unreachable`, or equivalent for ordinary failure. Where one is genuinely impossible, a comment carries the proof.
+
 - Return early. The success path sits at the lowest indentation, and there is no `else` after a return.
+
 - An error message says what was wrong with what was given, in the terms the caller used.
 
 ## Prose and documentation
@@ -76,8 +86,13 @@ Every source file opens with a copyright and SPDX header. Helper scripts under `
 Public documents are read by people deciding whether to use this, so they are written for someone who has not seen the code.
 
 - Short sentences. Break a complicated idea into nested bullets rather than joining clauses with dashes, semicolons, and parentheses.
+
 - Plain words. Minimal bold and italic, no capitals for emphasis, and no dramatic adjectives.
+
 - No characters that are not on a keyboard, unless the subject genuinely requires them.
+
 - US spellings.
+
 - Filenames are lower case, except `README.md`.
+
 - Technical detail that only a maintainer needs belongs in `project/design.md` or in the code, not in `README.md`.

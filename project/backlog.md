@@ -47,14 +47,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ### Bugs
 
-- 🔘 One error message reads in a different style from every other one. A base the conversion library does not know comes back as `zuid: unknown base "nope"; did you mean "nice"?` - lower case, double quotes - because the library's own text is passed straight through. Every message the command writes itself is a capitalized sentence with the value in single quotes.
-	- Note: found while writing `style-guide_cli.md`, which records the convention. The guide names this as the one exception.
-	- Note: the suggestion is worth keeping, so this is about reshaping the text rather than dropping it.
-	- Opened: 20260917-133000
-
-- 🔘 Several `.md` files run their top-level bullets tight, with no blank line between them. `contributing.md` and `style_guide.md` are the two.
-	- Note: `contributing.md` came from a generator and arrived that way. Decide whether its lists get reflowed or left as the template wrote them.
-	- Opened: 20260917-133000
+None open.
 
 ### New features and enhancements
 
@@ -103,6 +96,27 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 ### Done
 
 #### Done - Bugs
+
+- ✅ One error message read in a different style from every other one. An unknown base came back as the conversion library's own text: lower case, double quotes.
+	- Fixed: the command writes its own sentence and keeps the near match the library found, so a typo now reads `Unknown base 'nope'. Did you mean 'nice'?`. With no near match it says where the list is.
+	- Fixed: a blank base name is refused by the command too. It used to reach the library as empty and come back as `empty base name`.
+	- Note: `style-guide_cli.md` narrows its exception to a failure inside the wasm runtime, which is internal and not about anything the user typed.
+	- Opened: 20260917-133000
+	- Closed: 20260917-140000
+
+- ✅ A base name long enough to push the library's message past the 512-byte error buffer lost the error code with it, so a typo came back as `Generation failed: ConvertFailed`.
+	- Cause: reading the message refused rather than truncating, and the read failing threw away the code that came with it.
+	- Fixed: the text is clamped to what fits, on a codepoint boundary, and the code always survives.
+	- Note: found while testing the message above.
+	- Opened: 20260917-140000
+	- Closed: 20260917-140000
+
+- ✅ Several `.md` files ran their top-level bullets tight, with no blank line between them.
+	- Fixed: `contributing.md` and `style_guide.md` are spaced. Auto-generated table of contents blocks are left alone, as the convention says.
+	- Decided: `contributing.md` gets reflowed like anything else here, and its generator banner, attribution footer and commented-out template sections are gone. A document that advertises where it was generated from is not wanted.
+	- Fixed: same file picked up the `markdownlint-disable` header every other document here has, and a blank quote line in the two block quotes that needed one.
+	- Opened: 20260917-133000
+	- Closed: 20260917-140000
 
 - ✅ Contact address in `trademark.md` was still a placeholder.
 	- Fixed: `zuid@yottacore.com` in `trademark.md`, `contributing.md` and `code_of_conduct.md`. The last one still named the project it was copied from.

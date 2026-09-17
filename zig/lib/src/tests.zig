@@ -185,6 +185,14 @@ test "error paths carry the module's error text" {
     try std.testing.expectError(error.UnknownBase, core.generate(h.converter(), e, .{ .base = "hexx", .clock_ms = 0 }, &out_buf));
     try std.testing.expect(h.lastError().len > 0);
 
+    // A name long enough that the module's message outgrows the error buffer.
+    // Reading it used to fail, and the real code went with it, so the caller
+    // saw a bare ConvertFailed for what is just a typo.
+    const long_name = "a" ** 1000;
+    try std.testing.expectError(error.UnknownBase, core.generate(h.converter(), e, .{ .base = long_name, .clock_ms = 0 }, &out_buf));
+    try std.testing.expect(h.lastError().len > 0);
+    try std.testing.expect(std.unicode.utf8ValidateSlice(h.lastError()));
+
     try std.testing.expectError(error.UnknownComponent, core.generate(h.converter(), e, .{ .format = "%z", .clock_ms = 0 }, &out_buf));
     try std.testing.expectError(error.BareFormatPercent, core.generate(h.converter(), e, .{ .format = "abc%", .clock_ms = 0 }, &out_buf));
     try std.testing.expectError(error.ClockBeforeEpoch, core.generate(h.converter(), e, .{ .clock_ms = -1 }, &out_buf));

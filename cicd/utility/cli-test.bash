@@ -125,6 +125,17 @@ fWantFailure "an unknown base is refused"      "no-such-base-here" --base no-suc
 fWantFailure "a bad precision is refused"      "out of range" --precision 2
 fWantFailure "a missing value is refused"      "base" --base
 
+## The unknown-base message used to be the conversion library's own text, in its
+## style: lower case, double quotes. Only the near match it found is kept now.
+fWantFailure "an unknown base reads in one style" "Unknown base 'no-such-base-here'." --base no-such-base-here
+fWantFailure "a near miss keeps the suggestion"   "Did you mean '62'?" --base 62x
+fWantFailure "a blank base is refused"            "is blank" --base '  '
+
+## A name long enough to outgrow the 512-byte error buffer used to lose the
+## error code along with the text, and came back as a bare internal failure.
+fWantFailure "a very long base is still a base" "Unknown base" \
+	--base "$(python3 -c 'print("a" * 1000)')"
+
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
 fLine ""
