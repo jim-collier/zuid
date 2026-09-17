@@ -164,6 +164,13 @@ pub const Converter = struct {
         /// The base's zero digit, which is also the padding symbol. Used to
         /// tell a text base from a raw-byte one.
         zeroSymbol: *const fn (ctx: *anyopaque, base: []const u8, out: []u8) Error![]const u8,
+        /// What the last text check decided about this base, or null if it has
+        /// not been asked. The check itself stays here in core, since it is
+        /// spec; only the remembering is the converter's, next to the radix and
+        /// the zero digit it already keeps. 33 round trips an identifier is
+        /// most of what a batch costs, and the answer cannot change.
+        textVerdict: *const fn (ctx: *anyopaque, base: []const u8) ?bool,
+        noteTextVerdict: *const fn (ctx: *anyopaque, base: []const u8, is_text: bool) void,
     };
 
     pub fn convertFit(self: Converter, value: []const u8, from_base: []const u8, to_base: []const u8, width: u32, out: []u8) Error![]const u8 {
@@ -177,6 +184,12 @@ pub const Converter = struct {
     }
     pub fn zeroSymbol(self: Converter, base: []const u8, out: []u8) Error![]const u8 {
         return self.vtable.zeroSymbol(self.ctx, base, out);
+    }
+    pub fn textVerdict(self: Converter, base: []const u8) ?bool {
+        return self.vtable.textVerdict(self.ctx, base);
+    }
+    pub fn noteTextVerdict(self: Converter, base: []const u8, is_text: bool) void {
+        self.vtable.noteTextVerdict(self.ctx, base, is_text);
     }
 };
 
@@ -374,18 +387,37 @@ fn spentWidths(format: []const u8) SpentWidths {
 /// One text-looking base is a problem too: 98keyboard holds tab, newline and
 /// return among its digits, so an identifier can carry a line break without
 /// the zero digit ever showing it. Each control byte gets asked after.
+/// The verdict is remembered by the converter, because asking costs 33 round
+/// trips and a base cannot change its digits. Only a settled yes or no is
+/// remembered: an unknown base fails at the zero digit, before there is any
+/// verdict to keep.
 fn rejectRawByteBase(conv: Converter, base: []const u8) Error!void {
+    if (conv.textVerdict(base)) |is_text| {
+        if (is_text) return;
+        return Error.BaseNotText;
+    }
+
     var zero_buf: [16]u8 = undefined;
     const zero = try conv.zeroSymbol(base, &zero_buf);
     for (zero) |byte| {
-        if (byte < 0x20 or byte == 0x7f) return Error.BaseNotText;
+        if (byte < 0x20 or byte == 0x7f) {
+            conv.noteTextVerdict(base, false);
+            return Error.BaseNotText;
+        }
     }
 
     var byte: u8 = 0;
     while (byte < 0x20) : (byte += 1) {
-        if (isDigitOf(conv, base, byte)) return Error.BaseNotText;
+        if (isDigitOf(conv, base, byte)) {
+            conv.noteTextVerdict(base, false);
+            return Error.BaseNotText;
+        }
     }
-    if (isDigitOf(conv, base, 0x7f)) return Error.BaseNotText;
+    if (isDigitOf(conv, base, 0x7f)) {
+        conv.noteTextVerdict(base, false);
+        return Error.BaseNotText;
+    }
+    conv.noteTextVerdict(base, true);
 }
 
 /// Whether one byte is a digit of the base. There is no export that hands back

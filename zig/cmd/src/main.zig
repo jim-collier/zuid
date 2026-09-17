@@ -102,7 +102,7 @@ const help_tail =
     \\    -p, --precision <-1|0|1>  Time precision: -1 minute, 0 second (default),
     \\                              1 millisecond.
     \\    -n, --count <n>           How many to print, one per line (default 1,
-    \\                              most 100000). One run reads the clock once,
+    \\                              most 1000000). One run reads the clock once,
     \\                              so a format without %r repeats itself.
     \\        --no-hash             Emit the host, user, and FQDN names literally
     \\                              instead of hashing them.
@@ -309,7 +309,7 @@ fn dieGenerating(stderr: *std.Io.Writer, err: anyerror, detail: []const u8, opts
     }
 }
 
-/// A reader that quit early - 'zuid -n 100000 | head' - is how a run ends, not
+/// A reader that quit early - 'zuid -n 1000000 | head' - is how a run ends, not
 /// something to report. Anything else that stops stdout is worth a message.
 fn stdoutFailed(fw: *std.Io.File.Writer, stderr: *std.Io.Writer) noreturn {
     if (fw.err) |err| {
@@ -355,10 +355,9 @@ fn unknownVerb(format: []const u8) []const u8 {
 const max_out_len = 1 << 20;
 
 /// Ceiling on --count. It catches a mistyped count before the run rather than
-/// after it: a batch costs about a third of a millisecond an identifier, nearly
-/// all of it crossing into the wasm module, so the ceiling is already half a
-/// minute of work. Raise it when that cost comes down.
-const max_count = 100_000;
+/// after it: a batch costs around 30 microseconds an identifier, so the ceiling
+/// is already half a minute of work. Raise it if that cost comes down again.
+const max_count = 1_000_000;
 
 /// Renders into a buffer that grows until the identifier fits. A fixed one
 /// refused anything past it, whether the format repeated a component or just

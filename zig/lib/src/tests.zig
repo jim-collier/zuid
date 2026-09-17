@@ -544,6 +544,44 @@ test "a base with control digits is refused" {
     try std.testing.expectEqual(@as(u32, 0), try h.regionCount());
 }
 
+// The text verdict is remembered on the host so a batch does not re-probe the
+// tokenizer 33 times an identifier. One slot means switching bases has to
+// throw the old answer away, in both directions, and a name too long for the
+// slot must not be filed under whatever was there before.
+test "a cached text verdict does not follow the base that earned it" {
+    var h = try host.Host.init(.auto);
+    defer h.deinit();
+    var fixed: FixedEnv = .{};
+    var out_buf: [core.out_buf_len]u8 = undefined;
+
+    const long_name = "6" ** 100;
+    const cases = [_]struct { base: []const u8, want: ?core.Error }{
+        .{ .base = "62", .want = null },
+        .{ .base = "bytes", .want = core.Error.BaseNotText },
+        .{ .base = "62", .want = null },
+        .{ .base = "98keyboard", .want = core.Error.BaseNotText },
+        .{ .base = long_name, .want = core.Error.UnknownBase },
+        .{ .base = "62", .want = null },
+        .{ .base = long_name, .want = core.Error.UnknownBase },
+        .{ .base = "bytes", .want = core.Error.BaseNotText },
+        .{ .base = "62", .want = null },
+    };
+    for (cases) |case| {
+        const attempt = core.generate(
+            h.converter(),
+            fixed.interface(),
+            .{ .format = "%d", .base = case.base, .clock_ms = 0 },
+            &out_buf,
+        );
+        if (case.want) |err| {
+            try std.testing.expectError(err, attempt);
+        } else {
+            _ = try attempt;
+        }
+    }
+    try std.testing.expectEqual(@as(u32, 0), try h.regionCount());
+}
+
 // The horizon is what the fixed width comes from, so both sides of it need
 // pinning: the last instant that fits, and the first that does not.
 test "the padding horizon is a hard edge" {
