@@ -773,6 +773,35 @@ fStage_Zig_Cli(){
 
 	bash "${runner}" --bin "${zigDir}/zig-out/bin/zuid"
 
+	fStage_Zig_BuildStamp
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The build number comes from -Dbuild-epoch, then SOURCE_DATE_EPOCH, then the
+## HEAD commit date. An empty SOURCE_DATE_EPOCH is what a tarball script exports
+## when its own lookup came back empty, and taking it literally used to drop the
+## build number from a build that had a commit date available.
+fStage_Zig_BuildStamp(){
+
+	local stampDir=""
+	stampDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	_scratchDirs+=("${stampDir}")
+
+	(
+		cd "${zigDir}" || exit 1
+		SOURCE_DATE_EPOCH="" zig build "-j${buildJobs}" --prefix "${stampDir}" || exit 1
+	) || fThrowError "the build failed with SOURCE_DATE_EPOCH empty."  "${FUNCNAME[0]}"
+
+	local -r stamped="$("${stampDir}/bin/zuid" --version 2>&1 || true)"
+	if [[ "${stamped}" != *"(build "* ]]; then
+		fThrowError "an empty SOURCE_DATE_EPOCH dropped the build number: --version said '${stamped}'. It should fall through to the commit date."  "${FUNCNAME[0]}"
+	fi
+	fEcho_Clean "Stamp ......: survives an empty SOURCE_DATE_EPOCH"
+
+	rm -rf "${stampDir}"
+
 }
 
 

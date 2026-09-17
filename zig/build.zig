@@ -105,9 +105,24 @@ pub fn build(b: *std.Build) void {
 /// no build number.
 fn buildEpoch(b: *std.Build) i64 {
     if (b.option(i64, "build-epoch", "Unix seconds to stamp the build number from (default: the HEAD commit date)")) |secs| return secs;
+
+    // An empty SOURCE_DATE_EPOCH is what a tarball script exports when its own
+    // lookup came back empty, so it means "no answer" rather than "epoch zero".
+    // Taking it literally dropped the build number from a build that had a
+    // perfectly good commit date sitting there.
     if (b.graph.environ_map.get("SOURCE_DATE_EPOCH")) |raw| {
-        return std.fmt.parseInt(i64, std.mem.trim(u8, raw, " \r\n"), 10) catch 0;
+        const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+        if (trimmed.len > 0) {
+            if (std.fmt.parseInt(i64, trimmed, 10)) |secs| {
+                return secs;
+            } else |_| {
+                // Not fatal, but not silent either: a typo here would otherwise
+                // change the build stamp with nothing to show why.
+                std.log.warn("SOURCE_DATE_EPOCH is not a number ('{s}'); using the HEAD commit date instead", .{trimmed});
+            }
+        }
     }
+
     var code: u8 = 0;
     const out = b.runAllowFail(&.{ "git", "-C", b.build_root.path orelse ".", "log", "-1", "--format=%ct" }, &code, .ignore) catch return 0;
     return std.fmt.parseInt(i64, std.mem.trim(u8, out, " \r\n"), 10) catch 0;

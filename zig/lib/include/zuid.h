@@ -7,9 +7,10 @@
 	zuid: short, sortable, privacy-preserving unique identifiers.
 
 	A zuid context owns an embedded WebAssembly runtime hosting the upstream
-	convert-base module, so creation is not free (tens of milliseconds);
-	create one and keep it. Contexts are not thread-safe - one per thread,
-	or serialize access.
+	convert-base module, so creation is not free: expect around half a
+	second, nearly all of it the module building its base registry. Create
+	one and keep it. Contexts are not thread-safe - one per thread, or
+	serialize access.
 
 	A freed context must not be used again, and must not be freed again -
 	the same contract C's own free() carries. Every entry point rejects a

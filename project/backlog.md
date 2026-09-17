@@ -120,10 +120,15 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Fixed: both `liveHostname` and `liveUsername` are wrapped now. The user name was not actually being re-read, since `user.Current` caches internally, but every source in the file answers the same way now.
 		- Done: `go/zuid/live_test.go`, inside the package, counts reads of each of the four sources and asserts at most one per process. Plus a case that two host-name reads agree, which is the property the caching exists for.
 		- Verified: unwrapping `liveHostname` reports "read the hostname 5 times". The vectors and `TestLiveSources` still pass.
-	- 🔘 F6, nit: the C header says a context takes tens of milliseconds to create. It takes about half a second.
+	- ✅ F6, nit: the C header says a context takes tens of milliseconds to create. It takes about half a second.
 		- Origin: 7677deb. Confirmed.
-	- 🔘 F7, nit: an empty `SOURCE_DATE_EPOCH` drops the build number instead of falling back to the commit date.
+		- Fixed: the header says around half a second, and names the reason - the module building its base registry - since that is why keeping one context matters.
+		- Verified: measured 450 to 570 ms over five runs in both Debug and ReleaseSafe, which matches the deferred note on CLI startup. No test; it is a comment.
+	- ✅ F7, nit: an empty `SOURCE_DATE_EPOCH` drops the build number instead of falling back to the commit date.
 		- Origin: e8442fb. Confirmed.
+		- Cause: the value was parsed with `catch 0`, so both an empty and an unparsable one became zero, which means "no build number".
+		- Fixed: an empty or whitespace-only value falls through to the commit date, as does an unparsable one, and that last case warns rather than passing silently. `-Dbuild-epoch` still wins over the variable, and a valid value still wins over the commit date.
+		- Done: a cicd check builds with the variable empty and asserts a build number. It fails on the old `build.zig`, reporting the bare version.
 	- 🔘 F15, nit: `install.bash --release` with no value exits without a message.
 		- Origin: 08c6996. Confirmed.
 	- 🔘 F16, nit: both installers remove or replace a `zuid` at the link path that they did not put there.
