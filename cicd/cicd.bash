@@ -606,6 +606,7 @@ fStage_Go(){
 	go test -p "${buildJobs}" -race ./...
 
 	fStage_Go_Consumer
+	if ((! doQuick)); then fStage_Go_Fuzz; fi
 
 }
 
@@ -669,6 +670,42 @@ fStage_Go_Consumer(){
 	fEcho_Clean "Import .....: builds and runs"
 
 	rm -rf "${consumerDir}"
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The format string is the one part of a request that arrives verbatim from
+## whoever is calling. Go's fuzzer drives it here; the Zig side has matching
+## fuzz tests, but 0.16.0's own test runner does not compile in fuzz mode, so
+## those only replay their corpus during the Zig stage.
+fStage_Go_Fuzz(){
+
+	fEcho_Clean
+	fEcho "Go: fuzz"
+
+	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
+
+	local -r fuzzTime="20s"
+	local -r crasherDir="${goDir}/zuid/testdata/fuzz/FuzzGenerate"
+	local output=""
+	local -i attempt=0
+
+	while ((attempt < 2)); do
+		attempt=$((attempt + 1))
+		if output="$(go test -run=xxx -fuzz=FuzzGenerate -fuzztime="${fuzzTime}" ./zuid 2>&1)"; then
+			fEcho_Clean "Fuzzed .....: ${fuzzTime} of formats and base names, nothing found."
+			return 0
+		fi
+		## A real find is saved as a crasher. Without one this is most likely
+		## Go reporting its own -fuzztime deadline as a failure (golang/go#75804),
+		## which gets one more run before it is believed.
+		if [[ -d "${crasherDir}" ]]; then break; fi
+		fEcho_Clean "Retrying ...: the fuzz run failed with nothing saved."
+	done
+
+	fEcho_Clean "${output}"
+	fThrowError "Fuzzing failed. A saved input under ${crasherDir} means a real find."  "${FUNCNAME[0]}"
 
 }
 

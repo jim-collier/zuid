@@ -85,7 +85,8 @@ fn textFor(err: core.Error) []const u8 {
 // nothing.
 const live_magic: u32 = 0x7A554944;
 
-const Zuid = struct {
+/// Public only so the fuzz test can name the handle type. C sees it as opaque.
+pub const Zuid = struct {
     magic: u32,
     wasm_host: host.Host,
     live_env: env.Live,
