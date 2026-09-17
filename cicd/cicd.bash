@@ -502,8 +502,37 @@ fStage_Shell(){
 
 	## Only what this project wrote. x9muid1 under utility/ is 2023 reference
 	## code, and the copied helpers keep their own upstream's lint state.
-	shellcheck "${repoRoot}/cicd/cicd.bash" "${repoRoot}/install.bash"
+	shellcheck "${repoRoot}/cicd/cicd.bash" "${repoRoot}/install.bash" \
+		"${utilityDir}/installer-test.bash"
 	fEcho_Clean "Clean."
+
+	fStage_Shell_Installers
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The installers only reach their interesting paths against a real listing and
+## a real download, so they get a local one. Nothing here touches the network or
+## anything outside its own scratch tree.
+fStage_Shell_Installers(){
+
+	fEcho_Clean
+	fEcho "Installers"
+
+	local -r runner="${utilityDir}/installer-test.bash"
+	if [[ ! -f "${runner}" ]]; then
+		fEcho_Clean "Skipped ....: installer-test.bash is not present."
+		return 0
+	fi
+
+	## python3 serves the listing; without it there is nothing to test against.
+	if [[ -z "$(command -v python3 2>/dev/null || true)" ]]; then
+		fEcho_Clean "Skipped ....: python3 not installed."
+		return 0
+	fi
+
+	bash "${runner}"
 
 }
 

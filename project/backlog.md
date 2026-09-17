@@ -53,8 +53,12 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Fixed: codes 2, 6, 12 and 13 are now asserted at the C surface, in both the Zig test and `capi_smoke.c`.
 		- Verified: three separate renumberings of `codeFor` each turn both runners red, and the codes they pin go green again once restored.
 		- Note: code 10 is left unpinned. It needs a machine that cannot supply a component, and nothing available can stage that.
-	- 🔘 F8, blocking: the PowerShell installer finds no release at all once more than one is published.
+	- ✅ F8, blocking: the PowerShell installer finds no release at all once more than one is published.
 		- Origin: 39f7403, the fix for the earlier "default install found no release" bug. Confirmed.
+		- Cause: `Invoke-RestMethod` hands a JSON array to the pipeline as one object, so `@(irm ...)` inline gave a single element holding the whole list, and each release's `draft` flag was then tested as an array.
+		- Fixed: the response lands in a variable before it is wrapped. It was the only site of that pattern; the two `Invoke-WebRequest -OutFile` calls do not go through the pipeline.
+		- Done: `cicd/utility/installer-test.bash` is new, and runs both installers against a local four-release listing. It is a cicd stage, and the copies it patches assert every rewrite, so a script that moves its URLs fails the harness rather than testing nothing.
+		- Verified: reverting the lookup turns both ps1 cases red with "no published release found", which is the reported symptom. A single-release listing still reads correctly.
 	- 🔘 F9, blocking: `package.bash` wipes whatever directory `--out` names, before it builds anything.
 		- Origin: 08c6996. Not seen by an earlier review. Confirmed.
 	- 🔘 F1, should-fix: the shared C library exposes every Wasmtime function it contains, so a program with its own copy takes over the library's calls.

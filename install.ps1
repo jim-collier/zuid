@@ -146,8 +146,13 @@ if (-not $Arch) {
 ## on a repository whose releases are all prereleases. List them and choose here.
 
 Write-Status "Looking up the $Release release"
+## The response has to land in a variable before it is wrapped. Invoke-RestMethod
+## hands a JSON array to the pipeline as one object, so @(irm ...) inline gives a
+## single element holding the whole list, and every later per-release test then
+## runs against an array of flags instead of one flag.
 try {
-	$found = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$repository/releases" -Headers @{ 'User-Agent' = "$program-install" })
+	$response = Invoke-RestMethod -Uri "https://api.github.com/repos/$repository/releases" -Headers @{ 'User-Agent' = "$program-install" }
+	$found = @($response)
 }
 catch {
 	$found = @()

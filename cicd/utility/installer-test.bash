@@ -1,0 +1,295 @@
+#!/usr/bin/env bash
+
+# shellcheck disable=2155  ## 'Declare and assign separately.' Cumbersome for locals.
+
+##	Purpose:
+##		Runs install.bash and install.ps1 against a local release listing, so the
+##		parts that only a real download can reach get covered: which release is
+##		chosen, what a re-run does, and what happens to a file already sitting at
+##		the link path.
+##
+##		The scripts are copied and their two base URLs rewritten to point here.
+##		Every rewrite is checked, so a script that moves its URLs fails this
+##		rather than quietly testing nothing.
+##	Syntax:
+##		installer-test.bash [--keep] [--only bash|ps1]
+##	History: At bottom.
+
+##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
+##	Licensed under The MIT License (MIT). Full text at:
+##		https://mit-license.org/
+##	SPDX-License-Identifier: MIT
+
+set -Eeuo pipefail
+
+PROG="zuid"
+REPO="jim-collier/zuid"
+
+doKeep=0
+only=""
+
+fEcho(){    printf '[ %s ]\n' "$*" ;}
+fLine(){    printf '%s\n' "$*" ;}
+fDie(){     printf '\n%s: %s\n\n' "installer-test" "$*" >&2; exit 1 ;}
+
+passed=0
+failed=0
+fPass(){ passed=$((passed + 1)); printf '  ok ....: %s\n' "$*" ;}
+fFail(){ failed=$((failed + 1)); printf '  FAIL ..: %s\n' "$*" ;}
+
+while (($#)); do case "$1" in
+	--keep)    doKeep=1; shift ;;
+	--only)    only="${2:-}"; shift 2 ;;
+	-h|--help) sed -n '/^##	Purpose:/,/^##	History:/p' "${BASH_SOURCE[0]}" | sed '$d; s/^##	\{0,1\}//'; exit 0 ;;
+	*) fDie "unknown option: $1 (try --help)" ;;
+esac; done
+
+case "${only}" in ""|bash|ps1) ;; *) fDie "--only wants bash or ps1, got '${only}'" ;; esac
+
+repoRoot="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+[[ -f "${repoRoot}/install.bash" ]] || fDie "could not find install.bash from ${repoRoot}"
+
+for tool in python3 curl tar sha256sum; do
+	command -v "${tool}" >/dev/null 2>&1 || fDie "not found in PATH: ${tool}"
+done
+
+hasPwsh=0
+command -v pwsh >/dev/null 2>&1 && hasPwsh=1
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## A tree the stock python server can serve, laid out at the paths the rewritten
+## URLs ask for.
+
+work="$(mktemp -d)"
+serverPid=""
+fCleanup(){
+	[[ -n "${serverPid}" ]] && kill "${serverPid}" 2>/dev/null
+	((doKeep)) && { fLine ""; fEcho "Kept: ${work}"; return 0 ;}
+	rm -rf "${work}"
+	return 0
+}
+trap fCleanup EXIT
+
+srvRoot="${work}/srv"
+apiDir="${srvRoot}/api/repos/${REPO}"
+dlRoot="${srvRoot}/dl/${REPO}/releases/download"
+mkdir -p "${apiDir}" "${dlRoot}"
+
+## Newest first, the order the real API answers in. The draft has to be dropped,
+## the newest prerelease is what --release dev takes, and the newest full release
+## is what the default takes. One release alone would not tell those apart.
+cat > "${apiDir}/releases" <<'JSON'
+[
+	{
+		"tag_name": "v2.1.0-beta.1",
+		"draft": false,
+		"prerelease": true
+	},
+	{
+		"tag_name": "v2.0.0",
+		"draft": false,
+		"prerelease": false
+	},
+	{
+		"tag_name": "v9.9.9-draft",
+		"draft": true,
+		"prerelease": false
+	},
+	{
+		"tag_name": "v1.0.0",
+		"draft": false,
+		"prerelease": false
+	}
+]
+JSON
+
+## A stand-in for the real command: enough of --version for the installers'
+## re-run check to have something to read.
+fMakeRelease(){
+	local -r tag="$1"
+	local -r stageDir="${work}/stage-${tag}"
+	local -r outDir="${dlRoot}/${tag}"
+	mkdir -p "${stageDir}/${PROG}-${tag}/bin" "${outDir}"
+	{
+		printf '#!/usr/bin/env bash\n'
+		# shellcheck disable=2016  ## The single quotes are the point: this is the text of the stand-in, not something to expand here.
+		printf 'case "${1:-}" in --version) printf "%%s (build test)\\n" "%s" ;; *) printf "stand-in %s\\n" "%s" ;; esac\n' \
+			"${tag#v}" "${PROG}" "${tag}"
+	} > "${stageDir}/${PROG}-${tag}/bin/${PROG}"
+	chmod +x "${stageDir}/${PROG}-${tag}/bin/${PROG}"
+
+	local -r asset="${PROG}-linux-x86_64.tgz"
+	tar -czf "${outDir}/${asset}" -C "${stageDir}" "${PROG}-${tag}"
+	( cd "${outDir}" && sha256sum "${asset}" > checksums.txt )
+	## A zip for the Windows path, so a run there has something to fetch too.
+	if command -v zip >/dev/null 2>&1; then
+		( cd "${stageDir}" && zip -qr "${outDir}/${PROG}-windows-x86_64.zip" "${PROG}-${tag}" )
+		( cd "${outDir}" && sha256sum "${PROG}-windows-x86_64.zip" >> checksums.txt )
+	fi
+}
+fMakeRelease "v2.1.0-beta.1"
+fMakeRelease "v2.0.0"
+
+## Port 0 lets the kernel pick, so parallel runs and a busy box cannot collide.
+python3 - "${srvRoot}" "${work}/port" <<'PY' &
+import http.server, socketserver, sys, os
+root, portFile = sys.argv[1], sys.argv[2]
+os.chdir(root)
+class Quiet(http.server.SimpleHTTPRequestHandler):
+	def log_message(self, *a): pass
+with socketserver.TCPServer(("127.0.0.1", 0), Quiet) as httpd:
+	with open(portFile, "w") as f:
+		f.write(str(httpd.server_address[1]))
+	httpd.serve_forever()
+PY
+serverPid=$!
+
+for _ in $(seq 1 50); do
+	[[ -s "${work}/port" ]] && break
+	sleep 0.1
+done
+[[ -s "${work}/port" ]] || fDie "the local server did not come up"
+port="$(cat "${work}/port")"
+baseUrl="http://127.0.0.1:${port}"
+
+curl -fsS "${baseUrl}/api/repos/${REPO}/releases" >/dev/null \
+	|| fDie "the local server is not answering on ${port}"
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Patched copies. Each rewrite is asserted, so this cannot pass by testing a
+## substitution that no longer matches anything.
+
+fRewrite(){  ## file, description, sed expression...
+	local -r file="$1" what="$2"; shift 2
+	local before="" after=""
+	before="$(md5sum "${file}" | cut -d' ' -f1)"
+	sed -i "$@" "${file}"
+	after="$(md5sum "${file}" | cut -d' ' -f1)"
+	[[ "${before}" != "${after}" ]] || fDie "nothing to rewrite in $(basename "${file}"): ${what}. The script moved; fix this harness."
+}
+
+bashCopy="${work}/install-copy.bash"
+cp "${repoRoot}/install.bash" "${bashCopy}"
+fRewrite "${bashCopy}" "the releases API URL" -e "s|https://api\.github\.com/repos/|${baseUrl}/api/repos/|"
+fRewrite "${bashCopy}" "the download URL"     -e "s|https://github\.com/|${baseUrl}/dl/|"
+## curl pins https, which a local server cannot answer.
+fRewrite "${bashCopy}" "curl's https pinning" -e "s|--proto '=https' --tlsv1\.2 ||g"
+
+if ((hasPwsh)) && [[ -f "${repoRoot}/install.ps1" ]]; then
+	ps1Copy="${work}/install-copy.ps1"
+	cp "${repoRoot}/install.ps1" "${ps1Copy}"
+	fRewrite "${ps1Copy}" "the releases API URL" -e "s|https://api\.github\.com/repos/|${baseUrl}/api/repos/|"
+	fRewrite "${ps1Copy}" "the download URL"     -e "s|https://github\.com/|${baseUrl}/dl/|"
+fi
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Each case gets its own HOME, so nothing leaks between them and nothing
+## outside the scratch tree is ever a target.
+
+caseNumber=0
+fNewHome(){
+	caseNumber=$((caseNumber + 1))
+	local -r home="${work}/home-${caseNumber}"
+	mkdir -p "${home}/.local/bin"
+	printf '%s' "${home}"
+}
+
+## The two installers spell the same switches differently, so cases name them
+## once, in the neutral words below, and each runner translates.
+fRunBash(){  ## home, verb...
+	local -r home="$1"; shift
+	local -a args=()
+	local verb
+	for verb in "$@"; do case "${verb}" in
+		dev)       args+=(--release dev) ;;
+		user)      args+=(--target user) ;;
+		system)    args+=(--target system) ;;
+		yes)       args+=(--yes) ;;
+		uninstall) args+=(--uninstall) ;;
+		*) fDie "unknown verb: ${verb}" ;;
+	esac; done
+	HOME="${home}" bash "${bashCopy}" "${args[@]}" 2>&1
+}
+
+fRunPs1(){  ## home, verb...
+	local -r home="$1"; shift
+	local -a args=()
+	local verb
+	for verb in "$@"; do case "${verb}" in
+		dev)       args+=(-Release dev) ;;
+		user)      args+=(-Target user) ;;
+		system)    args+=(-Target system) ;;
+		yes)       args+=(-Yes) ;;
+		uninstall) args+=(-Uninstall) ;;
+		*) fDie "unknown verb: ${verb}" ;;
+	esac; done
+	HOME="${home}" pwsh -NoProfile -File "${ps1Copy}" "${args[@]}" 2>&1
+}
+
+## What ended up on the link path, per the stand-in's own --version.
+fInstalledVersion(){  ## home
+	local -r link="$1/.local/bin/${PROG}"
+	[[ -x "${link}" ]] || { printf 'none'; return 0 ;}
+	"${link}" --version 2>/dev/null | head -n1 | cut -d' ' -f1
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The release choice. Both installers pick from the full listing, so a draft is
+## skipped, the default takes the newest full release, and dev takes the newest
+## of either. install.ps1 used to find nothing at all here: Invoke-RestMethod
+## hands a JSON array to the pipeline as one object, so every release's draft
+## flag was tested as one array and none survived.
+
+## The target is named rather than left to the default, so a wrong default
+## cannot be what fails here. That choice has its own case.
+fCase_ReleaseChoice(){  ## label, runner
+	local -r label="$1" runner="$2"
+	local home="" out="" got=""
+
+	home="$(fNewHome)"
+	out="$("${runner}" "${home}" user yes)" || true
+	got="$(fInstalledVersion "${home}")"
+	if [[ "${got}" == "2.0.0" ]]
+		then fPass "${label}: the default takes the newest full release"
+		else fFail "${label}: the default should take v2.0.0, got ${got}. Output: ${out}"
+	fi
+
+	home="$(fNewHome)"
+	out="$("${runner}" "${home}" user dev yes)" || true
+	got="$(fInstalledVersion "${home}")"
+	if [[ "${got}" == "2.1.0-beta.1" ]]
+		then fPass "${label}: dev takes the newest prerelease"
+		else fFail "${label}: dev should take v2.1.0-beta.1, got ${got}. Output: ${out}"
+	fi
+}
+
+fEcho "Installers: against a local release listing on port ${port}"
+fLine ""
+
+if [[ "${only}" != "ps1" ]]; then
+	fLine "install.bash"
+	fCase_ReleaseChoice "bash" "fRunBash"
+fi
+
+if [[ "${only}" != "bash" ]]; then
+	fLine ""
+	fLine "install.ps1"
+	if ((! hasPwsh)); then
+		fLine "  skipped: pwsh not installed."
+	else
+		fCase_ReleaseChoice "ps1" "fRunPs1"
+	fi
+fi
+
+fLine ""
+fEcho "Passed: ${passed}, failed: ${failed}"
+fLine ""
+((failed == 0)) || exit 1
+
+
+##	History:
+##		- 20260917 JC: Created, for the release-choice, re-run and link-path cases.
