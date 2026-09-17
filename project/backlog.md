@@ -39,7 +39,7 @@ An item moves to its matching section under [Done](#done) once it is finished. O
 | ✅   | Complete
 | 🚫   | Canceled
 
-Each item carries the date it was opened, and the date it was closed once finished. "n/a" means the open date is not known. A deferred item keeps only its opened date.
+Each item lists the date it was opened, and the date it was closed once finished. "n/a" means the open date is not known. A deferred item keeps only its opened date.
 
 Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`, `Verified:` or `Note:`, so an item can be skimmed by its prefixes.
 
@@ -48,6 +48,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 ### Bugs
 
 - 🔘 Contact address in `trademark.md` is still a placeholder. Needs a real one.
+	- Use 'zuid@yottacore.com'
 	- Opened: 20260801-090104
 
 ### New features and enhancements
