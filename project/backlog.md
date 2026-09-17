@@ -53,6 +53,12 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ### New features and enhancements
 
+- 🔘 Nothing points at `style_guide.md`. `README.md` should, and so should `contributing.md`, whose style section is still a commented-out stub.
+	- Opened: 20260917-104114
+
+- 🔘 No UI and UX style guide for the command. Write down how help, flags, output and errors are laid out, and point `README.md` at it.
+	- Opened: 20260917-104114
+
 - 🔘 The installers' system-wide destinations are untested.
 	- Note: both have only run against a throwaway home directory.
 	- Opened: 20260804-224440
