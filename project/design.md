@@ -233,7 +233,7 @@ Hashed components are SHA-256 of the raw name, converted from base 16, keeping t
 The byte-valued components all take the same path - hex in, converted from base 16 - because that is the cheapest faithful way to hand bytes to a library whose interface is strings.
 
 - `%m` is the 48-bit address as a number. The predecessor picked the interface holding the default route, which needs the routing table on three different platforms; the lowest-numbered non-loopback interface is stable enough for a value whose only job is to differ between machines, and it needs no route parsing and no subprocess.
-- `%g` is a real UUID v4 - 16 bytes from the random source with the version and variant bits forced - but rendered as the 128-bit number it is rather than in the dashed text form, which would not sort and would be four times as long.
+- `%g` is a real UUID v4 - 16 bytes from the random source with the version and variant bits forced - but rendered as a plain number in the output base rather than in the dashed text form, which would not sort and would be four times as long.
 - `%r` draws enough bytes to fill the symbols it emits. Below base 256 that is one byte each, which is more entropy than a symbol can spend; above it a symbol carries more than eight bits, so the draw scales with the radix. Details under [Component widths](#component-widths).
 
 Padding and truncation both come from the conversion library, through one call that right-aligns a converted value to an exact symbol count. That is deliberate: the two halves of the policy - left-fill with the base's zero digit when short, keep the rightmost symbols when long - are exactly the kind of thing two implementations drift on if each writes its own. Neither does.
@@ -271,7 +271,7 @@ That distinction matters because a symbol is not a fixed amount of information: 
 | 1024 | 5 | 4 | 5 | 13 | 26
 | 2048 | 5 | 4 | 5 | 12 | 24
 
-`--hash-chars` and `--rand-chars` still override the derived width. The last column is the ceiling on that override: a SHA-256 is 256 bits, so past that many symbols the value is only being left-filled.
+`--rand-chars` still overrides the derived width for `%r`. The command has no override for the hashed width, but the Go and C interfaces do. The last column is the ceiling on that override: a SHA-256 is 256 bits, so past that many symbols the value is only being left-filled.
 
 `%r` is the one component whose *input* depends on the base. It draws one byte per symbol, which is more entropy than a base of 256 symbols or fewer can spend. Above 256 a symbol carries more than eight bits, so a byte each would leave the leading symbols pinned at the zero digit forever; the draw is `ceil(symbols * bits / 8)` bytes there instead. The floor of one byte per symbol keeps the narrow bases drawing exactly what they always did.
 
@@ -286,7 +286,7 @@ Three choices were left open until the vectors froze; all three are now settled:
 Four more were settled with the remaining components:
 
 - **All three hashed components are one width, not three.** The predecessor used 5 for host and user and 8 for the FQDN. One number is easier to remember than three, and 5 symbols in base 62 is only about 30 bits, which is thin across a large fleet. That width was itself fixed at 8 to begin with, and is now derived per base from the strength 8 base-62 symbols carry.
-- **Two flags rather than six.** `--no-hash` and `--hash-chars` apply to all three name components, where the predecessor had a hashing switch and a width per component. Per-component control is the kind of surface that grew by accretion there, and it is the thing this project set out to improve on.
+- **One flag rather than six.** `--no-hash` applies to all three name components, where the predecessor had a hashing switch and a width per component. A `--hash-chars` flag once set the shared width too, and was dropped as more confusing than useful, since the derived width already carries the same strength in every base. Per-component control is the kind of surface that grew by accretion there, and it is the thing this project set out to improve on.
 - **`%r` carries about 36 bits**, where the predecessor's 4 symbols carried around 24. Enough that appending `%r` to a same-tick timestamp actually resolves the collision it exists to resolve. In base 62 that is the same 6 symbols it always was.
 - **`%m` takes the lowest-numbered non-loopback interface**, for the reasons under [Format and components](#format-and-components).
 

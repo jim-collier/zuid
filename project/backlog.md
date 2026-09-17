@@ -129,6 +129,14 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 #### Done - New features and enhancements
 
+- ✅ Command help and version output cleaned up.
+	- Done: `--hash-chars` is gone from the command. Hashed names always use the width derived from the base, and the libraries can still set it.
+	- Done: `--version` prints only the version and build number. The copyright and license moved to `--about`.
+	- Done: help and about have a blank line before and after, and the options list has no gaps.
+	- Note: the build number is minutes since 2000 in base 32, taken from the commit date.
+	- Opened: 20260917-094035
+	- Closed: 20260917-094035
+
 - ✅ Release-install scripts, runnable as a one-liner and documented in `README.md`.
 	- ✅ `install.bash` for Linux, BSD, macOS, and WSL; `install.ps1` for those plus Windows.
 	- ✅ Both verify the download against the published checksums, state their plan, and ask before touching anything. Re-running one changes nothing, and `--uninstall` reverses it.
