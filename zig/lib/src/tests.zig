@@ -374,6 +374,36 @@ test "C surface end to end" {
     try std.testing.expectEqualStrings(core.version, std.mem.span(capi.zuid_version()));
 }
 
+// The header's enum is a C ABI, so each code a call can return is pinned here
+// rather than only at the core error level. A renumbering in codeFor then
+// fails the build instead of quietly reaching compiled callers.
+test "the C module's error codes are the ones zuid.h documents" {
+    const z = capi.zuid_new() orelse return error.InitFailed;
+    defer capi.zuid_free(z);
+    var out: [256]u8 = undefined;
+
+    // 2, both ways in: an unknown component and a format ending on a bare '%'.
+    try std.testing.expectEqual(@as(c_int, 2), capi.zuid_generate(z, "%q", "62", &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 2), capi.zuid_generate(z, "%d%", "62", &out, out.len));
+
+    // 13, the raw-byte base. Its digits are byte values, not text.
+    try std.testing.expectEqual(@as(c_int, 13), capi.zuid_generate(z, "%d", "bytes", &out, out.len));
+
+    // 6, a clock before the epoch, and 12, one past the padding horizon.
+    capi.zuid_set_clock_ms(z, -1);
+    try std.testing.expectEqual(@as(c_int, 6), capi.zuid_generate(z, "%d", "62", &out, out.len));
+    capi.zuid_set_clock_ms(z, @intCast(core.horizon_ms * 1000));
+    try std.testing.expectEqual(@as(c_int, 12), capi.zuid_generate(z, "%d", "62", &out, out.len));
+    capi.zuid_clear_clock(z);
+
+    // Every one of them says something. 10 is left out: it needs a machine that
+    // cannot supply a component, and nothing here can stage that.
+    for ([_][*:0]const u8{ "%q", "%d%" }) |format| {
+        try std.testing.expect(capi.zuid_generate(z, format, "62", &out, out.len) != 0);
+        try std.testing.expect(std.mem.span(capi.zuid_last_error(z)).len > 0);
+    }
+}
+
 // Past what a SHA-256 fills in the base, the extra symbols are all left-fill:
 // a longer identifier carrying no more fingerprint.
 test "a hash wider than the digest is refused" {

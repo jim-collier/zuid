@@ -95,6 +95,18 @@ int main(void) {
 	}
 	wantCode("short buffer", zuid_generate(z, "%d", "62", out, 6), ZUID_ERR_BUFFER);
 
+	/* The enum is an ABI compiled callers hold, so the codes get pinned from
+	   out here too. ZUID_ERR_ENV is absent: it needs a machine that cannot
+	   supply a component. */
+	wantCode("unknown component", zuid_generate(z, "%q", "62", out, sizeof out), ZUID_ERR_BAD_FORMAT);
+	wantCode("trailing percent", zuid_generate(z, "%d%", "62", out, sizeof out), ZUID_ERR_BAD_FORMAT);
+	wantCode("raw-byte base", zuid_generate(z, "%d", "bytes", out, sizeof out), ZUID_ERR_BASE_NOT_TEXT);
+	zuid_set_clock_ms(z, -1LL);
+	wantCode("clock before epoch", zuid_generate(z, "%d", "62", out, sizeof out), ZUID_ERR_CLOCK);
+	zuid_set_clock_ms(z, 32503680000000000LL);
+	wantCode("past the horizon", zuid_generate(z, "%d", "62", out, sizeof out), ZUID_ERR_HORIZON);
+	zuid_clear_clock(z);
+
 	zuid_free(z);
 	if (fails) {
 		printf("  %d check(s) failed\n", fails);

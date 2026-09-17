@@ -48,8 +48,11 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 ### Bugs
 
 - 🔘 Code review 20260917-104114. Defects by finding id and rank. Details are in the review document.
-	- 🔘 F4, blocking: several C module error codes are checked by no test, so a renumbering would go unnoticed.
+	- ✅ F4, blocking: several C module error codes are checked by no test, so a renumbering would go unnoticed.
 		- Origin: 8ba15ef, the 20260804 review fixes, which added codes 12 and 13. Confirmed.
+		- Fixed: codes 2, 6, 12 and 13 are now asserted at the C surface, in both the Zig test and `capi_smoke.c`.
+		- Verified: three separate renumberings of `codeFor` each turn both runners red, and the codes they pin go green again once restored.
+		- Note: code 10 is left unpinned. It needs a machine that cannot supply a component, and nothing available can stage that.
 	- 🔘 F8, blocking: the PowerShell installer finds no release at all once more than one is published.
 		- Origin: 39f7403, the fix for the earlier "default install found no release" bug. Confirmed.
 	- 🔘 F9, blocking: `package.bash` wipes whatever directory `--out` names, before it builds anything.
