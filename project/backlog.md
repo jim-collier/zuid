@@ -602,7 +602,7 @@ None open.
 	- Opened: 20260802-104116
 
 - ✋ Sanitizer run on the vendored Wasmtime. The vendored artifact turned out to be a prebuilt archive, so there is nothing local to instrument; revisit only if it is ever built from source here.
-	- Note: `design.md` still describes this as a pipeline step, and no stage runs it.
+	- Fixed: `design.md` described this as a pipeline step. It now says no stage runs one, and why. (20260917)
 	- Opened: 20260802-012336
 
 - ✋ Swap Wasmtime for a small interpreter such as wasm3 if vendoring proves painful. Speed is not the deciding factor.
