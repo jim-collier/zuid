@@ -101,6 +101,9 @@ const help_tail =
     \\    -f, --format <fmt>        Format string (default "%d"). See below.
     \\    -p, --precision <-1|0|1>  Time precision: -1 minute, 0 second (default),
     \\                              1 millisecond.
+    \\    -n, --count <n>           How many to print, one per line (default 1,
+    \\                              most 100000). One run reads the clock once,
+    \\                              so a format without %r repeats itself.
     \\        --no-hash             Emit the host, user, and FQDN names literally
     \\                              instead of hashing them.
     \\        --rand-chars <count>  How many random symbols %r emits. The default
@@ -153,6 +156,7 @@ pub fn main(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(arena);
 
     var opts = zuid.core.Options{ .clock_ms = 0 };
+    var count: usize = 1;
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
@@ -172,23 +176,23 @@ pub fn main(init: std.process.Init) !void {
 
         if (std.mem.eql(u8, name, "-h") or std.mem.eql(u8, name, "--help")) {
             vals.rejectAttached(name);
-            try stdout.writeAll(help_text);
-            try stdout.flush();
+            stdout.writeAll(help_text) catch stdoutFailed(&stdout_fw, stderr);
+            stdout.flush() catch stdoutFailed(&stdout_fw, stderr);
             return;
         } else if (std.mem.eql(u8, name, "-v") or std.mem.eql(u8, name, "--version")) {
             vals.rejectAttached(name);
-            try stdout.writeAll(version_line ++ "\n");
-            try stdout.flush();
+            stdout.writeAll(version_line ++ "\n") catch stdoutFailed(&stdout_fw, stderr);
+            stdout.flush() catch stdoutFailed(&stdout_fw, stderr);
             return;
         } else if (std.mem.eql(u8, name, "--about")) {
             vals.rejectAttached(name);
-            try stdout.writeAll("\n" ++ about_text ++ "\n");
-            try stdout.flush();
+            stdout.writeAll("\n" ++ about_text ++ "\n") catch stdoutFailed(&stdout_fw, stderr);
+            stdout.flush() catch stdoutFailed(&stdout_fw, stderr);
             return;
         } else if (std.mem.eql(u8, name, "--donate")) {
             vals.rejectAttached(name);
-            try stdout.writeAll("\n" ++ donate_text ++ "\n");
-            try stdout.flush();
+            stdout.writeAll("\n" ++ donate_text ++ "\n") catch stdoutFailed(&stdout_fw, stderr);
+            stdout.flush() catch stdoutFailed(&stdout_fw, stderr);
             return;
         } else if (std.mem.eql(u8, name, "-b") or std.mem.eql(u8, name, "--base")) {
             opts.base = vals.take(name, "a base name");
@@ -208,6 +212,15 @@ pub fn main(init: std.process.Init) !void {
             opts.precision = zuid.core.Precision.fromInt(parsed) orelse {
                 return die(stderr, "Precision {d} is out of range. Want -1 (minute), 0 (second), or 1 (millisecond).", .{parsed});
             };
+        } else if (std.mem.eql(u8, name, "-n") or std.mem.eql(u8, name, "--count")) {
+            const raw = vals.take(name, "a count");
+            const parsed = std.fmt.parseInt(i64, raw, 10) catch {
+                return die(stderr, "Count '{s}' is not a number. Want 1 to {d}.", .{ raw, max_count });
+            };
+            if (parsed < 1 or parsed > max_count) {
+                return die(stderr, "Count {d} is out of range. Want 1 to {d}.", .{ parsed, max_count });
+            }
+            count = @intCast(parsed);
         } else if (std.mem.eql(u8, name, "--no-hash")) {
             vals.rejectAttached(name);
             opts.no_hash = true;
@@ -233,33 +246,77 @@ pub fn main(init: std.process.Init) !void {
     defer wasm_host.deinit();
     var live: zuid.env.Live = .{};
 
-    const id = generateGrowing(arena, wasm_host.converter(), live.env(), opts) catch |err| {
-        const detail = wasm_host.lastError();
-        if (err == error.UnknownBase) {
-            const hint = nearestBase(detail);
-            if (hint.len > 0) {
-                return die(stderr, "Unknown base '{s}'. Did you mean '{s}'?", .{ opts.base, hint });
-            }
-            return die(stderr, "Unknown base '{s}'. Want one the conversion library knows; --help lists the curated set.", .{opts.base});
-        }
-        if (detail.len > 0) {
-            return die(stderr, "{s}", .{detail});
-        }
-        return switch (err) {
-            error.UnknownComponent => die(stderr, "Unknown format component '%{s}'. Known: %d %h %u %f %m %g %r, and %% for a literal.", .{unknownVerb(opts.format)}),
-            error.BareFormatPercent => die(stderr, "The format string ends on a bare '%'.", .{}),
-            error.ClockBeforeEpoch => die(stderr, "The clock predates the Unix epoch.", .{}),
-            error.BaseNotText => die(stderr, "That base renders raw bytes or control characters rather than text, so it cannot carry an identifier.", .{}),
-            error.EnvUnavailable => die(stderr, "This machine could not supply that component - no name, hardware address, or random source.", .{}),
-            error.OptionRange => die(stderr, "A symbol count is out of range. Want 1 to {d}.", .{zuid.core.max_component_chars}),
-            error.SaltTooLong => die(stderr, "The salt is {d} bytes. Want at most {d}.", .{ opts.salt.len, zuid.core.max_salt_bytes }),
-            error.BufferTooSmall => die(stderr, "That format renders more than {d} bytes, which is past what this command will print.", .{max_out_len}),
-            else => die(stderr, "Generation failed: {t}.", .{err}),
-        };
-    };
+    var renderer = Renderer.init(arena) catch return die(stderr, "Out of memory.", .{});
 
-    try stdout.print("{s}\n", .{id});
-    try stdout.flush();
+    // Hashes rather than the identifiers themselves, so what this costs does
+    // not depend on how long a format renders. Two hashes colliding would say
+    // one line repeats when it does not, at odds no run will ever meet. Only
+    // tracked past one identifier, so the ordinary run allocates nothing here.
+    var seen: std.AutoHashMapUnmanaged(u64, void) = .empty;
+    var repeats: usize = 0;
+
+    var n: usize = 0;
+    while (n < count) : (n += 1) {
+        const id = renderer.render(wasm_host.converter(), live.env(), opts) catch |err| {
+            dieGenerating(stderr, err, wasm_host.lastError(), opts);
+        };
+
+        if (count > 1) {
+            const digest = std.hash.Wyhash.hash(0, id);
+            const slot = seen.getOrPut(arena, digest) catch return die(stderr, "Out of memory.", .{});
+            if (slot.found_existing) repeats += 1;
+        }
+
+        stdout.print("{s}\n", .{id}) catch stdoutFailed(&stdout_fw, stderr);
+    }
+    stdout.flush() catch stdoutFailed(&stdout_fw, stderr);
+
+    // After the identifiers, so a terminal shows the output first. The format
+    // means what it says - nothing is appended to make a repeat unique.
+    if (repeats > 0) {
+        stderr.print(
+            "zuid: warning: {d} of {d} identifiers repeat an earlier line. Want unique output: add %r to the format.\n",
+            .{ repeats, count },
+        ) catch {};
+        stderr.flush() catch {};
+    }
+}
+
+/// Turns a generation failure into the one-line message the style guide asks
+/// for. The wasm runtime's own words win where it had any, since those are
+/// internal rather than about something that was typed.
+fn dieGenerating(stderr: *std.Io.Writer, err: anyerror, detail: []const u8, opts: zuid.core.Options) noreturn {
+    if (err == error.UnknownBase) {
+        const hint = nearestBase(detail);
+        if (hint.len > 0) {
+            die(stderr, "Unknown base '{s}'. Did you mean '{s}'?", .{ opts.base, hint });
+        }
+        die(stderr, "Unknown base '{s}'. Want one the conversion library knows; --help lists the curated set.", .{opts.base});
+    }
+    if (detail.len > 0) {
+        die(stderr, "{s}", .{detail});
+    }
+    switch (err) {
+        error.UnknownComponent => die(stderr, "Unknown format component '%{s}'. Known: %d %h %u %f %m %g %r, and %% for a literal.", .{unknownVerb(opts.format)}),
+        error.BareFormatPercent => die(stderr, "The format string ends on a bare '%'.", .{}),
+        error.ClockBeforeEpoch => die(stderr, "The clock predates the Unix epoch.", .{}),
+        error.BaseNotText => die(stderr, "That base renders raw bytes or control characters rather than text, so it cannot carry an identifier.", .{}),
+        error.EnvUnavailable => die(stderr, "This machine could not supply that component - no name, hardware address, or random source.", .{}),
+        error.OptionRange => die(stderr, "A symbol count is out of range. Want 1 to {d}.", .{zuid.core.max_component_chars}),
+        error.SaltTooLong => die(stderr, "The salt is {d} bytes. Want at most {d}.", .{ opts.salt.len, zuid.core.max_salt_bytes }),
+        error.BufferTooSmall => die(stderr, "That format renders more than {d} bytes, which is past what this command will print.", .{max_out_len}),
+        else => die(stderr, "Generation failed: {t}.", .{err}),
+    }
+}
+
+/// A reader that quit early - 'zuid -n 100000 | head' - is how a run ends, not
+/// something to report. Anything else that stops stdout is worth a message.
+fn stdoutFailed(fw: *std.Io.File.Writer, stderr: *std.Io.Writer) noreturn {
+    if (fw.err) |err| {
+        if (err == error.BrokenPipe) std.process.exit(0);
+        die(stderr, "Writing to standard output failed: {t}.", .{err});
+    }
+    die(stderr, "Writing to standard output failed.", .{});
 }
 
 /// The near-match the conversion library suggested, or empty when it had none.
@@ -297,24 +354,41 @@ fn unknownVerb(format: []const u8) []const u8 {
 /// message instead of eating memory; an identifier anyone wants is far shorter.
 const max_out_len = 1 << 20;
 
+/// Ceiling on --count. It catches a mistyped count before the run rather than
+/// after it: a batch costs about a third of a millisecond an identifier, nearly
+/// all of it crossing into the wasm module, so the ceiling is already half a
+/// minute of work. Raise it when that cost comes down.
+const max_count = 100_000;
+
 /// Renders into a buffer that grows until the identifier fits. A fixed one
 /// refused anything past it, whether the format repeated a component or just
 /// carried a long literal, and the module renders into whatever it is handed.
-fn generateGrowing(
+///
+/// The buffer is kept between identifiers, so a large --count does not leave a
+/// buffer per line behind in the arena. That makes each returned slice good
+/// only until the next call - anything kept has to be copied.
+const Renderer = struct {
     arena: std.mem.Allocator,
-    conv: zuid.core.Converter,
-    live_env: zuid.core.Env,
-    opts: zuid.core.Options,
-) ![]const u8 {
-    var cap: usize = zuid.core.out_buf_len;
-    while (true) {
-        const buf = try arena.alloc(u8, cap);
-        if (zuid.core.generate(conv, live_env, opts, buf)) |id| return id else |err| {
-            if (err != error.BufferTooSmall or cap >= max_out_len) return err;
-            cap *= 2;
+    buf: []u8,
+
+    fn init(arena: std.mem.Allocator) !Renderer {
+        return .{ .arena = arena, .buf = try arena.alloc(u8, zuid.core.out_buf_len) };
+    }
+
+    fn render(
+        self: *Renderer,
+        conv: zuid.core.Converter,
+        live_env: zuid.core.Env,
+        opts: zuid.core.Options,
+    ) ![]const u8 {
+        while (true) {
+            if (zuid.core.generate(conv, live_env, opts, self.buf)) |id| return id else |err| {
+                if (err != error.BufferTooSmall or self.buf.len >= max_out_len) return err;
+                self.buf = try self.arena.alloc(u8, self.buf.len * 2);
+            }
         }
     }
-}
+};
 
 /// Resolves a flag's value from either spelling - attached with '=', or the
 /// argument after it.

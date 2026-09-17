@@ -17,6 +17,7 @@ Everything here describes what the command already does. It is written down so t
 - [Streams and exit codes](#streams-and-exit-codes)
 - [Flags](#flags)
 - [Errors](#errors)
+- [Warnings](#warnings)
 - [Help](#help)
 - [Version, about, donate](#version-about-donate)
 
@@ -70,6 +71,20 @@ zuid: Precision '9' is out of range. Want -1 (minute), 0 (second), or 1 (millise
 - Nothing is printed to stdout on the way out. A failed run produces no partial identifier.
 
 One exception, and it is not something a user typed: a failure inside the embedded wasm runtime is passed through as it arrived. Those are internal, and the runtime's own words say more than a summary would. A message about a value the user gave is always rewritten in this style first, keeping whatever the library worked out - an unknown base name still gets its near match suggested.
+
+## Warnings
+
+A warning says the run produced something the caller probably did not want, without the run having failed. Same stream and same shape as an error, with `warning: ` after the program name:
+
+~~~text
+zuid: warning: 2 of 3 identifiers repeat an earlier line. Want unique output: add %r to the format.
+~~~
+
+- It comes after the output, not before, so a terminal shows the identifiers first.
+
+- It never changes the exit code and never changes what stdout got. A caller that does not care can ignore it and still be reading correct output.
+
+- It counts what actually happened rather than guessing from the flags. The repeat warning fires on identifiers that matched, so a narrow `--rand-chars` draw that collides on its own is reported the same as a format with nothing random in it.
 
 ## Help
 
