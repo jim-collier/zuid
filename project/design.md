@@ -286,7 +286,7 @@ Three choices were left open until the vectors froze; all three are now settled:
 
 - **Padding horizon: year 3000.** The predecessor does not pad, so it had no horizon to inherit; 3000 was chosen as a reasonable compromise. Width is quantized so coarsely that most cells clear the horizon by centuries. The tightest are base 32 at second precision and base 32 or 512 at millisecond precision, and even those have decades of headroom, so moving the horizon changes almost nothing.
 - **Precision: selectable, `-1|0|1`, defaulting to seconds.** The predecessor already worked through this trade-off, and its answer carries forward: minute, second, and millisecond, second as the default. What was dropped is the algorithm choice, not the precision choice.
-- **Same-tick repeats stay literal, with a warning.** A time-only format is fully determined by the clock, so several identifiers generated within one tick come out identical - verified, not hypothetical. The format means what it says: nothing is appended silently. When the command grows the ability to emit more than one identifier per invocation, it will warn on stderr when the output contains repeats and suggest `%r`; callers wanting uniqueness say so in the format.
+- **Same-tick repeats stay literal, with a warning.** A time-only format is fully determined by the clock, so several identifiers generated within one tick come out identical - verified, not hypothetical. The format means what it says: nothing is appended silently. `--count` prints the repeats as they are and writes one line to stderr saying how many of them there were, suggesting `%r`. Callers wanting uniqueness say so in the format.
 
 Five more were settled with the remaining components:
 
@@ -355,6 +355,8 @@ The per-user file is written only when a default is first changed, and lives und
 
 Command line only. The interface is a deliberate improvement on the predecessor rather than a port of it, which is covered under [Relationship to x9muid1](#relationship-to-x9muid1).
 
+Batching is the command's job, not the modules'. `--count` prints as many identifiers as asked for, one per line, and the Go and C modules still hand back one at a time - a caller there already has a loop, and a count in the module API would only be a second way to write it. One run reads the clock once, the same way it reads the machine's own values once, so a time-only format batches one value repeated rather than racing the tick.
+
 ### Testing
 
 `testdata/vectors.tsv` is the specification in executable form. Each row fixes the inputs - the clock, the random stream, the host, user, and FQDN names, the hardware address, and the width options - and the expected output. Both implementations run it.
@@ -405,4 +407,5 @@ The repo root has no license text of its own. `license.md` there maps each direc
 4. ~~Build the Zig implementation and the C module against that.~~ Done.
 5. ~~Run both against the shared vectors, and reconcile.~~ Done; both sides replay every row.
 6. ~~The remaining components - host, user, FQDN, MAC, UUID, random.~~ Done, both sides, with the vectors extended to cover them.
-7. Configuration, then multi-emit, then packaging.
+7. ~~Emit more than one identifier per invocation.~~ Done, as `--count`.
+8. Configuration, then packaging.

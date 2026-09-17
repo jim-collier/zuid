@@ -92,6 +92,10 @@ $ zuid -f='%d%r'                # plus six random symbols, for same-second uniqu
 1wqd1wDppAd6
 $ zuid -f='%d-%h-%u' -p='1'     # millisecond precision, with a hashed host and user
 0VRArWn2-rw79Mr05-6UI3mO4y
+$ zuid -f='%d%r' -n='3'         # three at once, one per line
+1wqd2AKtvRnz
+1wqd2AQ1mc6f
+1wqd2A9xJbEY
 ```
 
 Every component is a fixed width, so identifiers line up in a column, sort as text, and can be split back into their parts by offset.
@@ -103,6 +107,8 @@ Every component is a fixed width, so identifiers line up in a column, sort as te
 - Sorts by creation time, as text, with no special comparison function.
 
 - Uniqueness and length are yours to trade off.
+
+- Batches in one run. `--count` prints as many as asked for, and says on stderr when the format made repeats.
 
 - Private by default. Host and user are hashed unless asked otherwise, and `--salt` puts a secret of your own in front of the hash so candidate names cannot be tried against the output.
 

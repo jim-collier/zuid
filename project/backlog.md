@@ -51,6 +51,11 @@ None open.
 
 ### New features and enhancements
 
+- 🔘 A batch spends about a third of a millisecond an identifier, nearly all of it crossing into the wasm module. Every `generate` re-asks the module whether the base renders text, which is 33 round trips through the tokenizer with an alloc and a free each. The answer only changes with the base, so the host could keep it beside the radix and the zero digit it already caches.
+	- Note: found while testing `--count`, which is what made the per-identifier cost visible. It is also about half a millisecond off every single run.
+	- Note: `--count`'s ceiling of 100000 is set by this. Raise it once the cost comes down.
+	- Opened: 20260917-224500
+
 - 🔘 Run the Zig fuzz tests in fuzz mode, once a Zig release can build one.
 	- Note: the tests are written and replay their corpus on every run. `zig build test --fuzz` fails to compile inside 0.16.0's own test runner, so nothing on this side can fix it. `details.md` has the error.
 	- Opened: 20260917-131500
@@ -65,10 +70,6 @@ None open.
 - 🔘 Publishing. `--publish` stays rejected with a reason until there is somewhere to publish to.
 	- Note: GitHub releases is that place now. `v1.0.0-alpha.1` was published there by hand.
 	- Opened: 20260802-025417
-
-- 🔘 Generate more than one identifier per invocation. A time-only format repeats within one tick.
-	- Decided: output stays literal - nothing is appended silently - but repeats in one invocation's output get a stderr warning suggesting `%r`.
-	- Opened: 20260801-090104
 
 - 🔘 Default configuration hard-coded
 	- 🔘 Overridden by per-user config file, created the first time a default setting is changed.
@@ -253,6 +254,16 @@ None open.
 	- Closed: 20260804-224440
 
 #### Done - New features and enhancements
+
+- ✅ Generate more than one identifier per invocation. A time-only format repeats within one tick.
+	- Decided: output stays literal - nothing is appended silently - but repeats in one invocation's output get a stderr warning suggesting `%r`.
+	- Done: `-n`/`--count`, 1 to 100000, one per line. One run reads the clock once, so a format with nothing random in it comes out the same every line.
+	- Done: repeats are counted by what actually matched, not by reading the format, so a narrow `--rand-chars` draw that collides on its own is reported too. Tracked as hashes, so the cost does not depend on how long a format renders.
+	- Done: batching belongs to the command. The Go and C modules still hand back one identifier, since a caller there already has a loop.
+	- Swept: a reader that quits early used to end in Zig's own error trace and a non-zero exit. A closed pipe now ends the run quietly, on the identifiers and on `--help` alike.
+	- Verified: three injected faults - a dropped warning, a dropped ceiling check, and the old `try` on stdout - turn five of the new cases red between them. 30 cases in `cli-test.bash` before, 45 after.
+	- Opened: 20260801-090104
+	- Closed: 20260917-224500
 
 - ✅ The installers' system-wide destinations are untested.
 	- Done: `installer-test.bash` patches a second pair of copies with `/opt` and `/usr/local` moved under its scratch tree, so `--target system` runs with no root anywhere. `sudo` is a shim that runs the command as-is and records that it was asked.

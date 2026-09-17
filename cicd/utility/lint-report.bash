@@ -89,8 +89,10 @@ fi
 ##	drop the clean-run noise: "0 issues/no problems", the "[ OK: ... ]" status lines
 ##	the engine prints, and govulncheck's note about UNcalled dependency vulns (it
 ##	says outright our code doesn't reach them, so they are not actionable here).
+##	Also the test harnesses' passing-case labels, since one of them has the word
+##	"warning" in it and a case that passed is not one.
 warns="$(grep -inE 'warning|vet:|SA[0-9]{4}|QF[0-9]{4}|Vulnerability|GO-[0-9]{4}-|# .*\.go|\.go:[0-9]+:[0-9]+:' "$log" 2>/dev/null \
-	| grep -viE 'no vulnerabilities|0 issues|no problems|0 warnings|found no|Scanning your code|\[ OK:|scan also found|appear to call|in modules you require|packages you import' || true)"
+	| grep -viE 'no vulnerabilities|0 issues|no problems|0 warnings|found no|Scanning your code|\[ OK:|scan also found|appear to call|in modules you require|packages you import|ok \.\.\.\.:' || true)"
 if [[ -n "$warns" ]]; then n=$(printf '%s\n' "$warns" | grep -c .); else n=0; fi
 
 tag="FLAG"; ((check)) && tag="NEW"
@@ -105,3 +107,4 @@ fi
 
 ##	Script history:
 ##		- 20260709: Created.
+##		- 20260917 JC: A passing test label is not a warning, whatever word is in it.

@@ -66,6 +66,41 @@ fWantExact(){  ## label, expected, args...
 	fi
 }
 
+fWantLines(){  ## label, expected line count, args...
+	local -r label="$1" want="$2"; shift 2
+	local got=0
+	got="$(fRun "$@" | wc -l)"
+	if [[ "${got}" == "${want}" ]]
+		then fPass "${label}"
+		else fFail "${label}: got ${got} lines, want ${want}"
+	fi
+}
+
+## Warnings are advisory, so the run has to succeed as well as say the thing.
+fWantWarning(){  ## label, text the warning must contain, args...
+	local -r label="$1" needle="$2"; shift 2
+	local err="" rc=0
+	err="$("${bin}" "$@" 2>&1 >/dev/null)" || rc=$?
+	if ((rc != 0)); then
+		fFail "${label}: exited ${rc}, expected a warning and success"
+		return 0
+	fi
+	if [[ "${err}" == *"${needle}"* ]]
+		then fPass "${label}"
+		else fFail "${label}: said '${err}', wanted '${needle}'"
+	fi
+}
+
+fWantQuiet(){  ## label, args...
+	local -r label="$1"; shift
+	local err="" rc=0
+	err="$("${bin}" "$@" 2>&1 >/dev/null)" || rc=$?
+	if ((rc == 0)) && [[ -z "${err}" ]]
+		then fPass "${label}"
+		else fFail "${label}: exited ${rc} and said '${err}'"
+	fi
+}
+
 fWantFailure(){  ## label, text the message must contain, args...
 	local -r label="$1" needle="$2"; shift 2
 	local out="" rc=0
@@ -145,6 +180,40 @@ fWantFailure "a missing salt is refused"    "salt" --salt
 fWantFailure "an over-long salt is refused" "Want at most 256" \
 	--format '%h' --salt "$(python3 -c 'print("s" * 257)')"
 
+## --count prints that many lines and nothing else. One run reads the clock
+## once, so a format with nothing random in it comes out the same every line -
+## printed as-is, with a warning rather than something appended to hide it.
+fWantLines "one identifier by default"   1
+fWantLines "a count prints that many"    3 --count 3
+fWantLines "the short spelling too"      5 -n 5
+fWantLines "and the attached form"       4 -n=4
+fWantWarning "repeats are reported"      "2 of 3 identifiers repeat" -n 3 --format '%d'
+fWantWarning "the warning suggests %r"   "add %r to the format" -n 3 --format '%d'
+fWantQuiet "random output does not warn" -n 20 --format '%d%r'
+fWantQuiet "one identifier cannot repeat" -n 1 --format '%d'
+
+## Narrow enough random draws collide on their own, which is the case the
+## warning is really for - it counts what repeated, not whether %r was typed.
+fWantWarning "a narrow draw still counts" "identifiers repeat" \
+	-n 100 --base 16 --rand-chars 1 --format '%r'
+
+fWantFailure "a zero count is refused"     "out of range" --count 0
+fWantFailure "a negative count is refused" "out of range" --count -1
+fWantFailure "a count past the ceiling"    "Want 1 to 100000" --count 100001
+fWantFailure "a non-numeric count"         "is not a number" --count abc
+fWantFailure "a missing count is refused"  "count" --count
+
+## A reader that quits early closed the pipe under the writer. That used to end
+## in Zig's own error trace and a non-zero exit, which is not a failed run.
+## pipefail carries the writer's status through wc, and the '|| pipeRc' keeps
+## errexit from taking the whole harness down with it.
+pipeRc=0
+pipeLines="$("${bin}" -n 10000 --format '%d%r' 2>/dev/null | head -n 2 | wc -l)" || pipeRc=$?
+if [[ "${pipeLines}" == "2" ]] && ((pipeRc == 0))
+	then fPass "a closed pipe ends the run quietly"
+	else fFail "a closed pipe ends the run quietly: got ${pipeLines} lines, exit ${pipeRc}"
+fi
+
 ## Two salts have to differ, or the flag is doing nothing.
 if [[ "$(fRun --format '%h' --salt pepper)" == "$(fRun --format '%h' --salt Pepper)" ]]
 	then fFail "two salts give two fingerprints"
@@ -159,3 +228,4 @@ fLine ""
 
 ##	History:
 ##		- 20260917 JC: Created, for the buffer ceiling and the empty format.
+##		- 20260917 JC: --count, its refusals, and the closed-pipe case.
