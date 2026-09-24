@@ -40,6 +40,7 @@
 ![Status: Passing](https://img.shields.io/badge/Status-Passing-brightgreen)
 ![Status: Failing](https://img.shields.io/badge/Status-Failing-red)
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/jim-collier?logo=GitHub%20Sponsors&style=social)](https://github.com/sponsors/jim-collier)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-jimcollier-ff5e5b?logo=kofi&style=social)](https://ko-fi.com/jimcollier)
 -->
 
 <!-- TOC ignore:true -->

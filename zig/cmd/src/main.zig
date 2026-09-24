@@ -75,6 +75,7 @@ const donate_text =
     \\
     \\If it saves you time and you want to give something back:
     \\    https://github.com/sponsors/jim-collier
+    \\    https://ko-fi.com/jimcollier
     \\
     \\A star on the project, a clear bug report, or a mention to someone who needs
     \\it are worth just as much.
