@@ -35,10 +35,45 @@ fEcho(){    printf '[ %s ]\n' "$*" ;}
 fLine(){    printf '%s\n' "$*" ;}
 fDie(){     printf '\n%s: %s\n\n' "installer-test" "$*" >&2; exit 1 ;}
 
+## Every check starts with fId, naming its test ID and what it checks, then ends
+## in one fPass or fFail. A case run once per installer carries an ID for each,
+## picked by the label: fId "${label}" bash=<id> ps1=<id> "what it checks".
+## New IDs come from test-ids.py. While skipWhy is set every check reports as
+## skipped, and the runners do nothing.
 passed=0
 failed=0
-fPass(){ passed=$((passed + 1)); printf '  ok ....: %s\n' "$*" ;}
-fFail(){ failed=$((failed + 1)); printf '  FAIL ..: %s\n' "$*" ;}
+skipped=0
+curId=""
+curName=""
+skipWhy=""
+
+fId(){  ## [key key=id...] | id, name
+	curId=""
+	curName="${*: -1}"
+	if (($# == 2)); then curId="$1"; return 0; fi
+	local -r key="$1"
+	local pair=""
+	for pair in "${@:2:$#-2}"; do
+		if [[ "${pair%%=*}" == "${key}" ]]; then curId="${pair#*=}"; fi
+	done
+	return 0
+}
+fSkipped(){
+	[[ -n "${skipWhy}" ]] || return 1
+	skipped=$((skipped + 1)); printf '  skip ..: %s %s (%s)\n' "${curId:-???????}" "${curName}" "${skipWhy}"
+	curId=""
+}
+fPass(){
+	if fSkipped; then return 0; fi
+	if [[ -z "${curId}" ]]; then fFail "no test ID"; return 0; fi
+	passed=$((passed + 1)); printf '  ok ....: %s %s\n' "${curId}" "${curName}"
+	curId=""
+}
+fFail(){  ## detail
+	if fSkipped; then return 0; fi
+	failed=$((failed + 1)); printf '  FAIL ..: %s %s: %s\n' "${curId:-???????}" "${curName}" "$*"
+	curId=""
+}
 
 while (($#)); do case "$1" in
 	--keep)    doKeep=1; shift ;;
@@ -254,6 +289,7 @@ fNewHome(){  ## label
 ## once, in the neutral words below, and each runner translates. The pathPrefix
 ## is where the sudo shim goes; it is empty for everything but a system case.
 fRunBashAs(){  ## script, pathPrefix, home, verb...
+	[[ -z "${skipWhy}" ]] || return 0
 	local -r script="$1" pathPrefix="$2" home="$3"; shift 3
 	local -a args=()
 	local verb
@@ -269,6 +305,7 @@ fRunBashAs(){  ## script, pathPrefix, home, verb...
 }
 
 fRunPs1As(){  ## script, pathPrefix, home, verb...
+	[[ -z "${skipWhy}" ]] || return 0
 	local -r script="$1" pathPrefix="$2" home="$3"; shift 3
 	local -a args=()
 	local verb
@@ -284,7 +321,7 @@ fRunPs1As(){  ## script, pathPrefix, home, verb...
 }
 
 fRunBash(){     local -r home="$1"; shift; fRunBashAs "${bashCopy}"    ""              "${home}" "$@" ;}
-fRunPs1(){      local -r home="$1"; shift; fRunPs1As  "${ps1Copy}"     ""              "${home}" "$@" ;}
+fRunPs1(){      local -r home="$1"; shift; fRunPs1As  "${ps1Copy:-}"  ""              "${home}" "$@" ;}
 fRunBashSys(){  local -r home="$1"; shift; fRunBashAs "${bashSysCopy}" "${shimDir}:"   "${home}" "$@" ;}
 fRunPs1Sys(){   local -r home="$1"; shift; fRunPs1As  "${ps1SysCopy}"  "${shimDir}:"   "${home}" "$@" ;}
 
@@ -312,17 +349,102 @@ fCase_ReleaseChoice(){  ## label, runner
 	home="$(fNewHome "${label}-stable")"
 	out="$("${runner}" "${home}" user yes)" || true
 	got="$(fInstalledVersion "${home}")"
+	fId "${label}" bash=Eq9ejdI ps1=Eq9ejdJ "${label}: the default takes the newest full release"
 	if [[ "${got}" == "2.0.0" ]]
-		then fPass "${label}: the default takes the newest full release"
-		else fFail "${label}: the default should take v2.0.0, got ${got}. Output: ${out}"
+		then fPass
+		else fFail "should take v2.0.0, got ${got}. Output: ${out}"
 	fi
 
 	home="$(fNewHome "${label}-dev")"
 	out="$("${runner}" "${home}" user dev yes)" || true
 	got="$(fInstalledVersion "${home}")"
+	fId "${label}" bash=Eq9ejdK ps1=Eq9ejdL "${label}: dev takes the newest prerelease"
 	if [[ "${got}" == "2.1.0-beta.1" ]]
-		then fPass "${label}: dev takes the newest prerelease"
-		else fFail "${label}: dev should take v2.1.0-beta.1, got ${got}. Output: ${out}"
+		then fPass
+		else fFail "should take v2.1.0-beta.1, got ${got}. Output: ${out}"
+	fi
+}
+
+## Before the first stable release, the only thing published was a prerelease,
+## and both installers asked for 'latest', which never answers with one. So a
+## default install found nothing. It has to fall back, and say it did.
+fCase_PrereleaseOnly(){  ## label, runner
+	local -r label="$1" runner="$2"
+	local -r listing="${apiDir}/releases"
+	local home="" out="" got=""
+
+	cp "${listing}" "${work}/releases.full"
+	cat > "${listing}" <<'JSON'
+[
+	{
+		"tag_name": "v2.1.0-beta.1",
+		"draft": false,
+		"prerelease": true
+	}
+]
+JSON
+	home="$(fNewHome "${label}-prerelease-only")"
+	out="$("${runner}" "${home}" user yes)" || true
+	got="$(fInstalledVersion "${home}")"
+	cp "${work}/releases.full" "${listing}"
+
+	fId "${label}" bash=ErOioHp ps1=ErOioHq "${label}: with only a prerelease published, the default takes it"
+	if [[ "${got}" == "2.1.0-beta.1" ]]
+		then fPass
+		else fFail "should take v2.1.0-beta.1, got ${got}. Output: ${out}"
+	fi
+	fId "${label}" bash=ErOioHr ps1=ErOioHs "${label}: and says there is no stable release yet"
+	if [[ "${out}" == *"No stable release yet"* ]]
+		then fPass
+		else fFail "said nothing about it. Output: ${out}"
+	fi
+}
+
+## Both scripts check the download against the published checksums. A tarball
+## that does not match has to stop the install, not just be reported.
+fCase_Checksum(){  ## label, runner
+	local -r label="$1" runner="$2"
+	local -r sums="${dlRoot}/v2.0.0/checksums.txt"
+	local home="" out="" got=""
+
+	cp "${sums}" "${work}/checksums.good"
+	sed -i "s/^[0-9a-f]\{64\}  ${PROG}-linux-x86_64.tgz$/$(printf '0%.0s' $(seq 1 64))  ${PROG}-linux-x86_64.tgz/" "${sums}"
+	if cmp -s "${sums}" "${work}/checksums.good"; then fDie "could not corrupt ${sums}; the release layout moved"; fi
+	home="$(fNewHome "${label}-checksum")"
+	out="$("${runner}" "${home}" user yes)" || true
+	got="$(fInstalledVersion "${home}")"
+	cp "${work}/checksums.good" "${sums}"
+
+	fId "${label}" bash=ErOkWfU ps1=ErOkWfV "${label}: a checksum mismatch installs nothing"
+	if [[ "${got}" == "none" && ! -e "${home}/.local/share/${PROG}" ]]
+		then fPass
+		else fFail "installed ${got}. Output: ${out}"
+	fi
+	fId "${label}" bash=ErOkWfW ps1=ErOkWfX "${label}: and says why"
+	if [[ "${out}" == *"checksum mismatch"* ]]
+		then fPass
+		else fFail "said nothing about the checksum. Output: ${out}"
+	fi
+}
+
+## Without --yes the plan is shown and the answer waited for. With nothing to
+## answer it, the default is no: nothing downloaded, nothing installed.
+fCase_NoAnswer(){  ## label, runner
+	local -r label="$1" runner="$2"
+	local home="" out=""
+	home="$(fNewHome "${label}-no-answer")"
+	local -r before="$(fRequestCount)"
+	out="$("${runner}" "${home}" user < /dev/null)" || true
+
+	fId "${label}" bash=ErOkWfY ps1=ErOkWfZ "${label}: with no answer, nothing is downloaded"
+	if [[ "$(fRequestCount)" == "${before}" ]]
+		then fPass
+		else fFail "it fetched anyway. Output: ${out}"
+	fi
+	fId "${label}" bash=ErOkWfa ps1=ErOkWfb "${label}: or installed"
+	if [[ "$(fInstalledVersion "${home}")" == "none" && ! -e "${home}/.local/share/${PROG}" ]]
+		then fPass
+		else fFail "it installed anyway. Output: ${out}"
 	fi
 }
 
@@ -333,10 +455,8 @@ fCase_ReleaseChoice(){  ## label, runner
 
 fCase_PackageOutDir(){
 	local -r packager="${repoRoot}/cicd/utility/package.bash"
-	if [[ ! -f "${packager}" ]]; then
-		fLine "  skipped: package.bash is not present."
-		return 0
-	fi
+	local skipWhy=""
+	[[ -f "${packager}" ]] || skipWhy="package.bash is not present"
 
 	local -r area="${work}/pkg"
 	mkdir -p "${area}/bin"
@@ -351,29 +471,33 @@ fCase_PackageOutDir(){
 
 	local out=""
 	out="$(PATH="${area}/bin:${PATH}" bash "${packager}" --out "${victim}" --version v0 2>&1)" || true
+	fId Eq9filc "package: an --out it did not make is left alone"
 	if [[ -f "${victim}/canary.txt" && -f "${victim}/subdir/other.txt" ]]
-		then fPass "package: an --out it did not make is left alone"
-		else fFail "package: --out was emptied. Output: ${out}"
+		then fPass
+		else fFail "--out was emptied. Output: ${out}"
 	fi
+	fId Eq9fild "package: and says why it refused"
 	if [[ "${out}" == *"carries no"* ]]
-		then fPass "package: and says why it refused"
-		else fFail "package: refused without saying why. Output: ${out}"
+		then fPass
+		else fFail "refused without saying why. Output: ${out}"
 	fi
 
 	## An empty directory is nobody's work, so it gets adopted rather than refused.
 	local -r fresh="${area}/fresh"
 	mkdir -p "${fresh}"
 	out="$(PATH="${area}/bin:${PATH}" bash "${packager}" --out "${fresh}" --version v0 2>&1)" || true
+	fId Eq9file "package: an empty --out is accepted"
 	if [[ "${out}" != *"carries no"* ]]
-		then fPass "package: an empty --out is accepted"
-		else fFail "package: an empty --out was refused. Output: ${out}"
+		then fPass
+		else fFail "an empty --out was refused. Output: ${out}"
 	fi
 
 	## And a path that does not exist yet, which is what dist/ is on a clean tree.
 	out="$(PATH="${area}/bin:${PATH}" bash "${packager}" --out "${area}/brand-new" --version v0 2>&1)" || true
+	fId Eq9filf "package: a new --out is accepted"
 	if [[ "${out}" != *"carries no"* ]]
-		then fPass "package: a new --out is accepted"
-		else fFail "package: a new --out was refused. Output: ${out}"
+		then fPass
+		else fFail "a new --out was refused. Output: ${out}"
 	fi
 }
 
@@ -384,22 +508,20 @@ fCase_PackageOutDir(){
 
 fCase_PackageHeader(){
 	local -r packager="${repoRoot}/cicd/utility/package.bash"
-	if [[ ! -f "${packager}" ]]; then
-		fLine "  skipped: package.bash is not present."
-		return 0
+	local skipWhy="" contents=""
+	if [[ -f "${packager}" ]]; then
+		## The heredoc that becomes nfpm.yaml, from its 'contents:' line to the
+		## EOF that closes it.
+		contents="$(awk '/^\t\tcontents:/ { on = 1 } on { print } /^\tEOF$/ { on = 0 }' "${packager}")"
+		[[ -n "${contents}" ]] || skipWhy="no nfpm contents list found in package.bash"
+	else
+		skipWhy="package.bash is not present"
 	fi
 
-	## The heredoc that becomes nfpm.yaml, from its 'contents:' line to the EOF
-	## that closes it.
-	local -r contents="$(awk '/^\t\tcontents:/ { on = 1 } on { print } /^\tEOF$/ { on = 0 }' "${packager}")"
-	if [[ -z "${contents}" ]]; then
-		fLine "  skipped: no nfpm contents list found in package.bash."
-		return 0
-	fi
-
+	fId EqA3RdA "package: the packages do not install a header with no library"
 	if [[ "${contents}" != *"/usr/include"* || "${contents}" == *"libzuid.so"* ]]
-		then fPass "package: the packages do not install a header with no library"
-		else fFail "package: the nfpm contents list has /usr/include and no libzuid.so."
+		then fPass
+		else fFail "the nfpm contents list has /usr/include and no libzuid.so."
 	fi
 }
 
@@ -412,18 +534,17 @@ fCase_PackageHeader(){
 ## root, since then system is the right answer and there is nothing to catch.
 fCase_DefaultTarget(){  ## label, runner
 	local -r label="$1" runner="$2"
-	if [[ -w /usr/local/bin ]]; then
-		fLine "  skipped: /usr/local/bin is writable here, so system is the right default."
-		return 0
-	fi
+	local skipWhy="${skipWhy}"
+	[[ ! -w /usr/local/bin ]] || skipWhy="/usr/local/bin is writable here, so system is the right default"
 
 	local home="" out="" got=""
 	home="$(fNewHome "${label}-default-target")"
 	out="$("${runner}" "${home}" yes)" || true
 	got="$(fInstalledVersion "${home}")"
+	fId "${label}" bash=Eq9l4yO ps1=Eq9l4yP "${label}: an unwritable system location falls back to a user install"
 	if [[ "${got}" == "2.0.0" ]]
-		then fPass "${label}: an unwritable system location falls back to a user install"
-		else fFail "${label}: should have installed under HOME, got ${got}. Output: ${out}"
+		then fPass
+		else fFail "should have installed under HOME, got ${got}. Output: ${out}"
 	fi
 }
 
@@ -448,45 +569,52 @@ fCase_SystemTarget(){  ## label, runner, elevates
 	## against a run that could have used it and did not.
 	home="$(fNewHome "${label}-system-user")"
 	out="$("${runner}" "${home}" user yes)" || true
+	fId "${label}" bash=EqANb6u ps1=EqANb6v "${label}: a user install never reaches for root"
 	if [[ "$(fSudoCount)" == "0" ]]
-		then fPass "${label}: a user install never reaches for root"
-		else fFail "${label}: a user install called sudo $(fSudoCount) time(s). Output: ${out}"
+		then fPass
+		else fFail "called sudo $(fSudoCount) time(s). Output: ${out}"
 	fi
 
 	home="$(fNewHome "${label}-system")"
 	out="$("${runner}" "${home}" system yes)" || true
 
+	fId "${label}" bash=EqANb6w ps1=EqANb6x "${label}: a system install lands under /opt/${PROG}"
 	if [[ -x "${installed}/bin/${PROG}" ]]
-		then fPass "${label}: a system install lands under /opt/${PROG}"
-		else fFail "${label}: nothing at ${installed}/bin/${PROG}. Output: ${out}"
+		then fPass
+		else fFail "nothing at ${installed}/bin/${PROG}. Output: ${out}"
 	fi
 
 	got="none"
 	[[ -x "${link}" ]] && got="$("${link}" --version 2>/dev/null | head -n1 | cut -d' ' -f1)"
+	fId "${label}" bash=EqANb6y ps1=EqANb6z "${label}: and /usr/local/bin runs the installed version"
 	if [[ "${got}" == "2.0.0" ]]
-		then fPass "${label}: and /usr/local/bin runs the installed version"
-		else fFail "${label}: ${link} gave ${got}. Output: ${out}"
+		then fPass
+		else fFail "${link} gave ${got}. Output: ${out}"
 	fi
+	fId "${label}" bash=EqANb70 ps1=EqANb71 "${label}: and the link is a symlink, not a copy"
 	if [[ -L "${link}" ]]
-		then fPass "${label}: and the link is a symlink, not a copy"
-		else fFail "${label}: ${link} is not a symlink. Output: ${out}"
+		then fPass
+		else fFail "${link} is not a symlink. Output: ${out}"
 	fi
 
 	## The two targets are meant to be separate installs, not one with a second
 	## name. A system run writing into HOME would make uninstall miss half of it.
+	fId "${label}" bash=EqANb72 ps1=EqANb73 "${label}: and leaves HOME alone"
 	if [[ -e "${home}/.local/share/${PROG}" || -e "${home}/.local/bin/${PROG}" ]]
-		then fFail "${label}: a system install also wrote under HOME. Output: ${out}"
-		else fPass "${label}: and leaves HOME alone"
+		then fFail "a system install also wrote under HOME. Output: ${out}"
+		else fPass
 	fi
 
 	if [[ "${elevates}" == "yes" ]]; then
+		fId "${label}" bash=EqANb74 "${label}: and does its writing through sudo"
 		if (($(fSudoCount) > 0))
-			then fPass "${label}: and does its writing through sudo"
-			else fFail "${label}: never called sudo. Output: ${out}"
+			then fPass
+			else fFail "never called sudo. Output: ${out}"
 		fi
+		fId "${label}" bash=EqANb75 "${label}: and the plan says so beforehand"
 		if [[ "${out}" == *"this needs root"* ]]
-			then fPass "${label}: and the plan says so beforehand"
-			else fFail "${label}: the plan did not mention root. Output: ${out}"
+			then fPass
+			else fFail "the plan did not mention root. Output: ${out}"
 		fi
 	fi
 
@@ -494,19 +622,22 @@ fCase_SystemTarget(){  ## label, runner, elevates
 	## install is somewhere the user target never looks.
 	local -r before="$(fRequestCount)"
 	out="$("${runner}" "${home}" system yes)" || true
+	fId "${label}" bash=EqANb76 ps1=EqANb77 "${label}: a system re-run downloads nothing"
 	if [[ "$(fRequestCount)" == "${before}" ]]
-		then fPass "${label}: a system re-run downloads nothing"
-		else fFail "${label}: the re-run fetched again. Output: ${out}"
+		then fPass
+		else fFail "the re-run fetched again. Output: ${out}"
 	fi
 
 	out="$("${runner}" "${home}" system uninstall yes)" || true
+	fId "${label}" bash=EqANb78 ps1=EqANb79 "${label}: uninstall removes the system directory"
 	if [[ ! -e "${installed}" ]]
-		then fPass "${label}: uninstall removes the system directory"
-		else fFail "${label}: ${installed} is still there. Output: ${out}"
+		then fPass
+		else fFail "${installed} is still there. Output: ${out}"
 	fi
+	fId "${label}" bash=EqANb7A ps1=EqANb7B "${label}: and the link with it"
 	if [[ ! -e "${link}" && ! -L "${link}" ]]
-		then fPass "${label}: and the link with it"
-		else fFail "${label}: ${link} is still there. Output: ${out}"
+		then fPass
+		else fFail "${link} is still there. Output: ${out}"
 	fi
 }
 
@@ -517,10 +648,8 @@ fCase_SystemTarget(){  ## label, runner, elevates
 ##
 ## install.bash needs no equivalent - a system install there goes through sudo.
 fCase_SystemUnwritable(){
-	if [[ "$(id -u)" == "0" ]]; then
-		fLine "  skipped: running as root, so there is no unwritable location to test."
-		return 0
-	fi
+	local skipWhy="${skipWhy}"
+	[[ "$(id -u)" != "0" ]] || skipWhy="running as root, so there is no unwritable location to test"
 
 	rm -rf "${sysRoot}"
 	mkdir -p "${sysRoot}"
@@ -533,17 +662,20 @@ fCase_SystemUnwritable(){
 
 	chmod u+w "${sysRoot}"
 
+	fId EqANb7C "ps1: an unwritable system target fails"
 	if ((rc != 0))
-		then fPass "ps1: an unwritable system target fails"
-		else fFail "ps1: an unwritable system target succeeded. Output: ${out}"
+		then fPass
+		else fFail "it succeeded. Output: ${out}"
 	fi
+	fId EqANb7D "ps1: and refuses before downloading anything"
 	if [[ "$(fRequestCount)" == "${before}" ]]
-		then fPass "ps1: and refuses before downloading anything"
-		else fFail "ps1: it downloaded first. Output: ${out}"
+		then fPass
+		else fFail "it downloaded first. Output: ${out}"
 	fi
+	fId EqANb7E "ps1: and names the alternative"
 	if [[ "${out}" == *"-Target user"* ]]
-		then fPass "ps1: and names the alternative"
-		else fFail "ps1: gave no way forward. Output: ${out}"
+		then fPass
+		else fFail "gave no way forward. Output: ${out}"
 	fi
 }
 
@@ -558,32 +690,33 @@ fCase_Rerun(){  ## label, runner
 	home="$(fNewHome "${label}-rerun")"
 
 	first="$("${runner}" "${home}" user yes)" || true
-	got="$(fInstalledVersion "${home}")"
-	if [[ "${got}" != "2.0.0" ]]; then
-		fFail "${label}: the first run did not install. Output: ${first}"
-		return 0
-	fi
+	local -r firstGot="$(fInstalledVersion "${home}")"
 
 	local -r before="$(fRequestCount)"
 	second="$("${runner}" "${home}" user yes)" || true
 	local -r after="$(fRequestCount)"
 
-	if [[ "${after}" == "${before}" ]]
-		then fPass "${label}: a re-run on the same version downloads nothing"
-		else fFail "${label}: the re-run made $((after - before)) request(s). Output: ${second}"
+	fId "${label}" bash=Eq9lTwm ps1=Eq9lTwn "${label}: a re-run on the same version downloads nothing"
+	if [[ "${firstGot}" != "2.0.0" ]]
+		then fFail "the first run did not install. Output: ${first}"
+	elif [[ "${after}" == "${before}" ]]
+		then fPass
+		else fFail "the re-run made $((after - before)) request(s). Output: ${second}"
 	fi
+	fId "${label}" bash=Eq9lTwo ps1=Eq9lTwp "${label}: and says it is already installed"
 	if [[ "${second}" == *"Already installed"* ]]
-		then fPass "${label}: and says it is already installed"
-		else fFail "${label}: said nothing about being already installed. Output: ${second}"
+		then fPass
+		else fFail "said nothing about being already installed. Output: ${second}"
 	fi
 
 	## A different version still replaces it, so the check cannot be a blanket
 	## refusal to do anything.
 	second="$("${runner}" "${home}" user dev yes)" || true
 	got="$(fInstalledVersion "${home}")"
+	fId "${label}" bash=Eq9lTwq ps1=Eq9lTwr "${label}: a different version still installs over it"
 	if [[ "${got}" == "2.1.0-beta.1" ]]
-		then fPass "${label}: a different version still installs over it"
-		else fFail "${label}: expected the beta to replace it, got ${got}. Output: ${second}"
+		then fPass
+		else fFail "expected the beta to replace it, got ${got}. Output: ${second}"
 	fi
 }
 
@@ -596,9 +729,10 @@ fCase_MissingValue(){
 	for flag in --release --target --arch; do
 		rc=0
 		out="$(HOME="$(fNewHome "missing-value")" bash "${bashCopy}" "${flag}" 2>&1)" || rc=$?
+		fId "${flag}" --release=Eq9oNBg --target=Eq9oNBh --arch=Eq9oNBi "bash: ${flag} with no value names the flag"
 		if ((rc != 0)) && [[ "${out}" == *"${flag}"* && "${out}" == *"needs a value"* ]]
-			then fPass "bash: ${flag} with no value names the flag"
-			else fFail "bash: ${flag} with no value gave rc=${rc} and '${out}'"
+			then fPass
+			else fFail "rc=${rc} and '${out}'"
 		fi
 	done
 }
@@ -616,28 +750,32 @@ fCase_ForeignLink(){  ## label, runner
 	chmod +x "${planted}"
 
 	out="$("${runner}" "${home}" user uninstall yes)" || true
+	fId "${label}" bash=Eq9oNBj ps1=Eq9oNBk "${label}: uninstall leaves a file it did not create"
 	if [[ -f "${planted}" ]]
-		then fPass "${label}: uninstall leaves a file it did not create"
-		else fFail "${label}: uninstall deleted a file it did not create. Output: ${out}"
+		then fPass
+		else fFail "uninstall deleted a file it did not create. Output: ${out}"
 	fi
+	fId "${label}" bash=Eq9oNBl ps1=Eq9oNBm "${label}: and says it is keeping it"
 	if [[ "${out}" == *"not this installer's link"* ]]
-		then fPass "${label}: and says it is keeping it"
-		else fFail "${label}: said nothing about keeping it. Output: ${out}"
+		then fPass
+		else fFail "said nothing about keeping it. Output: ${out}"
 	fi
 
 	## Installing over it does replace it - that is what an installer does - but
 	## the plan has to name it rather than do it quietly.
 	out="$("${runner}" "${home}" user yes)" || true
+	fId "${label}" bash=Eq9oNBn ps1=Eq9oNBo "${label}: install names what it is overwriting"
 	if [[ "${out}" == *"is not this installer's link"* ]]
-		then fPass "${label}: install names what it is overwriting"
-		else fFail "${label}: overwrote it without saying so. Output: ${out}"
+		then fPass
+		else fFail "overwrote it without saying so. Output: ${out}"
 	fi
 
 	## And once it is the installer's own link, uninstall does remove it.
 	out="$("${runner}" "${home}" user uninstall yes)" || true
+	fId "${label}" bash=Eq9oNBp ps1=Eq9oNBq "${label}: uninstall removes its own link"
 	if [[ ! -e "${planted}" ]]
-		then fPass "${label}: uninstall removes its own link"
-		else fFail "${label}: left its own link behind. Output: ${out}"
+		then fPass
+		else fFail "left its own link behind. Output: ${out}"
 	fi
 }
 
@@ -647,6 +785,9 @@ fLine ""
 if [[ "${only}" != "ps1" ]]; then
 	fLine "install.bash"
 	fCase_ReleaseChoice "bash" "fRunBash"
+	fCase_PrereleaseOnly "bash" "fRunBash"
+	fCase_Checksum "bash" "fRunBash"
+	fCase_NoAnswer "bash" "fRunBash"
 	fCase_DefaultTarget "bash" "fRunBash"
 	fCase_SystemTarget "bash" "fRunBashSys" "yes"
 	fCase_Rerun "bash" "fRunBash"
@@ -654,19 +795,22 @@ if [[ "${only}" != "ps1" ]]; then
 	fCase_ForeignLink "bash" "fRunBash"
 fi
 
+## Without pwsh the ps1 cases still run, so each one reports as skipped by ID,
+## but the runner does nothing.
 if [[ "${only}" != "bash" ]]; then
 	fLine ""
 	fLine "install.ps1"
-	if ((! hasPwsh)); then
-		fLine "  skipped: pwsh not installed."
-	else
-		fCase_ReleaseChoice "ps1" "fRunPs1"
-		fCase_DefaultTarget "ps1" "fRunPs1"
-		fCase_SystemTarget "ps1" "fRunPs1Sys" "no"
-		fCase_SystemUnwritable
-		fCase_Rerun "ps1" "fRunPs1"
-		fCase_ForeignLink "ps1" "fRunPs1"
-	fi
+	if ((! hasPwsh)); then skipWhy="pwsh not installed"; fi
+	fCase_ReleaseChoice "ps1" "fRunPs1"
+	fCase_PrereleaseOnly "ps1" "fRunPs1"
+	fCase_Checksum "ps1" "fRunPs1"
+	fCase_NoAnswer "ps1" "fRunPs1"
+	fCase_DefaultTarget "ps1" "fRunPs1"
+	fCase_SystemTarget "ps1" "fRunPs1Sys" "no"
+	fCase_SystemUnwritable
+	fCase_Rerun "ps1" "fRunPs1"
+	fCase_ForeignLink "ps1" "fRunPs1"
+	skipWhy=""
 fi
 
 fLine ""
@@ -675,12 +819,13 @@ fCase_PackageOutDir
 fCase_PackageHeader
 
 fLine ""
-fEcho "Passed: ${passed}, failed: ${failed}"
+fEcho "Passed: ${passed}, failed: ${failed}, skipped: ${skipped}"
 fLine ""
 ((failed == 0)) || exit 1
 
 
 ##	History:
+##		- 20260930 JC: Test IDs. A listing with only a prerelease in it, a bad checksum, no answer.
 ##		- 20260917 JC: Cover --target system, against a scratch /opt and /usr/local.
 ##		- 20260917 JC: Check what the deb and rpm contents list installs.
 ##		- 20260917 JC: Created, for the release-choice, re-run and link-path cases.

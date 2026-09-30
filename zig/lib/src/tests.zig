@@ -16,7 +16,8 @@ const capi = @import("capi.zig");
 
 const vectors_tsv = @embedFile("vectors.tsv");
 
-test "core unit tests" {
+// Pulls in core.zig's own tests. Unnamed, since it checks nothing itself.
+test {
     _ = core;
 }
 
@@ -124,6 +125,7 @@ fn applyEnv(spec: []const u8, fixed: *FixedEnv, opts: *core.Options) !void {
 // One host for the whole file: init costs more than every row combined.
 // Both compile strategies are exercised, because a winch miscompile would
 // otherwise only surface in production.
+// test-id: EloUhiz
 test "vectors reproduce through the wasm module, both strategies" {
     for ([_]host.Strategy{ .winch, .auto }) |strategy| {
         var h = host.Host.init(strategy) catch |err| switch (err) {
@@ -176,6 +178,7 @@ fn runVectors(h: *host.Host) !void {
     try std.testing.expect(rows >= 201);
 }
 
+// test-id: EloUhj0
 test "error paths carry the module's error text" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -223,6 +226,7 @@ test "error paths carry the module's error text" {
 // boundary was not something the conversion library could do; fit does it now,
 // so the wide bases carry the truncating components as well as the padded
 // ones. Widths are counted in symbols - byte length says nothing here.
+// test-id: Em2hrcQ
 test "a multi-byte base carries every component" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -253,6 +257,7 @@ test "a multi-byte base carries every component" {
 // A random draw has to fill the symbols it claims. One byte per symbol runs
 // short above 256, where a symbol carries more than eight bits, and the
 // shortfall shows up as a leading zero digit that never varies.
+// test-id: Em2hrcR
 test "a wide base draws enough randomness to fill its symbols" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -286,6 +291,7 @@ test "a wide base draws enough randomness to fill its symbols" {
 
 // The live sources have to work on the machine running the tests, or %h %u %f
 // %m would only ever be exercised through injected values.
+// test-id: ElpGOHX
 test "the live environment supplies every component" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -307,6 +313,7 @@ test "the live environment supplies every component" {
 
 // %r has to actually vary, or appending it to a same-tick timestamp buys
 // nothing.
+// test-id: ElpGOHY
 test "the live random source varies" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -324,6 +331,59 @@ test "the live random source varies" {
     try std.testing.expect(differed);
 }
 
+// Each live name is read once and kept, so %h and %f describe one machine for
+// the life of a context even if it is renamed under it. The cache fields are
+// plain here, so a name no system would give is planted after the first read,
+// and the second read has to hand back that one.
+// test-id: ErOhqzP
+test "the live environment reads each name once" {
+    var live: env.Live = .{};
+    const live_env = live.env();
+    var buf: [core.name_buf_len]u8 = undefined;
+
+    _ = try live_env.hostname(&buf);
+    _ = try live_env.username(&buf);
+    _ = try live_env.fqdn(&buf);
+    try std.testing.expect(live.host.len != null);
+    try std.testing.expect(live.user.len != null);
+    try std.testing.expect(live.qualified.len != null);
+
+    const planted = "planted-name";
+    for ([_]*@TypeOf(live.host){ &live.host, &live.user, &live.qualified }) |cache| {
+        @memcpy(cache.buf[0..planted.len], planted);
+        cache.len = planted.len;
+    }
+    try std.testing.expectEqualStrings(planted, try live_env.hostname(&buf));
+    try std.testing.expectEqualStrings(planted, try live_env.username(&buf));
+    try std.testing.expectEqualStrings(planted, try live_env.fqdn(&buf));
+
+    live.hardware = .{ 0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0xee };
+    try std.testing.expectEqual([6]u8{ 0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0xee }, try live_env.mac());
+}
+
+// Only the widths a format spends are checked. A hash width that suits one
+// base used to fail a plain timestamp in another. Go has the same test.
+// test-id: ErOhqzQ
+test "only the widths a format uses are checked" {
+    var h = try host.Host.init(.auto);
+    defer h.deinit();
+    var fixed: FixedEnv = .{};
+    var out_buf: [core.out_buf_len]u8 = undefined;
+
+    for ([_]core.Options{
+        .{ .format = "%d", .hash_chars = core.max_component_chars + 1, .random_chars = core.max_component_chars + 1, .clock_ms = 0 },
+        .{ .format = "%d", .base = "2048tz", .hash_chars = 40, .clock_ms = 0 },
+        .{ .format = "%h", .base = "2048tz", .hash_chars = 40, .no_hash = true, .clock_ms = 0 },
+    }) |opts| {
+        _ = try core.generate(h.converter(), fixed.interface(), opts, &out_buf);
+    }
+
+    // A format that does spend the width is still held to it.
+    try std.testing.expectError(core.Error.HashTooWide, core.generate(h.converter(), fixed.interface(), .{ .format = "%h", .base = "2048tz", .hash_chars = 40, .clock_ms = 0 }, &out_buf));
+    try std.testing.expectError(core.Error.OptionRange, core.generate(h.converter(), fixed.interface(), .{ .format = "%r", .random_chars = core.max_component_chars + 1, .clock_ms = 0 }, &out_buf));
+}
+
+// test-id: EloUhj1
 test "the conversion library reports a version" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -332,6 +392,7 @@ test "the conversion library reports a version" {
     try std.testing.expect(v.len >= 2 and v[0] == 'v');
 }
 
+// test-id: EloUhj2
 test "C surface end to end" {
     const z = capi.zuid_new() orelse return error.InitFailed;
     defer capi.zuid_free(z);
@@ -414,6 +475,7 @@ test "C surface end to end" {
 // The header's enum is a C ABI, so each code a call can return is pinned here
 // rather than only at the core error level. A renumbering in codeFor then
 // fails the build instead of quietly reaching compiled callers.
+// test-id: Eq9dPAO
 test "the C module's error codes are the ones zuid.h documents" {
     const z = capi.zuid_new() orelse return error.InitFailed;
     defer capi.zuid_free(z);
@@ -443,6 +505,7 @@ test "the C module's error codes are the ones zuid.h documents" {
 
 // Past what a SHA-256 fills in the base, the extra symbols are all left-fill:
 // a longer identifier carrying no more fingerprint.
+// test-id: Em3M9HH
 test "a hash wider than the digest is refused" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -473,6 +536,7 @@ test "a hash wider than the digest is refused" {
 // Host and user names come from a small space, so the point of the salt is
 // that hashing candidate names no longer confirms one. The vectors pin the
 // values; this pins the edges around them.
+// test-id: EqAI7sf
 test "a salt moves the hashed names and leaves the rest alone" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -510,6 +574,7 @@ test "a salt moves the hashed names and leaves the rest alone" {
 
 // The conversion library carries a base whose digits are raw byte values. It
 // converts happily, which is exactly why it has to be refused here.
+// test-id: Em32Nza
 test "a raw-byte base is refused" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -531,6 +596,7 @@ test "a raw-byte base is refused" {
 // 98keyboard counts tab, newline and return among its digits, so an identifier
 // in it could carry a line break. Its zero digit is '0', which is why the
 // alphabet gets asked about rather than just that one symbol.
+// test-id: Eq9xBUg
 test "a base with control digits is refused" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -548,6 +614,7 @@ test "a base with control digits is refused" {
 // tokenizer 33 times an identifier. One slot means switching bases has to
 // throw the old answer away, in both directions, and a name too long for the
 // slot must not be filed under whatever was there before.
+// test-id: EqAew24
 test "a cached text verdict does not follow the base that earned it" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -584,6 +651,7 @@ test "a cached text verdict does not follow the base that earned it" {
 
 // The horizon is what the fixed width comes from, so both sides of it need
 // pinning: the last instant that fits, and the first that does not.
+// test-id: Em32Nzb
 test "the padding horizon is a hard edge" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -610,6 +678,7 @@ test "the padding horizon is a hard edge" {
 
 // zuid_last_error used to answer with whatever the previous call left behind,
 // because the failures that never reach the converter do not touch its text.
+// test-id: Em32Nzc
 test "the C module does not report a stale error" {
     const z = capi.zuid_new() orelse return error.SkipZigTest;
     defer capi.zuid_free(z);
@@ -629,6 +698,7 @@ test "the C module does not report a stale error" {
 
 // Every entry point takes a nullable context, so a caller who ignored a null
 // from zuid_new gets a code rather than a crash.
+// test-id: Em32Nzd
 test "the C module rejects a null context" {
     var out: [64]u8 = undefined;
     try std.testing.expectEqual(@as(c_int, 7), capi.zuid_generate(null, "%d", "62", &out, out.len));
@@ -642,6 +712,7 @@ test "the C module rejects a null context" {
 // the module that no out_cap could raise. It carried no text either way, so
 // there was nothing to tell them apart by. The Go module has no such limit, so
 // a format Go rendered, C refused.
+// test-id: Eq9kVKi
 test "a long identifier is bounded only by the caller's buffer" {
     const z = capi.zuid_new() orelse return error.InitFailed;
     defer capi.zuid_free(z);
@@ -689,6 +760,7 @@ test "a long identifier is bounded only by the caller's buffer" {
 // debug build, because the allocator's own check has no moment to run in. A C
 // caller never says it is finished, so the tests have to ask instead. This one
 // runs last on purpose - it asserts that everything above it cleaned up.
+// test-id: Eq9icWm
 test "a leaked C context is reported" {
     try std.testing.expectEqual(@as(usize, 0), capi.liveContexts());
     try std.testing.expectEqual(@as(usize, 0), capi.leakCount());
@@ -711,6 +783,7 @@ test "a leaked C context is reported" {
 // whoever ran the command, and both surfaces parse it themselves. Run normally
 // these replay their corpus and an empty input; real fuzzing is
 // 'zig build test --fuzz'.
+// test-id: Eq9zVsH
 test "the format parser survives arbitrary input" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -734,6 +807,7 @@ fn fuzzFormat(h: *host.Host, smith: *std.testing.Smith) !void {
     try std.testing.expectEqual(@as(u32, 0), try h.regionCount());
 }
 
+// test-id: Eq9zVsI
 test "the C generate call survives arbitrary input" {
     const z = capi.zuid_new() orelse return error.InitFailed;
     defer capi.zuid_free(z);

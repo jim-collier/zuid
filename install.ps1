@@ -178,7 +178,9 @@ if ($Uninstall) {
 	Write-Detail ''
 	if (-not $Yes) {
 		$answer = Read-Host '  Proceed? [y/N]'
-		if ($answer -notmatch '^[Yy]') {
+		## With stdin at its end Read-Host gives back nothing, and nothing
+		## -notmatch anything is not true, so no answer used to mean yes.
+		if ([string]$answer -notmatch '^[Yy]') {
 			Write-Detail ''
 			Write-Status 'Nothing was changed.'
 			Write-Host ''
@@ -291,7 +293,7 @@ Write-Detail ''
 
 if (-not $Yes) {
 	$answer = Read-Host '  Proceed? [y/N]'
-	if ($answer -notmatch '^[Yy]') {
+	if ([string]$answer -notmatch '^[Yy]') {
 		Write-Detail ''
 		Write-Status 'Nothing was changed.'
 		Write-Host ''

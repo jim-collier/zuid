@@ -15,6 +15,7 @@ import "testing"
 //
 // The host name was not actually wrapped, so %h re-read it for every identifier
 // and could disagree with the cached %f.
+// test-id: Eq9mpyS
 func TestLiveSourcesReadOncePerProcess(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -46,6 +47,7 @@ func TestLiveSourcesReadOncePerProcess(t *testing.T) {
 
 // Two reads of the same source have to agree, which is the property the caching
 // exists for: %h and %f describing one machine rather than two.
+// test-id: Eq9mpyT
 func TestLiveHostnameIsStable(t *testing.T) {
 	first, err := liveHostname()
 	if err != nil {

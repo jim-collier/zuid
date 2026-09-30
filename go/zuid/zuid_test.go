@@ -181,6 +181,7 @@ func applyEnv(t *testing.T, generator *zuid.Generator, at int64, e env) {
 }
 
 // The vectors are the spec. Both implementations reproduce every row.
+// test-id: ElmNxqS
 func TestVectors(t *testing.T) {
 	generator := sharedGenerator(t)
 	vectors := loadVectors(t)
@@ -203,6 +204,7 @@ func TestVectors(t *testing.T) {
 
 // Width is fixed per base and precision, whatever the timestamp. Without this
 // the sort guarantee below cannot hold.
+// test-id: ElmNxqT
 func TestFixedWidth(t *testing.T) {
 	generator := sharedGenerator(t)
 	clocks := []int64{0, 1, 946684800000, 1785585600000, 32503679999999}
@@ -229,6 +231,7 @@ func TestFixedWidth(t *testing.T) {
 // The same applies to the components whose width comes from a bit count rather
 // than from the horizon: a low MAC and a high one have to render the same
 // length, or an identifier cannot be split by offset.
+// test-id: ElpGOHQ
 func TestComponentsAreFixedWidth(t *testing.T) {
 	generator := sharedGenerator(t)
 	macs := []string{"000000000000", "000000000001", "02005E100000", "FFFFFFFFFFFF"}
@@ -266,6 +269,7 @@ func TestComponentsAreFixedWidth(t *testing.T) {
 }
 
 // The point of the whole exercise: byte-order sort has to match time order.
+// test-id: ElmNxqU
 func TestSortsChronologically(t *testing.T) {
 	generator := sharedGenerator(t)
 	clocks := []int64{0, 60000, 946684800000, 1785585600000, 1785585660000, 32503679999999}
@@ -302,6 +306,7 @@ func TestSortsChronologically(t *testing.T) {
 
 // A hashed component is a fingerprint: stable for one name, different for
 // another, and not the name itself.
+// test-id: ElpGOHR
 func TestHashedComponentsFingerprint(t *testing.T) {
 	generator := sharedGenerator(t)
 	render := func(host string) string {
@@ -333,6 +338,7 @@ func TestHashedComponentsFingerprint(t *testing.T) {
 
 // A salt is what stops someone holding identifiers from confirming a host name
 // by hashing candidates. The vectors pin the values; this covers the edges.
+// test-id: EqAI7se
 func TestSalt(t *testing.T) {
 	generator := sharedGenerator(t)
 	render := func(req zuid.Request) string {
@@ -375,6 +381,7 @@ func TestSalt(t *testing.T) {
 
 // %r has to actually vary, or appending it to a same-tick timestamp buys
 // nothing. Live generators read a cryptographic source.
+// test-id: ElpGOHS
 func TestRandomVaries(t *testing.T) {
 	generator := liveGenerator(t)
 	seen := map[string]bool{}
@@ -390,6 +397,7 @@ func TestRandomVaries(t *testing.T) {
 	}
 }
 
+// test-id: ElmNxqV
 func TestFormatErrors(t *testing.T) {
 	generator := sharedGenerator(t)
 	for _, format := range []string{"%", "%z"} {
@@ -416,6 +424,7 @@ func TestFormatErrors(t *testing.T) {
 // 98keyboard counts tab, newline and return among its digits, so an identifier
 // in it could carry a line break. Its zero digit is '0', which is why the
 // alphabet gets read rather than just that one symbol.
+// test-id: Eq9xBUe
 func TestBaseWithControlDigitsIsRefused(t *testing.T) {
 	generator := sharedGenerator(t)
 	applyEnv(t, generator, 0, defaultEnv())
@@ -431,6 +440,7 @@ func TestBaseWithControlDigitsIsRefused(t *testing.T) {
 
 // A width the format never reads cannot fail the call, so one hash width can
 // serve every base a caller uses.
+// test-id: Eq9xBUf
 func TestUnusedWidthsAreNotChecked(t *testing.T) {
 	generator := sharedGenerator(t)
 	applyEnv(t, generator, 0, defaultEnv())
@@ -451,6 +461,7 @@ func TestUnusedWidthsAreNotChecked(t *testing.T) {
 // so the wide bases carry the truncating components as well as the padded
 // ones. Widths are counted in symbols, which is the whole point - byte length
 // says nothing here.
+// test-id: Em2hrcO
 func TestMultiByteBaseComponents(t *testing.T) {
 	registry, err := convertbase.NewRegistry()
 	if err != nil {
@@ -500,6 +511,7 @@ func TestMultiByteBaseComponents(t *testing.T) {
 // A random draw has to fill the symbols it claims. One byte per symbol runs
 // short above 256, where a symbol carries more than eight bits, and the
 // shortfall shows up as a leading zero digit that never varies.
+// test-id: Em2hrcP
 func TestRandomFillsWideBases(t *testing.T) {
 	registry, err := convertbase.NewRegistry()
 	if err != nil {
@@ -535,6 +547,7 @@ func TestRandomFillsWideBases(t *testing.T) {
 
 // An exhausted random source fails the identifier rather than quietly
 // producing a short or repeated one.
+// test-id: ElpGOHT
 func TestRandomSourceExhausted(t *testing.T) {
 	generator := sharedGenerator(t)
 	e := defaultEnv()
@@ -546,6 +559,7 @@ func TestRandomSourceExhausted(t *testing.T) {
 }
 
 // Literals pass through, and %% escapes.
+// test-id: ElmNxqW
 func TestLiteralsAndEscape(t *testing.T) {
 	generator := sharedGenerator(t)
 	applyEnv(t, generator, 0, defaultEnv())
@@ -560,6 +574,7 @@ func TestLiteralsAndEscape(t *testing.T) {
 
 // Widths are derived from the horizon, not typed in. If the horizon moves,
 // these move with it - so this pins the derivation, not the numbers.
+// test-id: ElmNxqX
 func TestWidthForCuratedBases(t *testing.T) {
 	want := map[zuid.Precision]map[int]int{
 		zuid.PrecisionMinute: {16: 8, 32: 6, 36: 6, 62: 5},
@@ -583,6 +598,7 @@ func TestWidthForCuratedBases(t *testing.T) {
 // symbol count would mean wildly different strength per base. The default
 // width is derived from the strength instead, and base 62 - the one the
 // targets were taken from - stays where it was.
+// test-id: Em3M9HE
 func TestDefaultWidthsCarryTheSameStrength(t *testing.T) {
 	want := map[int]struct{ hash, random, ceiling int }{
 		16:   {12, 9, 64},
@@ -616,6 +632,7 @@ func TestDefaultWidthsCarryTheSameStrength(t *testing.T) {
 
 // Past the digest's own width the extra symbols are all left-fill, so the
 // identifier grows without the fingerprint getting any stronger.
+// test-id: Em3M9HF
 func TestHashWiderThanTheDigestIsRefused(t *testing.T) {
 	generator := sharedGenerator(t)
 	applyEnv(t, generator, 0, defaultEnv())
@@ -642,6 +659,7 @@ func TestHashWiderThanTheDigestIsRefused(t *testing.T) {
 
 // The live sources have to work on the machine running the tests, or %h %u %f
 // %m would only ever be exercised through injected values.
+// test-id: ElpGOHU
 func TestLiveSources(t *testing.T) {
 	generator := liveGenerator(t)
 	for _, format := range []string{"%h", "%u", "%f", "%g", "%r"} {
@@ -665,6 +683,7 @@ func TestLiveSources(t *testing.T) {
 
 // The horizon is what the fixed width is derived from, so both sides of it
 // need pinning: the last instant that fits, and the first that does not.
+// test-id: Em32NzU
 func TestClockHorizon(t *testing.T) {
 	generator := sharedGenerator(t)
 	horizon := time.Date(3000, time.January, 1, 0, 0, 0, 0, time.UTC)
@@ -691,6 +710,7 @@ func TestClockHorizon(t *testing.T) {
 
 // A clock before the epoch has no representation here, and must say so rather
 // than render a negative count.
+// test-id: Em32NzV
 func TestClockBeforeEpoch(t *testing.T) {
 	generator := sharedGenerator(t)
 	for _, at := range []time.Time{time.UnixMilli(-1).UTC(), {}} {
@@ -703,6 +723,7 @@ func TestClockBeforeEpoch(t *testing.T) {
 
 // %m is a fixed 48 bits. Anything else is a caller mistake, and both the
 // option and the component check for it.
+// test-id: Em32NzW
 func TestMACWrongLength(t *testing.T) {
 	generator := sharedGenerator(t)
 	for _, address := range [][]byte{nil, {}, {1, 2, 3, 4, 5}, {1, 2, 3, 4, 5, 6, 7}} {
@@ -716,6 +737,7 @@ func TestMACWrongLength(t *testing.T) {
 // convertbase carries a base whose digits are raw byte values. It converts
 // fine, which is the problem - an identifier made of control characters is not
 // an identifier.
+// test-id: Em32NzX
 func TestRawByteBaseRejected(t *testing.T) {
 	generator := sharedGenerator(t)
 	zuid.WithFixedTime(time.UnixMilli(1785703406000).UTC())(generator)
@@ -728,6 +750,7 @@ func TestRawByteBaseRejected(t *testing.T) {
 
 // WidthFor is exported so a caller can size a buffer, which puts a nonsense
 // radix within reach. Below 2 the derivation does not terminate.
+// test-id: Em32NzY
 func TestWidthForRejectsSmallRadix(t *testing.T) {
 	for _, radix := range []int{-5, 0, 1} {
 		if got, err := zuid.WidthFor(radix, zuid.PrecisionSecond); err == nil {
@@ -738,6 +761,7 @@ func TestWidthForRejectsSmallRadix(t *testing.T) {
 
 // Generate is documented as safe from several goroutines at once. Run under
 // -race this is the only thing defending that claim.
+// test-id: Em32NzZ
 func TestConcurrentGenerate(t *testing.T) {
 	generator := liveGenerator(t)
 	var waiting sync.WaitGroup
