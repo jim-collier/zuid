@@ -365,6 +365,41 @@ fCase_ReleaseChoice(){  ## label, runner
 	fi
 }
 
+## Before the first stable release, the only thing published was a prerelease,
+## and both installers asked for 'latest', which never answers with one. So a
+## default install found nothing. It has to fall back, and say it did.
+fCase_PrereleaseOnly(){  ## label, runner
+	local -r label="$1" runner="$2"
+	local -r listing="${apiDir}/releases"
+	local home="" out="" got=""
+
+	cp "${listing}" "${work}/releases.full"
+	cat > "${listing}" <<'JSON'
+[
+	{
+		"tag_name": "v2.1.0-beta.1",
+		"draft": false,
+		"prerelease": true
+	}
+]
+JSON
+	home="$(fNewHome "${label}-prerelease-only")"
+	out="$("${runner}" "${home}" user yes)" || true
+	got="$(fInstalledVersion "${home}")"
+	cp "${work}/releases.full" "${listing}"
+
+	fId "${label}" bash=ErOioHp ps1=ErOioHq "${label}: with only a prerelease published, the default takes it"
+	if [[ "${got}" == "2.1.0-beta.1" ]]
+		then fPass
+		else fFail "should take v2.1.0-beta.1, got ${got}. Output: ${out}"
+	fi
+	fId "${label}" bash=ErOioHr ps1=ErOioHs "${label}: and says there is no stable release yet"
+	if [[ "${out}" == *"No stable release yet"* ]]
+		then fPass
+		else fFail "said nothing about it. Output: ${out}"
+	fi
+}
+
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## package.bash's --out. It used to be handed straight to 'rm -rf', so a stray
 ## --out emptied whatever it named, before the build had produced anything to
@@ -702,6 +737,7 @@ fLine ""
 if [[ "${only}" != "ps1" ]]; then
 	fLine "install.bash"
 	fCase_ReleaseChoice "bash" "fRunBash"
+	fCase_PrereleaseOnly "bash" "fRunBash"
 	fCase_DefaultTarget "bash" "fRunBash"
 	fCase_SystemTarget "bash" "fRunBashSys" "yes"
 	fCase_Rerun "bash" "fRunBash"
@@ -716,6 +752,7 @@ if [[ "${only}" != "bash" ]]; then
 	fLine "install.ps1"
 	if ((! hasPwsh)); then skipWhy="pwsh not installed"; fi
 	fCase_ReleaseChoice "ps1" "fRunPs1"
+	fCase_PrereleaseOnly "ps1" "fRunPs1"
 	fCase_DefaultTarget "ps1" "fRunPs1"
 	fCase_SystemTarget "ps1" "fRunPs1Sys" "no"
 	fCase_SystemUnwritable
@@ -736,6 +773,7 @@ fLine ""
 
 
 ##	History:
+##		- 20260930 JC: Test IDs. A listing with only a prerelease in it.
 ##		- 20260917 JC: Cover --target system, against a scratch /opt and /usr/local.
 ##		- 20260917 JC: Check what the deb and rpm contents list installs.
 ##		- 20260917 JC: Created, for the release-choice, re-run and link-path cases.

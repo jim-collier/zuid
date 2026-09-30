@@ -133,6 +133,39 @@ fWantFailure(){  ## id, label, text the message must contain, args...
 }
 
 
+fWantContains(){  ## id, label, text the output must contain, args...
+	fId "$1" "$2"
+	local -r needle="$3"; shift 3
+	local got="" rc=0
+	got="$("${bin}" "$@" 2>&1)" || rc=$?
+	if ((rc == 0)) && [[ "${got}" == *"${needle}"* ]]
+		then fPass
+		else fFail "exited ${rc}, wanted '${needle}' in '${got:0:80}'"
+	fi
+}
+
+fWantAbsent(){  ## id, label, text the output must not contain, args...
+	fId "$1" "$2"
+	local -r needle="$3"; shift 3
+	local got=""
+	got="$(fRun "$@" || true)"
+	if [[ -n "${got}" && "${got}" != *"${needle}"* ]]
+		then fPass
+		else fFail "'${needle}' is in '${got:0:80}'"
+	fi
+}
+
+fWantMatch(){  ## id, label, regex the whole output must match, args...
+	fId "$1" "$2"
+	local -r pattern="$3"; shift 3
+	local got=""
+	got="$(fRun "$@" || true)"
+	if [[ "${got}" =~ ${pattern} ]]
+		then fPass
+		else fFail "'${got}' does not match ${pattern}"
+	fi
+}
+
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The command cannot be handed a clock, so nothing here has an exact expected
 ## value except the literals. Widths are what it can be held to: every
@@ -239,6 +272,76 @@ if [[ "$(fRun --format '%h' --salt pepper)" == "$(fRun --format '%h' --salt Pepp
 	else fPass
 fi
 
+
+## Precision moves the unit, and the width follows the horizon in that unit.
+fWantLen ErOiQbL "-p -1 counts minutes, 5 symbols"       5 --precision -1
+fWantLen ErOiQbM "-p 1 counts milliseconds, 8 symbols"   8 --precision 1
+
+## A value attaches with '=' or follows as the next argument, and all four
+## spellings are the same thing. Base 16 is 9 wide, so a value that went
+## missing shows as the default's 6.
+fWantLen ErOiQbN "-b=16 attaches"          9 -b=16
+fWantLen ErOiQbO "--base=16 attaches"      9 --base=16
+fWantLen ErOiQbP "-b 16 follows"           9 -b 16
+fWantLen ErOiQbQ "--base 16 follows"       9 --base 16
+
+## Only a leading-dash argument splits, and only at its first '=', so a format
+## carrying one survives either way.
+fWantExact ErOiQbR "a format may carry an '='"      "a=b" --format 'a=b'
+fWantExact ErOiQbS "and so may an attached one"     "a=b" --format=a=b
+fWantFailure ErOiQbT "--no-hash refuses a value"    "takes no value" --no-hash=1
+fWantFailure ErOiQbU "-h refuses a value"           "takes no value" -h=1
+fWantFailure ErOiQbV "-v refuses a value"           "takes no value" -v=1
+
+## Dropped from the command as confusing. The modules keep the option.
+fWantFailure ErOiQbW "--hash-chars is gone"         "Argument invalid" --hash-chars 5
+
+## The verb is quoted whole, however many bytes it is.
+fWantFailure ErOiQbX "a multi-byte unknown component is named whole" "'%é'" --format '%é'
+fWantFailure ErOiQbY "a zero --rand-chars is refused" "out of range for --rand-chars" --rand-chars 0
+
+## --version is one bare line for scripts and the installers' head -n1. The
+## copyright lives in --about.
+fWantLines ErOiQbZ "--version is one line"                  1 --version
+fWantMatch ErOiQba "--version is the version and build"     '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)? \(build [0-9a-z]+\)$' --version
+fWantAbsent ErOiQbb "--version carries no copyright"        "Copyright" --version
+fWantContains ErOiQbc "--about carries the copyright"       "Copyright ©" --about
+fWantContains ErOiQbd "--about names both licenses"         "The Go module and the C library are Apache-2.0." --about
+fWantContains ErOiQbe "--donate says where to give"         "https://github.com/sponsors/jim-collier" --donate
+
+## The help builds its curated line from the list itself, so the two cannot
+## drift. It wraps, so the words are what gets compared.
+curated="16, 32w, 36, 62, 64tt, 128tt, 256tt, 512tt, 1024tz, 2048tz"
+fId ErOiQbf "help lists the curated bases"
+helpText="$(fRun --help || true)"
+helpList="$(awk '/Curated set:/ { on = 1; sub(/.*Curated set:/, ""); } on && /Any base/ { exit } on { print }' <<< "${helpText}" | tr -s ' \n' ' ' | sed 's/^ //; s/ $//')"
+if [[ "${helpList}" == "${curated}" ]]
+	then fPass
+	else fFail "got '${helpList}'"
+fi
+
+## Help and about have a blank line above and below, and the options list has
+## no gaps in it.
+fId ErOiQbg "help is set off by blank lines, with no gaps in its options"
+helpFirst="$(head -n1 <<< "${helpText}")"
+helpGaps="$(awk '/^Options:/ { on = 1; next } on && /^$/ { exit } on { print }' <<< "${helpText}" | grep -c -- '--donate' || true)"
+helpRaw="$("${bin}" --help 2>/dev/null | tail -c 2 | od -An -c | tr -d ' ')"
+if [[ -z "${helpFirst}" && "${helpGaps}" == "1" && "${helpRaw}" == '\n\n' ]]
+	then fPass
+	else fFail "first line '${helpFirst}', options through --donate: ${helpGaps}, ends '${helpRaw}'"
+fi
+
+## Every curated base renders a timestamp.
+fId ErOiQbh "every curated base renders"
+badBases=""
+for base in ${curated//,/}; do
+	[[ -n "$(fRun --base "${base}" || true)" ]] || badBases+=" ${base}"
+done
+if [[ -z "${badBases}" ]]
+	then fPass
+	else fFail "nothing from:${badBases}"
+fi
+
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
 fLine ""
@@ -248,3 +351,4 @@ fLine ""
 ##	History:
 ##		- 20260917 JC: Created, for the buffer ceiling and the empty format.
 ##		- 20260917 JC: --count, its refusals, and the closed-pipe case.
+##		- 20260930 JC: Test IDs. Precision, attached values, --version, --about, --donate, help.

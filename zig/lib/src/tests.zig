@@ -331,6 +331,58 @@ test "the live random source varies" {
     try std.testing.expect(differed);
 }
 
+// Each live name is read once and kept, so %h and %f describe one machine for
+// the life of a context even if it is renamed under it. The cache fields are
+// plain here, so a name no system would give is planted after the first read,
+// and the second read has to hand back that one.
+// test-id: ErOhqzP
+test "the live environment reads each name once" {
+    var live: env.Live = .{};
+    const live_env = live.env();
+    var buf: [core.name_buf_len]u8 = undefined;
+
+    _ = try live_env.hostname(&buf);
+    _ = try live_env.username(&buf);
+    _ = try live_env.fqdn(&buf);
+    try std.testing.expect(live.host.len != null);
+    try std.testing.expect(live.user.len != null);
+    try std.testing.expect(live.qualified.len != null);
+
+    const planted = "planted-name";
+    for ([_]*@TypeOf(live.host){ &live.host, &live.user, &live.qualified }) |cache| {
+        @memcpy(cache.buf[0..planted.len], planted);
+        cache.len = planted.len;
+    }
+    try std.testing.expectEqualStrings(planted, try live_env.hostname(&buf));
+    try std.testing.expectEqualStrings(planted, try live_env.username(&buf));
+    try std.testing.expectEqualStrings(planted, try live_env.fqdn(&buf));
+
+    live.hardware = .{ 0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0xee };
+    try std.testing.expectEqual([6]u8{ 0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0xee }, try live_env.mac());
+}
+
+// Only the widths a format spends are checked. A hash width that suits one
+// base used to fail a plain timestamp in another. Go has the same test.
+// test-id: ErOhqzQ
+test "only the widths a format uses are checked" {
+    var h = try host.Host.init(.auto);
+    defer h.deinit();
+    var fixed: FixedEnv = .{};
+    var out_buf: [core.out_buf_len]u8 = undefined;
+
+    for ([_]core.Options{
+        .{ .format = "%d", .hash_chars = core.max_component_chars + 1, .random_chars = core.max_component_chars + 1, .clock_ms = 0 },
+        .{ .format = "%d", .base = "2048tz", .hash_chars = 40, .clock_ms = 0 },
+        .{ .format = "%h", .base = "2048tz", .hash_chars = 40, .no_hash = true, .clock_ms = 0 },
+    }) |opts| {
+        _ = try core.generate(h.converter(), fixed.interface(), opts, &out_buf);
+    }
+
+    // A format that does spend the width is still held to it.
+    try std.testing.expectError(core.Error.HashTooWide, core.generate(h.converter(), fixed.interface(), .{ .format = "%h", .base = "2048tz", .hash_chars = 40, .clock_ms = 0 }, &out_buf));
+    try std.testing.expectError(core.Error.OptionRange, core.generate(h.converter(), fixed.interface(), .{ .format = "%r", .random_chars = core.max_component_chars + 1, .clock_ms = 0 }, &out_buf));
+}
+
 // test-id: EloUhj1
 test "the conversion library reports a version" {
     var h = try host.Host.init(.auto);

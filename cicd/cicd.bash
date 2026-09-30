@@ -9,6 +9,7 @@
 ##		- 20260802 JC: Created.
 ##		- 20260804 JC: Remote sync, artifacts, profiling, demo, packaging, dogfood.
 ##		- 20260805 JC: Backup and publish stage.
+##		- 20260930 JC: Test IDs, one line per test. Pipeline self-test.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 declare    thisVersion="0.1.0"
@@ -527,10 +528,12 @@ fStage_Shell(){
 	## Only what this project wrote. x9muid1 under utility/ is 2023 reference
 	## code, and the copied helpers keep their own upstream's lint state.
 	shellcheck "${repoRoot}/cicd/cicd.bash" "${repoRoot}/install.bash" \
-		"${utilityDir}/installer-test.bash" "${utilityDir}/cli-test.bash"
+		"${utilityDir}/installer-test.bash" "${utilityDir}/cli-test.bash" \
+		"${utilityDir}/pipeline-test.bash"
 	fEcho_Clean "Clean."
 
 	fStage_TestIds
+	fStage_Shell_Pipeline
 	fStage_Shell_Installers
 	fStage_Docs
 
@@ -589,6 +592,42 @@ fStage_Docs(){
 	((missing == 0)) || fTestFail "${missing} relative link(s) in the root documents point at nothing."
 	fTestPass
 
+	## A GPL file at the root read as covering everything, modules included. The
+	## root has only the map now, and each licensed directory has its own text.
+	fId ErOj0WT "each directory carries the license license.md says it does"
+	local licenseFile="" licenseWant="" licenseBad=""
+	[[ -f "${repoRoot}/license.md" ]] || licenseBad+=" license.md is missing;"
+	if compgen -G "${repoRoot}/LICENSE*" >/dev/null; then licenseBad+=" a LICENSE file is back at the root;"; fi
+	for licenseFile in zig/cmd/LICENSE.txt:"GNU GENERAL PUBLIC LICENSE" go/LICENSE.txt:"Apache License" \
+		zig/lib/LICENSE.txt:"Apache License" go/NOTICE.txt:"" zig/lib/NOTICE.txt:""; do
+		licenseWant="${licenseFile#*:}"
+		licenseFile="${licenseFile%%:*}"
+		if [[ ! -f "${repoRoot}/${licenseFile}" ]]; then
+			licenseBad+=" ${licenseFile} is missing;"
+		elif [[ -n "${licenseWant}" ]] && ! grep -q "${licenseWant}" "${repoRoot}/${licenseFile}"; then
+			licenseBad+=" ${licenseFile} is not '${licenseWant}';"
+		fi
+	done
+	licenseBad="${licenseBad# }"; [[ -z "${licenseBad}" ]] || fTestFail "${licenseBad%;}."
+	fTestPass
+
+	## The contact address was a placeholder on a domain that was never ours,
+	## and code_of_conduct.md still named the project it was copied from.
+	fId ErOj0WU "the contact address is the project's own everywhere"
+	local contactDoc="" contactBad=""
+	for contactDoc in trademark.md contributing.md code_of_conduct.md; do
+		[[ -f "${repoRoot}/${contactDoc}" ]] || continue
+		if ! grep -qE 'zuid(@|Ⓐ)yottacore\.com' "${repoRoot}/${contactDoc}"; then
+			contactBad+=" ${contactDoc} has no contact address;"
+		fi
+		if grep -oE '[A-Za-z0-9._-]+(@|Ⓐ)[A-Za-z0-9.-]+\.[a-z]+' "${repoRoot}/${contactDoc}" | grep -vqE '^zuid(@|Ⓐ)yottacore\.com$'; then
+			contactBad+=" ${contactDoc} has another address;"
+		fi
+	done
+	if grep -l 'Still to fill' "${repoRoot}"/*.md >/dev/null 2>&1; then contactBad+=" a 'Still to fill' note is left in a root document;"; fi
+	contactBad="${contactBad# }"; [[ -z "${contactBad}" ]] || fTestFail "${contactBad%;}."
+	fTestPass
+
 	fId Eq9ofeq "design.md's rejection count matches its list"
 	local -r design="${repoRoot}/project/design.md"
 	if [[ ! -f "${design}" ]]; then
@@ -626,6 +665,24 @@ fStage_Docs(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## This script's own argument handling and commit refusal. Nothing else would
+## notice them going wrong until the wrong commit had been made.
+fStage_Shell_Pipeline(){
+
+	fEcho_Clean
+	fEcho "Pipeline"
+
+	local -r runner="${utilityDir}/pipeline-test.bash"
+	if [[ ! -f "${runner}" ]]; then
+		fEcho_Clean "Skipped ....: pipeline-test.bash is not present."
+		return 0
+	fi
+	bash "${runner}"
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The installers only reach their interesting paths against a real listing and
 ## a real download, so they get a local one. Nothing here touches the network or
 ## anything outside its own scratch tree.
@@ -658,6 +715,18 @@ fStage_Go(){
 	fEcho "Go: build, vet, format, test"
 
 	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
+
+	## convertbase comes from its published release, never a local checkout. The
+	## reactor wasm is built from that same pin, which is what keeps the two
+	## sides on one library version, and a replace directive would split them.
+	fId ErOj0WV "go.mod pins a released convertbase, with no replace"
+	if grep -qE '^[[:space:]]*replace' go.mod; then
+		fTestFail "go.mod has a replace directive."
+	fi
+	if ! grep -qE '^[[:space:]]*(require[[:space:]]+)?github\.com/jim-collier/convert-base-v2/lib v[0-9]+\.[0-9]+\.[0-9]+$' go.mod; then
+		fTestFail "go.mod does not require convert-base-v2/lib at a tagged version: $(grep convert-base go.mod || true)"
+	fi
+	fTestPass
 
 	go build -p "${buildJobs}" ./...
 	go vet ./...
