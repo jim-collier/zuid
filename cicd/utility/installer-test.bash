@@ -400,6 +400,54 @@ JSON
 	fi
 }
 
+## Both scripts check the download against the published checksums. A tarball
+## that does not match has to stop the install, not just be reported.
+fCase_Checksum(){  ## label, runner
+	local -r label="$1" runner="$2"
+	local -r sums="${dlRoot}/v2.0.0/checksums.txt"
+	local home="" out="" got=""
+
+	cp "${sums}" "${work}/checksums.good"
+	sed -i "s/^[0-9a-f]\{64\}  ${PROG}-linux-x86_64.tgz$/$(printf '0%.0s' $(seq 1 64))  ${PROG}-linux-x86_64.tgz/" "${sums}"
+	if cmp -s "${sums}" "${work}/checksums.good"; then fDie "could not corrupt ${sums}; the release layout moved"; fi
+	home="$(fNewHome "${label}-checksum")"
+	out="$("${runner}" "${home}" user yes)" || true
+	got="$(fInstalledVersion "${home}")"
+	cp "${work}/checksums.good" "${sums}"
+
+	fId "${label}" bash=ErOkWfU ps1=ErOkWfV "${label}: a checksum mismatch installs nothing"
+	if [[ "${got}" == "none" && ! -e "${home}/.local/share/${PROG}" ]]
+		then fPass
+		else fFail "installed ${got}. Output: ${out}"
+	fi
+	fId "${label}" bash=ErOkWfW ps1=ErOkWfX "${label}: and says why"
+	if [[ "${out}" == *"checksum mismatch"* ]]
+		then fPass
+		else fFail "said nothing about the checksum. Output: ${out}"
+	fi
+}
+
+## Without --yes the plan is shown and the answer waited for. With nothing to
+## answer it, the default is no: nothing downloaded, nothing installed.
+fCase_NoAnswer(){  ## label, runner
+	local -r label="$1" runner="$2"
+	local home="" out=""
+	home="$(fNewHome "${label}-no-answer")"
+	local -r before="$(fRequestCount)"
+	out="$("${runner}" "${home}" user < /dev/null)" || true
+
+	fId "${label}" bash=ErOkWfY ps1=ErOkWfZ "${label}: with no answer, nothing is downloaded"
+	if [[ "$(fRequestCount)" == "${before}" ]]
+		then fPass
+		else fFail "it fetched anyway. Output: ${out}"
+	fi
+	fId "${label}" bash=ErOkWfa ps1=ErOkWfb "${label}: or installed"
+	if [[ "$(fInstalledVersion "${home}")" == "none" && ! -e "${home}/.local/share/${PROG}" ]]
+		then fPass
+		else fFail "it installed anyway. Output: ${out}"
+	fi
+}
+
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## package.bash's --out. It used to be handed straight to 'rm -rf', so a stray
 ## --out emptied whatever it named, before the build had produced anything to
@@ -738,6 +786,8 @@ if [[ "${only}" != "ps1" ]]; then
 	fLine "install.bash"
 	fCase_ReleaseChoice "bash" "fRunBash"
 	fCase_PrereleaseOnly "bash" "fRunBash"
+	fCase_Checksum "bash" "fRunBash"
+	fCase_NoAnswer "bash" "fRunBash"
 	fCase_DefaultTarget "bash" "fRunBash"
 	fCase_SystemTarget "bash" "fRunBashSys" "yes"
 	fCase_Rerun "bash" "fRunBash"
@@ -753,6 +803,8 @@ if [[ "${only}" != "bash" ]]; then
 	if ((! hasPwsh)); then skipWhy="pwsh not installed"; fi
 	fCase_ReleaseChoice "ps1" "fRunPs1"
 	fCase_PrereleaseOnly "ps1" "fRunPs1"
+	fCase_Checksum "ps1" "fRunPs1"
+	fCase_NoAnswer "ps1" "fRunPs1"
 	fCase_DefaultTarget "ps1" "fRunPs1"
 	fCase_SystemTarget "ps1" "fRunPs1Sys" "no"
 	fCase_SystemUnwritable
@@ -773,7 +825,7 @@ fLine ""
 
 
 ##	History:
-##		- 20260930 JC: Test IDs. A listing with only a prerelease in it.
+##		- 20260930 JC: Test IDs. A listing with only a prerelease in it, a bad checksum, no answer.
 ##		- 20260917 JC: Cover --target system, against a scratch /opt and /usr/local.
 ##		- 20260917 JC: Check what the deb and rpm contents list installs.
 ##		- 20260917 JC: Created, for the release-choice, re-run and link-path cases.
