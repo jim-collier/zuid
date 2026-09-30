@@ -308,6 +308,7 @@ fWantAbsent ErOiQbb "--version carries no copyright"        "Copyright" --versio
 fWantContains ErOiQbc "--about carries the copyright"       "Copyright ©" --about
 fWantContains ErOiQbd "--about names both licenses"         "The Go module and the C library are Apache-2.0." --about
 fWantContains ErOiQbe "--donate says where to give"         "https://github.com/sponsors/jim-collier" --donate
+fWantContains ErOyR7K "--donate names Ko-fi too"          "https://ko-fi.com/jimcollier" --donate
 
 ## The help builds its curated line from the list itself, so the two cannot
 ## drift. It wraps, so the words are what gets compared.
