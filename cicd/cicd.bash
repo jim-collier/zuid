@@ -612,15 +612,16 @@ fStage_Docs(){
 	fTestPass
 
 	## The contact address was a placeholder on a domain that was never ours,
-	## and code_of_conduct.md still named the project it was copied from.
+	## and code_of_conduct.md still named the project it was copied from. In
+	## text people read it is written with the circled A, not a plain @.
 	fId ErOj0WU "the contact address is the project's own everywhere"
 	local contactDoc="" contactBad=""
 	for contactDoc in trademark.md contributing.md code_of_conduct.md; do
 		[[ -f "${repoRoot}/${contactDoc}" ]] || continue
-		if ! grep -qE 'zuid(@|Ⓐ)yottacore\.com' "${repoRoot}/${contactDoc}"; then
+		if ! grep -qE 'zuidⒶyottacore\.com' "${repoRoot}/${contactDoc}"; then
 			contactBad+=" ${contactDoc} has no contact address;"
 		fi
-		if grep -oE '[A-Za-z0-9._-]+(@|Ⓐ)[A-Za-z0-9.-]+\.[a-z]+' "${repoRoot}/${contactDoc}" | grep -vqE '^zuid(@|Ⓐ)yottacore\.com$'; then
+		if grep -oE '[A-Za-z0-9._-]+(@|Ⓐ)[A-Za-z0-9.-]+\.[a-z]+' "${repoRoot}/${contactDoc}" | grep -vqE '^zuidⒶyottacore\.com$'; then
 			contactBad+=" ${contactDoc} has another address;"
 		fi
 	done
