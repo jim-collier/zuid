@@ -28,6 +28,8 @@ func (s steadyBytes) Read(p []byte) (int, error) {
 // replays the seeds; a real run is:
 //
 //	go test -run=xxx -fuzz=FuzzGenerate -fuzztime=30s ./zuid
+//
+// test-id: Eq9zVsG
 func FuzzGenerate(f *testing.F) {
 	for _, format := range []string{"%d", "%", "%%", "%z", "%d-%h-%u-%f-%m-%g-%r", "%%%%%d", "\x00%d", "%\xff"} {
 		f.Add(format, "62")

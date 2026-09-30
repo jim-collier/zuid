@@ -489,6 +489,30 @@ fPreflight(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Every test prints one line with its ID, the way the harnesses do. A check
+## here starts with fId and ends in one of the three below. A check run once
+## per item carries an ID for each, picked by a key:
+## fId "${target}" linux/arm64=<id> darwin/arm64=<id> "what it checks".
+## New IDs come from cicd/utility/test-ids.py, and its check refuses a test
+## without one.
+declare testId="" testName=""
+fId(){  ## [key key=id...] | id, name
+	testId="???????"
+	testName="${*: -1}"
+	if (($# == 2)); then testId="$1"; return 0; fi
+	local -r key="$1"
+	local pair=""
+	for pair in "${@:2:$#-2}"; do
+		if [[ "${pair%%=*}" == "${key}" ]]; then testId="${pair#*=}"; fi
+	done
+	return 0
+}
+fTestPass(){ fEcho_Clean "  ok ....: ${testId} ${testName}" ;}
+fTestSkip(){ fEcho_Clean "  skip ..: ${testId} ${testName} ($*)" ;}
+fTestFail(){ fEcho_Clean "  FAIL ..: ${testId} ${testName}"; fThrowError "$*"  "${FUNCNAME[1]}" ;}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Shell(){
 
 	fEcho_Clean
@@ -503,11 +527,29 @@ fStage_Shell(){
 	## Only what this project wrote. x9muid1 under utility/ is 2023 reference
 	## code, and the copied helpers keep their own upstream's lint state.
 	shellcheck "${repoRoot}/cicd/cicd.bash" "${repoRoot}/install.bash" \
-		"${utilityDir}/installer-test.bash"
+		"${utilityDir}/installer-test.bash" "${utilityDir}/cli-test.bash"
 	fEcho_Clean "Clean."
 
+	fStage_TestIds
 	fStage_Shell_Installers
 	fStage_Docs
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Every test has an ID, and no two share one. A test added without one fails
+## here rather than printing a line nobody can refer to.
+fStage_TestIds(){
+
+	fEcho_Clean
+	fEcho "Test IDs"
+
+	if [[ -z "$(command -v python3 2>/dev/null || true)" ]]; then
+		fEcho_Clean "Skipped ....: python3 not installed."
+		return 0
+	fi
+	python3 "${utilityDir}/test-ids.py" check || fThrowError "Some tests have no ID, or share one. 'cicd/utility/test-ids.py new' makes one."  "${FUNCNAME[0]}"
 
 }
 
@@ -523,16 +565,18 @@ fStage_Docs(){
 	## Both style guides were written and then pointed at from two places. A
 	## guide nothing links to is one nobody reads, which is how the CLI one came
 	## to be missing in the first place.
+	fId EqA4qmO "both style guides are linked from README.md and contributing.md"
 	local guide="" from=""
 	for from in README.md contributing.md; do
 		for guide in style_guide.md style-guide_cli.md; do
 			grep -q "(${guide})" "${repoRoot}/${from}" \
-				|| fThrowError "${from} does not link ${guide}."  "${FUNCNAME[0]}"
+				|| fTestFail "${from} does not link ${guide}."
 		done
 	done
-	fEcho_Clean "Style ......: both guides are linked from README.md and contributing.md"
+	fTestPass
 
 	## And every relative link in the root documents goes somewhere.
+	fId EqA4qmP "every relative link in the root documents resolves"
 	local doc="" target="" missing=0
 	for doc in "${repoRoot}"/*.md; do
 		while read -r target; do
@@ -542,12 +586,13 @@ fStage_Docs(){
 			missing=$((missing + 1))
 		done < <(grep -oE '\]\([^):]+\)' "${doc}" | sed -e 's/^](//' -e 's/)$//' || true)
 	done
-	((missing == 0)) || fThrowError "${missing} relative link(s) in the root documents point at nothing."  "${FUNCNAME[0]}"
-	fEcho_Clean "Links ......: every relative link in the root documents resolves"
+	((missing == 0)) || fTestFail "${missing} relative link(s) in the root documents point at nothing."
+	fTestPass
 
+	fId Eq9ofeq "design.md's rejection count matches its list"
 	local -r design="${repoRoot}/project/design.md"
 	if [[ ! -f "${design}" ]]; then
-		fEcho_Clean "Skipped ....: project/design.md is not present."
+		fTestSkip "project/design.md is not present"
 		return 0
 	fi
 
@@ -555,7 +600,7 @@ fStage_Docs(){
 	## ends the list.
 	local -r claimLine="$(grep -n 'reject the same .* things before rendering' "${design}" | head -n1 || true)"
 	if [[ -z "${claimLine}" ]]; then
-		fEcho_Clean "Skipped ....: the rejection-list sentence has moved or been reworded."
+		fTestSkip "the rejection-list sentence has moved or been reworded"
 		return 0
 	fi
 
@@ -569,13 +614,13 @@ fStage_Docs(){
 		*) spelled="" ;;
 	esac
 	if [[ -z "${spelled}" ]]; then
-		fEcho_Clean "Skipped ....: ${bulletCount} bullets, which this check has no word for."
+		fTestSkip "${bulletCount} bullets, which this check has no word for"
 		return 0
 	fi
 	if [[ "${claimNumber}" != "${spelled}" ]]; then
-		fThrowError "design.md says it rejects '${claimNumber}' things and then lists ${bulletCount}."  "${FUNCNAME[0]}"
+		fTestFail "design.md says it rejects '${claimNumber}' things and then lists ${bulletCount}."
 	fi
-	fEcho_Clean "design.md ..: the rejection count matches its list"
+	fTestPass
 
 }
 
@@ -627,8 +672,20 @@ fStage_Go(){
 	fi
 
 	## The race detector is the only thing defending the documented promise that
-	## Generate is safe to call concurrently.
-	go test -p "${buildJobs}" -race ./...
+	## Generate is safe to call concurrently. The JSON stream is what gives one
+	## line per test, with its ID.
+	if [[ -n "$(command -v python3 2>/dev/null || true)" ]]; then
+		go test -p "${buildJobs}" -race -json ./... | python3 "${utilityDir}/test-ids.py" go
+	else
+		fEcho_Clean "IDs ........: skipped, no python3"
+		go test -p "${buildJobs}" -race ./...
+	fi
+
+	## The module promises it needs no cgo, which is what keeps a static cross
+	## build possible. --cross checks the other targets; this is every run.
+	fId ErOgfbn "the Go module builds with cgo off"
+	CGO_ENABLED=0 go build -p "${buildJobs}" ./... || fTestFail "the Go module needs cgo."
+	fTestPass
 
 	fStage_Go_Consumer
 	if ((! doQuick)); then fStage_Go_Fuzz; fi
@@ -648,11 +705,12 @@ fStage_Go_Consumer(){
 	## README's command has to name the package, not the module root. On the root
 	## go get adds the module without what its package needs, and the build stops
 	## on a missing go.sum entry for convertbase.
+	fId Eq9m0j2 "README's go get names the package path"
 	local -r readme="${repoRoot}/README.md"
 	if [[ -f "${readme}" ]] && grep -q 'go get github.com/jim-collier/zuid/go$' "${readme}"; then
-		fThrowError "README tells people 'go get <module root>', which leaves the build unable to resolve convertbase. It should name the package."  "${FUNCNAME[0]}"
+		fTestFail "README tells people 'go get <module root>', which leaves the build unable to resolve convertbase. It should name the package."
 	fi
-	fEcho_Clean "README .....: names the package path"
+	fTestPass
 
 	local consumerDir=""
 	consumerDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
@@ -683,6 +741,7 @@ fStage_Go_Consumer(){
 	## Pointed at this tree rather than the published module, so the check says
 	## whether what is about to be merged can be imported, and needs no network
 	## beyond what the module cache already holds.
+	fId Eq9m0j3 "a program importing the module builds and runs"
 	(
 		cd "${consumerDir}" || exit 1
 		go mod init zuid-consumer-check >/dev/null 2>&1 || exit 1
@@ -691,8 +750,8 @@ fStage_Go_Consumer(){
 		go mod tidy >/dev/null 2>&1 || exit 1
 		go build -o "${consumerDir}/consumer" . || exit 1
 		"${consumerDir}/consumer" >/dev/null || exit 1
-	) || fThrowError "a program importing github.com/jim-collier/zuid/go/zuid did not build and run."  "${FUNCNAME[0]}"
-	fEcho_Clean "Import .....: builds and runs"
+	) || fTestFail "a program importing github.com/jim-collier/zuid/go/zuid did not build and run."
+	fTestPass
 
 	rm -rf "${consumerDir}"
 
@@ -716,10 +775,14 @@ fStage_Go_Fuzz(){
 	local output=""
 	local -i attempt=0
 
+	## The same test the plain run replayed, so it keeps that test's ID.
+	fId "$(python3 "${utilityDir}/test-ids.py" lookup FuzzGenerate 2>/dev/null || printf '???????')" \
+		"FuzzGenerate, fuzzed for ${fuzzTime}"
+
 	while ((attempt < 2)); do
 		attempt=$((attempt + 1))
 		if output="$(go test -run=xxx -fuzz=FuzzGenerate -fuzztime="${fuzzTime}" ./zuid 2>&1)"; then
-			fEcho_Clean "Fuzzed .....: ${fuzzTime} of formats and base names, nothing found."
+			fTestPass
 			return 0
 		fi
 		## A real find is saved as a crasher. Without one this is most likely
@@ -730,7 +793,7 @@ fStage_Go_Fuzz(){
 	done
 
 	fEcho_Clean "${output}"
-	fThrowError "Fuzzing failed. A saved input under ${crasherDir} means a real find."  "${FUNCNAME[0]}"
+	fTestFail "Fuzzing failed. A saved input under ${crasherDir} means a real find."
 
 }
 
@@ -748,8 +811,9 @@ fStage_Go_Cross(){
 	for target in "${crossTargets[@]}"; do
 		goos="${target%%/*}"
 		goarch="${target##*/}"
-		CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build -p "${buildJobs}" ./...
-		fEcho_Clean "Compiles ...: ${goos}/${goarch}"
+		fId "${target}" linux/arm64=EloMht2 windows/amd64=EloMht3 darwin/arm64=EloMht4 "compiles for ${target} with cgo off"
+		CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build -p "${buildJobs}" ./... || fTestFail "${target} does not build."
+		fTestPass
 	done
 
 }
@@ -848,7 +912,15 @@ fStage_Zig(){
 	## ReleaseSafe is what would ship; the vectors replay through it too.
 	## zig wants the count attached to the flag, not as a separate word.
 	zig build "-j${buildJobs}" -Doptimize=ReleaseSafe
-	zig build "-j${buildJobs}" test
+	## Run by hand rather than through 'zig build test', whose runner reports
+	## only a count. Its stderr is not a terminal here, so it names every test.
+	if [[ -n "$(command -v python3 2>/dev/null || true)" ]]; then
+		zig build "-j${buildJobs}" test-bin
+		"${zigDir}/zig-out/test/test" 2>&1 | python3 "${utilityDir}/test-ids.py" zig
+	else
+		fEcho_Clean "IDs ........: skipped, no python3"
+		zig build "-j${buildJobs}" test
+	fi
 
 	## zig fmt is silent on success and lists offenders on failure. Plain 'if',
 	## not a trailing '&&' - that exact pattern has killed this script before.
@@ -895,16 +967,17 @@ fStage_Zig_BuildStamp(){
 	stampDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${stampDir}")
 
+	fId Eq9nb3o "the build number survives an empty SOURCE_DATE_EPOCH"
 	(
 		cd "${zigDir}" || exit 1
 		SOURCE_DATE_EPOCH="" zig build "-j${buildJobs}" --prefix "${stampDir}" || exit 1
-	) || fThrowError "the build failed with SOURCE_DATE_EPOCH empty."  "${FUNCNAME[0]}"
+	) || fTestFail "the build failed with SOURCE_DATE_EPOCH empty."
 
 	local -r stamped="$("${stampDir}/bin/zuid" --version 2>&1 || true)"
 	if [[ "${stamped}" != *"(build "* ]]; then
-		fThrowError "an empty SOURCE_DATE_EPOCH dropped the build number: --version said '${stamped}'. It should fall through to the commit date."  "${FUNCNAME[0]}"
+		fTestFail "an empty SOURCE_DATE_EPOCH dropped the build number: --version said '${stamped}'. It should fall through to the commit date."
 	fi
-	fEcho_Clean "Stamp ......: survives an empty SOURCE_DATE_EPOCH"
+	fTestPass
 
 	rm -rf "${stampDir}"
 
@@ -937,19 +1010,21 @@ fStage_Zig_CApi(){
 	_scratchDirs+=("${buildDir}")
 
 	## Shared: self-contained, so the header and -lzuid are the whole story.
+	fId ElpGOHZ "capi_smoke.c against the shared library"
 	"${systemCc}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
-		-L "${zigDir}/zig-out/lib" -lzuid -o "${buildDir}/smoke-shared"
-	LD_LIBRARY_PATH="${zigDir}/zig-out/lib" "${buildDir}/smoke-shared"
-	fEcho_Clean "Shared .....: passed"
+		-L "${zigDir}/zig-out/lib" -lzuid -o "${buildDir}/smoke-shared" || fTestFail "did not compile."
+	LD_LIBRARY_PATH="${zigDir}/zig-out/lib" "${buildDir}/smoke-shared" || fTestFail "the smoke test failed."
+	fTestPass
 
 	## Only the entry points are visible. The library used to export all of
 	## Wasmtime, which let any program holding one of those names displace the
 	## calls it makes internally.
+	fId Eq9gPQm "libzuid.so exports only zuid_*"
 	local -r exported="$(nm -D --defined-only "${zigDir}/zig-out/lib/libzuid.so" | awk '{print $3}' | grep -cv '^zuid_' || true)"
 	if [[ "${exported}" != "0" ]]; then
-		fThrowError "libzuid.so exports ${exported} symbols that are not zuid_*. lib/zuid.map should be keeping them local."  "${FUNCNAME[0]}"
+		fTestFail "libzuid.so exports ${exported} symbols that are not zuid_*. lib/zuid.map should be keeping them local."
 	fi
-	fEcho_Clean "Symbols ....: only zuid_* exported"
+	fTestPass
 
 	## The soname, which is what a linked program records rather than the file
 	## name. Its major is the ABI promise the stable error codes go with, so it
@@ -959,37 +1034,44 @@ fStage_Zig_CApi(){
 	if [[ -z "${abiMajor}" ]]; then
 		fThrowError "Could not read the version constant out of lib/src/core.zig."  "${FUNCNAME[0]}"
 	fi
+	fId EqA3RdB "libzuid.so is a symlink onto libzuid.so.${abiMajor}"
 	if [[ ! -L "${zigDir}/zig-out/lib/libzuid.so" || ! -e "${zigDir}/zig-out/lib/libzuid.so.${abiMajor}" ]]; then
-		fThrowError "libzuid.so should be a symlink onto libzuid.so.${abiMajor}. build.zig's .version is what makes that chain."  "${FUNCNAME[0]}"
+		fTestFail "build.zig's .version is what makes that chain."
 	fi
+	fTestPass
+	fId EqA3RdC "the soname is libzuid.so.${abiMajor}"
 	if [[ -z "$(command -v readelf 2>/dev/null || true)" ]]; then
-		fEcho_Clean "Soname .....: skipped, no readelf"
+		fTestSkip "no readelf"
 	else
 		local -r soname="$(readelf -d "${zigDir}/zig-out/lib/libzuid.so" | sed -n 's/.*Library soname: \[\(.*\)\].*/\1/p')"
 		if [[ "${soname}" != "libzuid.so.${abiMajor}" ]]; then
-			fThrowError "libzuid.so's soname is '${soname}', not libzuid.so.${abiMajor}."  "${FUNCNAME[0]}"
+			fTestFail "libzuid.so's soname is '${soname}'."
 		fi
-		fEcho_Clean "Soname .....: ${soname}"
+		fTestPass
 	fi
 
 	## And the same thing from the other side: a program defining one of those
 	## names must not change what the library calls.
 	local -r interposeSrc="${zigDir}/lib/test/capi_interpose.c"
+	fId Eq9gPQn "a program defining a Wasmtime name still gets a working context"
 	if [[ -f "${interposeSrc}" ]]; then
 		"${systemCc}" -I "${zigDir}/zig-out/include" "${interposeSrc}" \
-			-L "${zigDir}/zig-out/lib" -lzuid -o "${buildDir}/interpose"
-		LD_LIBRARY_PATH="${zigDir}/zig-out/lib" "${buildDir}/interpose"
-		fEcho_Clean "Interpose ..: passed"
+			-L "${zigDir}/zig-out/lib" -lzuid -o "${buildDir}/interpose" || fTestFail "did not compile."
+		LD_LIBRARY_PATH="${zigDir}/zig-out/lib" "${buildDir}/interpose" || fTestFail "the library's calls were displaced."
+		fTestPass
+	else
+		fTestSkip "capi_interpose.c is not present"
 	fi
 
 	## Static: the consumer supplies wasmtime and the system libraries itself.
 	## No -lunwind here on purpose - libgcc already provides __register_frame,
 	## and the header says so.
+	fId ElpGOHa "capi_smoke.c against the static library"
 	"${systemCc}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
 		"${zigDir}/zig-out/lib/libzuid.a" "${zigDir}/vendor/wasmtime/lib/libwasmtime.a" \
-		-lpthread -ldl -lm -o "${buildDir}/smoke-static"
-	"${buildDir}/smoke-static"
-	fEcho_Clean "Static .....: passed"
+		-lpthread -ldl -lm -o "${buildDir}/smoke-static" || fTestFail "did not link."
+	"${buildDir}/smoke-static" || fTestFail "the smoke test failed."
+	fTestPass
 
 	## Now the same thing the way somebody who downloaded the release does it:
 	## against a tree holding only what gets shipped, with the link line the
@@ -997,6 +1079,7 @@ fStage_Zig_CApi(){
 	## itself, where no linker looks, and the release carried no separate copy,
 	## so this is the check that would have caught it. Deliberately not pointed
 	## at vendor/.
+	fId Eq9hexE "capi_smoke.c links against the shipped tree, with the header's link line"
 	local -r relTree="${buildDir}/release"
 	mkdir -p "${relTree}/lib" "${relTree}/include"
 	cp "${zigDir}/zig-out/include/zuid.h"                  "${relTree}/include/"
@@ -1004,15 +1087,16 @@ fStage_Zig_CApi(){
 	cp "${zigDir}/vendor/wasmtime/lib/libwasmtime.a"       "${relTree}/lib/"
 	"${systemCc}" -I "${relTree}/include" "${smokeSrc}" \
 		-L "${relTree}/lib" -Wl,-Bstatic -lzuid -lwasmtime -Wl,-Bdynamic \
-		-lpthread -ldl -lm -o "${buildDir}/smoke-release"
-	"${buildDir}/smoke-release"
-	fEcho_Clean "Release ....: static link against the shipped tree passed"
+		-lpthread -ldl -lm -o "${buildDir}/smoke-release" || fTestFail "did not link."
+	"${buildDir}/smoke-release" || fTestFail "the smoke test failed."
+	fTestPass
 
 	## And nothing nested, since that is what made the archive unusable.
+	fId Eq9hexF "libzuid.a holds objects only, no nested archive"
 	if ar t "${zigDir}/zig-out/lib/libzuid.a" | grep -q '\.a$'; then
-		fThrowError "libzuid.a has another archive inside it. Only its own objects belong there."  "${FUNCNAME[0]}"
+		fTestFail "libzuid.a has another archive inside it. Only its own objects belong there."
 	fi
-	fEcho_Clean "Archive ....: objects only"
+	fTestPass
 
 	rm -rf "${buildDir}"
 

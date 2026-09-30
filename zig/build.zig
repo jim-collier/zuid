@@ -109,6 +109,13 @@ pub fn build(b: *std.Build) void {
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Replay the shared vectors and the error paths");
     test_step.dependOn(&run_tests.step);
+
+    // The same tests as a binary in zig-out/test. Run directly rather than by
+    // the build runner, it prints a line per test, which cicd turns into one
+    // status line per test ID.
+    const install_tests = b.addInstallArtifact(tests, .{ .dest_dir = .{ .override = .{ .custom = "test" } } });
+    const test_bin_step = b.step("test-bin", "Build the test binary into zig-out/test");
+    test_bin_step.dependOn(&install_tests.step);
 }
 
 /// Unix seconds the build number comes from. The commit date rather than the
