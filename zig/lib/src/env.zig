@@ -165,20 +165,36 @@ fn readMac() core.Error![6]u8 {
     if (c.getifaddrs(&list) != 0) return core.Error.EnvUnavailable;
     defer c.freeifaddrs(list);
 
-    var found: ?[6]u8 = null;
-    var lowest: c_int = std.math.maxInt(c_int);
+    var pick: MacPick = .{};
     var walk = list;
     while (walk) |entry| : (walk = entry.*.ifa_next) {
         if (entry.*.ifa_flags & c.IFF_LOOPBACK != 0) continue;
         const addr = entry.*.ifa_addr orelse continue;
         const link = linkAddress(addr) orelse continue;
-        if (link.index >= lowest) continue;
-
-        lowest = link.index;
-        found = link.mac;
+        pick.offer(link.index, link.mac);
     }
-    return found orelse core.Error.EnvUnavailable;
+    return pick.found orelse core.Error.EnvUnavailable;
 }
+
+/// Addresses on every machine of a kind, which say nothing about the host. An
+/// Intel Mac with a T2 chip has the first on its bridge interface, which
+/// numbers below en0.
+const shared_macs = [_][6]u8{.{ 0xac, 0xde, 0x48, 0x00, 0x11, 0x22 }};
+
+/// The lowest-numbered address offered so far, skipping the shared ones.
+pub const MacPick = struct {
+    found: ?[6]u8 = null,
+    lowest: c_int = std.math.maxInt(c_int),
+
+    pub fn offer(self: *MacPick, index: c_int, mac: [6]u8) void {
+        for (shared_macs) |shared| {
+            if (std.mem.eql(u8, &mac, &shared)) return;
+        }
+        if (index >= self.lowest) return;
+        self.lowest = index;
+        self.found = mac;
+    }
+};
 
 const LinkAddress = struct { index: c_int, mac: [6]u8 };
 

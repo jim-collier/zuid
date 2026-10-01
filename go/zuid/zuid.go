@@ -16,6 +16,7 @@
 package zuid
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -686,10 +687,23 @@ var liveMAC = sync.OnceValues(func() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("network interfaces: %w", err)
 	}
+	chosen := pickMAC(interfaces)
+	if chosen == nil {
+		return nil, errors.New("no non-loopback interface with a hardware address")
+	}
+	return chosen, nil
+})
+
+// sharedMACs are on every machine of a kind, so they say nothing about the
+// host. An Intel Mac with a T2 chip has the first on its bridge interface,
+// which numbers below en0.
+var sharedMACs = []net.HardwareAddr{{0xac, 0xde, 0x48, 0x00, 0x11, 0x22}}
+
+func pickMAC(interfaces []net.Interface) net.HardwareAddr {
 	var chosen *net.Interface
 	for i := range interfaces {
 		candidate := &interfaces[i]
-		if candidate.Flags&net.FlagLoopback != 0 || len(candidate.HardwareAddr) != macBits/8 {
+		if candidate.Flags&net.FlagLoopback != 0 || len(candidate.HardwareAddr) != macBits/8 || isSharedMAC(candidate.HardwareAddr) {
 			continue
 		}
 		if chosen == nil || candidate.Index < chosen.Index {
@@ -697,7 +711,16 @@ var liveMAC = sync.OnceValues(func() ([]byte, error) {
 		}
 	}
 	if chosen == nil {
-		return nil, errors.New("no non-loopback interface with a hardware address")
+		return nil
 	}
-	return chosen.HardwareAddr, nil
-})
+	return chosen.HardwareAddr
+}
+
+func isSharedMAC(address net.HardwareAddr) bool {
+	for _, shared := range sharedMACs {
+		if bytes.Equal(address, shared) {
+			return true
+		}
+	}
+	return false
+}

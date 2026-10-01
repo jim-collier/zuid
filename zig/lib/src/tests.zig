@@ -835,3 +835,15 @@ fn fuzzCapi(z: *capi.Zuid, smith: *std.testing.Smith) !void {
         try std.testing.expect(std.mem.span(capi.zuid_last_error(z)).len > 0);
     }
 }
+
+// The T2 bridge address is the same on every Intel Mac that has one, and its
+// interface numbers below en0, so it has to be passed over for the next one.
+// test-id: ErU3R7A
+test "the shared T2 address is never picked for %m" {
+    const en0 = [6]u8{ 0x38, 0xf9, 0xd3, 0xc3, 0xd1, 0xad };
+    var pick: env.MacPick = .{};
+    pick.offer(4, .{ 0xac, 0xde, 0x48, 0x00, 0x11, 0x22 });
+    try std.testing.expect(pick.found == null);
+    pick.offer(6, en0);
+    try std.testing.expectEqualSlices(u8, &en0, &pick.found.?);
+}

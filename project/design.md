@@ -234,7 +234,7 @@ A salt can be hashed in ahead of the name, with `--salt` on the command and a ma
 
 The byte-valued components all take the same path - hex in, converted from base 16 - because that is the cheapest faithful way to hand bytes to a library whose interface is strings.
 
-- `%m` is the 48-bit address as a number. The predecessor picked the interface holding the default route, which needs the routing table on three different platforms; the lowest-numbered non-loopback interface is stable enough for a value whose only job is to differ between machines, and it needs no route parsing and no subprocess.
+- `%m` is the 48-bit address as a number. The predecessor picked the interface holding the default route, which needs the routing table on three different platforms; the lowest-numbered non-loopback interface is stable enough for a value whose only job is to differ between machines, and it needs no route parsing and no subprocess. An address known to be the same on every machine of a kind is skipped. So far that is one, `ac:de:48:00:11:22`, which an Intel Mac with a T2 chip has on a bridge interface numbered below `en0`.
 - `%g` is a real UUID v4 - 16 bytes from the random source with the version and variant bits forced - but rendered as a plain number in the output base rather than in the dashed text form, which would not sort and would be four times as long.
 - `%r` draws enough bytes to fill the symbols it emits. Below base 256 that is one byte each, which is more entropy than a symbol can spend; above it a symbol carries more than eight bits, so the draw scales with the radix. Details under [Component widths](#component-widths).
 

@@ -7,7 +7,10 @@
 // not part of the API. Everything else lives in the external zuid_test.
 package zuid
 
-import "testing"
+import (
+	"net"
+	"testing"
+)
 
 // design.md says each environment source is read once per process and kept, and
 // gives the reason: the FQDN read is a blocking name lookup, and a source that
@@ -59,5 +62,23 @@ func TestLiveHostnameIsStable(t *testing.T) {
 	}
 	if first != second {
 		t.Errorf("host name changed between reads: %q then %q", first, second)
+	}
+}
+
+// The T2 bridge address is the same on every Intel Mac that has one, and its
+// interface numbers below en0, so it has to be passed over for the next one.
+// test-id: ErU3R79
+func TestPickMACSkipsSharedAddress(t *testing.T) {
+	en0 := net.HardwareAddr{0x38, 0xf9, 0xd3, 0xc3, 0xd1, 0xad}
+	interfaces := []net.Interface{
+		{Index: 1, Name: "lo0", Flags: net.FlagLoopback},
+		{Index: 4, Name: "en5", HardwareAddr: net.HardwareAddr{0xac, 0xde, 0x48, 0x00, 0x11, 0x22}},
+		{Index: 6, Name: "en0", HardwareAddr: en0},
+	}
+	if got := pickMAC(interfaces); got.String() != en0.String() {
+		t.Errorf("picked %v, want en0's %v", got, en0)
+	}
+	if got := pickMAC(interfaces[:2]); got != nil {
+		t.Errorf("picked %v with only the shared address left, want none", got)
 	}
 }
