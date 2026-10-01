@@ -33,8 +33,12 @@ fConfig(){ :;
 	default_protectedBranches=("main" "dev")
 
 	## Vendored Wasmtime C API, pinned. Fetched into zig/vendor/ when absent.
+	## One checksum per platform, as <arch>-<os>=<sha256>, in Wasmtime's own names.
 	default_wasmtimeVer="v47.0.3"
-	default_wasmtimeSha256="aaa3621f2a3d8393696702897f8f78a1cc504437d500701496d560125aefd732"
+	default_wasmtimeSha256s=(
+		"x86_64-linux=aaa3621f2a3d8393696702897f8f78a1cc504437d500701496d560125aefd732"
+		"x86_64-macos=627622087b77b92c163e826ec6ebf834a70d78735828043edf7ace263f8a9e62"
+	)
 
 	## The reactor wasm module is built from this package, which go.mod pins to
 	## a release, so the Go side and the Zig side cannot end up on two versions
@@ -166,7 +170,7 @@ fMain(){
 	local -a default_crossTargets=()
 	local -a default_protectedBranches=()
 	local    default_wasmtimeVer=""
-	local    default_wasmtimeSha256=""
+	local -a default_wasmtimeSha256s=()
 	local    default_reactorPackage=""
 	local -a default_dogfoodDirs=()
 	local    default_rarExcludes=""
@@ -179,7 +183,7 @@ fMain(){
 	local -ra crossTargets=("${default_crossTargets[@]}")
 	local -ra protectedBranches=("${default_protectedBranches[@]}")
 	local -r wasmtimeVer="${default_wasmtimeVer}"
-	local -r wasmtimeSha256="${default_wasmtimeSha256}"
+	local -ra wasmtimeSha256s=("${default_wasmtimeSha256s[@]}")
 	local -r reactorPackage="${default_reactorPackage}"
 	local -ra dogfoodDirs=("${default_dogfoodDirs[@]}")
 	local -r  rarExcludes="${default_rarExcludes}"
@@ -520,17 +524,17 @@ fStage_Shell(){
 	fEcho "Bash: lint"
 
 	## Not a toolchain, so a missing shellcheck is a gap in coverage, not a failure.
+	## It used to return here and take the stages below down with it.
 	if [[ -z "$(command -v shellcheck 2>/dev/null || true)" ]]; then
 		fEcho_Clean "shellcheck not installed - skipping."
-		return 0
+	else
+		## Only what this project wrote. x9muid1 under utility/ is 2023 reference
+		## code, and the copied helpers keep their own upstream's lint state.
+		shellcheck "${repoRoot}/cicd/cicd.bash" "${repoRoot}/install.bash" \
+			"${utilityDir}/installer-test.bash" "${utilityDir}/cli-test.bash" \
+			"${utilityDir}/pipeline-test.bash"
+		fEcho_Clean "Clean."
 	fi
-
-	## Only what this project wrote. x9muid1 under utility/ is 2023 reference
-	## code, and the copied helpers keep their own upstream's lint state.
-	shellcheck "${repoRoot}/cicd/cicd.bash" "${repoRoot}/install.bash" \
-		"${utilityDir}/installer-test.bash" "${utilityDir}/cli-test.bash" \
-		"${utilityDir}/pipeline-test.bash"
-	fEcho_Clean "Clean."
 
 	fStage_TestIds
 	fStage_Shell_Pipeline
@@ -898,11 +902,20 @@ fStage_Zig_Vendor(){
 	local -r vendorDir="${zigDir}/vendor"
 	mkdir -p "${vendorDir}"
 
-	## Wasmtime C API, pinned and checksummed. The pin covers one architecture,
-	## so a different host would need its own archive and its own checksum.
-	local -r hostArch="$(uname -m)"
-	if [[ "${hostArch}" != "x86_64" ]]; then
-		fThrowError "The vendored Wasmtime pin is x86_64 only; this machine is ${hostArch}. Add that archive and its checksum to fConfig first."  "${FUNCNAME[0]}"
+	## Wasmtime C API, pinned and checksummed per platform.
+	local hostOs=""
+	case "$(uname -s)" in
+		Linux)  hostOs="linux" ;;
+		Darwin) hostOs="macos" ;;
+		*)      hostOs="$(uname -s)" ;;
+	esac
+	local -r hostPlatform="$(uname -m)-${hostOs}"
+	local wasmtimeSha256="" pin=""
+	for pin in "${wasmtimeSha256s[@]}"; do
+		if [[ "${pin%%=*}" == "${hostPlatform}" ]]; then wasmtimeSha256="${pin#*=}"; fi
+	done
+	if [[ -z "${wasmtimeSha256}" ]]; then
+		fThrowError "No vendored Wasmtime pin for ${hostPlatform}. Add that archive's checksum to fConfig first."  "${FUNCNAME[0]}"
 	fi
 
 	## Version-stamped, so re-pinning in fConfig actually re-fetches instead of
@@ -912,14 +925,15 @@ fStage_Zig_Vendor(){
 		fEcho_Clean "Wasmtime ...: ${wasmtimeVer} present"
 	else
 		_fMustBeInPath curl
-		_fMustBeInPath sha256sum
+		_fMustBeInPath shasum
 		_fMustBeInPath tar
-		local -r wtName="wasmtime-${wasmtimeVer}-${hostArch}-linux-c-api"
+		local -r wtName="wasmtime-${wasmtimeVer}-${hostPlatform}-c-api"
 		local -r wtUrl="https://github.com/bytecodealliance/wasmtime/releases/download/${wasmtimeVer}/${wtName}.tar.xz"
 		local -r wtTar="${vendorDir}/${wtName}.tar.xz"
 		fEcho_Clean "Wasmtime ...: fetching ${wasmtimeVer}"
 		curl -sSL --fail -o "${wtTar}" "${wtUrl}" || fThrowError "Could not download '${wtUrl}'."  "${FUNCNAME[0]}"
-		local -r wtSum="$(sha256sum "${wtTar}" | awk '{print $1}')"
+		## shasum, not sha256sum: it is on both Linux and macOS.
+		local -r wtSum="$(shasum -a 256 "${wtTar}" | awk '{print $1}')"
 		if [[ "${wtSum}" != "${wasmtimeSha256}" ]]; then
 			rm -f "${wtTar}"
 			fThrowError "Wasmtime checksum mismatch: got ${wtSum}."  "${FUNCNAME[0]}"
@@ -1038,9 +1052,11 @@ fStage_Zig_BuildStamp(){
 	_scratchDirs+=("${stampDir}")
 
 	fId Eq9nb3o "the build number survives an empty SOURCE_DATE_EPOCH"
+	## Its own cache, since clang chokes on the empty value too, and a cached
+	## @cImport never runs clang.
 	(
 		cd "${zigDir}" || exit 1
-		SOURCE_DATE_EPOCH="" zig build "-j${buildJobs}" --prefix "${stampDir}" || exit 1
+		SOURCE_DATE_EPOCH="" zig build "-j${buildJobs}" --cache-dir "${stampDir}/cache" --prefix "${stampDir}" || exit 1
 	) || fTestFail "the build failed with SOURCE_DATE_EPOCH empty."
 
 	local -r stamped="$("${stampDir}/bin/zuid" --version 2>&1 || true)"
@@ -1079,22 +1095,36 @@ fStage_Zig_CApi(){
 	## the exit handler can also see it.
 	_scratchDirs+=("${buildDir}")
 
+	local -i isMac=0
+	if [[ "$(uname -s)" == "Darwin" ]]; then isMac=1; fi
+	## A native zig build targets this exact macOS, and clang otherwise links for
+	## its SDK's and warns about every object. Release builds want a lower floor.
+	if ((isMac)); then local -x MACOSX_DEPLOYMENT_TARGET; MACOSX_DEPLOYMENT_TARGET="$(sw_vers -productVersion)"; fi
+	local -r libDir="${zigDir}/zig-out/lib"
+
 	## Shared: self-contained, so the header and -lzuid are the whole story.
+	## An rpath rather than LD_LIBRARY_PATH, which macOS does not read.
 	fId ElpGOHZ "capi_smoke.c against the shared library"
 	"${systemCc}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
-		-L "${zigDir}/zig-out/lib" -lzuid -o "${buildDir}/smoke-shared" || fTestFail "did not compile."
-	LD_LIBRARY_PATH="${zigDir}/zig-out/lib" "${buildDir}/smoke-shared" || fTestFail "the smoke test failed."
+		-L "${libDir}" -lzuid -Wl,-rpath,"${libDir}" -o "${buildDir}/smoke-shared" || fTestFail "did not compile."
+	"${buildDir}/smoke-shared" || fTestFail "the smoke test failed."
 	fTestPass
 
 	## Only the entry points are visible. The library used to export all of
 	## Wasmtime, which let any program holding one of those names displace the
 	## calls it makes internally.
-	fId Eq9gPQm "libzuid.so exports only zuid_*"
-	local -r exported="$(nm -D --defined-only "${zigDir}/zig-out/lib/libzuid.so" | awk '{print $3}' | grep -cv '^zuid_' || true)"
-	if [[ "${exported}" != "0" ]]; then
-		fTestFail "libzuid.so exports ${exported} symbols that are not zuid_*. lib/zuid.map should be keeping them local."
+	fId Eq9gPQm "the shared library exports only zuid_*"
+	if ((isMac)); then
+		## Zig's Mach-O linker has no exported symbols list. Two-level namespace
+		## keeps the library's own calls bound to itself, which Eq9gPQn checks.
+		fTestSkip "Mach-O ignores lib/zuid.map"
+	else
+		local -r exported="$(nm -D --defined-only "${libDir}/libzuid.so" | awk '{print $3}' | grep -cv '^zuid_' || true)"
+		if [[ "${exported}" != "0" ]]; then
+			fTestFail "libzuid.so exports ${exported} symbols that are not zuid_*. lib/zuid.map should be keeping them local."
+		fi
+		fTestPass
 	fi
-	fTestPass
 
 	## The soname, which is what a linked program records rather than the file
 	## name. Its major is the ABI promise the stable error codes go with, so it
@@ -1104,18 +1134,27 @@ fStage_Zig_CApi(){
 	if [[ -z "${abiMajor}" ]]; then
 		fThrowError "Could not read the version constant out of lib/src/core.zig."  "${FUNCNAME[0]}"
 	fi
-	fId EqA3RdB "libzuid.so is a symlink onto libzuid.so.${abiMajor}"
-	if [[ ! -L "${zigDir}/zig-out/lib/libzuid.so" || ! -e "${zigDir}/zig-out/lib/libzuid.so.${abiMajor}" ]]; then
+	## macOS puts the major before the suffix, and calls the soname an install name.
+	local libName="libzuid.so" majorName="libzuid.so.${abiMajor}"
+	if ((isMac)); then libName="libzuid.dylib"; majorName="libzuid.${abiMajor}.dylib"; fi
+	fId EqA3RdB "${libName} is a symlink onto ${majorName}"
+	if [[ ! -L "${libDir}/${libName}" || ! -e "${libDir}/${majorName}" ]]; then
 		fTestFail "build.zig's .version is what makes that chain."
 	fi
 	fTestPass
-	fId EqA3RdC "the soname is libzuid.so.${abiMajor}"
-	if [[ -z "$(command -v readelf 2>/dev/null || true)" ]]; then
+	fId EqA3RdC "the soname is ${majorName}"
+	if ((isMac)); then
+		local -r installName="$(otool -D "${libDir}/${libName}" | sed -n '2p')"
+		if [[ "${installName}" != "@rpath/${majorName}" ]]; then
+			fTestFail "${libName}'s install name is '${installName}'."
+		fi
+		fTestPass
+	elif [[ -z "$(command -v readelf 2>/dev/null || true)" ]]; then
 		fTestSkip "no readelf"
 	else
-		local -r soname="$(readelf -d "${zigDir}/zig-out/lib/libzuid.so" | sed -n 's/.*Library soname: \[\(.*\)\].*/\1/p')"
-		if [[ "${soname}" != "libzuid.so.${abiMajor}" ]]; then
-			fTestFail "libzuid.so's soname is '${soname}'."
+		local -r soname="$(readelf -d "${libDir}/${libName}" | sed -n 's/.*Library soname: \[\(.*\)\].*/\1/p')"
+		if [[ "${soname}" != "${majorName}" ]]; then
+			fTestFail "${libName}'s soname is '${soname}'."
 		fi
 		fTestPass
 	fi
@@ -1126,8 +1165,8 @@ fStage_Zig_CApi(){
 	fId Eq9gPQn "a program defining a Wasmtime name still gets a working context"
 	if [[ -f "${interposeSrc}" ]]; then
 		"${systemCc}" -I "${zigDir}/zig-out/include" "${interposeSrc}" \
-			-L "${zigDir}/zig-out/lib" -lzuid -o "${buildDir}/interpose" || fTestFail "did not compile."
-		LD_LIBRARY_PATH="${zigDir}/zig-out/lib" "${buildDir}/interpose" || fTestFail "the library's calls were displaced."
+			-L "${libDir}" -lzuid -Wl,-rpath,"${libDir}" -o "${buildDir}/interpose" || fTestFail "did not compile."
+		"${buildDir}/interpose" || fTestFail "the library's calls were displaced."
 		fTestPass
 	else
 		fTestSkip "capi_interpose.c is not present"
@@ -1155,8 +1194,11 @@ fStage_Zig_CApi(){
 	cp "${zigDir}/zig-out/include/zuid.h"                  "${relTree}/include/"
 	cp "${zigDir}/zig-out/lib/libzuid.a"                   "${relTree}/lib/"
 	cp "${zigDir}/vendor/wasmtime/lib/libwasmtime.a"       "${relTree}/lib/"
+	## Apple's ld has no -Bstatic. It needs none here, with only archives in lib/.
+	local -a staticOn=('-Wl,-Bstatic') staticOff=('-Wl,-Bdynamic')
+	if ((isMac)); then staticOn=(); staticOff=(); fi
 	"${systemCc}" -I "${relTree}/include" "${smokeSrc}" \
-		-L "${relTree}/lib" -Wl,-Bstatic -lzuid -lwasmtime -Wl,-Bdynamic \
+		-L "${relTree}/lib" "${staticOn[@]}" -lzuid -lwasmtime "${staticOff[@]}" \
 		-lpthread -ldl -lm -o "${buildDir}/smoke-release" || fTestFail "did not link."
 	"${buildDir}/smoke-release" || fTestFail "the smoke test failed."
 	fTestPass
@@ -1502,7 +1544,8 @@ fRotate_Artifacts(){
 ## whole machine.
 fHalfTheCores(){
 	local -i cores=1
-	if command -v nproc &>/dev/null; then cores="$(nproc)"; fi
+	if command -v nproc &>/dev/null; then cores="$(nproc)"
+	elif command -v sysctl &>/dev/null; then cores="$(sysctl -n hw.ncpu 2>/dev/null || echo 1)"; fi
 	local -i half=$((cores / 2))
 	((half > 0)) || half=1
 	printf '%s\n' "${half}"

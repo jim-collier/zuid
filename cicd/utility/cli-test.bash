@@ -84,7 +84,8 @@ fWantLines(){  ## id, label, expected line count, args...
 	fId "$1" "$2"
 	local -r want="$3"; shift 3
 	local got=0
-	got="$(fRun "$@" | wc -l)"
+	## BSD wc pads the count with spaces.
+	got="$(fRun "$@" | wc -l | tr -d ' ')"
 	if [[ "${got}" == "${want}" ]]
 		then fPass
 		else fFail "got ${got} lines, want ${want}"
@@ -258,7 +259,7 @@ fWantFailure EqAb38n "a missing count is refused"  "count" --count
 ## pipefail carries the writer's status through wc, and the '|| pipeRc' keeps
 ## errexit from taking the whole harness down with it.
 pipeRc=0
-pipeLines="$("${bin}" -n 10000 --format '%d%r' 2>/dev/null | head -n 2 | wc -l)" || pipeRc=$?
+pipeLines="$("${bin}" -n 10000 --format '%d%r' 2>/dev/null | head -n 2 | wc -l | tr -d ' ')" || pipeRc=$?
 fId EqAb38o "a closed pipe ends the run quietly"
 if [[ "${pipeLines}" == "2" ]] && ((pipeRc == 0))
 	then fPass

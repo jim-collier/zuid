@@ -63,8 +63,15 @@ case "$(uname -s)" in
 esac
 userLink="${HOME}/.local/bin/${PROG}"
 
+## Both get written, so both have to be writable, the same as install.ps1.
+## Homebrew leaves /usr/local/bin writable on an Intel Mac while /opt is not.
+fWritable(){  ## path. The install creates the leaf, so it is the nearest existing dir that counts.
+	local probe="$1"
+	while [[ ! -d "${probe}" ]]; do probe="$(dirname "${probe}")"; done
+	[[ -w "${probe}" ]]
+}
 if [[ -z "${target}" ]]; then
-	if [[ -w "$(dirname "${systemLink}")" ]] 2>/dev/null; then target="system"; else target="user"; fi
+	if fWritable "${systemDir}" && fWritable "$(dirname "${systemLink}")"; then target="system"; else target="user"; fi
 fi
 case "${target}" in
 	user)   installDir="${userDir}";   linkPath="${userLink}";   needsRoot=0 ;;

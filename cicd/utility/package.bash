@@ -263,7 +263,7 @@ done
 	| xargs -r sha256sum > "${work}/checksums.txt" )
 mv "${work}/checksums.txt" "${OUT}/checksums.txt"
 
-fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "${outMarker}" | wc -l) artifacts in ${OUT}"
+fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "${outMarker}" | wc -l | tr -d ' ') artifacts in ${OUT}"
 
 
 ##	History:
