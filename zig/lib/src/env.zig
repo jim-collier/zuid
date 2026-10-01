@@ -29,6 +29,10 @@ const c = @cImport({
     @cInclude("net/if.h");
     if (builtin.os.tag == .linux) {
         @cInclude("netpacket/packet.h");
+    } else if (builtin.os.tag.isDarwin()) {
+        @cInclude("net/if_dl.h");
+        // unistd.h has getentropy on Linux only.
+        @cInclude("sys/random.h");
     }
 });
 
@@ -145,8 +149,7 @@ fn readFqdn(out: []u8) core.Error![]const u8 {
 /// routing table on three platforms; interface order is stable enough for a
 /// value whose only job is to differ between hosts.
 ///
-/// Linux only so far. macOS and the BSDs report a hardware address as AF_LINK
-/// rather than AF_PACKET, and that path is not written yet.
+/// Linux and macOS only so far. The other BSDs use AF_LINK too, untried.
 fn vtMac(ctx: *anyopaque) core.Error![6]u8 {
     const self: *Live = @ptrCast(@alignCast(ctx));
     if (self.hardware) |cached| return cached;
@@ -156,7 +159,7 @@ fn vtMac(ctx: *anyopaque) core.Error![6]u8 {
 }
 
 fn readMac() core.Error![6]u8 {
-    if (builtin.os.tag != .linux) return core.Error.EnvUnavailable;
+    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) return core.Error.EnvUnavailable;
 
     var list: ?*c.struct_ifaddrs = null;
     if (c.getifaddrs(&list) != 0) return core.Error.EnvUnavailable;
@@ -168,16 +171,34 @@ fn readMac() core.Error![6]u8 {
     while (walk) |entry| : (walk = entry.*.ifa_next) {
         if (entry.*.ifa_flags & c.IFF_LOOPBACK != 0) continue;
         const addr = entry.*.ifa_addr orelse continue;
-        if (addr.*.sa_family != c.AF_PACKET) continue;
+        const link = linkAddress(addr) orelse continue;
+        if (link.index >= lowest) continue;
 
-        const link: *const c.struct_sockaddr_ll = @ptrCast(@alignCast(addr));
-        if (link.*.sll_halen != 6) continue;
-        if (link.*.sll_ifindex >= lowest) continue;
-
-        lowest = link.*.sll_ifindex;
-        found = link.*.sll_addr[0..6].*;
+        lowest = link.index;
+        found = link.mac;
     }
     return found orelse core.Error.EnvUnavailable;
+}
+
+const LinkAddress = struct { index: c_int, mac: [6]u8 };
+
+/// An EUI-48 and its interface index, if this entry is one. Linux reports a
+/// hardware address as AF_PACKET and macOS as AF_LINK.
+fn linkAddress(addr: *const c.struct_sockaddr) ?LinkAddress {
+    if (builtin.os.tag == .linux) {
+        if (addr.*.sa_family != c.AF_PACKET) return null;
+        const link: *const c.struct_sockaddr_ll = @ptrCast(@alignCast(addr));
+        if (link.*.sll_halen != 6) return null;
+        return .{ .index = link.*.sll_ifindex, .mac = link.*.sll_addr[0..6].* };
+    } else {
+        if (addr.*.sa_family != c.AF_LINK) return null;
+        const link: *const c.struct_sockaddr_dl = @ptrCast(@alignCast(addr));
+        if (link.*.sdl_alen != 6) return null;
+        // sdl_data is declared as 12 bytes but runs past that. It holds the
+        // name, then the address, and a long name pushes the address out.
+        const data: [*]const u8 = @ptrCast(&link.*.sdl_data);
+        return .{ .index = link.*.sdl_index, .mac = data[link.*.sdl_nlen..][0..6].* };
+    }
 }
 
 /// 0.16 moved randomness onto Io, the same way it moved the clocks, so this

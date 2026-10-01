@@ -94,6 +94,16 @@ done
 hasPwsh=0
 command -v pwsh >/dev/null 2>&1 && hasPwsh=1
 
+## What the installers fetch on this machine, and where a user install keeps it.
+case "$(uname -s)" in
+	Darwin) hostAsset="${PROG}-darwin-"; userShare="Library/Application Support/${PROG}" ;;
+	*)      hostAsset="${PROG}-linux-";  userShare=".local/share/${PROG}" ;;
+esac
+case "$(uname -m)" in
+	aarch64|arm64) hostAsset+="arm64.tgz" ;;
+	*)             hostAsset+="x86_64.tgz" ;;
+esac
+
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## A tree the stock python server can serve, laid out at the paths the rewritten
@@ -157,9 +167,8 @@ fMakeRelease(){
 	} > "${stageDir}/${PROG}-${tag}/bin/${PROG}"
 	chmod +x "${stageDir}/${PROG}-${tag}/bin/${PROG}"
 
-	local -r asset="${PROG}-linux-x86_64.tgz"
-	tar -czf "${outDir}/${asset}" -C "${stageDir}" "${PROG}-${tag}"
-	( cd "${outDir}" && sha256sum "${asset}" > checksums.txt )
+	tar -czf "${outDir}/${hostAsset}" -C "${stageDir}" "${PROG}-${tag}"
+	( cd "${outDir}" && sha256sum "${hostAsset}" > checksums.txt )
 	## A zip for the Windows path, so a run there has something to fetch too.
 	if command -v zip >/dev/null 2>&1; then
 		( cd "${stageDir}" && zip -qr "${outDir}/${PROG}-windows-x86_64.zip" "${PROG}-${tag}" )
@@ -213,7 +222,10 @@ fRewrite(){  ## file, description, sed expression...
 	local -r file="$1" what="$2"; shift 2
 	local before="" after=""
 	before="$(md5sum "${file}" | cut -d' ' -f1)"
-	sed -i "$@" "${file}"
+	## Not sed -i, which BSD sed reads differently. cat keeps the file's mode.
+	sed "$@" "${file}" > "${file}.new"
+	cat "${file}.new" > "${file}"
+	rm -f "${file}.new"
 	after="$(md5sum "${file}" | cut -d' ' -f1)"
 	[[ "${before}" != "${after}" ]] || fDie "nothing to rewrite in $(basename "${file}"): ${what}. The script moved; fix this harness."
 }
@@ -408,7 +420,7 @@ fCase_Checksum(){  ## label, runner
 	local home="" out="" got=""
 
 	cp "${sums}" "${work}/checksums.good"
-	sed -i "s/^[0-9a-f]\{64\}  ${PROG}-linux-x86_64.tgz$/$(printf '0%.0s' $(seq 1 64))  ${PROG}-linux-x86_64.tgz/" "${sums}"
+	sed "s/^[0-9a-f]\{64\}  ${hostAsset}$/$(printf '0%.0s' $(seq 1 64))  ${hostAsset}/" "${work}/checksums.good" > "${sums}"
 	if cmp -s "${sums}" "${work}/checksums.good"; then fDie "could not corrupt ${sums}; the release layout moved"; fi
 	home="$(fNewHome "${label}-checksum")"
 	out="$("${runner}" "${home}" user yes)" || true
@@ -416,7 +428,7 @@ fCase_Checksum(){  ## label, runner
 	cp "${work}/checksums.good" "${sums}"
 
 	fId "${label}" bash=ErOkWfU ps1=ErOkWfV "${label}: a checksum mismatch installs nothing"
-	if [[ "${got}" == "none" && ! -e "${home}/.local/share/${PROG}" ]]
+	if [[ "${got}" == "none" && ! -e "${home}/${userShare}" ]]
 		then fPass
 		else fFail "installed ${got}. Output: ${out}"
 	fi
@@ -442,7 +454,7 @@ fCase_NoAnswer(){  ## label, runner
 		else fFail "it fetched anyway. Output: ${out}"
 	fi
 	fId "${label}" bash=ErOkWfa ps1=ErOkWfb "${label}: or installed"
-	if [[ "$(fInstalledVersion "${home}")" == "none" && ! -e "${home}/.local/share/${PROG}" ]]
+	if [[ "$(fInstalledVersion "${home}")" == "none" && ! -e "${home}/${userShare}" ]]
 		then fPass
 		else fFail "it installed anyway. Output: ${out}"
 	fi
@@ -532,10 +544,12 @@ fCase_PackageHeader(){
 ##
 ## Skipped where the system location happens to be writable, such as a run as
 ## root, since then system is the right answer and there is nothing to catch.
+## Both halves count: Homebrew leaves /usr/local/bin writable on an Intel Mac,
+## while /opt is not.
 fCase_DefaultTarget(){  ## label, runner
 	local -r label="$1" runner="$2"
 	local skipWhy="${skipWhy}"
-	[[ ! -w /usr/local/bin ]] || skipWhy="/usr/local/bin is writable here, so system is the right default"
+	if [[ -w /usr/local/bin && -w /opt ]]; then skipWhy="/usr/local/bin and /opt are writable here, so system is the right default"; fi
 
 	local home="" out="" got=""
 	home="$(fNewHome "${label}-default-target")"
@@ -600,7 +614,7 @@ fCase_SystemTarget(){  ## label, runner, elevates
 	## The two targets are meant to be separate installs, not one with a second
 	## name. A system run writing into HOME would make uninstall miss half of it.
 	fId "${label}" bash=EqANb72 ps1=EqANb73 "${label}: and leaves HOME alone"
-	if [[ -e "${home}/.local/share/${PROG}" || -e "${home}/.local/bin/${PROG}" ]]
+	if [[ -e "${home}/${userShare}" || -e "${home}/.local/bin/${PROG}" ]]
 		then fFail "a system install also wrote under HOME. Output: ${out}"
 		else fPass
 	fi

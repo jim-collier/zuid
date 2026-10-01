@@ -88,7 +88,13 @@ pub fn build(b: *std.Build) void {
     // Only the zuid_* entry points are visible, and everything else binds
     // inside the library. zuid.h calls the shared library self-contained, and
     // without this it exported the whole Wasmtime C API for anyone to displace.
+    // Mach-O ignores it.
     shared_lib.setVersionScript(b.path("lib/zuid.map"));
+    // macOS's soname. Zig's default is the bare libzuid.dylib, which would let
+    // a program built against ABI 1 load ABI 2.
+    if (target.result.os.tag.isDarwin()) {
+        shared_lib.install_name = b.fmt("@rpath/libzuid.{d}.dylib", .{abi_version.major});
+    }
     shared_lib.installHeader(b.path("lib/include/zuid.h"), "zuid.h");
     b.installArtifact(shared_lib);
 
@@ -140,6 +146,9 @@ fn buildEpoch(b: *std.Build) i64 {
                 std.log.warn("SOURCE_DATE_EPOCH is not a number ('{s}'); using the HEAD commit date instead", .{trimmed});
             }
         }
+        // Clang reads it too, for @cImport, and refuses anything but a number.
+        // A warm cache hid that.
+        _ = b.graph.environ_map.swapRemove("SOURCE_DATE_EPOCH");
     }
 
     var code: u8 = 0;
