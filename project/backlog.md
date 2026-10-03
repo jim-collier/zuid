@@ -1,65 +1,226 @@
 <!-- markdownlint-disable MD007 -- Unordered list indentation -->
 <!-- markdownlint-disable MD010 -- No hard tabs -->
-<!-- markdownlint-disable MD033 -- No inline html -->
-<!-- markdownlint-disable MD055 -- Table pipe style [Expected: leading_and_trailing; Actual: leading_only; Missing trailing pipe] -->
 <!-- markdownlint-disable MD041 -- First line in a file should be a top-level heading -->
 
 <!-- TOC ignore:true -->
-# Requirements
-
-This is a product backlog just for pre-v1.0.0 release. After that, bugs, features, and enhancements will be managed in Github Issues.
+# Project backlog
 
 <!-- TOC ignore:true -->
 ## Table of contents
+
 <!-- TOC -->
 
-- [Conventions](#conventions)
-- [Backlog](#backlog)
+- [Introduction](#introduction)
+- [Issues](#issues)
+- [Old format](#old-format)
 	- [Bugs](#bugs)
-	- [New features and enhancements](#new-features-and-enhancements)
+	- [Features and enhancements](#features-and-enhancements)
 	- [Done](#done)
 		- [Done - Bugs](#done---bugs)
-		- [Done - New features and enhancements](#done---new-features-and-enhancements)
-	- [Future and/or deferred](#future-andor-deferred)
+		- [Done - Features and enhancements](#done---features-and-enhancements)
+	- [Deferred](#deferred)
 	- [Canceled](#canceled)
+- [Template](#template)
 
 <!-- /TOC -->
 
-## Conventions
+## Introduction
 
-In each section, items are listed approximately from newest to oldest. Inside Done, loose items come first and code-review rounds after, each run newest first.
+Going forward, new issues in the new template at the bottom of this file, will go in the '## New format' section only. No more status emojis. Refer to '## Reference' for sort order. Issues in the old format (with status emojis) won't be refactored, but will continue to be worked until moved to closed, canceled, or deferred sections, and emojis updated. (Eventually this will all be moved to nano-git-db anyway. This new template is an intermediate effort to make issues going forward more structured and importable.)
+
+This is a product backlog just for pre-v1.0.0 release. After that, bugs, features, and enhancements will be managed in Github Issues.
+
+Inside Done, loose items come first and code-review rounds after, each run newest first.
 
 An item moves to its matching section under [Done](#done) once it is finished. One that is mostly done gets split: the finished part goes under Done, and the rest stays open.
-
-| Icon | Status
-| :--: | :--
-| 🔘   | Not started
-| 🛠️   | Started, and/or partially complete
-| ✋   | Defer
-| ✅   | Complete
-| 🚫   | Canceled
 
 Each item lists the date it was opened, and the date it was closed once finished. "n/a" means the open date is not known. A deferred item keeps only its opened date.
 
 Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`, `Verified:` or `Note:`, so an item can be skimmed by its prefixes.
 
-## Backlog
+## Issues
+
+- The macOS shared library exports all of Wasmtime.
+	- ID: 2026093018112419
+	- Type: Enhancement
+	- Status: Queued
+	- Priority|Severity [Bug]: Low
+	- Opened: 20260930-181124
+	- Opened by: JC
+	- Target OS: macOS
+	- Requirements  [Feature]:
+		- Only `zuid_*` exported, as on Linux.
+	- Decisions:
+		- Zig's Mach-O linker ignores `lib/zuid.map` and has no exported symbols list. A relink with Apple's `ld -exported_symbols_list` would do it.
+		- Low, because two-level namespace keeps the library's own calls bound to itself. `Eq9gPQn` passes on macOS.
+	- Test case: `Eq9gPQm` skips on macOS until then.
+
+- Release builds target the build machine's CPU.
+	- ID: 2026093018112406
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: High
+	- Opened: 20260930-181124
+	- Opened by: JC
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- `package.bash` runs `zig build` with no `-Dtarget` or `-Dcpu`.
+	- Incorrect behavior [Bug]: Zig then builds for the host CPU, so a release binary can use instructions an older x86_64 lacks. On macOS it also targets the host's exact OS version.
+	- Expected behavior [Bug]: A baseline CPU, and a stated minimum macOS.
+	- Reproduced [Bug]: Yes. A Linux release used AVX in about 190 functions and needed glibc 2.36. A macOS one used AVX and asked for 15.8.
+	- Actual cause [Bug]:
+		- With no target named, Zig builds for the machine it runs on, glibc included.
+	- Decisions:
+		- Baseline CPU. The code built here is too small to gain from newer instructions, and Wasmtime checks the CPU itself.
+	- Actual fix [Bug]: `package.bash` names a target: glibc 2.28 on Linux, macOS 13.0 on a Mac, both with the baseline CPU. It now builds the macOS tarball and binary on a Mac too.
+	- Branch: baseline
+	- Commit: 668b432
+	- Test case: `ErbFB7B`, `ErbFB7C`, `ErbFB7D`, run with `--package`. Each watched to fail on a build for the host.
+	- Closed: 20261002-194500
+
+- `%m` is the same on every Intel Mac with a T2 chip.
+	- ID: 2026093018112392
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: High
+	- Opened: 20260930-181124
+	- Opened by: JC
+	- Target OS: macOS, Intel with a T2 chip
+	- Steps to reproduce [Bug]:
+		- Run `zuid --no-hash -b 16 -f %m`.
+	- Incorrect behavior [Bug]: `ACDE48001122`. That is the T2 bridge interface, `en5`, and every T2 Mac has that address on it.
+	- Expected behavior [Bug]: An address that differs between hosts.
+	- Reproduced [Bug]: Yes, on macOS 15.8. Go and Zig agree.
+	- Actual cause [Bug]:
+		- The lowest-numbered interface wins, and `en5` comes before `en0` there.
+	- Decisions:
+		- Skip that one address on both sides. The lowest-numbered rule stays.
+	- Actual fix [Bug]: Both sides skip `ac:de:48:00:11:22`. On the test Mac `%m` is now `ap1`'s address, index 5, which is ahead of `en0`. Both sides agree.
+	- Branch: t2mac
+	- Commit: 91411c1
+	- Test case: `ErU3R79`, `ErU3R7A`. Both watched to fail without the skip.
+	- Closed: 20261001-135500
+
+- `install.bash` chose a system install on a Homebrew Mac, and asked for root.
+	- ID: 2026093018112432
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20260930-181124
+	- Opened by: JC
+	- Target OS: macOS, Intel with Homebrew
+	- Steps to reproduce [Bug]:
+		- Run `install.bash` with no `--target`, as a user who can write `/usr/local/bin` but not `/opt`.
+	- Incorrect behavior [Bug]: It plans `/opt/zuid` and reaches for sudo.
+	- Expected behavior [Bug]: A user install, since the system location cannot be written.
+	- Reproduced [Bug]: Yes, by `Eq9l4yO` once it stopped skipping there.
+	- Actual cause [Bug]:
+		- Only the link's directory was checked. `install.ps1` already checked both.
+	- Actual fix [Bug]: Both have to be writable, as in `install.ps1`.
+	- Branch: macos
+	- Commit: 277947e
+	- Test case: `Eq9l4yO`. It used to skip wherever `/usr/local/bin` was writable.
+	- Closed: 20260930-181124
+
+- A clean build failed with `SOURCE_DATE_EPOCH` set but empty.
+	- ID: 2026093018112445
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20260930-181124
+	- Opened by: JC
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- `SOURCE_DATE_EPOCH= zig build` with an empty cache.
+	- Incorrect behavior [Bug]: Clang refuses the empty value and every `@cImport` fails.
+	- Expected behavior [Bug]: The build falls back to the commit date, which `build.zig` already meant to do.
+	- Reproduced [Bug]: Yes, on Linux and macOS.
+	- Actual cause [Bug]:
+		- `build.zig` ignored the value for its own stamp but left it set for the compiler. A warm cache never runs clang, so `Eq9nb3o` passed anyway.
+	- Actual fix [Bug]: `build.zig` drops an empty or non-numeric value before anything compiles.
+	- Branch: macos
+	- Commit: 277947e
+	- Test case: `Eq9nb3o`, now on its own cache. Watched to fail without the fix.
+	- Closed: 20260930-181124
+
+- With no `shellcheck`, the pipeline skipped four more stages.
+	- ID: 2026093018112458
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20260930-181124
+	- Opened by: JC
+	- Target OS: Any
+	- Incorrect behavior [Bug]: Test IDs, the pipeline tests, the installer tests and the docs check never ran, with only "shellcheck not installed" to show for it.
+	- Expected behavior [Bug]: Only the lint is skipped.
+	- Actual cause [Bug]:
+		- The lint stage returned early, and it is what calls the other four.
+	- Actual fix [Bug]: It skips the lint only.
+	- Branch: macos
+	- Commit: 277947e
+	- Test case: none. It would take a whole pipeline run with `shellcheck` hidden from PATH.
+	- Closed: 20260930-181124
+
+- `install.ps1` installed without asking when nothing answered its prompt.
+	- ID: 2026093015570558
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20260930-155200
+	- Opened by: JC
+	- Target OS: Any, under pwsh
+	- Steps to reproduce [Bug]:
+		- Run `install.ps1` without `-Yes`, with stdin at its end, such as from a scheduled task or `< /dev/null`.
+	- Incorrect behavior [Bug]: It prints the plan, then downloads and installs.
+	- Expected behavior [Bug]: No answer means no, as `[y/N]` says. `install.bash` already stops there.
+	- Reproduced [Bug]: Yes, by the new no-answer case in `installer-test.bash`.
+	- Actual cause [Bug]:
+		- `Read-Host` gives back nothing at the end of stdin, and nothing `-notmatch` a pattern is not true. So the "no" branch never ran.
+	- Actual fix [Bug]: The answer is cast to a string before the match, at both prompts.
+	- Branch: testids
+	- Commit: f4c69e3
+	- Test case: `ErOkWfZ`, `ErOkWfb`.
+	- Closed: 20260930-155553
+
+- Build and test on macOS.
+	- ID: 2026093018112471
+	- Type: Enhancement
+	- Status: Done
+	- Opened: 20260930-181124
+	- Opened by: JC
+	- Target OS: macOS, Intel
+	- Requirements  [Feature]:
+		- The whole pipeline passes on a Mac.
+		- `%m` reads a hardware address there.
+	- Progress log:
+		- `getentropy` comes from `sys/random.h` there.
+		- `%m` reads `AF_LINK`.
+		- The shared library's install name carries the ABI major, `@rpath/libzuid.1.dylib`.
+		- The Wasmtime pin is per platform.
+		- The harnesses no longer depend on GNU `sed -i`, `wc` padding or `nproc`.
+	- Branch: macos
+	- Commit: 277947e
+	- Test case: the existing suites, run on macOS. `EqA3RdB` and `EqA3RdC` check the macOS names.
+	- Closed: 20260930-181124
+
+## Old format
 
 ### Bugs
 
-None open.
-
-### New features and enhancements
+### Features and enhancements
 
 - 🔘 Run the Zig fuzz tests in fuzz mode, once a Zig release can build one.
 	- Note: the tests are written and replay their corpus on every run. `zig build test --fuzz` fails to compile inside 0.16.0's own test runner, so nothing on this side can fix it. `details.md` has the error.
 	- Opened: 20260917-131500
 
-- 🔘 `%m` is Linux-only on the Zig side - it reads `getifaddrs` for `AF_PACKET`, and macOS wants `AF_LINK` instead. The Go module is already portable, and the help text and the C header both say so. Do it alongside the cross targets, since nothing on the Zig side cross-compiles yet either.
+- 🛠️ `%m` is Linux-only on the Zig side - it reads `getifaddrs` for `AF_PACKET`, and macOS wants `AF_LINK` instead. The Go module is already portable, and the help text and the C header both say so. Do it alongside the cross targets, since nothing on the Zig side cross-compiles yet either.
 	- Should work on Windows too.
+	- Done: macOS, 20260930. Windows is left.
 	- Opened: 20260802-135041
 
 - 🔘 Packaging for other platforms. Needs a Wasmtime archive vendored per target. Blocked on that, and on the Zig side building for Windows at all.
+	- Note: x86_64 macOS has its pin and builds natively, 20260930.
+	- Note: `package.bash` builds the macOS tarball and binary on a Mac, 20261002. Nothing is published for it yet.
 	- Opened: 20260802-025417
 
 - 🔘 Publishing. `--publish` stays rejected with a reason until there is somewhere to publish to.
@@ -284,7 +445,7 @@ None open.
 	- Opened: 20260804-213000
 	- Closed: 20260804-224440
 
-#### Done - New features and enhancements
+#### Done - Features and enhancements
 
 - ✅ The backup archived every build cache it walked past. Here that was a 12 GB `.zig-cache` and 957 MB of Panoplia audit scratch, and no other project excluded any of it.
 	- Cause: the exclude was set from this project's cicd stage, on the reasoning that about 20 projects carry their own fork of the helper and a fix in one reaches none of the others. That left the helper's own generic list with no cache patterns at all, so every other project kept paying.
@@ -690,7 +851,7 @@ None open.
 	- Opened: 20260804-213000
 	- Closed: 20260804-234122
 
-### Future and/or deferred
+### Deferred
 
 - ✋ Tag the Go module as `go/v<version>` at the next release, so it can be asked for by version. A module in a subdirectory needs the prefix, and the plain `v1.0.0-alpha.1` tag does not reach it - `go get ...@v1.0.0-alpha.1` answers "found, but does not contain package". Deferred because pushing a public tag is a release decision, not a code fix. `README.md` says how to pin a commit meanwhile.
 	- Opened: 20260917-104114
@@ -716,3 +877,78 @@ None open.
 - 🚫 No logo. `README.md` dropped the template's `assets/logo.png` references since there is no `assets/`.
 	- Note: `assets/` exists now, but holds only the demo animation.
 	- Opened: 20260801-090104
+
+## Template
+
+### Old format
+
+- 🔘 Not started
+
+- 🛠️ Started, and/or partially complete
+
+- 🔬 Testing not started or finished
+
+- ✋ Defer
+
+- ✅ Complete
+
+- 🚫 Canceled
+
+### New format
+
+- Notes:
+
+	- Only use rows that you actually need or expect will be filled in. Always fill in the title, ID, Type, Status, Opened and Created by.
+
+	- The ID is the local time to the hundredth of a second. Opened is when it was written down, which may differ. (Use a keyboard macro and possibly something like project 'zuid' to generate.)
+
+	- Status values meaning: Testing means the fix is in and checks are running or still to run. Waiting on signoff means automated testing passed. Moot means something else changed that made it irrelevant. Canceled means it still applies but was decided against. Waiting for testing means the fix is in and waits on a long CI run or an outside test host. Can't reproduce means a real attempt to reproduce it failed.
+
+	- As issues are worked, and statuses change, place them in correct sorting order within the list:
+		- First by status: Waiting for answers, Waiting on signoff, Testing, Waiting for testing, Can't reproduce, Stalled, Started, Queued, Done, Deferred, Canceled, Moot
+		- Then by severity|priority: Critical, High, Avg, Low
+		- Then by type: Bugs, [not bugs together]
+
+	- Rows marked [Bug] are for bugs only, and rows marked [Feature] for features and enhancements. Priority and Severity share one row and one scale. Priority is for a Feature or Enhancement, and Severity for a Bug. Children are not nested. They sit at the top level and point back with Parent ID.
+
+Template:
+
+- Title
+	- ID: YYYYmmDDHHMMSSNN
+	- Type: [Bug|Feature|Enhancement|Task]
+	- Status: [Queued|Waiting for answers|Waiting on signoff|Waiting for testing|Started|Testing|Stalled|Can't reproduce|Moot|Canceled|Deferred|Done]
+	- Needs local test suite run?:
+	- Needs external testing:
+	- Priority [Feature|Enhancement] | Severity [Bug]: [Critical|High|Avg|Low]
+	- Opened:
+	- Opened by:
+	- Assigned to:
+	- Parent ID:
+	- Prereq IDs:
+	- Related IDs:
+	- Target OS:
+	- Test environment:
+	- Version and build:
+	- Requirements  [Feature]:
+		- Hierarchical bulleted list.
+	- Steps to reproduce [Bug]:
+		- …
+	- Incorrect behavior [Bug]:
+	- Expected behavior [Bug]:
+	- Reproduced [Bug]: [No, or when, where and how]
+	- Possible cause [Bug]:
+	- Actual cause [Bug]:
+		- …
+	- Estimated effort: [High|Avg|Low]
+	- Actual effort: [High|Avg|Low]
+	- Progress log:
+		- …
+	- Decisions:
+		- …
+	- Actual fix [Bug]:
+	- Branch:
+	- Commit:
+	- Test case: [Reason not applicable, or CI test case #]
+	- Acceptance signoff:
+	- Superseded by ID:
+	- Closed:
