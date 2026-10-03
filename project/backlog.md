@@ -40,6 +40,20 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ## Issues
 
+- Move the Zig side to 0.17.0.
+	- ID: 2026100313583935
+	- Type: Task
+	- Status: Waiting for answers
+	- Opened: 20261003-135839
+	- Opened by: JC
+	- Target OS: Any
+	- Estimated effort: Low
+	- Progress log:
+		- 20261003: Zig 0.17.0 came out 2026-10-01. A trial port builds, passes all 30 Zig tests, and the C module still works from gcc. It took small changes in seven files plus three short C headers. `details.md` has the list.
+		- 20261003: The Zig fuzz item under Old format waits on this. Fuzz mode works in 0.17.0.
+		- 20261003: Question: go ahead? 0.16.0 is a settled choice, so the move needs a yes first.
+	- Test case: none. It was a trial run only, and nothing in the tree changed.
+
 - macOS gets a universal binary for both amd64 and ARM.
 	- ID: 2026100313105241
 	- Type: Enhancement
@@ -79,20 +93,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Branch: universal
 	- Commit: d1144f7
 	- Test case: `Erfhegq` checks every binary and library has both slices. `ErbFB7B` and `ErbFB7D` read each slice of a fat file now. Each was watched to fail on a broken universal release: a thin binary, a thin `libzuid.a` in the tarball, an arm64 slice asking for macOS 14.0, and an x86_64 slice built for x86_64_v3. They run under `--package` on a Mac.
-
-- Move the Zig side to 0.17.0.
-	- ID: 2026100313583935
-	- Type: Task
-	- Status: Waiting for answers
-	- Opened: 20261003-135839
-	- Opened by: JC
-	- Target OS: Any
-	- Estimated effort: Low
-	- Progress log:
-		- 20261003: Zig 0.17.0 came out 2026-10-01. A trial port builds, passes all 30 Zig tests, and the C module still works from gcc. It took small changes in seven files plus three short C headers. `details.md` has the list.
-		- 20261003: The Zig fuzz item under Old format waits on this. Fuzz mode works in 0.17.0.
-		- 20261003: Question: go ahead? 0.16.0 is a settled choice, so the move needs a yes first.
-	- Test case: none. It was a trial run only, and nothing in the tree changed.
 
 - The macOS shared library exports all of Wasmtime.
 	- ID: 2026093018112419
