@@ -97,19 +97,32 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - The macOS shared library exports all of Wasmtime.
 	- ID: 2026093018112419
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority|Severity [Bug]: Low
 	- Opened: 20260930-181124
 	- Opened by: JC
 	- Target OS: macOS
 	- Requirements  [Feature]:
 		- Only `zuid_*` exported, as on Linux.
+	- Progress log:
+		- 20261003: not tried. The Mac test host was unreachable.
+		- 20261003: Done in `build.zig`, so the tests, `capi_smoke.c` and each slice in `package.bash` all get the same dylib. On a Mac it links the dylib again with Apple's linker, from `libzuid.a` plus Wasmtime, and installs it over Zig's copy. The symlinks stay as Zig made them.
+		- 20261003: The export list is made from `lib/zuid.map` at build time, so there is no second copy to drift.
+		- 20261003: Apple's linker signs the arm64 slice itself, so no `codesign` step. It defaults the compatibility version to 0.0.0, so the relink passes Zig's 1.0.0.
+		- 20261003: With no Xcode command line tools, or when building for macOS off a Mac, the build warns and keeps Zig's dylib.
 	- Decisions:
 		- Zig's Mach-O linker ignores `lib/zuid.map` and has no exported symbols list. A relink with Apple's `ld -exported_symbols_list` would do it.
 		- Low, because two-level namespace keeps the library's own calls bound to itself. `Eq9gPQn` passes on macOS.
-	- Progress log:
-		- 20261003: not tried. The Mac test host was unreachable.
-	- Test case: `Eq9gPQm` skips on macOS until then.
+	- Verified:
+		- On b26, the full pipeline with `--package` passes. `Eq9gPQm` runs there now; the only skip left is the Linux-only glibc check.
+		- The release dylib's two slices export 12 symbols each, all `zuid_*`. Each keeps `@rpath/libzuid.1.dylib` and macOS 13.0, and the arm64 slice is ad-hoc signed. `capi_smoke.c` runs against the release dylib.
+		- The full Linux pipeline passes. The Linux build is unchanged.
+	- Swept: every place the dylib is built on a Mac goes through `zig build`: the Zig stage, the C module stage and both slices in `package.bash`. Nothing else links it.
+	- Branch: macexports
+	- Commit: f3f5558, e011230, 9fd8271
+	- Test case: `Eq9gPQm` runs on macOS now, and on both systems reads the allowed names from `lib/zuid.map` and checks every function `zuid.h` declares is exported. It failed on b26 with the old `build.zig` (828 stray exports) and passes with the fix. New `ErfrKRQ` checks each slice of the release dylib under `--package`: exports, install name with its versions, macOS 13.0, and the arm64 signature. Its export check failed on a release built with the old `build.zig`. Its install name check rejects the first relink's dylib, which had compatibility version 0.0.0.
+	- Acceptance signoff: Self-closed: the intent was clear, and the tests failed before the fix and pass after.
+	- Closed: 20261003-143030
 
 - When a shcl upgrade breaks compatibility with the application config file(s).
 	- ID: 2026100313105246
