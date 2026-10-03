@@ -149,6 +149,8 @@ case "$(uname -s)" in
 	Darwin) osLabel="darwin"  ;;
 	*)      osLabel="freebsd" ;;
 esac
+## The macOS release is one universal build, for either architecture.
+if [[ "${osLabel}" == "darwin" ]]; then arch="universal"; fi
 
 ## GitHub's 'latest' endpoint only ever answers with a full release, so it 404s
 ## on a repository whose releases are all prereleases. Listing them instead
@@ -281,5 +283,6 @@ printf '\n'
 
 
 ##	History:
+##		- 20261003 JC: macOS fetches the universal build.
 ##		- 20260805 JC: Pick the release from the full list; fall back to a prerelease.
 ##		- 20260804 JC: Created.

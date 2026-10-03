@@ -25,8 +25,9 @@ fConfig(){ :;
 	default_minVer_Go="1.24"
 	default_minVer_Zig="0.16.0"
 
-	## Cross targets for --cross, as GOOS/GOARCH. Go builds these with cgo off.
-	## The Zig side will not match this list - macOS there needs a Mac and an SDK.
+	## Cross targets for --cross, as GOOS/GOARCH. Go builds these with cgo off, as
+	## compile checks. The Zig side does not use this list. Its macOS arm64 build is
+	## half of the universal release, which package.bash makes on a Mac.
 	default_crossTargets=("linux/arm64" "windows/amd64" "darwin/arm64")
 
 	## Merge targets, never places to commit.
@@ -34,10 +35,12 @@ fConfig(){ :;
 
 	## Vendored Wasmtime C API, pinned. Fetched into zig/vendor/ when absent.
 	## One checksum per platform, as <arch>-<os>=<sha256>, in Wasmtime's own names.
+	## A Mac vendors both macOS ones, since its release is universal.
 	default_wasmtimeVer="v47.0.3"
 	default_wasmtimeSha256s=(
 		"x86_64-linux=aaa3621f2a3d8393696702897f8f78a1cc504437d500701496d560125aefd732"
 		"x86_64-macos=627622087b77b92c163e826ec6ebf834a70d78735828043edf7ace263f8a9e62"
+		"aarch64-macos=1854c8f03a764c89afe77fa88d9092ab89a368e527cd27a12959b1d91152324e"
 	)
 
 	## The reactor wasm module is built from this package, which go.mod pins to
@@ -902,48 +905,26 @@ fStage_Zig_Vendor(){
 	local -r vendorDir="${zigDir}/vendor"
 	mkdir -p "${vendorDir}"
 
-	## Wasmtime C API, pinned and checksummed per platform.
-	local hostOs=""
+	## Wasmtime C API, pinned and checksummed per platform. The host's goes in
+	## vendor/wasmtime. A Mac also gets the other macOS one beside it, as
+	## vendor/wasmtime-<platform>, for the second slice of its universal release.
+	## build.zig and package.bash look for it there.
+	local hostOs="" hostArch=""
 	case "$(uname -s)" in
 		Linux)  hostOs="linux" ;;
 		Darwin) hostOs="macos" ;;
 		*)      hostOs="$(uname -s)" ;;
 	esac
-	local -r hostPlatform="$(uname -m)-${hostOs}"
-	local wasmtimeSha256="" pin=""
-	for pin in "${wasmtimeSha256s[@]}"; do
-		if [[ "${pin%%=*}" == "${hostPlatform}" ]]; then wasmtimeSha256="${pin#*=}"; fi
-	done
-	if [[ -z "${wasmtimeSha256}" ]]; then
-		fThrowError "No vendored Wasmtime pin for ${hostPlatform}. Add that archive's checksum to fConfig first."  "${FUNCNAME[0]}"
-	fi
-
-	## Version-stamped, so re-pinning in fConfig actually re-fetches instead of
-	## quietly keeping whatever was vendored first.
-	local -r wtStamp="${vendorDir}/wasmtime/.version"
-	if [[ -f "${vendorDir}/wasmtime/include/wasmtime.h" ]] && [[ "$(cat "${wtStamp}" 2>/dev/null || true)" == "${wasmtimeVer}" ]]; then
-		fEcho_Clean "Wasmtime ...: ${wasmtimeVer} present"
-	else
-		_fMustBeInPath curl
-		_fMustBeInPath shasum
-		_fMustBeInPath tar
-		local -r wtName="wasmtime-${wasmtimeVer}-${hostPlatform}-c-api"
-		local -r wtUrl="https://github.com/bytecodealliance/wasmtime/releases/download/${wasmtimeVer}/${wtName}.tar.xz"
-		local -r wtTar="${vendorDir}/${wtName}.tar.xz"
-		fEcho_Clean "Wasmtime ...: fetching ${wasmtimeVer}"
-		curl -sSL --fail -o "${wtTar}" "${wtUrl}" || fThrowError "Could not download '${wtUrl}'."  "${FUNCNAME[0]}"
-		## shasum, not sha256sum: it is on both Linux and macOS.
-		local -r wtSum="$(shasum -a 256 "${wtTar}" | awk '{print $1}')"
-		if [[ "${wtSum}" != "${wasmtimeSha256}" ]]; then
-			rm -f "${wtTar}"
-			fThrowError "Wasmtime checksum mismatch: got ${wtSum}."  "${FUNCNAME[0]}"
-		fi
-		tar --no-same-owner --no-same-permissions -xf "${wtTar}" -C "${vendorDir}"
-		rm -f "${wtTar}"
-		rm -rf "${vendorDir:?}/wasmtime"
-		mv "${vendorDir}/${wtName}" "${vendorDir}/wasmtime"
-		printf '%s\n' "${wasmtimeVer}" > "${wtStamp}"
-		fEcho_Clean "Wasmtime ...: vendored"
+	## Apple Silicon says arm64. Wasmtime, like Zig, says aarch64.
+	hostArch="$(uname -m)"
+	if [[ "${hostArch}" == "arm64" ]]; then hostArch="aarch64"; fi
+	local -r hostPlatform="${hostArch}-${hostOs}"
+	fVendor_Wasmtime "${hostPlatform}" "${vendorDir}/wasmtime"
+	if [[ "${hostOs}" == "macos" ]]; then
+		local platform=""
+		for platform in x86_64-macos aarch64-macos; do
+			if [[ "${platform}" != "${hostPlatform}" ]]; then fVendor_Wasmtime "${platform}" "${vendorDir}/wasmtime-${platform}"; fi
+		done
 	fi
 
 	## The reactor wasm module, built from the same convertbase release go.mod
@@ -979,6 +960,52 @@ fStage_Zig_Vendor(){
 	else
 		fThrowError "No reactor wasm module: no Go toolchain to build one, and '${wasmVendored}' does not exist."  "${FUNCNAME[0]}"
 	fi
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+fVendor_Wasmtime(){  ## platform, destination
+
+	local -r platform="$1" dest="$2"
+	local -r parentDir="$(dirname "${dest}")"
+
+	local wasmtimeSha256="" pin=""
+	for pin in "${wasmtimeSha256s[@]}"; do
+		if [[ "${pin%%=*}" == "${platform}" ]]; then wasmtimeSha256="${pin#*=}"; fi
+	done
+	if [[ -z "${wasmtimeSha256}" ]]; then
+		fThrowError "No vendored Wasmtime pin for ${platform}. Add that archive's checksum to fConfig first."  "${FUNCNAME[0]}"
+	fi
+
+	## Version-stamped, so re-pinning in fConfig actually re-fetches instead of
+	## quietly keeping whatever was vendored first.
+	local -r wtStamp="${dest}/.version"
+	if [[ -f "${dest}/include/wasmtime.h" ]] && [[ "$(cat "${wtStamp}" 2>/dev/null || true)" == "${wasmtimeVer}" ]]; then
+		fEcho_Clean "Wasmtime ...: ${wasmtimeVer} ${platform} present"
+		return 0
+	fi
+
+	_fMustBeInPath curl
+	_fMustBeInPath shasum
+	_fMustBeInPath tar
+	local -r wtName="wasmtime-${wasmtimeVer}-${platform}-c-api"
+	local -r wtUrl="https://github.com/bytecodealliance/wasmtime/releases/download/${wasmtimeVer}/${wtName}.tar.xz"
+	local -r wtTar="${parentDir}/${wtName}.tar.xz"
+	fEcho_Clean "Wasmtime ...: fetching ${wasmtimeVer} ${platform}"
+	curl -sSL --fail -o "${wtTar}" "${wtUrl}" || fThrowError "Could not download '${wtUrl}'."  "${FUNCNAME[0]}"
+	## shasum, not sha256sum: it is on both Linux and macOS.
+	local -r wtSum="$(shasum -a 256 "${wtTar}" | awk '{print $1}')"
+	if [[ "${wtSum}" != "${wasmtimeSha256}" ]]; then
+		rm -f "${wtTar}"
+		fThrowError "Wasmtime ${platform} checksum mismatch: got ${wtSum}."  "${FUNCNAME[0]}"
+	fi
+	tar --no-same-owner --no-same-permissions -xf "${wtTar}" -C "${parentDir}"
+	rm -f "${wtTar}"
+	rm -rf "${dest:?}"
+	mv "${parentDir}/${wtName}" "${dest}"
+	printf '%s\n' "${wasmtimeVer}" > "${wtStamp}"
+	fEcho_Clean "Wasmtime ...: vendored ${platform}"
 
 }
 
@@ -1362,22 +1389,58 @@ fStage_Package(){
 	## it did not pick up this one's CPU, glibc or macOS version.
 	local osLabel="linux" archLabel=""
 	archLabel="$(uname -m)"
-	if [[ "$(uname -s)" == "Darwin" ]]; then osLabel="darwin"; fi
 	if [[ "${archLabel}" == "aarch64" ]]; then archLabel="arm64"; fi
+	if [[ "$(uname -s)" == "Darwin" ]]; then osLabel="darwin"; archLabel="universal"; fi
 	local -r release="${repoRoot}/dist/zuid-${osLabel}-${archLabel}"
 	local -i haveObjdump=0
 	if command -v objdump >/dev/null 2>&1; then haveObjdump=1; fi
 
+	## The macOS checks read one slice at a time. The AVX scan means nothing on
+	## arm64, and the minimum macOS has to hold for both.
+	local thinDir=""
+	thinDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	_scratchDirs+=("${thinDir}")
+	local -r macSlices=("x86_64" "arm64")
+
+	fId Erfhegq "the macOS release is universal, x86_64 and arm64 in every binary and library"
+	if [[ "${osLabel}" != "darwin" ]]; then
+		fTestSkip "macOS only"
+	else
+		mkdir -p "${thinDir}/tgz"
+		tar -xzf "${release}.tgz" -C "${thinDir}/tgz"
+		local fatFile="" fatArchs="" slice=""
+		local -i fatCount=0
+		while IFS= read -r fatFile; do
+			fatArchs="$(lipo -archs "${fatFile}" 2>/dev/null || true)"
+			for slice in "${macSlices[@]}"; do
+				if [[ " ${fatArchs} " != *" ${slice} "* ]]; then
+					fTestFail "$(basename "${fatFile}") has no ${slice} slice. lipo -archs says '${fatArchs}'."
+				fi
+			done
+			fatCount=$((fatCount + 1))
+		done < <(printf '%s\n' "${release}"; find "${thinDir}/tgz" -type f \( -path '*/bin/*' -o -path '*/lib/*' \))
+		## The bare binary and the tarball's, libzuid.a, the dylib and libwasmtime.a.
+		if ((fatCount < 5)); then
+			fTestFail "found ${fatCount} binaries and libraries to check, expected 5."
+		fi
+		fTestPass
+	fi
+
 	fId ErbFB7B "the release uses no AVX in code built here"
-	if [[ "${archLabel}" != "x86_64" ]]; then
+	if [[ "${archLabel}" == "arm64" ]]; then
 		fTestSkip "x86_64 only"
 	elif ((! haveObjdump)); then
 		fTestSkip "no objdump"
 	else
+		local avxTarget="${release}"
+		if [[ "${osLabel}" == "darwin" ]]; then
+			avxTarget="${thinDir}/zuid-x86_64"
+			lipo -thin x86_64 "${release}" -output "${avxTarget}" || fTestFail "could not take the x86_64 slice out of ${release}."
+		fi
 		## Wasmtime's Rust asks the CPU before it uses AVX, so it is left out.
 		## Its names start with _ZN, or _R for the newer mangling.
 		local avxScan=""
-		avxScan="$(objdump -d --no-show-raw-insn "${release}" | awk '
+		avxScan="$(objdump -d --no-show-raw-insn "${avxTarget}" | awk '
 			/^[0-9a-f]+ <.*>:$/ { fn = $2; gsub(/^<|>:$/, "", fn); rust = (fn ~ /^_?_(ZN|R[0-9]*[BCIMNXY])/); next }
 			rust || (fn in seen) { next }
 			/:[[:space:]]+v[a-z]/ || /%[yz]mm/ { seen[fn] = 1; if (++count <= 3) names = names " " fn }
@@ -1414,13 +1477,18 @@ fStage_Package(){
 	if [[ "${osLabel}" != "darwin" ]]; then
 		fTestSkip "macOS only"
 	else
-		local minOs=""
-		minOs="$(otool -l "${release}" | awk '$1 == "minos" && !found { print $2; found = 1 }')"
-		if [[ "${minOs}" != "${macFloor}" ]]; then
-			fTestFail "it asks for macOS '${minOs}'."
-		fi
+		local minOs="" macSlice=""
+		for macSlice in "${macSlices[@]}"; do
+			lipo -thin "${macSlice}" "${release}" -output "${thinDir}/zuid-minos" || fTestFail "could not take the ${macSlice} slice out of ${release}."
+			minOs="$(otool -l "${thinDir}/zuid-minos" | awk '$1 == "minos" && !found { print $2; found = 1 }')"
+			if [[ "${minOs}" != "${macFloor}" ]]; then
+				fTestFail "its ${macSlice} slice asks for macOS '${minOs}'."
+			fi
+		done
 		fTestPass
 	fi
+
+	rm -rf "${thinDir}"
 
 }
 
