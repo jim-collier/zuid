@@ -53,6 +53,8 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Decisions:
 		- Zig's Mach-O linker ignores `lib/zuid.map` and has no exported symbols list. A relink with Apple's `ld -exported_symbols_list` would do it.
 		- Low, because two-level namespace keeps the library's own calls bound to itself. `Eq9gPQn` passes on macOS.
+	- Progress log:
+		- 20261003: not tried. The Mac test host was unreachable.
 	- Test case: `Eq9gPQm` skips on macOS until then.
 
 - macOS gets a universal binary for both amd64 and ARM.
@@ -75,6 +77,8 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 			- Rename the latest config file `[origname]_backup_YYYYmmDD-HHMMSS_format-v[shcl version].shcl`.
 			- Write a new config file with the same previous path and name, from scratch through shcl, using whatever settings and conversions shcl can handle.
 		- FYI future versions of shcl might do the config backup and conversion for you. So just be careful not to race, conflict, or trample what shcl might try to do. (And first, while wiring up a new version of shcl in code, see if it has a new API to do or at least assist with the conversion for you.)
+	- Progress log:
+		- 20261003: waits on the config file item under Old format, which waits on shcl v3. shcl v3 is not cut yet.
 
 - Write a test as part of CICD that creates old shcl file versions for settings, and tests the automatic (non-shcl-assisted) conversion.
 	- ID: 2026100313105251
@@ -84,6 +88,8 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Opened by: JC
 	- Parent ID: 2026100313105246
 	- Target OS: Any
+	- Progress log:
+		- 20261003: waits on its parent.
 
 - Release builds target the build machine's CPU.
 	- ID: 2026093018112406
