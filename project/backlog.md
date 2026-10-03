@@ -233,6 +233,11 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 			- Notes:
 				- This would be shcl now, not YAML or TOML.
 				- Wait for v3 to ship.
+		- 🔘 When a shcl upgrade breaks compatibility with the application config file(s):
+			- Check if the new shcl version has breaking changes. If so:
+				- Rename the latest config file `[origname]_backup_YYYYmmDD-HHMMSS_format-v[shcl version].shcl`.
+				- Write a new config file with the same previous path and name, from scratch through shcl, using whatever settings and conversions shcl can handle.
+			- FYI future versions of shcl might do the config backup and conversion for you. So just be careful not to race, conflict, or trample what shcl might try to do. (And first, while wiring up a new version of shcl in code, see if it has a new API to do or at least assist with the conversion for you.)
 	- 🔘 Overridden by program options at run-time.
 	- 🔘 Config file creation belongs to the command only, never to either module.
 	- Opened: 20260801-090104
