@@ -9,10 +9,11 @@
 ##		    - the bare CLI binary (grab-and-run)
 ##		    - .deb and .rpm, via nfpm
 ##		    - checksums.txt over everything
-##		- Only the host platform, for now. The Zig side embeds a Wasmtime static
-##		  archive, and one is vendored per platform; until the other platforms'
-##		  archives are vendored there is nothing to link against. The Go module
-##		  cross-compiles fine, but it is a module - there is no binary to release.
+##		- Only the host platform, for now: Linux or macOS. The Zig side embeds a
+##		  Wasmtime static archive, and one is vendored per platform; until the
+##		  other platforms' archives are vendored there is nothing to link
+##		  against. The Go module cross-compiles fine, but it is a module - there
+##		  is no binary to release.
 ##	Syntax:
 ##		package.bash [--out DIR] [--version V]
 ##	History: At bottom.
@@ -64,9 +65,19 @@ plainver="${VERSION#v}"
 ## processor brand to anyone who has not met the convention.
 hostArch="$(uname -m)"
 case "${hostArch}" in
-	x86_64)          goArch="amd64"; label="x86_64" ;;
-	aarch64|arm64)   goArch="arm64"; label="arm64"  ;;
+	x86_64)          goArch="amd64"; label="x86_64"; zigArch="x86_64"  ;;
+	aarch64|arm64)   goArch="arm64"; label="arm64";  zigArch="aarch64" ;;
 	*) echo "unsupported architecture: ${hostArch}" >&2; exit 2 ;;
+esac
+
+## With no target named, Zig builds for this machine: its CPU's newest
+## instructions, its glibc, its macOS version. A release has to run on older
+## ones. Naming a target also gives that target's baseline CPU. 2.28 and 13.0
+## are what cicd.bash checks the result against; 13.0 is as far back as Zig goes.
+case "$(uname -s)" in
+	Linux)  osLabel="linux";  zigTarget="${zigArch}-linux-gnu.2.28" ;;
+	Darwin) osLabel="darwin"; zigTarget="${zigArch}-macos.13.0"     ;;
+	*) echo "unsupported system: $(uname -s)" >&2; exit 2 ;;
 esac
 
 work="$(mktemp -d)"
@@ -124,7 +135,7 @@ fEcho "packaging ${PKG} ${VERSION} -> ${OUT}"
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The release tree: the command, both C libraries, the header, and the licenses.
 
-( cd "${root}/zig" && zig build -Doptimize=ReleaseSafe )
+( cd "${root}/zig" && zig build -Doptimize=ReleaseSafe -Dtarget="${zigTarget}" )
 
 ## The build worked, so there is something to publish. Safe to clear now.
 fClaimOutDir
@@ -178,9 +189,9 @@ cp "${root}/zig/lib/LICENSE.txt"           "${stage}/share/LICENSE-module.txt"
 cp "${root}/zig/lib/NOTICE.txt"            "${stage}/share/"
 cp "${root}/README.md"                     "${stage}/share/"
 
-tar -C "${work}" -czf "${OUT}/${PKG}-linux-${label}.tgz" "$(basename "${stage}")"
-cp "${stage}/bin/${EXE}" "${OUT}/${PKG}-linux-${label}"
-fEcho "built linux/${label}"
+tar -C "${work}" -czf "${OUT}/${PKG}-${osLabel}-${label}.tgz" "$(basename "${stage}")"
+cp "${stage}/bin/${EXE}" "${OUT}/${PKG}-${osLabel}-${label}"
+fEcho "built ${osLabel}/${label}"
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -194,7 +205,7 @@ fEcho "built linux/${label}"
 ## shared library in the right per-distro lib directory and ldconfig run after
 ## it, is a separate job.
 
-if command -v nfpm >/dev/null 2>&1; then
+if [[ "${osLabel}" == "linux" ]] && command -v nfpm >/dev/null 2>&1; then
 	cfg="${work}/nfpm.yaml"
 	cat >"${cfg}" <<-EOF
 		name: ${PKG}
@@ -227,7 +238,7 @@ if command -v nfpm >/dev/null 2>&1; then
 			fWarn "nfpm ${fmt} failed (${label})"
 		fi
 	done
-else
+elif [[ "${osLabel}" == "linux" ]]; then
 	fWarn "nfpm missing; skipping .deb/.rpm - go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest"
 fi
 
@@ -236,7 +247,7 @@ fi
 ## What is deliberately not built here yet, so a missing artifact reads as a
 ## known gap rather than a silent one.
 
-fWarn "windows, macOS, BSD, and cross-architecture builds need a Wasmtime archive vendored per target; not built"
+fWarn "windows, BSD, and cross-architecture builds need a Wasmtime archive vendored per target; not built"
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -259,14 +270,18 @@ done
 ## of the files being hashed.
 ## The marker is bookkeeping, not an artifact, so it is hashed by nothing and
 ## counted in nothing.
-( cd "${OUT}" && find . -maxdepth 1 -type f ! -name "${outMarker}" -printf '%P\n' | sort \
-	| xargs -r sha256sum > "${work}/checksums.txt" )
+## Not every macOS has sha256sum. shasum prints the same thing.
+sha256=(sha256sum)
+command -v sha256sum >/dev/null 2>&1 || sha256=(shasum -a 256)
+( cd "${OUT}" && find . -maxdepth 1 -type f ! -name "${outMarker}" | sed 's|^\./||' | sort \
+	| xargs "${sha256[@]}" > "${work}/checksums.txt" )
 mv "${work}/checksums.txt" "${OUT}/checksums.txt"
 
 fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "${outMarker}" | wc -l | tr -d ' ') artifacts in ${OUT}"
 
 
 ##	History:
+##		- 20261002 JC: Build for a named target: baseline CPU, glibc 2.28, macOS 13.0. macOS host.
 ##		- 20260917 JC: Drop the header from the deb and rpm; keep the library symlinks.
 ##		- 20260805 JC: Name packages the way GitHub will serve them.
 ##		- 20260804 JC: Created. Host-platform tarball, bare binary, deb, rpm, checksums.

@@ -1358,6 +1358,70 @@ fStage_Package(){
 
 	"${packager}" --out "${repoRoot}/dist"
 
+	## The release has to run on machines older than this one. These check that
+	## it did not pick up this one's CPU, glibc or macOS version.
+	local osLabel="linux" archLabel=""
+	archLabel="$(uname -m)"
+	if [[ "$(uname -s)" == "Darwin" ]]; then osLabel="darwin"; fi
+	if [[ "${archLabel}" == "aarch64" ]]; then archLabel="arm64"; fi
+	local -r release="${repoRoot}/dist/zuid-${osLabel}-${archLabel}"
+	local -i haveObjdump=0
+	if command -v objdump >/dev/null 2>&1; then haveObjdump=1; fi
+
+	fId ErbFB7B "the release uses no AVX in code built here"
+	if [[ "${archLabel}" != "x86_64" ]]; then
+		fTestSkip "x86_64 only"
+	elif ((! haveObjdump)); then
+		fTestSkip "no objdump"
+	else
+		## Wasmtime's Rust asks the CPU before it uses AVX, so it is left out.
+		## Its names start with _ZN, or _R for the newer mangling.
+		local avxScan=""
+		avxScan="$(objdump -d --no-show-raw-insn "${release}" | awk '
+			/^[0-9a-f]+ <.*>:$/ { fn = $2; gsub(/^<|>:$/, "", fn); rust = (fn ~ /^_?_(ZN|R[0-9]*[BCIMNXY])/); next }
+			rust || (fn in seen) { next }
+			/:[[:space:]]+v[a-z]/ || /%[yz]mm/ { seen[fn] = 1; if (++count <= 3) names = names " " fn }
+			END { print count + 0 names }
+		')"
+		if [[ "${avxScan%% *}" != "0" ]]; then
+			fTestFail "${avxScan%% *} functions use AVX, such as ${avxScan#* }. package.bash has to name a target."
+		fi
+		fTestPass
+	fi
+
+	## Matches package.bash.
+	local -r glibcFloor="2.28"
+	fId ErbFB7C "the release needs glibc ${glibcFloor} at most"
+	if [[ "${osLabel}" != "linux" ]]; then
+		fTestSkip "Linux only"
+	elif ((! haveObjdump)); then
+		fTestSkip "no objdump"
+	else
+		local glibcNewest=""
+		glibcNewest="$(objdump -T "${release}" | grep -o 'GLIBC_[0-9.]*' | sort -u -V | tail -n 1 || true)"
+		glibcNewest="${glibcNewest#GLIBC_}"
+		if [[ -z "${glibcNewest}" ]]; then
+			fTestFail "found no glibc symbol versions in ${release}."
+		fi
+		if [[ "$(printf '%s\n' "${glibcNewest}" "${glibcFloor}" | sort -V | tail -n 1)" != "${glibcFloor}" ]]; then
+			fTestFail "it needs glibc ${glibcNewest}."
+		fi
+		fTestPass
+	fi
+
+	local -r macFloor="13.0"
+	fId ErbFB7D "the release asks for macOS ${macFloor}"
+	if [[ "${osLabel}" != "darwin" ]]; then
+		fTestSkip "macOS only"
+	else
+		local minOs=""
+		minOs="$(otool -l "${release}" | awk '$1 == "minos" && !found { print $2; found = 1 }')"
+		if [[ "${minOs}" != "${macFloor}" ]]; then
+			fTestFail "it asks for macOS '${minOs}'."
+		fi
+		fTestPass
+	fi
+
 }
 
 
