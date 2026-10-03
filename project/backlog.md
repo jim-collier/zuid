@@ -57,14 +57,11 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - macOS gets a universal binary for both amd64 and ARM.
 	- ID: 2026100313105241
 	- Type: Enhancement
-	- Status: Waiting for testing
+	- Status: Waiting on signoff
 	- Needs local test suite run?: No. The full pipeline passes on Linux.
-	- Needs external testing: On b26:
-		- The full pipeline with `--package`. The vendor stage should fetch the arm64 Wasmtime the first time.
-		- `lipo -info` on `dist/zuid-darwin-universal`, and on `bin/zuid`, `lib/libzuid.a`, `lib/libzuid.1.0.0.dylib` and `lib/libwasmtime.a` from the tarball. Each should list x86_64 and arm64. `libwasmtime.a` is the one merge not yet done by a real `lipo`.
-		- Run the x86_64 slice: `dist/zuid-darwin-universal --version`, and `capi_smoke.c` built with clang `-arch x86_64` against the tarball's libraries.
-		- The arm64 slice cannot run on an Intel Mac. b26 can only link it, with clang `-arch arm64`. Running it needs an Apple Silicon Mac.
-		- `install.bash` and `install.ps1` on a Mac fetch `zuid-darwin-universal.tgz` now. Only the Linux side of `installer-test.bash` has run.
+	- Needs external testing:
+		- Run the arm64 slice on an Apple Silicon Mac: the command, and `capi_smoke.c` against the tarball's libraries.
+		- A live install on a Mac, once a macOS asset is published.
 	- Opened: 20261003-131052
 	- Opened by: JC
 	- Related IDs: 2026093018112406, 2026093018112419
@@ -75,6 +72,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- 20261003: Found along the way: Zig's macOS static library gives its members no read permission, which broke the archive cleanup in `package.bash` on any Mac with llvm-ar. Fixed.
 		- 20261003: `package.bash` builds each slice into its own tree now, not `zig-out`. So after `--package` the dogfood install gets the build the tests ran on, not the release build.
 		- 20261003: For 2026093018112419, each slice is still a separate tree before the merge, so a per-slice relink can go there.
+		- 20261003: The b26 tests pass. Waits on signoff for the one-asset name and the installer change.
 	- Decisions:
 		- Fat: the command, `libzuid.a` and `libzuid.dylib`. Also `libwasmtime.a` in the tarball, since `zuid.h` tells a static consumer to link it.
 		- The macOS tarball is still built on a Mac, with Apple's `lipo`. The Linux cross-build was only a check.
@@ -89,6 +87,11 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- The vendor stage picks, fetches and checks the right archives for an Intel Mac, an Apple Silicon Mac and Linux.
 		- A real Linux `package.bash` run gives the same tarball layout as before, and its checks pass.
 		- `cicd/cicd.bash --cross` passes, 222 test IDs.
+		- 20261003, on b26 at c10d2ee: the full pipeline with `--package` passes. The vendor stage fetched and checked the arm64 Wasmtime itself. The only skips are `ErbFB7C` (Linux only), the CLI profile and the demo.
+		- 20261003, on b26: `lipo -info` lists x86_64 and arm64 for `dist/zuid-darwin-universal`, and for `bin/zuid`, `lib/libzuid.a`, `lib/libzuid.1.0.0.dylib` and `lib/libwasmtime.a` from the tarball.
+		- 20261003, on b26: the x86_64 slice runs. `--version` and a default identifier work, and `capi_smoke.c` built with clang `-arch x86_64` against the tarball's static and shared libraries runs and passes.
+		- 20261003, on b26: `capi_smoke.c` links with clang `-arch arm64`, static and shared.
+		- 20261003, on b26: `installer-test.bash` passes for both installers against a local release serving `zuid-darwin-universal.tgz`. Nothing is published for macOS yet, so no live install.
 	- Swept: every `vendor/wasmtime` path, `uname -m` use and asset name in `cicd/`, both installers and `installer-test.bash`. `cicd.bash` used to look up an arm64 Mac's pin under `arm64-macos`, which matches nothing; it says `aarch64` now.
 	- Branch: universal
 	- Commit: d1144f7
