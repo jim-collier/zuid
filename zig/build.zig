@@ -162,6 +162,8 @@ fn relinkDylib(
     relink.addArg(b.fmt("-mmacosx-version-min={d}.{d}.{d}", .{ min.major, min.minor, min.patch }));
     relink.addArgs(&.{ "-install_name", shared_lib.install_name.? });
     relink.addArgs(&.{ "-current_version", b.fmt("{d}.{d}.{d}", .{ abi_version.major, abi_version.minor, abi_version.patch }) });
+    // Zig's value. Apple's default is 0.0.0.
+    relink.addArgs(&.{ "-compatibility_version", "1.0.0" });
     relink.addPrefixedFileArg("-Wl,-exported_symbols_list,", exports);
     // -force_load takes every object in the archive, compiler-rt included, and
     // -dead_strip then drops what no export reaches.

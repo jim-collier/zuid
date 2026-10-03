@@ -1526,7 +1526,10 @@ fStage_Package(){
 	else
 		local -r releaseDylib="$(find "${thinDir}/tgz" -type f -name 'libzuid*.dylib' -print -quit)"
 		local -r libVersion="$(sed -n 's/^pub const version = "\([^"]*\)".*/\1/p' "${zigDir}/lib/src/core.zig")"
-		local -r installWant="@rpath/libzuid.${libVersion%%.*}.dylib"
+		## otool -L lists the library's own install name first, with the versions
+		## a program linked against it records. Zig gives 1.0.0 for compatibility.
+		local -r libVersionPlain="${libVersion%%-*}"
+		local -r installWant="@rpath/libzuid.${libVersion%%.*}.dylib (compatibility version 1.0.0, current version ${libVersionPlain})"
 		[[ -n "${releaseDylib}" ]] || fTestFail "the tarball has no libzuid dylib."
 		local thinDylib="" exportProblem="" installName="" dylibMinOs=""
 		for macSlice in "${macSlices[@]}"; do
@@ -1534,7 +1537,7 @@ fStage_Package(){
 			lipo -thin "${macSlice}" "${releaseDylib}" -output "${thinDylib}" || fTestFail "could not take the ${macSlice} slice out of $(basename "${releaseDylib}")."
 			exportProblem="$(fExportProblems "$(nm -gU "${thinDylib}" | awk '{ sub(/^_/, "", $NF); print $NF }')")"
 			if [[ -n "${exportProblem}" ]]; then fTestFail "${macSlice}: ${exportProblem}"; fi
-			installName="$(otool -D "${thinDylib}" | sed -n '2p')"
+			installName="$(otool -L "${thinDylib}" | sed -n '2s/^[[:space:]]*//p')"
 			if [[ "${installName}" != "${installWant}" ]]; then fTestFail "${macSlice}: the install name is '${installName}'."; fi
 			dylibMinOs="$(otool -l "${thinDylib}" | awk '$1 == "minos" && !found { print $2; found = 1 }')"
 			if [[ "${dylibMinOs}" != "${macFloor}" ]]; then fTestFail "${macSlice}: it asks for macOS '${dylibMinOs}'."; fi
