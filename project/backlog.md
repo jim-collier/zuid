@@ -43,14 +43,16 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - Move the Zig side to 0.17.0.
 	- ID: 2026100313583935
 	- Type: Task
-	- Status: Waiting for answers
+	- Status: Queued
 	- Opened: 20261003-135839
 	- Opened by: JC
 	- Target OS: Any
 	- Estimated effort: Low
+	- Decision: Move to 0.17.0.
 	- Progress log:
 		- 20261003: Zig 0.17.0 came out 2026-10-01. A trial port builds, passes all 30 Zig tests, and the C module still works from gcc. It took small changes in seven files plus three short C headers. `details.md` has the list.
 		- 20261003: The Zig fuzz item under Old format waits on this. Fuzz mode works in 0.17.0.
+		- 20261003: Other projects on the build machine still pin 0.16.0, so the two versions have to sit side by side there. b26 needs 0.17.0 too.
 		- 20261003: Question: go ahead? 0.16.0 is a settled choice, so the move needs a yes first.
 	- Test case: none. It was a trial run only, and nothing in the tree changed.
 
