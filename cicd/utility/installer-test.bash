@@ -95,13 +95,13 @@ hasPwsh=0
 command -v pwsh >/dev/null 2>&1 && hasPwsh=1
 
 ## What the installers fetch on this machine, and where a user install keeps it.
-case "$(uname -s)" in
-	Darwin) hostAsset="${PROG}-darwin-"; userShare="Library/Application Support/${PROG}" ;;
-	*)      hostAsset="${PROG}-linux-";  userShare=".local/share/${PROG}" ;;
-esac
 case "$(uname -m)" in
-	aarch64|arm64) hostAsset+="arm64.tgz" ;;
-	*)             hostAsset+="x86_64.tgz" ;;
+	aarch64|arm64) hostAsset="arm64.tgz" ;;
+	*)             hostAsset="x86_64.tgz" ;;
+esac
+case "$(uname -s)" in
+	Darwin) hostAsset="${PROG}-darwin-universal.tgz"; userShare="Library/Application Support/${PROG}" ;;
+	*)      hostAsset="${PROG}-linux-${hostAsset}";   userShare=".local/share/${PROG}" ;;
 esac
 
 

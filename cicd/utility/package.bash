@@ -14,6 +14,8 @@
 ##		  other platforms' archives are vendored there is nothing to link
 ##		  against. The Go module cross-compiles fine, but it is a module - there
 ##		  is no binary to release.
+##		- On a Mac everything is universal, x86_64 and arm64 merged by lipo.
+##		  cicd.bash vendors the second Wasmtime archive that needs.
 ##	Syntax:
 ##		package.bash [--out DIR] [--version V]
 ##	History: At bottom.
@@ -72,11 +74,13 @@ esac
 
 ## With no target named, Zig builds for this machine: its CPU's newest
 ## instructions, its glibc, its macOS version. A release has to run on older
-## ones. Naming a target also gives that target's baseline CPU. 2.28 and 13.0
-## are what cicd.bash checks the result against; 13.0 is as far back as Zig goes.
+## ones. Naming a target also gives that target's baseline CPU, which for arm64
+## macOS is the M1, the oldest there is. 2.28 and 13.0 are what cicd.bash checks
+## the result against; 13.0 is as far back as Zig goes.
+## A Mac builds one slice per architecture and merges them, whichever it is.
 case "$(uname -s)" in
-	Linux)  osLabel="linux";  zigTarget="${zigArch}-linux-gnu.2.28" ;;
-	Darwin) osLabel="darwin"; zigTarget="${zigArch}-macos.13.0"     ;;
+	Linux)  osLabel="linux";  hostOs="linux"; zigTargets=("${zigArch}-linux-gnu.2.28") ;;
+	Darwin) osLabel="darwin"; hostOs="macos"; zigTargets=("x86_64-macos.13.0" "aarch64-macos.13.0"); label="universal" ;;
 	*) echo "unsupported system: $(uname -s)" >&2; exit 2 ;;
 esac
 
@@ -135,27 +139,6 @@ fEcho "packaging ${PKG} ${VERSION} -> ${OUT}"
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The release tree: the command, both C libraries, the header, and the licenses.
 
-( cd "${root}/zig" && zig build -Doptimize=ReleaseSafe -Dtarget="${zigTarget}" )
-
-## The build worked, so there is something to publish. Safe to clear now.
-fClaimOutDir
-
-stage="${work}/${PKG}-${VERSION}"
-mkdir -p "${stage}/bin" "${stage}/lib" "${stage}/include" "${stage}/share"
-cp "${root}/zig/zig-out/bin/${EXE}"        "${stage}/bin/"
-## -P, because the shared library carries an soname: zig-out/lib holds
-## libzuid.so and libzuid.so.1 as symlinks onto libzuid.so.1.0.0, and a plain cp
-## would follow them and put three 28 MB copies in the tarball.
-cp -P "${root}/zig/zig-out/lib/libzuid."*  "${stage}/lib/"
-
-## zuid.h tells a static consumer to link -lzuid -lwasmtime, so the archive it
-## names has to be in the tree. libzuid.a holds its own objects only, and the
-## release used to carry no wasmtime at all, which left that link line with
-## nothing to satisfy it.
-wasmtimeArchive="${root}/zig/vendor/wasmtime/lib/libwasmtime.a"
-[[ -f "${wasmtimeArchive}" ]] || fDie "missing ${wasmtimeArchive}. Run cicd.bash first; it vendors Wasmtime."
-cp "${wasmtimeArchive}" "${stage}/lib/"
-
 ## Member names come out holding this machine's cache paths, which is both a
 ## build path in a published file and a difference between two builds of the
 ## same commit. Re-archive on basenames, deterministically, so neither shows.
@@ -174,15 +157,76 @@ fNormalizeArchive(){  ## path
 		fWarn "no llvm-ar; $(basename "${archive}") keeps this machine's paths in its member names"
 		return 0
 	fi
-	local -r extractDir="${work}/ar-$(basename "${archive}")"
-	rm -rf "${extractDir}"; mkdir -p "${extractDir}"
+	local extractDir; extractDir="$(mktemp -d "${work}/ar.XXXXXX")"
 	## llvm-ar extracts on basenames into the working directory, which is the
-	## whole point: the paths go away here.
-	( cd "${extractDir}" && "${llvmAr}" x "${archive}" && "${llvmAr}" rcsD "${archive}.new" ./*.o )
+	## whole point: the paths go away here. Zig's Mach-O archives give their
+	## members mode 000, so they come out unreadable.
+	( cd "${extractDir}" && "${llvmAr}" x "${archive}" && chmod u+r ./*.o && "${llvmAr}" rcsD "${archive}.new" ./*.o )
 	mv "${archive}.new" "${archive}"
 }
-fNormalizeArchive "${stage}/lib/libzuid.a"
-cp "${root}/zig/zig-out/include/zuid.h"    "${stage}/include/"
+
+## Same rule as build.zig: the build machine's own Wasmtime is vendor/wasmtime,
+## and any other target's is beside it under Wasmtime's platform name.
+fWasmtimeArchive(){  ## zig target
+	local -r arch="${1%%-*}" rest="${1#*-}"
+	local -r os="${rest%%[-.]*}"
+	if [[ "${arch}" == "${zigArch}" && "${os}" == "${hostOs}" ]]; then
+		echo "${root}/zig/vendor/wasmtime/lib/libwasmtime.a"
+	else
+		echo "${root}/zig/vendor/wasmtime-${arch}-${os}/lib/libwasmtime.a"
+	fi
+}
+
+## Each slice is a whole tree. zuid.h tells a static consumer to link -lzuid
+## -lwasmtime, so the archive it names goes in too. libzuid.a holds its own
+## objects only, and the release used to carry no wasmtime at all, which left
+## that link line with nothing to satisfy it.
+lipo=""
+if ((${#zigTargets[@]} > 1)); then
+	lipo="$(command -v lipo || true)"
+	[[ -n "${lipo}" ]] || fDie "lipo not found. It comes with Xcode's command line tools."
+fi
+slices=()
+for zigTarget in "${zigTargets[@]}"; do
+	slice="${work}/slice-${zigTarget%%-*}"
+	wasmtimeArchive="$(fWasmtimeArchive "${zigTarget}")"
+	[[ -f "${wasmtimeArchive}" ]] || fDie "missing ${wasmtimeArchive}. Run cicd.bash first; it vendors Wasmtime."
+	( cd "${root}/zig" && zig build -Doptimize=ReleaseSafe -Dtarget="${zigTarget}" --prefix "${slice}" )
+	cp "${wasmtimeArchive}" "${slice}/lib/"
+	fNormalizeArchive "${slice}/lib/libzuid.a"
+	slices+=("${slice}")
+done
+
+## The build worked, so there is something to publish. Safe to clear now.
+fClaimOutDir
+
+stage="${work}/${PKG}-${VERSION}"
+mkdir -p "${stage}/bin" "${stage}/lib" "${stage}/include" "${stage}/share"
+
+## Two or more slices are merged file by file. Symlinks come from the first, and
+## everything else is one file holding every slice. -P, because the shared
+## library carries an soname: lib/ holds libzuid.so and libzuid.so.1 as symlinks
+## onto libzuid.so.1.0.0, and a plain cp would follow them and put three 28 MB
+## copies in the tarball.
+fMergeSlices(){  ## subdir
+	local -r sub="$1"
+	local item="" name="" slice=""
+	local -a parts=()
+	for item in "${slices[0]}/${sub}/"*; do
+		name="$(basename "${item}")"
+		if [[ -L "${item}" ]] || ((${#slices[@]} == 1)); then
+			cp -P "${item}" "${stage}/${sub}/"
+			continue
+		fi
+		parts=()
+		for slice in "${slices[@]}"; do parts+=("${slice}/${sub}/${name}"); done
+		"${lipo}" -create "${parts[@]}" -output "${stage}/${sub}/${name}"
+	done
+}
+fMergeSlices bin
+fMergeSlices lib
+
+cp "${slices[0]}/include/zuid.h"           "${stage}/include/"
 cp "${root}/license.md"                    "${stage}/share/"
 cp "${root}/zig/cmd/LICENSE.txt"           "${stage}/share/"
 cp "${root}/zig/lib/LICENSE.txt"           "${stage}/share/LICENSE-module.txt"
@@ -247,7 +291,7 @@ fi
 ## What is deliberately not built here yet, so a missing artifact reads as a
 ## known gap rather than a silent one.
 
-fWarn "windows, BSD, and cross-architecture builds need a Wasmtime archive vendored per target; not built"
+fWarn "windows, BSD, and Linux cross-architecture builds need a Wasmtime archive vendored per target; not built"
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -281,6 +325,7 @@ fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "
 
 
 ##	History:
+##		- 20261003 JC: Universal on a Mac: an x86_64 and an arm64 slice, merged by lipo.
 ##		- 20261002 JC: Build for a named target: baseline CPU, glibc 2.28, macOS 13.0. macOS host.
 ##		- 20260917 JC: Drop the header from the deb and rpm; keep the library symlinks.
 ##		- 20260805 JC: Name packages the way GitHub will serve them.

@@ -243,7 +243,9 @@ else {
 $tag = $chosen.tag_name
 $kind = if ($chosen.prerelease) { 'prerelease' } else { 'stable' }
 
-$asset = "$program-$osLabel-$Arch.$archiveExtension"
+## The macOS release is one universal build, for either architecture.
+$assetArch = if ($IsMacOS) { 'universal' } else { $Arch }
+$asset = "$program-$osLabel-$assetArch.$archiveExtension"
 $baseUrl = "https://github.com/$repository/releases/download/$tag"
 
 
@@ -274,7 +276,7 @@ if ($installedVersion) {
 Write-Detail ''
 Write-Status 'Plan'
 Write-Detail "  Version ....: $tag ($kind)"
-Write-Detail "  Platform ...: $osLabel/$Arch"
+Write-Detail "  Platform ...: $osLabel/$assetArch"
 Write-Detail "  Download ...: $baseUrl/$asset"
 Write-Detail '  Verify .....: sha256 against checksums.txt'
 Write-Detail "  Install to .: $installDirectory"

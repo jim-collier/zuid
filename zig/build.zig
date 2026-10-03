@@ -25,6 +25,7 @@ const abi_version: std.SemanticVersion = v: {
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const wasmtime = wasmtimeDir(b, target);
 
     // The command, importing the library as a Zig module.
     const lib_mod = b.createModule(.{
@@ -32,7 +33,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    wireWasmtime(b, lib_mod);
+    wireWasmtime(b, lib_mod, wasmtime);
 
     const cmd_mod = b.createModule(.{
         .root_source_file = b.path("cmd/src/main.zig"),
@@ -60,7 +61,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    wireWasmtimeNoArchive(b, capi_static_mod);
+    wireWasmtimeNoArchive(b, capi_static_mod, wasmtime);
     const static_lib = b.addLibrary(.{
         .name = "zuid",
         .linkage = .static,
@@ -77,7 +78,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    wireWasmtime(b, capi_shared_mod);
+    wireWasmtime(b, capi_shared_mod, wasmtime);
     const shared_lib = b.addLibrary(.{
         .name = "zuid",
         .linkage = .dynamic,
@@ -104,7 +105,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    wireWasmtime(b, test_mod);
+    wireWasmtime(b, test_mod, wasmtime);
     test_mod.addAnonymousImport("vectors.tsv", .{
         .root_source_file = b.path("../testdata/vectors.tsv"),
     });
@@ -156,28 +157,43 @@ fn buildEpoch(b: *std.Build) i64 {
     return std.fmt.parseInt(i64, std.mem.trim(u8, out, " \r\n"), 10) catch 0;
 }
 
+/// Where the target's Wasmtime C API is vendored. vendor/wasmtime is the build
+/// machine's own. Any other target's sits beside it under Wasmtime's name for
+/// the platform, such as vendor/wasmtime-aarch64-macos, the second slice of a
+/// macOS universal build. package.bash picks the same way.
+fn wasmtimeDir(b: *std.Build, target: std.Build.ResolvedTarget) []const u8 {
+    const host = b.graph.host.result;
+    const t = target.result;
+    if (t.cpu.arch == host.cpu.arch and t.os.tag == host.os.tag) return "vendor/wasmtime";
+    const dir = b.fmt("vendor/wasmtime-{s}-{s}", .{ @tagName(t.cpu.arch), @tagName(t.os.tag) });
+    // Otherwise the first error is a missing header, which says nothing about why.
+    b.build_root.handle.access(b.graph.io, b.fmt("{s}/lib/libwasmtime.a", .{dir}), .{}) catch
+        std.process.fatal("no Wasmtime for {s}-{s} in {s}. cicd/cicd.bash vendors one on a Mac for the other macOS slice; for anything else, add its pin there first.", .{ @tagName(t.cpu.arch), @tagName(t.os.tag), dir });
+    return dir;
+}
+
 /// Everything a module needs to host the reactor: the embedded wasm bytes,
 /// the Wasmtime headers, and the static archive with its link dependencies.
-fn wireWasmtime(b: *std.Build, mod: *std.Build.Module) void {
-    wireWasmtimeInner(b, mod, true);
+fn wireWasmtime(b: *std.Build, mod: *std.Build.Module, wasmtime: []const u8) void {
+    wireWasmtimeInner(b, mod, wasmtime, true);
 }
 
 /// The static C library's variant. Same headers and wasm bytes, but the
 /// Wasmtime archive is left out: whoever links the static library supplies it,
 /// which is what zuid.h has always told them to do. Adding it here instead
 /// nested a 67 MB archive inside libzuid.a, where no linker looks for it.
-fn wireWasmtimeNoArchive(b: *std.Build, mod: *std.Build.Module) void {
-    wireWasmtimeInner(b, mod, false);
+fn wireWasmtimeNoArchive(b: *std.Build, mod: *std.Build.Module, wasmtime: []const u8) void {
+    wireWasmtimeInner(b, mod, wasmtime, false);
 }
 
-fn wireWasmtimeInner(b: *std.Build, mod: *std.Build.Module, link_archive: bool) void {
+fn wireWasmtimeInner(b: *std.Build, mod: *std.Build.Module, wasmtime: []const u8, link_archive: bool) void {
     mod.link_libc = true;
     mod.addAnonymousImport("convert-base-reactor.wasm", .{
         .root_source_file = b.path("vendor/convert-base-reactor.wasm"),
     });
-    mod.addIncludePath(b.path("vendor/wasmtime/include"));
+    mod.addIncludePath(b.path(b.fmt("{s}/include", .{wasmtime})));
     if (link_archive) {
-        mod.addObjectFile(b.path("vendor/wasmtime/lib/libwasmtime.a"));
+        mod.addObjectFile(b.path(b.fmt("{s}/lib/libwasmtime.a", .{wasmtime})));
         // Wasmtime registers unwind frames for its jitted code; Zig bundles this.
         mod.linkSystemLibrary("unwind", .{});
     }
