@@ -40,23 +40,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ## Issues
 
-- The macOS shared library exports all of Wasmtime.
-	- ID: 2026093018112419
-	- Type: Enhancement
-	- Status: Queued
-	- Priority|Severity [Bug]: Low
-	- Opened: 20260930-181124
-	- Opened by: JC
-	- Target OS: macOS
-	- Requirements  [Feature]:
-		- Only `zuid_*` exported, as on Linux.
-	- Decisions:
-		- Zig's Mach-O linker ignores `lib/zuid.map` and has no exported symbols list. A relink with Apple's `ld -exported_symbols_list` would do it.
-		- Low, because two-level namespace keeps the library's own calls bound to itself. `Eq9gPQn` passes on macOS.
-	- Progress log:
-		- 20261003: not tried. The Mac test host was unreachable.
-	- Test case: `Eq9gPQm` skips on macOS until then.
-
 - macOS gets a universal binary for both amd64 and ARM.
 	- ID: 2026100313105241
 	- Type: Enhancement
@@ -96,6 +79,23 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Branch: universal
 	- Commit: d1144f7
 	- Test case: `Erfhegq` checks every binary and library has both slices. `ErbFB7B` and `ErbFB7D` read each slice of a fat file now. Each was watched to fail on a broken universal release: a thin binary, a thin `libzuid.a` in the tarball, an arm64 slice asking for macOS 14.0, and an x86_64 slice built for x86_64_v3. They run under `--package` on a Mac.
+
+- The macOS shared library exports all of Wasmtime.
+	- ID: 2026093018112419
+	- Type: Enhancement
+	- Status: Queued
+	- Priority|Severity [Bug]: Low
+	- Opened: 20260930-181124
+	- Opened by: JC
+	- Target OS: macOS
+	- Requirements  [Feature]:
+		- Only `zuid_*` exported, as on Linux.
+	- Decisions:
+		- Zig's Mach-O linker ignores `lib/zuid.map` and has no exported symbols list. A relink with Apple's `ld -exported_symbols_list` would do it.
+		- Low, because two-level namespace keeps the library's own calls bound to itself. `Eq9gPQn` passes on macOS.
+	- Progress log:
+		- 20261003: not tried. The Mac test host was unreachable.
+	- Test case: `Eq9gPQm` skips on macOS until then.
 
 - When a shcl upgrade breaks compatibility with the application config file(s).
 	- ID: 2026100313105246
