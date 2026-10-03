@@ -364,8 +364,14 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 - 🔘 Publishing. `--publish` stays rejected with a reason until there is somewhere to publish to.
 	- Note: GitHub releases is that place now. `v1.0.0-alpha.1` was published there by hand.
-	- Note: still open, 20261003. One upload from the Linux box, or one per build machine. Whether a `go/v<version>` tag goes with each release. Whether the next release is `1.0.0-alpha.2`.
+	- Decision: 20261003, every release also gets a `go/v<version>` tag.
+	- Decision: 20261003, the next release is `v1.0.0-beta.1`.
+	- Note: still open, 20261003. Whether the files built on the Mac and the Windows box come back to the Linux box for one upload, or each machine uploads its own.
 	- Opened: 20260802-025417
+
+- 🔘 Tag the Go module as `go/v<version>` at the next release, so it can be asked for by version. A module in a subdirectory needs the prefix, and the plain `v1.0.0-alpha.1` tag does not reach it - `go get ...@v1.0.0-alpha.1` answers "found, but does not contain package". Deferred because pushing a public tag is a release decision, not a code fix. `README.md` says how to pin a commit meanwhile.
+	- Decision: 20261003, yes, with every release, starting at `v1.0.0-beta.1`.
+	- Opened: 20260917-104114
 
 - 🔘 Default configuration hard-coded
 	- 🔘 Overridden by per-user config file, created the first time a default setting is changed.
@@ -994,9 +1000,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Closed: 20260804-234122
 
 ### Deferred
-
-- ✋ Tag the Go module as `go/v<version>` at the next release, so it can be asked for by version. A module in a subdirectory needs the prefix, and the plain `v1.0.0-alpha.1` tag does not reach it - `go get ...@v1.0.0-alpha.1` answers "found, but does not contain package". Deferred because pushing a public tag is a release decision, not a code fix. `README.md` says how to pin a commit meanwhile.
-	- Opened: 20260917-104114
 
 - ✋ CLI startup is ~0.5 s, nearly all of it the module's own `_initialize` building the base registry inside the wasm. Options if it starts to matter: ask upstream about lazier registry construction, or cache a precompiled module per machine. Deferred until the surface settles.
 	- Opened: 20260802-104116
