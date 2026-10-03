@@ -40,22 +40,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ## Issues
 
-- Move the Zig side to 0.17.0.
-	- ID: 2026100313583935
-	- Type: Task
-	- Status: Queued
-	- Opened: 20261003-135839
-	- Opened by: JC
-	- Target OS: Any
-	- Estimated effort: Low
-	- Decision: Move to 0.17.0.
-	- Progress log:
-		- 20261003: Zig 0.17.0 came out 2026-10-01. A trial port builds, passes all 30 Zig tests, and the C module still works from gcc. It took small changes in seven files plus three short C headers. `details.md` has the list.
-		- 20261003: The Zig fuzz item under Old format waits on this. Fuzz mode works in 0.17.0.
-		- 20261003: Other projects on the build machine still pin 0.16.0, so the two versions have to sit side by side there. b26 needs 0.17.0 too.
-		- 20261003: Question: go ahead? 0.16.0 is a settled choice, so the move needs a yes first.
-	- Test case: none. It was a trial run only, and nothing in the tree changed.
-
 - macOS gets a universal binary for both amd64 and ARM.
 	- ID: 2026100313105241
 	- Type: Enhancement
@@ -98,6 +82,36 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Branch: universal
 	- Commit: d1144f7
 	- Test case: `Erfhegq` checks every binary and library has both slices. `ErbFB7B` and `ErbFB7D` read each slice of a fat file now. Each was watched to fail on a broken universal release: a thin binary, a thin `libzuid.a` in the tarball, an arm64 slice asking for macOS 14.0, and an x86_64 slice built for x86_64_v3. They run under `--package` on a Mac.
+
+- Move the Zig side to 0.17.0.
+	- ID: 2026100313583935
+	- Type: Task
+	- Status: Queued
+	- Opened: 20261003-135839
+	- Opened by: JC
+	- Target OS: Any
+	- Estimated effort: Low
+	- Decision: Move to 0.17.0.
+	- Progress log:
+		- 20261003: Zig 0.17.0 came out 2026-10-01. A trial port builds, passes all 30 Zig tests, and the C module still works from gcc. It took small changes in seven files plus three short C headers. `details.md` has the list.
+		- 20261003: The Zig fuzz item under Old format waits on this. Fuzz mode works in 0.17.0.
+		- 20261003: Other projects on the build machine still pin 0.16.0, so the two versions have to sit side by side there. b26 needs 0.17.0 too.
+		- 20261003: Question: go ahead? 0.16.0 is a settled choice, so the move needs a yes first.
+	- Test case: none. It was a trial run only, and nothing in the tree changed.
+
+- Drop BSD from the installer and the docs.
+	- ID: 2026100315241091
+	- Type: Task
+	- Status: Queued
+	- Opened: 20261003-152410
+	- Opened by: JC
+	- Target OS: BSD
+	- Requirements  [Feature]:
+		- `install.bash` stops treating any other system as FreeBSD, and says the platform has no build.
+		- README drops BSD from the platform list and the install table.
+		- `package.bash` stops listing BSD among the builds still to come.
+	- Decisions:
+		- No BSD target. Wasmtime publishes no BSD build, so there is nothing to embed.
 
 - When a shcl upgrade breaks compatibility with the application config file(s).
 	- ID: 2026100313105246
@@ -303,6 +317,25 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Acceptance signoff: Self-closed: the intent was clear, and the tests failed before the fix and pass after.
 	- Closed: 20261003-143030
 
+- A Linux arm64 test machine.
+	- ID: 2026100315241096
+	- Type: Task
+	- Status: Done
+	- Opened: 20261003-152410
+	- Opened by: JC
+	- Target OS: Linux, arm64
+	- Requirements  [Feature]:
+		- A libvirt virtual machine beside the others, named `vmDebARM64`, running Debian for arm64.
+		- A raw disk image of about 256 GB that grows as used.
+	- Progress log:
+		- 20261003: Debian 13's arm64 cloud image, checked against Debian's published checksum, turned into a raw image and grown to 256 GB. It takes about 1.3 GB.
+		- 20261003: The arm64 CPU is emulated, so builds and tests run several times slower than on the host.
+		- 20261003: The first boot set up nothing, because the setup disk was attached over USB and Debian's cloud kernel has no driver for it. Moved to a virtio disk and booted again.
+	- Verified: ssh works with the usual key. It reports `aarch64`, Debian 13, a 252 GB root and working sudo. The guest agent reports its address.
+	- Test case: none. It is a machine, not code.
+	- Acceptance signoff: Self-closed: built as asked.
+	- Closed: 20261003-152410
+
 ## Old format
 
 ### Bugs
@@ -317,16 +350,21 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - 🛠️ `%m` is Linux-only on the Zig side - it reads `getifaddrs` for `AF_PACKET`, and macOS wants `AF_LINK` instead. The Go module is already portable, and the help text and the C header both say so. Do it alongside the cross targets, since nothing on the Zig side cross-compiles yet either.
 	- Should work on Windows too.
 	- Done: macOS, 20260930. Windows is left.
+	- Decision: 20261003, the Windows build may run on a Windows test box, so the MSVC toolchain is open as well as mingw. MSVC is preferred where the box has the build tools, since most Windows C users link with it.
 	- Opened: 20260802-135041
 
 - 🔘 Packaging for other platforms. Needs a Wasmtime archive vendored per target. Blocked on that, and on the Zig side building for Windows at all.
 	- Note: x86_64 macOS has its pin and builds natively, 20260930.
 	- Note: `package.bash` builds the macOS tarball and binary on a Mac, 20261002. Nothing is published for it yet.
 	- Note: `build.zig` and `package.bash` take a non-host target's Wasmtime from `vendor/wasmtime-<platform>`, as the macOS universal build does, 20261003. Another target needs its pin and a fetch.
+	- Decision: 20261003, the targets are Linux x86_64 and arm64 on glibc, macOS universal, and Windows x86_64 and arm64. No BSD. Others such as armv7, riscv64, musl and Android are out for now.
+	- Decision: 20261003, a Windows package is a `.zip`, installed by `install.ps1`.
+	- Decision: 20261003, Linux arm64 is tested on the `vmDebARM64` virtual machine, not only built.
 	- Opened: 20260802-025417
 
 - 🔘 Publishing. `--publish` stays rejected with a reason until there is somewhere to publish to.
 	- Note: GitHub releases is that place now. `v1.0.0-alpha.1` was published there by hand.
+	- Note: still open, 20261003. One upload from the Linux box, or one per build machine. Whether a `go/v<version>` tag goes with each release. Whether the next release is `1.0.0-alpha.2`.
 	- Opened: 20260802-025417
 
 - 🔘 Default configuration hard-coded
@@ -341,6 +379,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 - 🔘 C module cross targets, cross-compiled with `zig cc`. Needs a vendored Wasmtime archive per target, the same blocker as packaging for other platforms.
 	- Note: `build.zig` takes a non-host target's Wasmtime from `vendor/wasmtime-<platform>`, as the macOS universal build does, 20261003. Another target needs its pin and a fetch.
+	- Decision: 20261003, the same targets as packaging for other platforms.
 	- Opened: 20260801-090104
 
 ### Done
