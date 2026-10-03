@@ -80,6 +80,20 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Commit: d1144f7
 	- Test case: `Erfhegq` checks every binary and library has both slices. `ErbFB7B` and `ErbFB7D` read each slice of a fat file now. Each was watched to fail on a broken universal release: a thin binary, a thin `libzuid.a` in the tarball, an arm64 slice asking for macOS 14.0, and an x86_64 slice built for x86_64_v3. They run under `--package` on a Mac.
 
+- Move the Zig side to 0.17.0.
+	- ID: 2026100313583935
+	- Type: Task
+	- Status: Waiting for answers
+	- Opened: 20261003-135839
+	- Opened by: JC
+	- Target OS: Any
+	- Estimated effort: Low
+	- Progress log:
+		- 20261003: Zig 0.17.0 came out 2026-10-01. A trial port builds, passes all 30 Zig tests, and the C module still works from gcc. It took small changes in seven files plus three short C headers. `details.md` has the list.
+		- 20261003: The Zig fuzz item under Old format waits on this. Fuzz mode works in 0.17.0.
+		- 20261003: Question: go ahead? 0.16.0 is a settled choice, so the move needs a yes first.
+	- Test case: none. It was a trial run only, and nothing in the tree changed.
+
 - The macOS shared library exports all of Wasmtime.
 	- ID: 2026093018112419
 	- Type: Enhancement
@@ -279,6 +293,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 - 🔘 Run the Zig fuzz tests in fuzz mode, once a Zig release can build one.
 	- Note: the tests are written and replay their corpus on every run. `zig build test --fuzz` fails to compile inside 0.16.0's own test runner, so nothing on this side can fix it. `details.md` has the error.
+	- Note: 20261003: Zig 0.17.0 runs fuzz mode, `--fuzz=<limit>` too, on a tiny test and on ours. There is no 0.16 point release with the fix. So this waits on 2026100313583935, the move to 0.17.0. One catch: a run that finds a bad input still exits 0, so the pipeline stage has to read the output. The 0.17.0 download was checked against the sha256 in Zig's download index.
 	- Opened: 20260917-131500
 
 - 🛠️ `%m` is Linux-only on the Zig side - it reads `getifaddrs` for `AF_PACKET`, and macOS wants `AF_LINK` instead. The Go module is already portable, and the help text and the C header both say so. Do it alongside the cross targets, since nothing on the Zig side cross-compiles yet either.
