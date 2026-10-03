@@ -366,7 +366,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Note: GitHub releases is that place now. `v1.0.0-alpha.1` was published there by hand.
 	- Decision: 20261003, every release also gets a `go/v<version>` tag.
 	- Decision: 20261003, the next release is `v1.0.0-beta.1`.
-	- Note: still open, 20261003. Whether the files built on the Mac and the Windows box come back to the Linux box for one upload, or each machine uploads its own.
+	- Decision: 20261003, the Mac and Windows files are copied back to the Linux box, which creates the release and uploads everything at once with one checksums file.
 	- Opened: 20260802-025417
 
 - 🔘 Tag the Go module as `go/v<version>` at the next release, so it can be asked for by version. A module in a subdirectory needs the prefix, and the plain `v1.0.0-alpha.1` tag does not reach it - `go get ...@v1.0.0-alpha.1` answers "found, but does not contain package". Deferred because pushing a public tag is a release decision, not a code fix. `README.md` says how to pin a commit meanwhile.
