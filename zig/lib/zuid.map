@@ -10,6 +10,9 @@
 ## 'local: *' is the half that matters most: everything not named below becomes
 ## local, so libzuid's internal calls bind inside the library and cannot be
 ## interposed at all.
+##
+## Zig's Mach-O linker does not read this file, so on a Mac build.zig hands
+## the global names to Apple's linker as an exported symbols list instead.
 
 {
 	global:

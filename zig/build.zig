@@ -146,7 +146,7 @@ fn relinkDylib(
     const have_tools = b.graph.host.result.os.tag == .macos and
         if (b.runAllowFail(&.{ "xcode-select", "-p" }, &code, .ignore)) |_| true else |_| false;
     if (!have_tools) {
-        std.log.warn("no Xcode command line tools, so libzuid.dylib exports all of Wasmtime rather than only zuid_*", .{});
+        std.log.warn("no Apple linker here, which takes a Mac with the Xcode command line tools, so libzuid.dylib exports all of Wasmtime rather than only zuid_*", .{});
         return;
     }
     const t = target.result;
