@@ -1395,8 +1395,8 @@ fStage_Package(){
 	local -i haveObjdump=0
 	if command -v objdump >/dev/null 2>&1; then haveObjdump=1; fi
 
-	## The macOS checks read one slice at a time. otool shows only one slice of
-	## a universal file unless asked, and the AVX scan means nothing on arm64.
+	## The macOS checks read one slice at a time. The AVX scan means nothing on
+	## arm64, and the minimum macOS has to hold for both.
 	local thinDir=""
 	thinDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${thinDir}")
@@ -1419,7 +1419,7 @@ fStage_Package(){
 			done
 			fatCount=$((fatCount + 1))
 		done < <(printf '%s\n' "${release}"; find "${thinDir}/tgz" -type f \( -path '*/bin/*' -o -path '*/lib/*' \))
-		## The binary, both copies, libzuid.a, the dylib and libwasmtime.a.
+		## The bare binary and the tarball's, libzuid.a, the dylib and libwasmtime.a.
 		if ((fatCount < 5)); then
 			fTestFail "found ${fatCount} binaries and libraries to check, expected 5."
 		fi
