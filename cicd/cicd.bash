@@ -1098,6 +1098,36 @@ fStage_Zig_BuildStamp(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## What is wrong with a shared library's exported names, or nothing: one that
+## lib/zuid.map does not allow, or a function zuid.h declares that is missing.
+## Reads the map rather than repeating it, since on a Mac build.zig turns the
+## same file into Apple's exported symbols list.
+fExportProblems(){  ## exported names, one per line
+	local -r exportList="$1"
+	## The map's names are globs, so they become one anchored regex.
+	local -r mapRegex="$(sed 's/#.*//' "${zigDir}/lib/zuid.map" | tr ';{}' '   ' \
+		| awk '{ for (i = 1; i <= NF; i++) { if ($i == "global:") on = 1; else if ($i == "local:") on = 0; else if (on) print $i } }' \
+		| sed 's/[].[\^$+(){}|]/\\&/g; s/\*/.*/g; s/?/./g' | paste -sd'|' -)"
+	if [[ -z "${mapRegex}" ]]; then echo "read no global names out of lib/zuid.map."; return 0; fi
+	local -r strayExports="$(grep -v '^$' <<< "${exportList}" | grep -Ev "^(${mapRegex})\$" || true)"
+	if [[ -n "${strayExports}" ]]; then
+		echo "$(wc -l <<< "${strayExports}" | tr -d ' ') exported symbols are not in lib/zuid.map, such as $(head -n 3 <<< "${strayExports}" | paste -sd' ' -)."
+	fi
+
+	local exportName=""
+	local -i declaredCount=0
+	while IFS= read -r exportName; do
+		if ! grep -qx "${exportName}" <<< "${exportList}"; then
+			echo "zuid.h declares ${exportName}, and the shared library does not export it."
+		fi
+		declaredCount=$((declaredCount + 1))
+	done < <(sed -n 's/^[a-z][^(]*[ *]\(zuid_[a-z_]*\)(.*/\1/p' "${zigDir}/lib/include/zuid.h")
+	if ((declaredCount == 0)); then echo "read no function declarations out of zuid.h."; fi
+	return 0
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The C module is one of the released artifacts, so a foreign toolchain has to
 ## be able to use it. Deliberately not 'zig cc' - that would prove nothing.
 fStage_Zig_CApi(){
@@ -1140,18 +1170,16 @@ fStage_Zig_CApi(){
 	## Only the entry points are visible. The library used to export all of
 	## Wasmtime, which let any program holding one of those names displace the
 	## calls it makes internally.
-	fId Eq9gPQm "the shared library exports only zuid_*"
+	fId Eq9gPQm "the shared library exports only what lib/zuid.map names"
+	local exportList="" exportProblem=""
 	if ((isMac)); then
-		## Zig's Mach-O linker has no exported symbols list. Two-level namespace
-		## keeps the library's own calls bound to itself, which Eq9gPQn checks.
-		fTestSkip "Mach-O ignores lib/zuid.map"
+		exportList="$(nm -gU "${libDir}/libzuid.dylib" | awk '{ sub(/^_/, "", $NF); print $NF }')"
 	else
-		local -r exported="$(nm -D --defined-only "${libDir}/libzuid.so" | awk '{print $3}' | grep -cv '^zuid_' || true)"
-		if [[ "${exported}" != "0" ]]; then
-			fTestFail "libzuid.so exports ${exported} symbols that are not zuid_*. lib/zuid.map should be keeping them local."
-		fi
-		fTestPass
+		exportList="$(nm -D --defined-only "${libDir}/libzuid.so" | awk '{print $NF}')"
 	fi
+	exportProblem="$(fExportProblems "${exportList}")"
+	if [[ -n "${exportProblem}" ]]; then fTestFail "${exportProblem}"; fi
+	fTestPass
 
 	## The soname, which is what a linked program records rather than the file
 	## name. Its major is the ABI promise the stable error codes go with, so it
@@ -1187,7 +1215,8 @@ fStage_Zig_CApi(){
 	fi
 
 	## And the same thing from the other side: a program defining one of those
-	## names must not change what the library calls.
+	## names must not change what the library calls. On a Mac two-level
+	## namespace already keeps them bound inside, export list or not.
 	local -r interposeSrc="${zigDir}/lib/test/capi_interpose.c"
 	fId Eq9gPQn "a program defining a Wasmtime name still gets a working context"
 	if [[ -f "${interposeSrc}" ]]; then
@@ -1483,6 +1512,34 @@ fStage_Package(){
 			minOs="$(otool -l "${thinDir}/zuid-minos" | awk '$1 == "minos" && !found { print $2; found = 1 }')"
 			if [[ "${minOs}" != "${macFloor}" ]]; then
 				fTestFail "its ${macSlice} slice asks for macOS '${minOs}'."
+			fi
+		done
+		fTestPass
+	fi
+
+	## build.zig links the macOS dylib a second time, for the export list. That
+	## link has to keep the rest: the install name, the macOS floor, and the
+	## ad-hoc signature an arm64 Mac needs to load it at all.
+	fId ErfrKRQ "each slice of the release dylib exports only what lib/zuid.map names, and keeps its install name, macOS floor and signature"
+	if [[ "${osLabel}" != "darwin" ]]; then
+		fTestSkip "macOS only"
+	else
+		local -r releaseDylib="$(find "${thinDir}/tgz" -type f -name 'libzuid*.dylib' -print -quit)"
+		local -r libVersion="$(sed -n 's/^pub const version = "\([^"]*\)".*/\1/p' "${zigDir}/lib/src/core.zig")"
+		local -r installWant="@rpath/libzuid.${libVersion%%.*}.dylib"
+		[[ -n "${releaseDylib}" ]] || fTestFail "the tarball has no libzuid dylib."
+		local thinDylib="" exportProblem="" installName="" dylibMinOs=""
+		for macSlice in "${macSlices[@]}"; do
+			thinDylib="${thinDir}/libzuid-${macSlice}.dylib"
+			lipo -thin "${macSlice}" "${releaseDylib}" -output "${thinDylib}" || fTestFail "could not take the ${macSlice} slice out of $(basename "${releaseDylib}")."
+			exportProblem="$(fExportProblems "$(nm -gU "${thinDylib}" | awk '{ sub(/^_/, "", $NF); print $NF }')")"
+			if [[ -n "${exportProblem}" ]]; then fTestFail "${macSlice}: ${exportProblem}"; fi
+			installName="$(otool -D "${thinDylib}" | sed -n '2p')"
+			if [[ "${installName}" != "${installWant}" ]]; then fTestFail "${macSlice}: the install name is '${installName}'."; fi
+			dylibMinOs="$(otool -l "${thinDylib}" | awk '$1 == "minos" && !found { print $2; found = 1 }')"
+			if [[ "${dylibMinOs}" != "${macFloor}" ]]; then fTestFail "${macSlice}: it asks for macOS '${dylibMinOs}'."; fi
+			if [[ "${macSlice}" == "arm64" ]] && ! codesign --verify "${thinDylib}" 2>/dev/null; then
+				fTestFail "${macSlice}: the slice is not validly signed."
 			fi
 		done
 		fTestPass

@@ -89,7 +89,7 @@ pub fn build(b: *std.Build) void {
     // Only the zuid_* entry points are visible, and everything else binds
     // inside the library. zuid.h calls the shared library self-contained, and
     // without this it exported the whole Wasmtime C API for anyone to displace.
-    // Mach-O ignores it.
+    // Zig's Mach-O linker ignores it; see relinkDylib.
     shared_lib.setVersionScript(b.path("lib/zuid.map"));
     // macOS's soname. Zig's default is the bare libzuid.dylib, which would let
     // a program built against ABI 1 load ABI 2.
@@ -97,7 +97,9 @@ pub fn build(b: *std.Build) void {
         shared_lib.install_name = b.fmt("@rpath/libzuid.{d}.dylib", .{abi_version.major});
     }
     shared_lib.installHeader(b.path("lib/include/zuid.h"), "zuid.h");
-    b.installArtifact(shared_lib);
+    const install_shared = b.addInstallArtifact(shared_lib, .{});
+    b.getInstallStep().dependOn(&install_shared.step);
+    if (target.result.os.tag == .macos) relinkDylib(b, target, shared_lib, static_lib, wasmtime, install_shared);
 
     // zig build test - the vectors through the real module, plus error paths.
     const test_mod = b.createModule(.{
@@ -123,6 +125,81 @@ pub fn build(b: *std.Build) void {
     const install_tests = b.addInstallArtifact(tests, .{ .dest_dir = .{ .override = .{ .custom = "test" } } });
     const test_bin_step = b.step("test-bin", "Build the test binary into zig-out/test");
     test_bin_step.dependOn(&install_tests.step);
+}
+
+/// Zig's Mach-O linker ignores lib/zuid.map and has no exported symbols list,
+/// so its dylib exports all of Wasmtime. Apple's linker takes such a list, so
+/// on a Mac the dylib is linked again with it, from the static library's
+/// objects, and installed over Zig's copy, keeping the symlinks Zig made.
+/// Apple's linker ad-hoc signs an arm64 slice itself, as Zig's does.
+fn relinkDylib(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    shared_lib: *std.Build.Step.Compile,
+    static_lib: *std.Build.Step.Compile,
+    wasmtime: []const u8,
+    installed: *std.Build.Step.InstallArtifact,
+) void {
+    // xcrun with no command line tools opens an installer window rather than
+    // failing, so ask xcode-select first.
+    var code: u8 = 0;
+    const have_tools = b.graph.host.result.os.tag == .macos and
+        if (b.runAllowFail(&.{ "xcode-select", "-p" }, &code, .ignore)) |_| true else |_| false;
+    if (!have_tools) {
+        std.log.warn("no Xcode command line tools, so libzuid.dylib exports all of Wasmtime rather than only zuid_*", .{});
+        return;
+    }
+    const t = target.result;
+    const arch = switch (t.cpu.arch) {
+        .x86_64 => "x86_64",
+        .aarch64 => "arm64",
+        else => std.process.fatal("no macOS dylib relink for {t}", .{t.cpu.arch}),
+    };
+    const min = t.os.version_range.semver.min;
+    const exports = b.addWriteFiles().add("zuid.exp", exportedSymbols(b));
+
+    const relink = b.addSystemCommand(&.{ "xcrun", "clang", "-dynamiclib", "-arch", arch });
+    relink.addArg(b.fmt("-mmacosx-version-min={d}.{d}.{d}", .{ min.major, min.minor, min.patch }));
+    relink.addArgs(&.{ "-install_name", shared_lib.install_name.? });
+    relink.addArgs(&.{ "-current_version", b.fmt("{d}.{d}.{d}", .{ abi_version.major, abi_version.minor, abi_version.patch }) });
+    relink.addPrefixedFileArg("-Wl,-exported_symbols_list,", exports);
+    // -force_load takes every object in the archive, compiler-rt included, and
+    // -dead_strip then drops what no export reaches.
+    relink.addArg("-Wl,-dead_strip");
+    relink.addPrefixedFileArg("-Wl,-force_load,", static_lib.getEmittedBin());
+    relink.addFileArg(b.path(b.fmt("{s}/lib/libwasmtime.a", .{wasmtime})));
+    relink.addArg("-o");
+    const relinked = relink.addOutputFileArg(shared_lib.out_filename);
+
+    const install = b.addInstallLibFile(relinked, shared_lib.out_filename);
+    install.step.dependOn(&installed.step);
+    b.getInstallStep().dependOn(&install.step);
+}
+
+/// lib/zuid.map's global patterns as an Apple exported symbols list, so both
+/// platforms export one set from one file. Mach-O names take a leading
+/// underscore, and both linkers read the * wildcard the same way.
+fn exportedSymbols(b: *std.Build) []const u8 {
+    const map = b.build_root.handle.readFileAlloc(b.graph.io, "lib/zuid.map", b.allocator, .limited(64 * 1024)) catch |err|
+        std.process.fatal("could not read lib/zuid.map: {t}", .{err});
+    var list: std.ArrayList(u8) = .empty;
+    var in_global = false;
+    var lines = std.mem.splitScalar(u8, map, '\n');
+    while (lines.next()) |line| {
+        const code = line[0 .. std.mem.indexOfScalar(u8, line, '#') orelse line.len];
+        var words = std.mem.tokenizeAny(u8, code, " \t\r;{}");
+        while (words.next()) |word| {
+            if (std.mem.eql(u8, word, "global:")) {
+                in_global = true;
+            } else if (std.mem.eql(u8, word, "local:")) {
+                in_global = false;
+            } else if (in_global) {
+                list.print(b.allocator, "_{s}\n", .{word}) catch @panic("OOM");
+            }
+        }
+    }
+    if (list.items.len == 0) std.process.fatal("lib/zuid.map lists no global symbols", .{});
+    return list.items;
 }
 
 /// Unix seconds the build number comes from. The commit date rather than the
