@@ -129,6 +129,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- `capi_smoke.c` links for arm64 against the tarball's static and shared libraries. Not run, since nothing here runs arm64 code.
 	- Swept: every `uname -m` use, asset name and `vendor/wasmtime` path in `cicd/`, `build.zig`, both installers and `installer-test.bash`. The x86_64 release checks now read the x86_64 release on any Linux host.
 	- Branch: arm64
+	- Commit: 9631a0b
 	- Test case: `ErgjCkT` to `ErgjCkX` under `--package` on Linux: arch of every file and package, no instructions past armv8-a, glibc 2.28, and the two links. Each failed on a release broken for it: an x86_64 binary or `.deb` under the arm64 name, a build for a newer CPU, a build for glibc 2.39, an empty `libzuid.a`, and a shared library with no `zuid_*`. `ErgjCkY` and `ErgjCkZ` in `installer-test.bash`, with a stand-in `uname` reporting `aarch64`, failed with `install.bash` picking x86_64. `install.ps1` has no test, since pwsh's architecture cannot be faked from outside.
 
 - When a shcl upgrade breaks compatibility with the application config file(s).
