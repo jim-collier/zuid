@@ -182,8 +182,9 @@ fPrint_Help(){
 		all of them, shows the plan and asks. Then it tags HEAD v<version> and
 		go/v<version>, pushes both, creates the release with gh, a prerelease when
 		the version has a '-', and waits for the download to answer. The notes are
-		changelog.md's section for that version, if it has one. What was uploaded
-		stays in dist/release/ until the next --package.
+		changelog.md's section for that version, if it has one, then a table of the
+		downloads by OS and CPU. What was uploaded stays in dist/release/ until the
+		next --package.
 
 		Exit code is 0 only if every stage that ran passed.
 	EOF_h7wq4
@@ -283,7 +284,7 @@ fMain(){
 	readonly allowPartial
 
 	## Set by the publish preflight, read by the publish stage.
-	local publishVersion="" publishRemote="" publishHead=""
+	local publishVersion="" publishRemote="" publishHead="" publishRepoUrl=""
 
 	## Dogfooding rides along with every full run - the whole point is that daily
 	## use is the build that just passed. A quick run is mid-iteration, so it stays
@@ -2127,7 +2128,14 @@ fPublish_Preflight(){
 		fi
 	done
 
-	fEcho_Clean "Publish ....: v${publishVersion} from ${branch} at ${publishHead:0:12}"
+	## The notes link each download by its full address. gh is asked, so it is
+	## the same repo the release goes to.
+	publishRepoUrl="$(cd "${repoRoot}" && "${ghCmd}" repo view --json url --jq .url 2>/dev/null || true)"
+	if [[ ! "${publishRepoUrl}" =~ ^https://[A-Za-z0-9./_-]+$ ]]; then
+		fThrowError "gh cannot tell which GitHub repo this is, so the notes would have no download links. Run 'gh repo set-default' first."  "${FUNCNAME[0]}"
+	fi
+
+	fEcho_Clean "Publish ....: v${publishVersion} from ${branch} at ${publishHead:0:12}, to ${publishRepoUrl}"
 
 }
 
@@ -2217,6 +2225,15 @@ fStage_Publish(){
 		' "${repoRoot}/changelog.md")"
 	fi
 
+	local downloads="" notesFrom="changelog.md, section ${tag}, then the download table"
+	downloads="$(fPublish_Downloads "${publishRepoUrl}/releases/download/${tag}" "${assets[@]}")"
+	if [[ -n "${notes//[[:space:]]/}" ]]; then
+		notes+=$'\n\n'"${downloads}"
+	else
+		notes="${downloads}"
+		notesFrom="the download table only - changelog.md has no section for ${tag}"
+	fi
+
 	local prerelease=""
 	if [[ "${publishVersion}" == *-* ]]; then prerelease=" (prerelease)"; fi
 	fEcho_Clean "Release ....: ${tag}${prerelease}"
@@ -2224,11 +2241,7 @@ fStage_Publish(){
 	fEcho_Clean "Assets .....: ${#assets[@]}, ${fromIncoming} of them from dist-incoming/, plus checksums.txt"
 	for asset in "${assets[@]}"; do fEcho_Clean "               ${asset}"; done
 	if ((${#missing[@]})); then fEcho_Clean "Missing ....: ${missing[*]}"; fi
-	if [[ -n "${notes//[[:space:]]/}" ]]; then
-		fEcho_Clean "Notes ......: changelog.md, section ${tag}"
-	else
-		fEcho_Clean "Notes ......: none - changelog.md has no section for ${tag}"
-	fi
+	fEcho_Clean "Notes ......: ${notesFrom}"
 
 	## Anything but a yes is a no, an empty or missing answer included.
 	if ((! doQuietly)); then
@@ -2267,6 +2280,86 @@ fStage_Publish(){
 		sleep 10
 	done
 	fEcho_Clean "Download ...: ${url}"
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The downloads for the release notes: one row per OS, one column per CPU. HTML,
+## since the macOS file is for both CPUs and a markdown table cannot span cells.
+## A file this cannot place is listed under the table rather than guessed at.
+fPublish_Downloads(){  ## download URL, asset...
+
+	local -r baseUrl="$1"; shift
+	local -ra osOrder=("linux" "darwin" "windows" "freebsd")
+	local -rA osTitles=([linux]="Linux" [darwin]="macOS" [windows]="Windows" [freebsd]="FreeBSD")
+	local -ra cpuOrder=("x86_64" "arm64")
+	local -A cells=()
+	local -a ranked=() others=()
+	local asset="" rank="" words="" os="" cpu="" cell="" row=""
+
+	## Archives first in a cell, then the bare binary, then the packages.
+	for asset in "$@"; do
+		case "${asset}" in
+			*.tgz|*.tar.*|*.zip) rank=1 ;;
+			*.exe)               rank=2 ;;
+			*.deb)               rank=3 ;;
+			*.rpm)               rank=4 ;;
+			*.*)                 rank=5 ;;
+			*)                   rank=2 ;;
+		esac
+		ranked+=("${rank} ${asset}")
+	done
+	mapfile -t ranked < <(printf '%s\n' "${ranked[@]}" | LC_ALL=C sort)
+
+	for asset in "${ranked[@]}"; do
+		asset="${asset#* }"
+		[[ -n "${asset}" ]] || continue
+		## Whole words only, split where the names split: x86_64 is "x86 64".
+		words=" ${asset//[-_.]/ } "
+		case "${words}" in
+			*" darwin "*|*" macos "*)            os="darwin" ;;
+			*" windows "*|*" exe "|*" msi ")    os="windows" ;;
+			*" freebsd "*)                       os="freebsd" ;;
+			*" linux "*|*" deb "|*" rpm ")      os="linux" ;;
+			*)                                   os="" ;;
+		esac
+		case "${words}" in
+			*" universal "*)                     cpu="any" ;;
+			*" x86 64 "*|*" amd64 "*|*" x64 "*)  cpu="x86_64" ;;
+			*" arm64 "*|*" aarch64 "*)           cpu="arm64" ;;
+			*)                                   cpu="" ;;
+		esac
+		if [[ -z "${os}" ]] || [[ -z "${cpu}" ]]; then
+			others+=("[${asset}](${baseUrl}/${asset})")
+			continue
+		fi
+		cells["${os}/${cpu}"]+="${cells["${os}/${cpu}"]:+<br>}<a href=\"${baseUrl}/${asset}\">${asset}</a>"
+	done
+
+	printf '### Downloads\n\n<table>\n<tr><th></th>'
+	for cpu in "${cpuOrder[@]}"; do printf '<th>%s</th>' "${cpu}"; done
+	printf '</tr>\n'
+	for os in "${osOrder[@]}"; do
+		row="<tr><th>${osTitles[${os}]}</th>"
+		if [[ -n "${cells["${os}/any"]:-}" ]] && [[ -z "${cells["${os}/x86_64"]:-}${cells["${os}/arm64"]:-}" ]]; then
+			row+="<td colspan=\"${#cpuOrder[@]}\" align=\"center\">${cells["${os}/any"]}</td>"
+		else
+			for cpu in "${cpuOrder[@]}"; do
+				cell="${cells["${os}/${cpu}"]:-}"
+				if [[ -n "${cells["${os}/any"]:-}" ]]; then cell+="${cell:+<br>}${cells["${os}/any"]}"; fi
+				row+="<td>${cell:--}</td>"
+			done
+		fi
+		printf '%s</tr>\n' "${row}"
+	done
+	printf '</table>\n'
+
+	if ((${#others[@]})); then
+		local -r joined="$(printf '%s, ' "${others[@]}")"
+		printf '\nOther files: %s.\n' "${joined%, }"
+	fi
+	printf '\n[checksums.txt](%s/checksums.txt) has the SHA-256 of every file.\n' "${baseUrl}"
 
 }
 
