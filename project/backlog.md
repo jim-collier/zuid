@@ -162,7 +162,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - `cicd.bash` refuses to run in a git worktree.
 	- ID: 2026100318410007
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Priority|Severity [Bug]: Low
 	- Opened: 20261003-184100
 	- Opened by: JC
@@ -173,6 +173,17 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Expected behavior [Bug]: It runs, since a worktree is a full checkout.
 	- Reproduced [Bug]: Yes, 20261003.
 	- Possible cause [Bug]: The sync and preflight checks look for a `.git` directory, and in a worktree `.git` is a file.
+	- Actual cause [Bug]: As above. Both checks tested for a `.git` directory.
+	- Progress log:
+		- 20261004: The backup stage is skipped in a linked worktree, with a line saying so, and `--backup` asked for by name is refused there. The helper archives the folder above the checkout, which for a worktree is not the project, and it wants a real `.git` directory. Making the backup work from a worktree would mean archiving the main checkout's project instead, which is a bigger change than this item.
+		- 20261004: Verified: `cicd.bash --quick --no-dogfood -q` from a scratch worktree passed, with the backup skipped. `--backup` there was refused before any stage. `pipeline-test.bash` 39 of 39, `test-ids.py check` and shellcheck pass.
+	- Decisions:
+		- Skip the backup in a worktree rather than make it work there. Open to a different call.
+	- Actual fix [Bug]: Sync and preflight ask git whether the folder is the top of a checkout. Argument handling spots a linked worktree by its git dir differing from the common one.
+	- Swept: every `.git` path test in `cicd/` and the rest of the repo. `package.bash` and the test harnesses had none. The vendored `n8git_backup-and-publish` tests `.git/HEAD` and stays as is, since `cicd.bash` no longer calls it from a worktree.
+	- Branch: worktree
+	- Commit: 9ff63b7
+	- Test case: Erm7vCh, Erm7vCi, Erm7vCk and Erm7vCl in `pipeline-test.bash`, which all failed before the fix. Erm7vCj checks a folder that is not a checkout's top is still refused.
 
 - Move the Zig side to 0.17.0.
 	- ID: 2026100313583935
