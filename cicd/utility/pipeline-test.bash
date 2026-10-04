@@ -175,6 +175,105 @@ fi
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## A linked worktree, whose .git is a file. Sync and preflight used to test for
+## a .git directory and refused one.
+
+fGitCheckIn(){  ## repo dir, function names...
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fEcho(){ :; }
+		# shellcheck disable=2329
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2329
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{ repoRoot="$1"; runStamp="pipeline-test"; buildJobs=1; doGo=0; doZig=0; doPublish=0 ;}
+		shift
+		local fn=""
+		for fn in "$@"; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		for fn in "$@"; do "${fn}"; done
+	) 2>&1
+}
+
+worktreeMain="${work}/wtmain"
+worktreeDir="${work}/wt"
+git init -q -b main "${worktreeMain}"
+mkdir -p "${worktreeMain}/testdata"
+: > "${worktreeMain}/testdata/vectors.tsv"
+git -C "${worktreeMain}" add -A
+git -C "${worktreeMain}" -c user.name=t -c user.email=t@t commit -q -m first
+git -C "${worktreeMain}" worktree add -q -b side "${worktreeDir}" 2>/dev/null
+
+fId Erm7vCh "the sync stage runs in a linked worktree"
+out="$(fGitCheckIn "${worktreeDir}" fStage_Sync)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == *"Remote .....: none"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+fId Erm7vCi "preflight runs in a linked worktree"
+out="$(fGitCheckIn "${worktreeDir}" fPreflight)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == *"Branch .....: side"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+fId Erm7vCj "sync and preflight still refuse a folder that is not a checkout's top"
+notTopBad=""
+for notTop in "${worktreeMain}/testdata" "${work}"; do
+	for fn in fStage_Sync fPreflight; do
+		out="$(fGitCheckIn "${notTop}" "${fn}")" && rc=0 || rc=$?
+		if ((rc == 0)) || [[ "${out}" != *"Not a git repo"* ]]; then notTopBad+=" ${fn} in ${notTop##*/} exited ${rc}: '${out}';"; fi
+	done
+done
+if [[ -z "${notTopBad}" ]]
+	then fPass
+	else fFail "${notTopBad}"
+fi
+
+## The backup helper archives the folder above the checkout, which for a
+## worktree is not the project, so the default backup steps aside there.
+fInitIn(){  ## repo dir, args...
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2034  ## Read by the lifted fInit.
+		{
+			repoRoot="$1"; onlyToolchain=""; commitMsg=""; doQuietly=0
+			doCross=0; doQuick=0; doSync=1; doCommit=0; commitAsked=0; doPush=0; doPackage=0
+			doBackup=1; backupAsked=0; backupInWorktree=0; doDogfood=1; dogfoodAsked=0; doPublish=0; allowPartial=0
+		}
+		shift
+		local fn=""
+		for fn in fMustBeAValue fInit; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		fInit "$@"
+		printf 'doBackup=%s backupInWorktree=%s\n' "${doBackup}" "${backupInWorktree}"
+	) 2>&1
+}
+
+fId Erm7vCk "the default backup steps aside in a linked worktree, and not in the main checkout"
+outWorktree="$(fInitIn "${worktreeDir}")" && rc=0 || rc=$?
+outMain="$(fInitIn "${worktreeMain}")" || rc=$?
+if ((rc == 0)) && [[ "${outWorktree}" == "doBackup=0 backupInWorktree=1" ]] && [[ "${outMain}" == "doBackup=1 backupInWorktree=0" ]]
+	then fPass
+	else fFail "exited ${rc}, worktree said '${outWorktree}', main checkout said '${outMain}'"
+fi
+
+fId Erm7vCl "--backup by name is refused in a linked worktree"
+out="$(fInitIn "${worktreeDir}" --backup)" && rc=0 || rc=$?
+if ((rc != 0)) && [[ "${out}" == *"linked worktree"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+git -C "${worktreeMain}" worktree remove --force "${worktreeDir}"
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Publishing, against scratch repos that push to a local bare remote, with gh
 ## replaced by a stub that logs what it was asked. Nothing reaches GitHub. The
 ## preflight and the stage are lifted out by name, with fConfig for the branch
