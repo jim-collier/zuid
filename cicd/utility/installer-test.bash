@@ -751,6 +751,36 @@ fCase_MissingValue(){
 	done
 }
 
+## There is no BSD build, since Wasmtime publishes none. install.bash used to
+## take any system it did not know for FreeBSD and go looking for that tarball.
+fCase_NoBuild(){
+	local out="" rc=0 home=""
+	local -r fakeDir="${work}/fake-uname"
+	mkdir -p "${fakeDir}"
+	{
+		printf '#!/usr/bin/env bash\n'
+		printf 'realUname=%q\n' "$(command -v uname)"
+		cat <<'SH'
+case "${1:-}" in -s) echo FreeBSD ;; *) exec "${realUname}" "$@" ;; esac
+SH
+	} > "${fakeDir}/uname"
+	chmod +x "${fakeDir}/uname"
+	home="$(fNewHome "no-build")"
+	local -r before="$(fRequestCount)"
+	out="$(HOME="${home}" PATH="${fakeDir}:${PATH}" bash "${bashCopy}" --target user --yes 2>&1)" || rc=$?
+
+	fId Ergbz3Z "bash: a system with no build says so by name"
+	if ((rc != 0)) && [[ "${out}" == *"FreeBSD"* && "${out}" == *"no ${PROG} build"* ]]
+		then fPass
+		else fFail "rc=${rc} and '${out}'"
+	fi
+	fId Ergbz3a "bash: and downloads nothing"
+	if [[ "$(fRequestCount)" == "${before}" ]]
+		then fPass
+		else fFail "it fetched anyway. Output: ${out}"
+	fi
+}
+
 ## A zuid at the link path that the installer did not put there. The README
 ## tells a source build that a full cicd run copies one to ~/.local/bin, so this
 ## is a real collision, and uninstall used to delete it.
@@ -806,6 +836,7 @@ if [[ "${only}" != "ps1" ]]; then
 	fCase_SystemTarget "bash" "fRunBashSys" "yes"
 	fCase_Rerun "bash" "fRunBash"
 	fCase_MissingValue
+	fCase_NoBuild
 	fCase_ForeignLink "bash" "fRunBash"
 fi
 
@@ -839,6 +870,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261003 JC: A system with no build is refused by name.
 ##		- 20260930 JC: Test IDs. A listing with only a prerelease in it, a bad checksum, no answer.
 ##		- 20260917 JC: Cover --target system, against a scratch /opt and /usr/local.
 ##		- 20260917 JC: Check what the deb and rpm contents list installs.

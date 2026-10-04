@@ -136,7 +136,7 @@ fn readFqdn(out: []u8) core.Error![]const u8 {
 /// routing table on three platforms; interface order is stable enough for a
 /// value whose only job is to differ between hosts.
 ///
-/// Linux and macOS only so far. The other BSDs use AF_LINK too, untried.
+/// Linux and macOS only so far.
 fn vtMac(ctx: *anyopaque) core.Error![6]u8 {
     const self: *Live = @ptrCast(@alignCast(ctx));
     if (self.hardware) |cached| return cached;

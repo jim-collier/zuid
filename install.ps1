@@ -73,12 +73,16 @@ elseif ($IsMacOS) {
 	$binaryName = $program
 	$archiveExtension = 'tgz'
 }
-else {
+elseif ($IsLinux) {
 	$systemDir = "/opt/$program"
 	$userDir = Join-Path $HOME ".local/share/$program"
 	$osLabel = 'linux'
 	$binaryName = $program
 	$archiveExtension = 'tgz'
+}
+else {
+	## No BSD build, since Wasmtime publishes none.
+	Stop-WithMessage "no $program build exists for $([System.Runtime.InteropServices.RuntimeInformation]::OSDescription). Build from source instead - see the README."
 }
 
 ## Whether the system location can be written, not whether it is there. Testing
