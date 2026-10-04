@@ -10,7 +10,8 @@
 ##		against a scratch repo. So are the publish preflight and stage, against
 ##		scratch repos pushing to a local bare remote, with gh stubbed out.
 ##		test-ids.py runs against a scratch tree, and the Zig fuzz stage's
-##		report against a stand-in zig.
+##		report against a stand-in zig. So does package.bash, to see what
+##		SOURCE_DATE_EPOCH it hands on.
 ##	Syntax:
 ##		pipeline-test.bash
 ##	History: At bottom.
@@ -696,6 +697,77 @@ fi
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## An empty or non-numeric SOURCE_DATE_EPOCH, which clang refuses when Zig
+## builds its own libunwind and libc into a cold global cache. A real cold build
+## takes minutes, so these check the value never reaches zig.
+
+## Each value as "<value>|<what zig should see>|<1 if a note is wanted>".
+epochCases=("|unset|0" "  |unset|0" "soon|unset|1" "1700000000|1700000000|0")
+
+fId ErmER3z "cicd.bash drops an empty or non-numeric SOURCE_DATE_EPOCH before running zig"
+epochBad=""
+if ! fLoad fDropBadEpoch; then
+	epochBad=" no fDropBadEpoch in cicd.bash;"
+else
+	[[ "$(sed -n '/^fPreflight(){/,/^}/p' "${cicd}")" == *fFindZig*fDropBadEpoch* ]] || epochBad+=" fPreflight does not call it after fFindZig;"
+	for epochCase in "${epochCases[@]}"; do
+		IFS='|' read -r epochIn epochWant epochNote <<< "${epochCase}"
+		out="$(
+			# shellcheck disable=2329  ## Called by the lifted fDropBadEpoch.
+			fEcho_Clean(){ printf '%s\n' "$*"; }
+			export SOURCE_DATE_EPOCH="${epochIn}"
+			fDropBadEpoch
+			printf 'seen=%s\n' "$(bash -c 'printf %s "${SOURCE_DATE_EPOCH-unset}"')"
+		)"
+		[[ "${out}" == *"seen=${epochWant}" ]] || epochBad+=" '${epochIn}' reached zig as '${out##*seen=}';"
+		if [[ "${epochNote}" == "1" && "${out}" != *"not a number"* ]]; then epochBad+=" '${epochIn}' gave no note;"; fi
+		if [[ "${epochNote}" == "0" && "${out}" == *"not a number"* ]]; then epochBad+=" '${epochIn}' got a note;"; fi
+	done
+fi
+if [[ -z "${epochBad}" ]]
+	then fPass
+	else fFail "${epochBad}"
+fi
+
+## package.bash in a scratch tree, with a stand-in zig that records what it was
+## handed and fails, so nothing is built.
+pkgTree="${work}/pkg"
+mkdir -p "${pkgTree}/cicd/utility" "${work}/pkgbin"
+cp "${utilityDir}/package.bash" "${pkgTree}/cicd/utility/"
+for wasmtimeSub in wasmtime wasmtime-{x86_64,aarch64}-{linux,macos,freebsd}; do
+	mkdir -p "${pkgTree}/zig/vendor/${wasmtimeSub}/lib"
+	: > "${pkgTree}/zig/vendor/${wasmtimeSub}/lib/libwasmtime.a"
+done
+cat > "${work}/pkgbin/zig" <<'EOF'
+#!/usr/bin/env bash
+printf '%s' "${SOURCE_DATE_EPOCH-unset}" > "${PKG_ZIG_SEEN}"
+exit 1
+EOF
+chmod +x "${work}/pkgbin/zig"
+
+fId ErmER40 "package.bash drops an empty or non-numeric SOURCE_DATE_EPOCH before running zig"
+epochBad=""
+for epochCase in "${epochCases[@]}"; do
+	IFS='|' read -r epochIn epochWant epochNote <<< "${epochCase}"
+	seenFile="${work}/pkg-seen"
+	rm -f "${seenFile}"
+	out="$(PATH="${work}/pkgbin:${PATH}" PKG_ZIG_SEEN="${seenFile}" SOURCE_DATE_EPOCH="${epochIn}" \
+		bash "${pkgTree}/cicd/utility/package.bash" --out "${work}/pkg-out" 2>&1 < /dev/null)" || true
+	if [[ ! -f "${seenFile}" ]]; then
+		epochBad+=" '${epochIn}' never reached zig: '${out:0:200}';"
+		continue
+	fi
+	[[ "$(< "${seenFile}")" == "${epochWant}" ]] || epochBad+=" '${epochIn}' reached zig as '$(< "${seenFile}")';"
+	if [[ "${epochNote}" == "1" && "${out}" != *"not a number"* ]]; then epochBad+=" '${epochIn}' gave no note;"; fi
+	if [[ "${epochNote}" == "0" && "${out}" == *"not a number"* ]]; then epochBad+=" '${epochIn}' got a note;"; fi
+done
+if [[ -z "${epochBad}" ]]
+	then fPass
+	else fFail "${epochBad}"
+fi
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The Zig fuzz stage's report, with a stand-in zig. The fuzz tests are this
 ## repo's own, so a renamed one is followed rather than hard-coded here.
 
@@ -797,6 +869,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261004 JC: SOURCE_DATE_EPOCH kept from zig.
 ##		- 20261004 JC: The download table in the release notes.
 ##		- 20261004 JC: test-ids.py and the Zig fuzz report.
 ##		- 20261003 JC: Publishing.

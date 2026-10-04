@@ -568,6 +568,7 @@ fPreflight(){
 	if ((doZig)); then
 		fFindZig "${minVer_Zig}"
 		fEcho_Clean "Zig ........: $(zig version) ($(readlink -f "$(command -v zig)"))"
+		fDropBadEpoch
 	fi
 
 	[[ -f "${repoRoot}/testdata/vectors.tsv" ]] || fThrowError "Missing the shared test vectors: 'testdata/vectors.tsv'."  "${FUNCNAME[0]}"
@@ -1324,8 +1325,10 @@ fStage_Zig_BuildStamp(){
 	fTestPass
 
 	fId Eq9nb3o "the build number survives an empty SOURCE_DATE_EPOCH"
-	## Its own cache, since translate-c and clang choke on the empty value, and
-	## a cached translation or object never runs them.
+	## Its own cache, since translate-c chokes on the empty value, and a cached
+	## translation never runs it. The global cache stays warm: clang refuses the
+	## value too, in Zig's own libunwind and libc builds, which no build.zig can
+	## reach. fDropBadEpoch keeps it from them.
 	(
 		cd "${zigDir}" || exit 1
 		SOURCE_DATE_EPOCH="" zig build "-j${buildJobs}" --cache-dir "${stampDir}/cache" --prefix "${stampDir}" || exit 1
@@ -2603,6 +2606,21 @@ fFindZig(){  ## minimum version
 	_scratchDirs+=("${linkDir}")
 	ln -s "$(readlink -f "${found}")" "${linkDir}/zig"
 	export PATH="${linkDir}:${PATH}"
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Zig 0.17 hands SOURCE_DATE_EPOCH to clang when it builds its own libunwind
+## and libc into a cold global cache, and clang refuses anything but a number,
+## empty included. build.zig cannot clear it for that process, so it goes here.
+## build.zig then takes the commit date, as it would for an empty one.
+## package.bash does the same.
+fDropBadEpoch(){
+	if [[ -z "${SOURCE_DATE_EPOCH+set}" ]] || [[ "${SOURCE_DATE_EPOCH}" =~ ^[0-9]+$ ]]; then return 0; fi
+	if [[ -n "${SOURCE_DATE_EPOCH//[[:space:]]/}" ]]; then
+		fEcho_Clean "Epoch ......: SOURCE_DATE_EPOCH '${SOURCE_DATE_EPOCH}' is not a number; ignored, so the build number comes from the commit date"
+	fi
+	unset SOURCE_DATE_EPOCH
 }
 
 

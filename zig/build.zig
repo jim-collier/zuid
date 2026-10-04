@@ -230,7 +230,10 @@ fn buildEpoch(b: *std.Build) i64 {
         }
         // translate-c reads it too, and refuses anything but a number. A warm
         // cache hid that. Zig 0.17 runs the steps in another process, which
-        // this does not reach, so translateHeader drops it for its own.
+        // this does not reach, so translateHeader drops it for its own. Clang
+        // refuses it the same way when Zig builds its own libunwind and libc
+        // into a cold global cache, and nothing here reaches that, so the
+        // scripts in cicd/ drop it before running zig.
         _ = b.graph.environ_map.swapRemove("SOURCE_DATE_EPOCH");
     }
 

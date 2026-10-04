@@ -224,7 +224,7 @@ cicd/cicd.bash --cross              # add the Go cross-compile checks
 cicd/cicd.bash -m "message"         # commit too, refusing on main and dev
 ~~~
 
-Underneath it is just `cd go && go build ./...` and `cd zig && zig build`. The Zig half needs `cicd/cicd.bash` to have run at least once first, since that is what populates `zig/vendor/`.
+Underneath it is just `cd go && go build ./...` and `cd zig && zig build`. The Zig half needs `cicd/cicd.bash` to have run at least once first, since that is what populates `zig/vendor/`. Zig refuses an empty or non-numeric `SOURCE_DATE_EPOCH` the first time it builds its own C libraries, so unset it rather than leave it empty. `cicd/cicd.bash` drops one like that by itself.
 
 Both sides have to reproduce every row of `testdata/vectors.tsv` before anything merges. That file is the specification in executable form, so a change to the identifier format means regenerating it and re-running both.
 
