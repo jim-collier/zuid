@@ -40,6 +40,34 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ## Issues
 
+- A build with `SOURCE_DATE_EPOCH` empty fails when Zig's global cache is cold.
+	- ID: 2026100415475381
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20261004-154753
+	- Opened by: JC
+	- Related IDs: 2026100318410002, 2026100313583935, 2026093018112445
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- In `zig/`: `SOURCE_DATE_EPOCH= ZIG_GLOBAL_CACHE_DIR=<new dir> zig build --cache-dir <new dir>`, with Zig 0.17.0.
+	- Incorrect behavior [Bug]: The build fails. Zig's own libunwind build passes the empty value to clang, which refuses it.
+	- Expected behavior [Bug]: The build finishes and takes the commit date, as it does with a warm global cache.
+	- Reproduced [Bug]: Yes, 20261004 on Linux, on `main` and on branch `machang`.
+	- Possible cause [Bug]: Since 0.17, `build.zig` cannot clear the variable for the compile steps, only for Run steps. `Eq9nb3o` misses it, since it gives the build a fresh local cache but keeps the warm global one.
+	- Actual cause [Bug]: Upstream behavior, not this repo. Zig 0.17.0 runs clang with its own environment when it builds libunwind and libc into the global cache, and clang refuses an empty or non-numeric value. A cached copy never runs clang, and the value is not part of the cache key. zuid has no C sources of its own, so these are the only places clang runs.
+	- Progress log:
+		- 20261004: Reproduced on Linux: the build failed on `UnwindRegistersSave.S` and `UnwindRegistersRestore.S`, plus clang notes from the C files with no file name. With nothing set, the same cold build took 2 min 28 s. An empty program linking libc and libunwind fails the same way, in 4 s.
+		- 20261004: Read in 0.17.0's `src/Compilation.zig`: `evalZigLlvmProcess` spawns `zig clang` with no environment of its own, and the Maker spawns compile steps with its own environment too. Outside Debug, Zig passes `-Werror=date-time`, so the value cannot change those libraries.
+		- 20261004: No report found on Codeberg or the old GitHub tracker. Draft, not filed: "Zig's own libunwind and libc builds fail with an empty SOURCE_DATE_EPOCH on a cold global cache. `SOURCE_DATE_EPOCH= zig build-exe a.zig -lc -lunwind` with a new `ZIG_GLOBAL_CACHE_DIR` fails with clang's 'must be a non-negative decimal integer' error; with a warm cache it works. Whether a build passes depends on cache state. The variable is not in those libraries' cache keys, and `-Werror=date-time` keeps it from changing them outside Debug. Suggest not passing it to these sub-builds, or dropping an invalid one."
+		- 20261004: `Eq9nb3o` stays on the warm global cache. A direct `zig build` with the value empty fails cold whatever this repo does, so a cold `Eq9nb3o` could never pass. A cold run through the scripts would add about 2.5 min, mostly rebuilding Zig's build runner; Zig's own libc, libunwind and compiler_rt take about 8 s of that.
+	- Actual fix [Bug]: `cicd.bash`, in preflight, and `package.bash` drop an empty or non-numeric value before running zig, with a note for a non-numeric one, the same as `build.zig` treats it. The README says to unset it for a plain `zig build`.
+	- Verified: a full `cicd.bash --no-dogfood --no-backup -q` run with the value empty and a new global cache passed, in 6 min 13 s. The same in a clone of `main`, with `--only zig --quick`, failed in the first Zig build with clang's error.
+	- Swept: every `zig` call in `cicd.bash` runs after preflight; `package.bash` is the other script that runs zig, and the harnesses run only stand-in zigs. `install.bash` and `install.ps1` do not build.
+	- Branch: emptyepoch
+	- Commit: e8f7545
+	- Test case: new `ErmER3z` and `ErmER40` in `pipeline-test.bash` check that `cicd.bash` and `package.bash` keep an empty, blank or non-numeric value from zig, and keep a number. Both failed on the old scripts and pass now.
+
 - FreeBSD x86_64 release.
 	- ID: 2026100413383571
 	- Type: Enhancement
@@ -176,34 +204,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Decisions:
 		- Not a reason to hold the FreeBSD release, since zuid cannot cause or fix a kernel fault. Reopen if it comes back.
 	- Branch: freebsd
-
-- A build with `SOURCE_DATE_EPOCH` empty fails when Zig's global cache is cold.
-	- ID: 2026100415475381
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Priority|Severity [Bug]: Avg
-	- Opened: 20261004-154753
-	- Opened by: JC
-	- Related IDs: 2026100318410002, 2026100313583935, 2026093018112445
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- In `zig/`: `SOURCE_DATE_EPOCH= ZIG_GLOBAL_CACHE_DIR=<new dir> zig build --cache-dir <new dir>`, with Zig 0.17.0.
-	- Incorrect behavior [Bug]: The build fails. Zig's own libunwind build passes the empty value to clang, which refuses it.
-	- Expected behavior [Bug]: The build finishes and takes the commit date, as it does with a warm global cache.
-	- Reproduced [Bug]: Yes, 20261004 on Linux, on `main` and on branch `machang`.
-	- Possible cause [Bug]: Since 0.17, `build.zig` cannot clear the variable for the compile steps, only for Run steps. `Eq9nb3o` misses it, since it gives the build a fresh local cache but keeps the warm global one.
-	- Actual cause [Bug]: Upstream behavior, not this repo. Zig 0.17.0 runs clang with its own environment when it builds libunwind and libc into the global cache, and clang refuses an empty or non-numeric value. A cached copy never runs clang, and the value is not part of the cache key. zuid has no C sources of its own, so these are the only places clang runs.
-	- Progress log:
-		- 20261004: Reproduced on Linux: the build failed on `UnwindRegistersSave.S` and `UnwindRegistersRestore.S`, plus clang notes from the C files with no file name. With nothing set, the same cold build took 2 min 28 s. An empty program linking libc and libunwind fails the same way, in 4 s.
-		- 20261004: Read in 0.17.0's `src/Compilation.zig`: `evalZigLlvmProcess` spawns `zig clang` with no environment of its own, and the Maker spawns compile steps with its own environment too. Outside Debug, Zig passes `-Werror=date-time`, so the value cannot change those libraries.
-		- 20261004: No report found on Codeberg or the old GitHub tracker. Draft, not filed: "Zig's own libunwind and libc builds fail with an empty SOURCE_DATE_EPOCH on a cold global cache. `SOURCE_DATE_EPOCH= zig build-exe a.zig -lc -lunwind` with a new `ZIG_GLOBAL_CACHE_DIR` fails with clang's 'must be a non-negative decimal integer' error; with a warm cache it works. Whether a build passes depends on cache state. The variable is not in those libraries' cache keys, and `-Werror=date-time` keeps it from changing them outside Debug. Suggest not passing it to these sub-builds, or dropping an invalid one."
-		- 20261004: `Eq9nb3o` stays on the warm global cache. A direct `zig build` with the value empty fails cold whatever this repo does, so a cold `Eq9nb3o` could never pass. A cold run through the scripts would add about 2.5 min, mostly rebuilding Zig's build runner; Zig's own libc, libunwind and compiler_rt take about 8 s of that.
-	- Actual fix [Bug]: `cicd.bash`, in preflight, and `package.bash` drop an empty or non-numeric value before running zig, with a note for a non-numeric one, the same as `build.zig` treats it. The README says to unset it for a plain `zig build`.
-	- Verified: a full `cicd.bash --no-dogfood --no-backup -q` run with the value empty and a new global cache passed, in 6 min 13 s. The same in a clone of `main`, with `--only zig --quick`, failed in the first Zig build with clang's error.
-	- Swept: every `zig` call in `cicd.bash` runs after preflight; `package.bash` is the other script that runs zig, and the harnesses run only stand-in zigs. `install.bash` and `install.ps1` do not build.
-	- Branch: emptyepoch
-	- Commit: e8f7545
-	- Test case: new `ErmER3z` and `ErmER40` in `pipeline-test.bash` check that `cicd.bash` and `package.bash` keep an empty, blank or non-numeric value from zig, and keep a number. Both failed on the old scripts and pass now.
 
 - Update vmFreeBSD's kernel and every package, then retry the panic.
 	- ID: 2026100415162238
