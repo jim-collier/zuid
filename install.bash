@@ -54,12 +54,11 @@ case "${release}" in stable|dev) ;; *) fDie "--release wants stable or dev, got 
 ## Where things go. A user install needs no privileges and is the default when
 ## the system directories are not writable.
 
+## Linux and macOS only. There is no BSD build, since Wasmtime publishes none.
 case "$(uname -s)" in
-	Linux)   systemDir="/opt/${PROG}";        systemLink="/usr/local/bin/${PROG}"; userDir="${HOME}/.local/share/${PROG}" ;;
-	FreeBSD|OpenBSD|NetBSD)
-	         systemDir="/usr/local/${PROG}";  systemLink="/usr/local/bin/${PROG}"; userDir="${HOME}/.local/share/${PROG}" ;;
-	Darwin)  systemDir="/opt/${PROG}";        systemLink="/usr/local/bin/${PROG}"; userDir="${HOME}/Library/Application Support/${PROG}" ;;
-	*) fDie "unsupported system: $(uname -s). On Windows use install.ps1." ;;
+	Linux)   osLabel="linux";  systemDir="/opt/${PROG}"; systemLink="/usr/local/bin/${PROG}"; userDir="${HOME}/.local/share/${PROG}" ;;
+	Darwin)  osLabel="darwin"; systemDir="/opt/${PROG}"; systemLink="/usr/local/bin/${PROG}"; userDir="${HOME}/Library/Application Support/${PROG}" ;;
+	*) fDie "no ${PROG} build exists for $(uname -s). On Windows use install.ps1; elsewhere, build from source - see the README." ;;
 esac
 userLink="${HOME}/.local/bin/${PROG}"
 
@@ -144,11 +143,6 @@ if [[ -z "${arch}" ]]; then
 	esac
 fi
 
-case "$(uname -s)" in
-	Linux)  osLabel="linux"   ;;
-	Darwin) osLabel="darwin"  ;;
-	*)      osLabel="freebsd" ;;
-esac
 ## The macOS release is one universal build, for either architecture.
 if [[ "${osLabel}" == "darwin" ]]; then arch="universal"; fi
 
@@ -283,6 +277,7 @@ printf '\n'
 
 
 ##	History:
+##		- 20261003 JC: No BSD build, so a system other than Linux or macOS is refused by name.
 ##		- 20261003 JC: macOS fetches the universal build.
 ##		- 20260805 JC: Pick the release from the full list; fall back to a prerelease.
 ##		- 20260804 JC: Created.

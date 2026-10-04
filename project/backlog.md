@@ -40,6 +40,30 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ## Issues
 
+- Drop BSD from the installer and the docs.
+	- ID: 2026100315241091
+	- Type: Task
+	- Status: Waiting on signoff
+	- Opened: 20261003-152410
+	- Opened by: JC
+	- Target OS: BSD
+	- Requirements  [Feature]:
+		- `install.bash` stops treating any other system as FreeBSD, and says the platform has no build.
+		- README drops BSD from the platform list and the install table.
+		- `package.bash` stops listing BSD among the builds still to come.
+	- Progress log:
+		- 20261003: `install.bash` refuses any system other than Linux or macOS, naming it and saying no build exists for it. It used to call any such system FreeBSD and go looking for that tarball.
+		- 20261003: `install.ps1` had the same gap: anything not Windows or macOS got the Linux build. It now refuses those the same way.
+		- 20261003: README, `package.bash` and an `env.zig` comment drop BSD.
+		- Verified: the new test failed on the old `install.bash` and passes on the new one. `installer-test.bash` passed in full, both installers, and `cicd.bash --quick --no-backup` passed. Shellcheck is clean.
+		- Swept: README, design.md, contributing.md, changelog.md, `install.ps1`, `cicd/` and `installer-test.bash`. Left alone: "BSD wc" in `cli-test.bash` and "BSD sed" in `installer-test.bash`, which are about the macOS tools; the closed item that listed BSD in the installer; the platform decision under Old format. `cicd.bash`'s `--cross` list has no BSD entry.
+	- Decisions:
+		- No BSD target. Wasmtime publishes no BSD build, so there is nothing to embed.
+	- Branch: nobsd
+	- Commit: f835fe0
+	- Test case: Ergbz3Z, Ergbz3a in `installer-test.bash`, with a stand-in `uname` reporting FreeBSD. The `install.ps1` refusal has no test, since pwsh's `$IsLinux` cannot be faked from outside.
+	- Acceptance signoff: README text changed.
+
 - Move the Zig side to 0.17.0.
 	- ID: 2026100313583935
 	- Type: Task
@@ -67,20 +91,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Branch: zig017
 	- Commit: 161affa
 	- Test case: the existing suites, with no new test. `Eq9nb3o`, the empty `SOURCE_DATE_EPOCH` build, failed on the first port and passes now.
-
-- Drop BSD from the installer and the docs.
-	- ID: 2026100315241091
-	- Type: Task
-	- Status: Queued
-	- Opened: 20261003-152410
-	- Opened by: JC
-	- Target OS: BSD
-	- Requirements  [Feature]:
-		- `install.bash` stops treating any other system as FreeBSD, and says the platform has no build.
-		- README drops BSD from the platform list and the install table.
-		- `package.bash` stops listing BSD among the builds still to come.
-	- Decisions:
-		- No BSD target. Wasmtime publishes no BSD build, so there is nothing to embed.
 
 - When a shcl upgrade breaks compatibility with the application config file(s).
 	- ID: 2026100313105246

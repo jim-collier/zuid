@@ -145,13 +145,13 @@ Preferred. `v1.0.0-alpha.1` is published for x86_64 Linux; on any other platform
 
 The `.deb` and `.rpm` install the command. The C module - the header, the static and shared libraries, and the Wasmtime archive the static one needs - comes in the `.tgz`.
 
-Windows, macOS, BSD, and ARM builds are not produced yet. The command embeds a WebAssembly runtime, and one is vendored per platform; the rest follow once those are in place.
+Windows, macOS, and ARM builds are not produced yet. The command embeds a WebAssembly runtime, and one is vendored per platform; the rest follow once those are in place.
 
 ### Direct install script
 
 Both scripts download the latest release, check it against the published checksums, say what they are about to do, and ask before touching anything. Re-running one is a no-op when nothing changed, and `--uninstall` reverses it.
 
-Linux, BSD, macOS, and WSL:
+Linux, macOS, and WSL:
 
 ~~~bash
 bash <(curl -fsSL https://raw.githubusercontent.com/jim-collier/zuid/main/install.bash)  [--release stable|dev]  [--target user|system]  [--arch x86_64|arm64]
@@ -168,7 +168,6 @@ Where things go:
 | OS | System install | Command | User install | Command |
 | :-- | :-- | :-- | :-- | :-- |
 | Linux | `/opt/zuid/` | `/usr/local/bin/zuid` | `~/.local/share/zuid/` | `~/.local/bin/zuid` |
-| BSD | `/usr/local/zuid/` | `/usr/local/bin/zuid` | `~/.local/share/zuid/` | `~/.local/bin/zuid` |
 | macOS | `/opt/zuid/` | `/usr/local/bin/zuid` | `~/Library/Application Support/zuid/` | `~/.local/bin/zuid` |
 | Windows | `C:\Program Files\zuid\` | add the `bin` folder to `%PATH%` | `%LOCALAPPDATA%\Programs\zuid\` | add the `bin` folder to `%PATH%` |
 

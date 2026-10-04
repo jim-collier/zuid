@@ -293,7 +293,7 @@ fi
 ## What is deliberately not built here yet, so a missing artifact reads as a
 ## known gap rather than a silent one.
 
-fWarn "windows, BSD, and Linux cross-architecture builds need a Wasmtime archive vendored per target; not built"
+fWarn "windows and Linux cross-architecture builds need a Wasmtime archive vendored per target; not built"
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
