@@ -36,10 +36,12 @@ fConfig(){ :;
 
 	## Vendored Wasmtime C API, pinned. Fetched into zig/vendor/ when absent.
 	## One checksum per platform, as <arch>-<os>=<sha256>, in Wasmtime's own names.
-	## A Mac vendors both macOS ones, since its release is universal.
+	## A Mac vendors both macOS ones, since its release is universal. Linux
+	## vendors both Linux ones under --package, which releases both.
 	default_wasmtimeVer="v47.0.3"
 	default_wasmtimeSha256s=(
 		"x86_64-linux=aaa3621f2a3d8393696702897f8f78a1cc504437d500701496d560125aefd732"
+		"aarch64-linux=c1ef99bb4ef0151282f339e22a67f8229d9ab336f9a17387e65f140b79c45be1"
 		"x86_64-macos=627622087b77b92c163e826ec6ebf834a70d78735828043edf7ace263f8a9e62"
 		"aarch64-macos=1854c8f03a764c89afe77fa88d9092ab89a368e527cd27a12959b1d91152324e"
 	)
@@ -909,7 +911,8 @@ fStage_Zig_Vendor(){
 	## Wasmtime C API, pinned and checksummed per platform. The host's goes in
 	## vendor/wasmtime. A Mac also gets the other macOS one beside it, as
 	## vendor/wasmtime-<platform>, for the second slice of its universal release.
-	## build.zig and package.bash look for it there.
+	## Linux gets the other Linux one there under --package, since it releases
+	## both architectures. build.zig and package.bash look for it there.
 	local hostOs="" hostArch=""
 	case "$(uname -s)" in
 		Linux)  hostOs="linux" ;;
@@ -921,12 +924,14 @@ fStage_Zig_Vendor(){
 	if [[ "${hostArch}" == "arm64" ]]; then hostArch="aarch64"; fi
 	local -r hostPlatform="${hostArch}-${hostOs}"
 	fVendor_Wasmtime "${hostPlatform}" "${vendorDir}/wasmtime"
-	if [[ "${hostOs}" == "macos" ]]; then
-		local platform=""
-		for platform in x86_64-macos aarch64-macos; do
-			if [[ "${platform}" != "${hostPlatform}" ]]; then fVendor_Wasmtime "${platform}" "${vendorDir}/wasmtime-${platform}"; fi
-		done
+	local -a releasePlatforms=()
+	if   [[ "${hostOs}" == "macos" ]];                  then releasePlatforms=(x86_64-macos aarch64-macos)
+	elif [[ "${hostOs}" == "linux" ]] && ((doPackage)); then releasePlatforms=(x86_64-linux aarch64-linux)
 	fi
+	local platform=""
+	for platform in "${releasePlatforms[@]}"; do
+		if [[ "${platform}" != "${hostPlatform}" ]]; then fVendor_Wasmtime "${platform}" "${vendorDir}/wasmtime-${platform}"; fi
+	done
 
 	## The reactor wasm module, built from the same convertbase release go.mod
 	## pins. Building it here rather than copying a prebuilt artifact is what
@@ -1478,10 +1483,10 @@ fStage_Package(){
 	"${packager}" --out "${repoRoot}/dist"
 
 	## The release has to run on machines older than this one. These check that
-	## it did not pick up this one's CPU, glibc or macOS version.
-	local osLabel="linux" archLabel=""
-	archLabel="$(uname -m)"
-	if [[ "${archLabel}" == "aarch64" ]]; then archLabel="arm64"; fi
+	## it did not pick up this one's CPU, glibc or macOS version. Linux makes an
+	## x86_64 and an arm64 release on any host; the x86_64 one is checked here
+	## first, and the arm64 one by its own IDs below.
+	local osLabel="linux" archLabel="x86_64"
 	if [[ "$(uname -s)" == "Darwin" ]]; then osLabel="darwin"; archLabel="universal"; fi
 	local -r release="${repoRoot}/dist/zuid-${osLabel}-${archLabel}"
 	local -i haveObjdump=0
@@ -1519,10 +1524,10 @@ fStage_Package(){
 	fi
 
 	fId ErbFB7B "the release uses no AVX in code built here"
-	if [[ "${archLabel}" == "arm64" ]]; then
-		fTestSkip "x86_64 only"
-	elif ((! haveObjdump)); then
+	if ((! haveObjdump)); then
 		fTestSkip "no objdump"
+	elif [[ "${osLabel}" == "linux" && "$(uname -m)" != "x86_64" && "$(objdump --help 2>/dev/null || true)" != *elf64-x86-64* ]]; then
+		fTestSkip "no objdump that reads x86_64"
 	else
 		local avxTarget="${release}"
 		if [[ "${osLabel}" == "darwin" ]]; then
@@ -1563,6 +1568,8 @@ fStage_Package(){
 		fi
 		fTestPass
 	fi
+
+	fStage_Package_Arm64 "${thinDir}" "${glibcFloor}"
 
 	local -r macFloor="13.0"
 	fId ErbFB7D "the release asks for macOS ${macFloor}"
@@ -1612,6 +1619,149 @@ fStage_Package(){
 	fi
 
 	rm -rf "${thinDir}"
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The Linux arm64 release, cross-built beside the x86_64 one. Nothing here can
+## run it, so these check what it is, what it asks of the machine, and that the
+## C module in its tarball links. Running it is left to an arm64 machine.
+fStage_Package_Arm64(){  ## scratch dir, glibc floor
+
+	local -r scratchDir="$1" glibcFloor="$2"
+	local -r armRelease="${repoRoot}/dist/zuid-linux-arm64"
+	local -r armTree="${scratchDir}/arm64"
+	local -i isLinux=0 haveReadelf=0 haveObjdump=0
+	if [[ "$(uname -s)" == "Linux" ]];          then isLinux=1;     fi
+	if command -v readelf >/dev/null 2>&1;      then haveReadelf=1; fi
+	if command -v objdump >/dev/null 2>&1;      then haveObjdump=1; fi
+
+	## The tarball's own top directory carries the version, so find it rather
+	## than rebuild its name.
+	local armLib=""
+	if ((isLinux)) && [[ -f "${armRelease}.tgz" ]]; then
+		mkdir -p "${armTree}"
+		tar -xzf "${armRelease}.tgz" -C "${armTree}"
+		armLib="$(find "${armTree}" -mindepth 2 -maxdepth 2 -type d -name lib -print -quit)"
+	fi
+
+	fId ErgjCkT "the Linux arm64 release is an arm64 build, with its tarball and packages"
+	if ((! isLinux)); then
+		fTestSkip "Linux only"
+	elif ((! haveReadelf)); then
+		fTestSkip "no readelf"
+	else
+		[[ -n "${armLib}" ]] || fTestFail "there is no lib/ in ${armRelease}.tgz."
+		local -a armFiles=("${armRelease}" "${armLib}/../bin/zuid" "${armLib}/libzuid.a" "${armLib}/libwasmtime.a")
+		armFiles+=("$(find "${armLib}" -maxdepth 1 -type f -name 'libzuid.so.*' -print -quit)")
+		local armFile="" machines=""
+		for armFile in "${armFiles[@]}"; do
+			[[ -f "${armFile}" ]] || fTestFail "${armFile:-the shared library} is missing."
+		done
+		machines="$(readelf -h "${armFiles[@]}" | awk '$1 == "Machine:" { $1 = ""; print substr($0, 2) }' | sort -u)"
+		if [[ "${machines}" != "AArch64" ]]; then
+			fTestFail "the binaries and libraries are for '${machines//$'\n'/, }'."
+		fi
+		## nfpm names each package with that format's word for the architecture.
+		if command -v nfpm >/dev/null 2>&1; then
+			local deb="" rpm=""
+			deb="$(find "${repoRoot}/dist" -maxdepth 1 -name 'zuid_*_arm64.deb' -print -quit)"
+			rpm="$(find "${repoRoot}/dist" -maxdepth 1 -name 'zuid-*.aarch64.rpm' -print -quit)"
+			[[ -n "${deb}" && -n "${rpm}" ]] || fTestFail "the arm64 .deb or .rpm is missing from dist/."
+			if command -v dpkg-deb >/dev/null 2>&1 && [[ "$(dpkg-deb -f "${deb}" Architecture)" != "arm64" ]]; then
+				fTestFail "$(basename "${deb}") says its architecture is '$(dpkg-deb -f "${deb}" Architecture)'."
+			fi
+			if command -v rpm >/dev/null 2>&1 && [[ "$(rpm -qp --qf '%{ARCH}' "${rpm}" 2>/dev/null)" != "aarch64" ]]; then
+				fTestFail "$(basename "${rpm}") says its architecture is '$(rpm -qp --qf '%{ARCH}' "${rpm}" 2>/dev/null)'."
+			fi
+		fi
+		fTestPass
+	fi
+
+	## The arm64 twin of the AVX check. Zig's baseline for arm64 Linux is plain
+	## armv8-a, so code built here must use nothing a later extension added. The
+	## pointer-authentication instructions that sit in the hint space are allowed,
+	## since an older CPU runs them as no-ops. Rust and C++ are left out for the
+	## same reason as before, and so are the __aarch64_ atomics helpers, which ask
+	## the CPU before they use LSE.
+	local armObjdump="" candidate=""
+	for candidate in llvm-objdump llvm-objdump-21 llvm-objdump-20 llvm-objdump-19 llvm-objdump-18 llvm-objdump-17 llvm-objdump-16; do
+		if command -v "${candidate}" >/dev/null 2>&1; then armObjdump="${candidate}"; break; fi
+	done
+	if [[ -z "${armObjdump}" ]] && ((haveObjdump)) && [[ "$(objdump --help 2>/dev/null || true)" == *elf64-littleaarch64* ]]; then
+		armObjdump="objdump"
+	fi
+	fId ErgjCkU "the Linux arm64 release uses nothing past armv8-a in code built here"
+	if ((! isLinux)); then
+		fTestSkip "Linux only"
+	elif [[ -z "${armObjdump}" ]]; then
+		fTestSkip "no objdump that reads arm64"
+	else
+		[[ -f "${armRelease}" ]] || fTestFail "there is no ${armRelease}."
+		local armScan=""
+		armScan="$("${armObjdump}" -d --no-show-raw-insn "${armRelease}" | awk '
+			/^[0-9a-f]+ <.*>:$/ { fn = $2; gsub(/^<|>:$/, "", fn); skip = (fn ~ /^_?_(ZN|R[0-9]*[BCIMNXY])/ || fn ~ /^__aarch64_/); next }
+			skip || (fn in seen) || NF < 2 { next }
+			$2 ~ /^(cas|ld(add|clr|eor|set|[su]max|[su]min)|st(add|clr|eor|set|[su]max|[su]min)|swp|crc32|[su]dot|usdot|sudot|sqrdml|ldap|stlur|aes|sha1|sha256|sha512|sm3|sm4|eor3|bcax|rax1|xar|fjcvtzs|fcmla|fcadd|frint(32|64)|reta[ab]|bra[ab]|blra[ab]|ldra[ab]|eret[ab]|pac[id][ab]$|aut[id][ab]$|pacga|xpac[id]$|irg|stg|st2g|stzg|ldg|cfinv|rmif|setf|axflag|xaflag|ld64b|st64b|wfet|wfit|bf(cvt|dot|mmla|mlal)|[su]mmla|usmmla)/ || $0 ~ /[[:space:]][zp][0-9]+(\.[bhsdq])?[,[:space:]]/ {
+				seen[fn] = 1; if (++count <= 3) names = names " " fn " (" $2 ")"
+			}
+			END { print count + 0 names }
+		')"
+		if [[ "${armScan%% *}" != "0" ]]; then
+			fTestFail "${armScan%% *} functions use instructions past armv8-a, such as ${armScan#* }. package.bash has to name a target."
+		fi
+		fTestPass
+	fi
+
+	## readelf, not objdump: GNU objdump on another architecture may not read it.
+	fId ErgjCkV "the Linux arm64 release needs glibc ${glibcFloor} at most"
+	if ((! isLinux)); then
+		fTestSkip "Linux only"
+	elif ((! haveReadelf)); then
+		fTestSkip "no readelf"
+	else
+		[[ -f "${armRelease}" ]] || fTestFail "there is no ${armRelease}."
+		local glibcNewest=""
+		glibcNewest="$(readelf -W --dyn-syms "${armRelease}" | grep -o 'GLIBC_[0-9.]*' | sort -u -V | tail -n 1 || true)"
+		glibcNewest="${glibcNewest#GLIBC_}"
+		if [[ -z "${glibcNewest}" ]]; then
+			fTestFail "found no glibc symbol versions in ${armRelease}."
+		fi
+		if [[ "$(printf '%s\n' "${glibcNewest}" "${glibcFloor}" | sort -V | tail -n 1)" != "${glibcFloor}" ]]; then
+			fTestFail "it needs glibc ${glibcNewest}."
+		fi
+		fTestPass
+	fi
+
+	## Link only, against what the tarball ships: there is no arm64 machine here
+	## to run the result. zig cc stands in for an arm64 compiler, so it needs
+	## -lunwind where gcc would bring libgcc.
+	local -r smokeSrc="${zigDir}/lib/test/capi_smoke.c"
+	local -ra armCc=(zig cc -target "aarch64-linux-gnu.${glibcFloor}")
+	local -a links=(
+		"ErgjCkW:static:-Wl,-Bstatic -lzuid -lwasmtime -Wl,-Bdynamic -lunwind -lpthread -ldl -lm"
+		"ErgjCkX:shared:-lzuid"
+	)
+	local link="" linkId="" linkKind="" linkMachine=""
+	local -a linkFlags=()
+	for link in "${links[@]}"; do
+		linkId="${link%%:*}"; link="${link#*:}"; linkKind="${link%%:*}"
+		read -r -a linkFlags <<< "${link#*:}"
+		fId "${linkId}" "capi_smoke.c links for Linux arm64 against the tarball's ${linkKind} library"
+		if ((! isLinux)); then
+			fTestSkip "Linux only"
+			continue
+		fi
+		[[ -n "${armLib}" ]] || fTestFail "there is no lib/ in ${armRelease}.tgz."
+		"${armCc[@]}" -I "${armLib}/../include" "${smokeSrc}" -L "${armLib}" "${linkFlags[@]}" \
+			-o "${scratchDir}/smoke-arm64-${linkKind}" || fTestFail "did not link."
+		if ((haveReadelf)); then
+			linkMachine="$(readelf -h "${scratchDir}/smoke-arm64-${linkKind}" | awk '$1 == "Machine:" { print $2 }')"
+			[[ "${linkMachine}" == "AArch64" ]] || fTestFail "it linked for '${linkMachine}'."
+		fi
+		fTestPass
+	done
 
 }
 

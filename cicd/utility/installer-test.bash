@@ -103,6 +103,8 @@ case "$(uname -s)" in
 	Darwin) hostAsset="${PROG}-darwin-universal.tgz"; userShare="Library/Application Support/${PROG}" ;;
 	*)      hostAsset="${PROG}-linux-${hostAsset}";   userShare=".local/share/${PROG}" ;;
 esac
+## What an arm64 Linux host fetches, which a stand-in uname can ask for anywhere.
+armAsset="${PROG}-linux-arm64.tgz"
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -153,26 +155,38 @@ cat > "${apiDir}/releases" <<'JSON'
 JSON
 
 ## A stand-in for the real command: enough of --version for the installers'
-## re-run check to have something to read.
+## re-run check to have something to read. Run bare, it names the asset it came
+## in, so a case can tell which one was installed.
+fWriteStandIn(){  ## tag, asset, path
+	local -r tag="$1" asset="$2" path="$3"
+	{
+		printf '#!/usr/bin/env bash\n'
+		# shellcheck disable=2016  ## The single quotes are the point: this is the text of the stand-in, not something to expand here.
+		printf 'case "${1:-}" in --version) printf "%%s (build test)\\n" "%s" ;; *) printf "stand-in %%s\\n" "%s" ;; esac\n' \
+			"${tag#v}" "${asset}"
+	} > "${path}"
+	chmod +x "${path}"
+}
+
 fMakeRelease(){
 	local -r tag="$1"
 	local -r stageDir="${work}/stage-${tag}"
 	local -r outDir="${dlRoot}/${tag}"
+	local -r standIn="${stageDir}/${PROG}-${tag}/bin/${PROG}"
 	mkdir -p "${stageDir}/${PROG}-${tag}/bin" "${outDir}"
-	{
-		printf '#!/usr/bin/env bash\n'
-		# shellcheck disable=2016  ## The single quotes are the point: this is the text of the stand-in, not something to expand here.
-		printf 'case "${1:-}" in --version) printf "%%s (build test)\\n" "%s" ;; *) printf "stand-in %s\\n" "%s" ;; esac\n' \
-			"${tag#v}" "${PROG}" "${tag}"
-	} > "${stageDir}/${PROG}-${tag}/bin/${PROG}"
-	chmod +x "${stageDir}/${PROG}-${tag}/bin/${PROG}"
 
+	fWriteStandIn "${tag}" "${hostAsset}" "${standIn}"
 	tar -czf "${outDir}/${hostAsset}" -C "${stageDir}" "${PROG}-${tag}"
 	( cd "${outDir}" && sha256sum "${hostAsset}" > checksums.txt )
 	## A zip for the Windows path, so a run there has something to fetch too.
 	if command -v zip >/dev/null 2>&1; then
 		( cd "${stageDir}" && zip -qr "${outDir}/${PROG}-windows-x86_64.zip" "${PROG}-${tag}" )
 		( cd "${outDir}" && sha256sum "${PROG}-windows-x86_64.zip" >> checksums.txt )
+	fi
+	if [[ "${armAsset}" != "${hostAsset}" ]]; then
+		fWriteStandIn "${tag}" "${armAsset}" "${standIn}"
+		tar -czf "${outDir}/${armAsset}" -C "${stageDir}" "${PROG}-${tag}"
+		( cd "${outDir}" && sha256sum "${armAsset}" >> checksums.txt )
 	fi
 }
 fMakeRelease "v2.1.0-beta.1"
@@ -781,6 +795,37 @@ SH
 	fi
 }
 
+## An arm64 Linux machine says aarch64, not arm64, and the release is named
+## arm64. A stand-in uname reports one, so this runs on any host.
+fCase_Arm64Linux(){
+	local out="" home="" got=""
+	local -r fakeDir="${work}/fake-uname-arm64"
+	mkdir -p "${fakeDir}"
+	{
+		printf '#!/usr/bin/env bash\n'
+		printf 'realUname=%q\n' "$(command -v uname)"
+		cat <<'SH'
+case "${1:-}" in -s) echo Linux ;; -m) echo aarch64 ;; *) exec "${realUname}" "$@" ;; esac
+SH
+	} > "${fakeDir}/uname"
+	chmod +x "${fakeDir}/uname"
+	home="$(fNewHome "arm64-linux")"
+	: > "${work}/requests.log"
+	out="$(HOME="${home}" PATH="${fakeDir}:${PATH}" bash "${bashCopy}" --target user --yes 2>&1)" || true
+	got="$(fInstalledVersion "${home}")"
+
+	fId ErgjCkY "bash: an aarch64 Linux machine fetches the arm64 tarball"
+	if grep -q "/${armAsset}\$" "${work}/requests.log" && ! grep -q '\.tgz$' <(grep -v "/${armAsset}\$" "${work}/requests.log")
+		then fPass
+		else fFail "asked for: $(grep '\.tgz$' "${work}/requests.log" | tr '\n' ' '). Output: ${out}"
+	fi
+	fId ErgjCkZ "bash: and installs it"
+	if [[ "${got}" == "2.0.0" && "$("${home}/.local/bin/${PROG}" 2>&1 || true)" == *"${armAsset}"* ]]
+		then fPass
+		else fFail "should install v2.0.0 from ${armAsset}, got ${got}: $("${home}/.local/bin/${PROG}" 2>&1 || true). Output: ${out}"
+	fi
+}
+
 ## A zuid at the link path that the installer did not put there. The README
 ## tells a source build that a full cicd run copies one to ~/.local/bin, so this
 ## is a real collision, and uninstall used to delete it.
@@ -837,6 +882,7 @@ if [[ "${only}" != "ps1" ]]; then
 	fCase_Rerun "bash" "fRunBash"
 	fCase_MissingValue
 	fCase_NoBuild
+	fCase_Arm64Linux
 	fCase_ForeignLink "bash" "fRunBash"
 fi
 
@@ -870,6 +916,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261003 JC: An aarch64 Linux machine fetches the arm64 tarball.
 ##		- 20261003 JC: A system with no build is refused by name.
 ##		- 20260930 JC: Test IDs. A listing with only a prerelease in it, a bad checksum, no answer.
 ##		- 20260917 JC: Cover --target system, against a scratch /opt and /usr/local.
