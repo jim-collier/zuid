@@ -242,7 +242,8 @@ fn buildEpoch(b: *std.Build) i64 {
 /// Where the target's Wasmtime C API is vendored. vendor/wasmtime is the build
 /// machine's own. Any other target's sits beside it under Wasmtime's name for
 /// the platform, such as vendor/wasmtime-aarch64-macos, the second slice of a
-/// macOS universal build. package.bash picks the same way.
+/// macOS universal build, or vendor/wasmtime-aarch64-linux for the arm64 Linux
+/// release. package.bash picks the same way.
 fn wasmtimeDir(b: *std.Build, target: std.Build.ResolvedTarget) []const u8 {
     const host = b.graph.host.result;
     const t = target.result;
@@ -250,7 +251,7 @@ fn wasmtimeDir(b: *std.Build, target: std.Build.ResolvedTarget) []const u8 {
     const dir = b.fmt("vendor/wasmtime-{s}-{s}", .{ @tagName(t.cpu.arch), @tagName(t.os.tag) });
     // Otherwise the first error is a missing header, which says nothing about why.
     b.root.access(b.graph.io, b.fmt("{s}/lib/libwasmtime.a", .{dir}), .{}) catch
-        std.process.fatal("no Wasmtime for {s}-{s} in {s}. cicd/cicd.bash vendors one on a Mac for the other macOS slice; for anything else, add its pin there first.", .{ @tagName(t.cpu.arch), @tagName(t.os.tag), dir });
+        std.process.fatal("no Wasmtime for {s}-{s} in {s}. cicd/cicd.bash vendors one for the other macOS slice on a Mac, and for the other Linux architecture with --package; for anything else, add its pin there first.", .{ @tagName(t.cpu.arch), @tagName(t.os.tag), dir });
     return dir;
 }
 

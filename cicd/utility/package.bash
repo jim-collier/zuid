@@ -9,11 +9,13 @@
 ##		    - the bare CLI binary (grab-and-run)
 ##		    - .deb and .rpm, via nfpm
 ##		    - checksums.txt over everything
-##		- Only the host platform, for now: Linux or macOS. The Zig side embeds a
-##		  Wasmtime static archive, and one is vendored per platform; until the
-##		  other platforms' archives are vendored there is nothing to link
-##		  against. The Go module cross-compiles fine, but it is a module - there
-##		  is no binary to release.
+##		- Only the host system, for now: Linux or macOS. The Zig side embeds a
+##		  Wasmtime static archive, and one is vendored per platform; until
+##		  Windows has one there is nothing to link against. The Go module
+##		  cross-compiles fine, but it is a module - there is no binary to
+##		  release.
+##		- On Linux, one release each for x86_64 and arm64, whichever the host
+##		  is. cicd.bash --package vendors the other one's Wasmtime archive.
 ##		- On a Mac everything is universal, x86_64 and arm64 merged by lipo.
 ##		  cicd.bash vendors the second Wasmtime archive that needs.
 ##		- Builds with the zig on PATH. cicd.bash --package puts the Zig it
@@ -65,26 +67,34 @@ esac; done
 ## read as "sorts before the final release".
 plainver="${VERSION#v}"
 
-## The label users see. amd64 is spelled x86_64 because "AMD64" reads as a
-## processor brand to anyone who has not met the convention.
+## Only to tell which Wasmtime archive is the build machine's own.
 hostArch="$(uname -m)"
 case "${hostArch}" in
-	x86_64)          goArch="amd64"; label="x86_64"; zigArch="x86_64"  ;;
-	aarch64|arm64)   goArch="arm64"; label="arm64";  zigArch="aarch64" ;;
+	x86_64)          zigArch="x86_64"  ;;
+	aarch64|arm64)   zigArch="aarch64" ;;
 	*) echo "unsupported architecture: ${hostArch}" >&2; exit 2 ;;
 esac
 
 ## With no target named, Zig builds for this machine: its CPU's newest
 ## instructions, its glibc, its macOS version. A release has to run on older
-## ones. Naming a target also gives that target's baseline CPU, which for arm64
-## macOS is the M1, the oldest there is. 2.28 and 13.0 are what cicd.bash checks
-## the result against; 13.0 is as far back as Zig goes.
-## A Mac builds one slice per architecture and merges them, whichever it is.
+## ones. Naming a target also gives that target's baseline CPU: plain armv8-a
+## for arm64 Linux, and the M1 for arm64 macOS, the oldest there is. 2.28 and
+## 13.0 are what cicd.bash checks the result against; 13.0 is as far back as Zig
+## goes.
+## Linux makes one release per architecture. A Mac builds one slice per
+## architecture and merges them into one release, whichever it is.
+mergeSlices=0
 case "$(uname -s)" in
-	Linux)  osLabel="linux";  hostOs="linux"; zigTargets=("${zigArch}-linux-gnu.2.28") ;;
-	Darwin) osLabel="darwin"; hostOs="macos"; zigTargets=("x86_64-macos.13.0" "aarch64-macos.13.0"); label="universal" ;;
+	Linux)  osLabel="linux";  hostOs="linux"; zigTargets=("x86_64-linux-gnu.2.28" "aarch64-linux-gnu.2.28") ;;
+	Darwin) osLabel="darwin"; hostOs="macos"; zigTargets=("x86_64-macos.13.0" "aarch64-macos.13.0"); mergeSlices=1 ;;
 	*) echo "unsupported system: $(uname -s)" >&2; exit 2 ;;
 esac
+
+## The label users see, and nfpm's name for the architecture. amd64 is spelled
+## x86_64 because "AMD64" reads as a processor brand to anyone who has not met
+## the convention. nfpm turns arm64 into aarch64 for the rpm itself.
+fArchLabel(){ case "$1" in aarch64*) echo "arm64" ;; *) echo "x86_64" ;; esac ;}
+fGoArch(){    case "$1" in arm64) echo "arm64" ;; *) echo "amd64" ;; esac ;}
 
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
@@ -184,15 +194,17 @@ fWasmtimeArchive(){  ## zig target
 ## objects only, and the release used to carry no wasmtime at all, which left
 ## that link line with nothing to satisfy it.
 lipo=""
-if ((${#zigTargets[@]} > 1)); then
+if ((mergeSlices)); then
 	lipo="$(command -v lipo || true)"
 	[[ -n "${lipo}" ]] || fDie "lipo not found. It comes with Xcode's command line tools."
 fi
+## Every slice is built before anything is staged, so a build that fails leaves
+## the last good run's artifacts alone.
 slices=()
 for zigTarget in "${zigTargets[@]}"; do
 	slice="${work}/slice-${zigTarget%%-*}"
 	wasmtimeArchive="$(fWasmtimeArchive "${zigTarget}")"
-	[[ -f "${wasmtimeArchive}" ]] || fDie "missing ${wasmtimeArchive}. Run cicd.bash first; it vendors Wasmtime."
+	[[ -f "${wasmtimeArchive}" ]] || fDie "missing ${wasmtimeArchive}. Run cicd.bash --package first; it vendors Wasmtime."
 	( cd "${root}/zig" && zig build -Doptimize=ReleaseSafe -Dtarget="${zigTarget}" --prefix "${slice}" )
 	cp "${wasmtimeArchive}" "${slice}/lib/"
 	fNormalizeArchive "${slice}/lib/libzuid.a"
@@ -202,42 +214,48 @@ done
 ## The build worked, so there is something to publish. Safe to clear now.
 fClaimOutDir
 
-stage="${work}/${PKG}-${VERSION}"
-mkdir -p "${stage}/bin" "${stage}/lib" "${stage}/include" "${stage}/share"
-
 ## Two or more slices are merged file by file. Symlinks come from the first, and
 ## everything else is one file holding every slice. -P, because the shared
 ## library carries an soname: lib/ holds libzuid.so and libzuid.so.1 as symlinks
 ## onto libzuid.so.1.0.0, and a plain cp would follow them and put three 28 MB
 ## copies in the tarball.
-fMergeSlices(){  ## subdir
-	local -r sub="$1"
-	local item="" name="" slice=""
-	local -a parts=()
-	for item in "${slices[0]}/${sub}/"*; do
+fMergeSlices(){  ## stage, subdir, slice...
+	local -r stage="$1" sub="$2"; shift 2
+	local -ra parts=("$@")
+	local item="" name="" part=""
+	local -a files=()
+	for item in "${parts[0]}/${sub}/"*; do
 		name="$(basename "${item}")"
-		if [[ -L "${item}" ]] || ((${#slices[@]} == 1)); then
+		if [[ -L "${item}" ]] || ((${#parts[@]} == 1)); then
 			cp -P "${item}" "${stage}/${sub}/"
 			continue
 		fi
-		parts=()
-		for slice in "${slices[@]}"; do parts+=("${slice}/${sub}/${name}"); done
-		"${lipo}" -create "${parts[@]}" -output "${stage}/${sub}/${name}"
+		files=()
+		for part in "${parts[@]}"; do files+=("${part}/${sub}/${name}"); done
+		"${lipo}" -create "${files[@]}" -output "${stage}/${sub}/${name}"
 	done
 }
-fMergeSlices bin
-fMergeSlices lib
 
-cp "${slices[0]}/include/zuid.h"           "${stage}/include/"
-cp "${root}/license.md"                    "${stage}/share/"
-cp "${root}/zig/cmd/LICENSE.txt"           "${stage}/share/"
-cp "${root}/zig/lib/LICENSE.txt"           "${stage}/share/LICENSE-module.txt"
-cp "${root}/zig/lib/NOTICE.txt"            "${stage}/share/"
-cp "${root}/README.md"                     "${stage}/share/"
+## One release: the tarball, the bare binary and, on Linux, the packages.
+fRelease(){  ## label, slice...
+	local -r label="$1"; shift
+	local -r stage="${work}/release-${label}/${PKG}-${VERSION}"
+	mkdir -p "${stage}/bin" "${stage}/lib" "${stage}/include" "${stage}/share"
+	fMergeSlices "${stage}" bin "$@"
+	fMergeSlices "${stage}" lib "$@"
 
-tar -C "${work}" -czf "${OUT}/${PKG}-${osLabel}-${label}.tgz" "$(basename "${stage}")"
-cp "${stage}/bin/${EXE}" "${OUT}/${PKG}-${osLabel}-${label}"
-fEcho "built ${osLabel}/${label}"
+	cp "$1/include/zuid.h"                     "${stage}/include/"
+	cp "${root}/license.md"                    "${stage}/share/"
+	cp "${root}/zig/cmd/LICENSE.txt"           "${stage}/share/"
+	cp "${root}/zig/lib/LICENSE.txt"           "${stage}/share/LICENSE-module.txt"
+	cp "${root}/zig/lib/NOTICE.txt"            "${stage}/share/"
+	cp "${root}/README.md"                     "${stage}/share/"
+
+	tar -C "$(dirname "${stage}")" -czf "${OUT}/${PKG}-${osLabel}-${label}.tgz" "$(basename "${stage}")"
+	cp "${stage}/bin/${EXE}" "${OUT}/${PKG}-${osLabel}-${label}"
+	fEcho "built ${osLabel}/${label}"
+	if [[ "${osLabel}" == "linux" ]]; then fLinuxPackages "${stage}" "${label}"; fi
+}
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -251,11 +269,19 @@ fEcho "built ${osLabel}/${label}"
 ## shared library in the right per-distro lib directory and ldconfig run after
 ## it, is a separate job.
 
-if [[ "${osLabel}" == "linux" ]] && command -v nfpm >/dev/null 2>&1; then
-	cfg="${work}/nfpm.yaml"
+haveNfpm=0
+if command -v nfpm >/dev/null 2>&1; then haveNfpm=1; fi
+if [[ "${osLabel}" == "linux" ]] && ((! haveNfpm)); then
+	fWarn "nfpm missing; skipping .deb/.rpm - go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest"
+fi
+
+fLinuxPackages(){  ## stage, label
+	local -r stage="$1" label="$2"
+	((haveNfpm)) || return 0
+	local -r cfg="${work}/nfpm-${label}.yaml"
 	cat >"${cfg}" <<-EOF
 		name: ${PKG}
-		arch: ${goArch}
+		arch: $(fGoArch "${label}")
 		version: ${plainver}
 		maintainer: ${MAINTAINER}
 		description: |
@@ -277,6 +303,7 @@ if [[ "${osLabel}" == "linux" ]] && command -v nfpm >/dev/null 2>&1; then
 		    dst: /usr/share/licenses/${PKG}/LICENSE.txt
 		    packager: rpm
 	EOF
+	local fmt=""
 	for fmt in deb rpm; do
 		if nfpm package --config "${cfg}" --packager "${fmt}" --target "${OUT}/" >/dev/null 2>&1; then
 			fEcho "built .${fmt} (${label})"
@@ -284,8 +311,14 @@ if [[ "${osLabel}" == "linux" ]] && command -v nfpm >/dev/null 2>&1; then
 			fWarn "nfpm ${fmt} failed (${label})"
 		fi
 	done
-elif [[ "${osLabel}" == "linux" ]]; then
-	fWarn "nfpm missing; skipping .deb/.rpm - go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest"
+}
+
+if ((mergeSlices)); then
+	fRelease "universal" "${slices[@]}"
+else
+	for slice in "${slices[@]}"; do
+		fRelease "$(fArchLabel "${slice##*/slice-}")" "${slice}"
+	done
 fi
 
 
@@ -293,7 +326,7 @@ fi
 ## What is deliberately not built here yet, so a missing artifact reads as a
 ## known gap rather than a silent one.
 
-fWarn "windows and Linux cross-architecture builds need a Wasmtime archive vendored per target; not built"
+fWarn "windows needs a Wasmtime archive vendored and a Windows-capable env.zig; not built"
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -327,6 +360,7 @@ fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "
 
 
 ##	History:
+##		- 20261003 JC: Linux arm64, cross-built beside x86_64 on any Linux host.
 ##		- 20261003 JC: Zig 0.17.0.
 ##		- 20261003 JC: Universal on a Mac: an x86_64 and an arm64 slice, merged by lipo.
 ##		- 20261002 JC: Build for a named target: baseline CPU, glibc 2.28, macOS 13.0. macOS host.

@@ -92,6 +92,46 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Commit: 161affa
 	- Test case: the existing suites, with no new test. `Eq9nb3o`, the empty `SOURCE_DATE_EPOCH` build, failed on the first port and passes now.
 
+- Linux arm64 release, cross-built on the Linux build machine.
+	- ID: 2026100317515523
+	- Type: Enhancement
+	- Status: Waiting for testing
+	- Needs local test suite run?: No. The `--package` and `--cross` runs pass.
+	- Needs external testing: on `vmDebARM64`, from a `--package` run's `dist/`:
+		- Run `zuid-linux-arm64`, and build and run `capi_smoke.c` with the VM's gcc against the arm64 tarball's static and shared libraries.
+		- Install the arm64 `.deb`.
+		- Run both installers against a local release. `install.ps1` needs pwsh on the VM first.
+	- Opened: 20261003-175155
+	- Opened by: JC
+	- Related IDs: 2026100315241096, 2026100313105241
+	- Target OS: Linux, arm64
+	- Requirements  [Feature]:
+		- A Linux arm64 tarball, bare binary, `.deb` and `.rpm` beside the x86_64 ones, with the same layout.
+		- It runs on a plain armv8-a CPU with glibc 2.28.
+		- Both installers fetch it on an arm64 Linux machine.
+	- Progress log:
+		- 20261003: The arm64 Wasmtime pin is the sha256 of the v47.0.3 release asset, downloaded and hashed. It matches the digest GitHub lists for that asset.
+		- 20261003: On Linux, `package.bash` builds both architectures whatever the host is, and makes one release for each. The pipeline fetches the other architecture's Wasmtime only for `--package`.
+		- 20261003: The new assets are `zuid-linux-arm64`, its `.tgz`, `zuid_<version>_arm64.deb` and `zuid-<version>.aarch64.rpm`.
+		- 20261003: Both installers already picked the arm64 asset on an `aarch64` machine. No change there.
+		- 20261003: README is unchanged. It lists what is published, and nothing arm64 is yet.
+		- 20261003: `package.bash` now stages each release in a function, so the Mac path changed shape too. It still makes one universal release. The b26 run 2026100313583935 waits on covers it.
+		- 20261003: On an arm64 Linux host the AVX check skips when its objdump cannot read x86_64, as it used to skip there.
+	- Decisions:
+		- Cross-built on the x86_64 Linux build machine, since Zig cross-compiles Linux with nothing extra installed.
+		- Every `--package` run on Linux builds both. There is no separate switch.
+		- The arm64 baseline is plain armv8-a, which Zig picks once the target is named. The check allows the pointer authentication instructions an older CPU runs as no-ops.
+		- All three are open to change.
+	- Verified:
+		- `cicd/cicd.bash --package --no-dogfood --no-backup -q` passes. It fetched and checked the arm64 Wasmtime itself and wrote all eight assets.
+		- `cicd/cicd.bash --cross --no-dogfood --no-backup -q` passes.
+		- The arm64 tarball lists the same files as the x86_64 one. The `.deb` says arm64 and the `.rpm` says aarch64.
+		- `capi_smoke.c` links for arm64 against the tarball's static and shared libraries. Not run, since nothing here runs arm64 code.
+	- Swept: every `uname -m` use, asset name and `vendor/wasmtime` path in `cicd/`, `build.zig`, both installers and `installer-test.bash`. The x86_64 release checks now read the x86_64 release on any Linux host.
+	- Branch: arm64
+	- Commit: 9631a0b
+	- Test case: `ErgjCkT` to `ErgjCkX` under `--package` on Linux: arch of every file and package, no instructions past armv8-a, glibc 2.28, and the two links. Each failed on a release broken for it: an x86_64 binary or `.deb` under the arm64 name, a build for a newer CPU, a build for glibc 2.39, an empty `libzuid.a`, and a shared library with no `zuid_*`. `ErgjCkY` and `ErgjCkZ` in `installer-test.bash`, with a stand-in `uname` reporting `aarch64`, failed with `install.bash` picking x86_64. `install.ps1` has no test, since pwsh's architecture cannot be faked from outside.
+
 - When a shcl upgrade breaks compatibility with the application config file(s).
 	- ID: 2026100313105246
 	- Type: Feature
@@ -389,6 +429,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Decision: 20261003, the targets are Linux x86_64 and arm64 on glibc, macOS universal, and Windows x86_64 and arm64. No BSD. Others such as armv7, riscv64, musl and Android are out for now.
 	- Decision: 20261003, a Windows package is a `.zip`, installed by `install.ps1`.
 	- Decision: 20261003, Linux arm64 is tested on the `vmDebARM64` virtual machine, not only built.
+	- Note: 20261003, Linux arm64 is built and checked, and waits on testing on `vmDebARM64`. See 2026100317515523.
 	- Opened: 20260802-025417
 
 - 🔘 Publishing. `--publish` stays rejected with a reason until there is somewhere to publish to.
@@ -415,6 +456,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - 🔘 C module cross targets, cross-compiled with `zig cc`. Needs a vendored Wasmtime archive per target, the same blocker as packaging for other platforms.
 	- Note: `build.zig` takes a non-host target's Wasmtime from `vendor/wasmtime-<platform>`, as the macOS universal build does, 20261003. Another target needs its pin and a fetch.
 	- Decision: 20261003, the same targets as packaging for other platforms.
+	- Note: 20261003, Linux arm64 is built and checked, and waits on testing on `vmDebARM64`. See 2026100317515523.
 	- Opened: 20260801-090104
 
 ### Done
