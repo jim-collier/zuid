@@ -9,6 +9,8 @@
 ##		built or logged. The helpers are lifted out of the script by name and run
 ##		against a scratch repo. So are the publish preflight and stage, against
 ##		scratch repos pushing to a local bare remote, with gh stubbed out.
+##		test-ids.py runs against a scratch tree, and the Zig fuzz stage's
+##		report against a stand-in zig.
 ##	Syntax:
 ##		pipeline-test.bash
 ##	History: At bottom.
@@ -438,6 +440,167 @@ if ((rc == 0)) && ((${#stableArgs[@]})) && [[ " ${stableArgs[*]} " != *" --prere
 	else fFail "exited ${rc}, gh got '${stableArgs[*]:0:6}', said '${out: -160}'"
 fi
 
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## test-ids.py, against a scratch tree laid out like this one. The fixture IDs
+## are made at run time, since any written into this file would be read as
+## real ones.
+
+## Through cicd's path, since the publish cases set a repoRoot of their own.
+utilityDir="${cicd%/*}/utility"
+idsTree="${work}/ids"
+mkdir -p "${idsTree}/cicd/utility" "${idsTree}/zig/lib/src"
+cp "${utilityDir}/test-ids.py" "${idsTree}/cicd/utility/"
+mapfile -t fixtureIds < <(python3 "${idsTree}/cicd/utility/test-ids.py" new -n 4)
+
+fIdsTree(){  ## cicd.bash body, extra Zig text
+	printf '%s\n' "$1" > "${idsTree}/cicd/cicd.bash"
+	{
+		printf '// test-id: %s\ntest "a fuzz test" {\n    try std.testing.fuzz({}, f, .{});\n}\n\n' "${fixtureIds[0]}"
+		printf '// test-id: %s\ntest "a plain test" {\n    try std.testing.expect(true);\n}\n' "${fixtureIds[1]}"
+		printf '%s\n' "${2:-}"
+	} > "${idsTree}/zig/lib/src/x.zig"
+}
+fIdsCheck(){ PYTHONDONTWRITEBYTECODE=1 python3 "${idsTree}/cicd/utility/test-ids.py" check 2>&1 ;}
+
+fId ErkRrmk "test-ids.py check passes a tree where every ID belongs to a test"
+fIdsTree "fId ${fixtureIds[2]} \"a check\""
+out="$(fIdsCheck)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == *"3 tests, all unique"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+## The two arm64 link checks kept their IDs in an array, so the check never saw
+## them and would have let a duplicate through.
+fId ErkRrml "test-ids.py check refuses an ID that no test line names"
+fIdsTree "fId ${fixtureIds[2]} \"a check\""$'\n'"links=(\"${fixtureIds[3]}:static\")"
+out="$(fIdsCheck)" && rc=0 || rc=$?
+if ((rc != 0)) && [[ "${out}" == *"'${fixtureIds[3]}' looks like a test ID"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+fId ErkRrmm "test-ids.py check refuses a test-id mark that is above no test"
+fIdsTree "fId ${fixtureIds[2]} \"a check\"" "// test-id: ${fixtureIds[3]}"$'\n'"fn helper() void {}"
+out="$(fIdsCheck)" && rc=0 || rc=$?
+if ((rc != 0)) && [[ "${out}" == *"'${fixtureIds[3]}' is not directly above a test"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+fId ErkRrmn "test-ids.py check lets a retired test stay in a comment"
+fIdsTree "fId ${fixtureIds[2]} \"a check\""$'\n'"# fWantRefusal ${fixtureIds[3]} \"retired\""
+out="$(fIdsCheck)" && rc=0 || rc=$?
+if ((rc == 0))
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+fId ErkRrmo "test-ids.py fuzzers lists only the Zig tests that fuzz"
+fIdsTree "fId ${fixtureIds[2]} \"a check\""
+out="$(PYTHONDONTWRITEBYTECODE=1 python3 "${idsTree}/cicd/utility/test-ids.py" fuzzers 2>&1)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == "${fixtureIds[0]}"$'\t'"a fuzz test" ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The Zig fuzz stage's report, with a stand-in zig. The fuzz tests are this
+## repo's own, so a renamed one is followed rather than hard-coded here.
+
+mapfile -t fuzzList < <(PYTHONDONTWRITEBYTECODE=1 python3 "${utilityDir}/test-ids.py" fuzzers)
+fuzzBin="${work}/fuzzbin"
+mkdir -p "${fuzzBin}"
+## A find names the test, as Zig 0.17.0 words it, and leaves the input in the cache.
+cat > "${fuzzBin}/zig" <<'EOF'
+#!/usr/bin/env bash
+case "${FAKE_FUZZ}" in
+	clean) echo "======= FUZZING REPORT ======="; exit 0 ;;
+	broken) echo "error: the build broke"; exit 1 ;;
+	find)
+		mkdir -p .zig-cache/f; printf 'Q\001' > .zig-cache/f/crash
+		echo "error: test 'tests.test.${FAKE_FUZZ_TEST}' terminated with signal ABRT; input saved to '.zig-cache/f/crash'"
+		exit 1 ;;
+esac
+EOF
+chmod +x "${fuzzBin}/zig"
+
+fFuzzIn(){  ## mode, name of the test that finds
+	local -r dir="${work}/fuzz-$1"
+	mkdir -p "${dir}/zig" "${dir}/artifacts"
+	(
+		# shellcheck disable=2329  ## Called by the lifted fStage_Zig_Fuzz, not here.
+		fEcho(){ :; }
+		# shellcheck disable=2329
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2329
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2329,2154  ## testId and testName come from the lifted fId.
+		fTestPass(){ printf '  ok ....: %s %s\n' "${testId}" "${testName}"; }
+		# shellcheck disable=2329
+		fTestSkip(){ printf '  skip ..: %s %s (%s)\n' "${testId}" "${testName}" "$*"; }
+		# shellcheck disable=2329
+		fTestFail(){ printf '  FAIL ..: %s %s\n%s\n' "${testId}" "${testName}" "$*"; exit 1; }
+		local fn=""
+		for fn in fId fStage_Zig_Fuzz; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{
+			doQuick=0; zigDir="${dir}/zig"; buildJobs=1
+			_scratchDirs=(); artifactDir="${dir}/artifacts"; runStamp="pipeline-test"
+		}
+		export FAKE_FUZZ="$1" FAKE_FUZZ_TEST="${2:-}" PATH="${fuzzBin}:${PATH}"
+		fStage_Zig_Fuzz
+	) 2>&1
+}
+
+## Each fuzz test as "<id> <name>", the way a status line names it.
+fuzzLines=()
+for fuzzLine in "${fuzzList[@]}"; do fuzzLines+=("${fuzzLine%%$'\t'*} ${fuzzLine#*$'\t'}"); done
+
+fId ErkRrmp "a clean fuzz run prints an ok line for each fuzz test, under its own ID"
+out="$(fFuzzIn clean)" && rc=0 || rc=$?
+fuzzBad=""
+((${#fuzzLines[@]} >= 2)) || fuzzBad=" found ${#fuzzLines[@]} fuzz tests, wanted at least 2;"
+for fuzzLine in "${fuzzLines[@]}"; do
+	[[ "${out}" == *"  ok ....: ${fuzzLine}, fuzzed for "* ]] || fuzzBad+=" no ok line for '${fuzzLine}';"
+done
+if ((rc == 0)) && [[ -z "${fuzzBad}" ]]
+	then fPass
+	else fFail "exited ${rc},${fuzzBad} said '${out}'"
+fi
+
+## Before 20261004 the two shared one line, so a find could not say whose it was.
+fId ErkRrmq "a fuzz find fails the test that found it and keeps the input"
+out="" rc=0 fuzzBad=""
+if ((${#fuzzLines[@]} < 2)); then
+	fuzzBad=" found ${#fuzzLines[@]} fuzz tests, wanted at least 2;"
+else
+	out="$(fFuzzIn find "${fuzzList[1]#*$'\t'}")" || rc=$?
+	[[ "${out}" == *"  FAIL ..: ${fuzzLines[1]}, fuzzed for "* ]] || fuzzBad+=" no FAIL line for the finder;"
+	[[ "${out}" == *"  skip ..: ${fuzzLines[0]}, fuzzed for "* ]] || fuzzBad+=" no skip line for the other;"
+	[[ -s "${work}/fuzz-find/artifacts/fuzz/zig-crash_pipeline-test" ]] || fuzzBad+=" the input was not kept;"
+fi
+if ((rc != 0)) && [[ -z "${fuzzBad}" ]]
+	then fPass
+	else fFail "exited ${rc},${fuzzBad} said '${out}'"
+fi
+
+fId ErkRrmr "a fuzz run that breaks without a find fails every fuzz test"
+out="$(fFuzzIn broken)" && rc=0 || rc=$?
+fuzzBad=""
+((${#fuzzLines[@]} >= 2)) || fuzzBad=" found ${#fuzzLines[@]} fuzz tests, wanted at least 2;"
+for fuzzLine in "${fuzzLines[@]}"; do
+	[[ "${out}" == *"  FAIL ..: ${fuzzLine}, fuzzed for "* ]] || fuzzBad+=" no FAIL line for '${fuzzLine}';"
+done
+if ((rc != 0)) && [[ -z "${fuzzBad}" ]]
+	then fPass
+	else fFail "exited ${rc},${fuzzBad} said '${out}'"
+fi
+
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
 fLine ""
@@ -445,5 +608,6 @@ fLine ""
 
 
 ##	History:
+##		- 20261004 JC: test-ids.py and the Zig fuzz report.
 ##		- 20261003 JC: Publishing.
 ##		- 20260930 JC: Created.

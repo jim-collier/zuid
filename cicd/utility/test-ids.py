@@ -11,6 +11,7 @@
 ##		test-ids.py lookup NAME                  the ID of a Go or Zig test, by name
 ##		test-ids.py go  < 'go test -json'        one line per Go test, with its ID
 ##		test-ids.py zig < test runner stderr     one line per Zig test, with its ID
+##		test-ids.py fuzzers                      the Zig fuzz tests, as 'ID<tab>name'
 ##	History: At bottom of script.
 
 ##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
@@ -139,6 +140,57 @@ def fCmd_Decode(args):
 	return 0
 
 
+TOKEN_RE = re.compile(r"(?<![0-9A-Za-z])[0-9A-Za-z]{%d}(?![0-9A-Za-z])" % WIDTH)
+
+
+def fStrays(seen, ceiling):
+	"""IDs the scan above never reached, so nothing checked them. An ID kept in
+	an array went unchecked this way. A word needs a digit or a capital past its
+	first letter to count, or 'Element' would."""
+	problems = []
+	marked = {*fGoFiles(), *fZigFiles()}
+	for path in [*fGoFiles(), *fZigFiles(), *fBashFiles()]:
+		if not path.exists():
+			continue
+		for i, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
+			where = f"{path.relative_to(REPO)}:{i + 1}"
+			## Only Go and Zig use the comment. In bash it is just text.
+			for found in MARK_RE.finditer(line) if path in marked else ():
+				if found.group(1) not in seen:
+					problems.append(f"{where}: test-id '{found.group(1)}' is not directly above a test")
+			## A retired test left in a comment is not a test.
+			if line.lstrip().startswith(("#", "//")):
+				continue
+			for word in TOKEN_RE.findall(line):
+				if word in seen or not re.search(r"[0-9A-Z]", word[1:]):
+					continue
+				if FLOOR <= fDecode(word) <= ceiling:
+					problems.append(f"{where}: '{word}' looks like a test ID, but no test line names it. Use fId's keyed form.")
+	return problems
+
+
+def fZigFuzzTests():
+	"""The Zig tests that call std.testing.fuzz, as (id, name)."""
+	found = []
+	for path in fZigFiles():
+		lines = path.read_text(encoding="utf-8").splitlines()
+		for i, line in enumerate(lines):
+			m = ZIG_TEST_RE.match(line)
+			if not m:
+				continue
+			end = next((j for j in range(i + 1, len(lines)) if lines[j] == "}"), len(lines))
+			if any("std.testing.fuzz(" in body for body in lines[i + 1:end]):
+				found.append((fMarkAbove(lines, i), m.group(1)))
+	return found
+
+
+def fCmd_Fuzzers(_args):
+	tests = fZigFuzzTests()
+	for ident, name in tests:
+		print(f"{ident or '???????'}\t{name}")
+	return 0 if tests else 1
+
+
 def fCmd_Check(_args):
 	problems = []
 	seen = {}
@@ -158,6 +210,7 @@ def fCmd_Check(_args):
 			problems.append(f"{where}: '{ident}' is already used at {seen[ident]}")
 		else:
 			seen[ident] = where
+	problems += fStrays(seen, ceiling)
 	for line in problems:
 		print(f"  {line}")
 	if problems:
@@ -289,9 +342,10 @@ def main():
 	p = sub.add_parser("lookup"); p.add_argument("name")
 	sub.add_parser("go")
 	sub.add_parser("zig")
+	sub.add_parser("fuzzers")
 	args = ap.parse_args()
 	return {"new": fCmd_New, "decode": fCmd_Decode, "check": fCmd_Check, "lookup": fCmd_Lookup,
-		"go": fCmd_Go, "zig": fCmd_Zig}[args.cmd](args)
+		"go": fCmd_Go, "zig": fCmd_Zig, "fuzzers": fCmd_Fuzzers}[args.cmd](args)
 
 
 if __name__ == "__main__":
@@ -300,3 +354,4 @@ if __name__ == "__main__":
 
 ##	History:
 ##		- 20260930 JC: Created.
+##		- 20261004 JC: check also flags an ID no test line names. Added fuzzers.
