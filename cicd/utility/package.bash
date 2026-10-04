@@ -61,6 +61,17 @@ while (($#)); do case "$1" in
 	*) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
 esac; done
 
+## Zig 0.17 hands SOURCE_DATE_EPOCH to clang when it builds its own libunwind
+## and libc, and clang refuses anything but a number, empty included. Each
+## target is a cold cache the first time. build.zig takes the commit date
+## without it.
+if [[ -n "${SOURCE_DATE_EPOCH+set}" ]] && [[ ! "${SOURCE_DATE_EPOCH}" =~ ^[0-9]+$ ]]; then
+	if [[ -n "${SOURCE_DATE_EPOCH//[[:space:]]/}" ]]; then
+		fWarn "SOURCE_DATE_EPOCH '${SOURCE_DATE_EPOCH}' is not a number; ignored, so the build number comes from the commit date"
+	fi
+	unset SOURCE_DATE_EPOCH
+fi
+
 ## A relative --out is resolved against the caller's directory.
 [[ "${OUT}" = /* ]] || OUT="${PWD}/${OUT}"
 
