@@ -299,8 +299,8 @@ fn translateHeader(
     const source = run.addOutputFileArg(b.fmt("{s}.zig", .{std.fs.path.stem(header)}));
     run.setName(b.fmt("translate-c {s}", .{std.fs.path.basename(header)}));
     run.addArgs(&.{ b.graph.zig_exe, "translate-c", "-lc" });
-    // Its own cache, or it keeps one beside build.zig and a build given
-    // --cache-dir still gets a warm translation.
+    // The build's cache. Left alone it keeps one beside build.zig, and a
+    // build given --cache-dir still gets a warm translation.
     run.addArg("--cache-dir");
     run.addDirectoryArg(.cache_root);
     if (!target.query.isNative()) {

@@ -206,11 +206,13 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - The macOS build hangs on Zig 0.17.0.
 	- ID: 2026100318410002
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: No. A full `cicd.bash --no-dogfood --no-backup --cross -q` passed on Linux with the fix.
+	- Needs external testing: Yes. The full pipeline run on b26, batched with 2026100313583935 and the Zig fuzz item.
 	- Priority|Severity [Bug]: High
 	- Opened: 20261003-184100
 	- Opened by: JC
-	- Related IDs: 2026100313583935
+	- Related IDs: 2026100313583935, 2026100415475381
 	- Target OS: macOS
 	- Steps to reproduce [Bug]:
 		- On b26, run `cicd.bash` with Zig 0.17.0.
@@ -221,6 +223,33 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Possible cause [Bug]: Zig copies its output to stdout with `fcopyfile`, which fails on a pipe there, and Zig retries forever. The header step reads stdout through a pipe. No upstream report found.
 	- Progress log:
 		- 20261003: Untested idea: have the step write to its output file through `sh -c`, so Zig never writes to a pipe.
+		- 20261004: Reproduced again on b26: piped, a one-line header gave no output in 20 s; to a file it finished at once. `zig translate-c` has no output file option, so the step cannot just name one.
+		- 20261004: Not `sh -c`, since a native Windows build has no `sh`. A small Zig helper does the redirect on every host instead.
+		- 20261004: Found along the way: `Eq9nb3o` could not see the header step at all. The translator kept its own cache beside `build.zig`, so the test's fresh cache still got a warm translation. Fixed here, since the test pins what this step must keep.
+		- 20261004: Also found: a cold global cache fails the empty `SOURCE_DATE_EPOCH` build anyway, in Zig's own libunwind build. Same on `main`. Logged as 2026100415475381.
+	- Actual cause [Bug]: `zig translate-c` copies its cached result to stdout with `fcopyfile` on macOS. Read in Zig's source, not traced: an error that is not "unsupported" makes the copy report zero bytes, and the caller asks again forever. Linux takes another path.
+	- Actual fix [Bug]: The three header steps run `zig translate-c` through `zig/tools/to_file.zig`, which gives it a file for stdout. Still a Run step, so it still drops `SOURCE_DATE_EPOCH`. The translator now gets the build's cache directory too.
+	- Verified: on b26, a fresh-cache build finished in about 23 s, a fresh-cache build with `SOURCE_DATE_EPOCH` empty finished too, and all 30 Zig tests passed. That copy had no git history, so it had no build number to check. On Linux, the translated headers match `zig translate-c` byte for byte, the arm64 Linux and FreeBSD cross builds work, a no-op rebuild takes under a tenth of a second, and the full pipeline passes.
+	- Swept: `captureStdOut` and `addSystemCommand` in `build.zig`, and every `zig` call in the scripts. The header steps were the only place Zig wrote a file to a pipe. `cicd.bash`'s `zig fmt` check now covers `zig/tools`.
+	- Branch: machang
+	- Commit: 47c1134
+	- Test case: new `Erm4m6a` fails if `build.zig` captures a command's stdout. It fails on the old `build.zig` and passes now. A Linux build cannot hang, so the hang itself waits on the b26 run. `Eq9nb3o` now fails when the step stops dropping `SOURCE_DATE_EPOCH`; before the cache fix it passed either way.
+
+- A build with `SOURCE_DATE_EPOCH` empty fails when Zig's global cache is cold.
+	- ID: 2026100415475381
+	- Type: Bug
+	- Status: Queued
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20261004-154753
+	- Opened by: JC
+	- Related IDs: 2026100318410002, 2026100313583935
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- In `zig/`: `SOURCE_DATE_EPOCH= ZIG_GLOBAL_CACHE_DIR=<new dir> zig build --cache-dir <new dir>`, with Zig 0.17.0.
+	- Incorrect behavior [Bug]: The build fails. Zig's own libunwind build passes the empty value to clang, which refuses it.
+	- Expected behavior [Bug]: The build finishes and takes the commit date, as it does with a warm global cache.
+	- Reproduced [Bug]: Yes, 20261004 on Linux, on `main` and on branch `machang`.
+	- Possible cause [Bug]: Since 0.17, `build.zig` cannot clear the variable for the compile steps, only for Run steps. `Eq9nb3o` misses it, since it gives the build a fresh local cache but keeps the warm global one.
 
 - `cicd.bash` refuses to run in a git worktree.
 	- ID: 2026100318410007
