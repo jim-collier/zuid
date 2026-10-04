@@ -10,7 +10,7 @@
 ![Lifecycle: Alpha](https://img.shields.io/badge/Lifecycle-Alpha-orange)
 ![Support](https://img.shields.io/badge/Support-Maintained-brightgreen)
 ![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go&logoColor=white)
-![Zig](https://img.shields.io/badge/Zig-0.16%2B-F7A41D?logo=zig&logoColor=white)
+![Zig](https://img.shields.io/badge/Zig-0.17%2B-F7A41D?logo=zig&logoColor=white)
 
 </div>
 <!--
@@ -195,7 +195,7 @@ The module sits in a subdirectory, so pinning it to a release needs a `go/`-pref
 | Tool | Version | Needed for |
 | :-- | :-- | :-- |
 | Go | 1.24 or newer | the Go module, and building the WebAssembly module the Zig side embeds |
-| Zig | 0.16.0 | the command and the C module |
+| Zig | 0.17.0 | the command and the C module |
 | git, curl, tar, sha256sum | any | fetching and verifying the vendored runtime |
 | gcc or clang | any | checking that a foreign toolchain can use the C module |
 | shellcheck | any | linting the build script |
@@ -207,6 +207,8 @@ Optional, and each stage that wants one skips itself with a note when it is miss
 | nfpm | building `.deb` and `.rpm` packages |
 | python3 with pillow, gifsicle | rendering the demo animation |
 | perf, inferno | profiling the command |
+
+If the `zig` on PATH is older, `cicd/cicd.bash` takes the one named by `ZIG`, or a release unpacked as `~/.local/zig-<platform>-0.17.0`, and every stage uses that one.
 
 Nothing has to be installed system-wide beyond those. The WebAssembly runtime and the conversion module are fetched or built into `zig/vendor/`, which is not committed.
 

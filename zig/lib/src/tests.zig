@@ -74,6 +74,20 @@ const FixedEnv = struct {
     }
 };
 
+/// `text` n times over, as the array `**` gave before 0.17. Zero-terminated,
+/// so it passes straight to the C API.
+fn repeat(comptime text: []const u8, comptime n: usize) *const [text.len * n:0]u8 {
+    const repeated = struct {
+        const value: [text.len * n:0]u8 = blk: {
+            @setEvalBranchQuota(2 * n + 1000);
+            var buf: [text.len * n:0]u8 = undefined;
+            for (0..n) |i| @memcpy(buf[i * text.len ..][0..text.len], text);
+            break :blk buf;
+        };
+    };
+    return &repeated.value;
+}
+
 fn hexNibble(char: u8) !u8 {
     return switch (char) {
         '0'...'9' => char - '0',
@@ -193,7 +207,7 @@ test "error paths carry the module's error text" {
     // A name long enough that the module's message outgrows the error buffer.
     // Reading it used to fail, and the real code went with it, so the caller
     // saw a bare ConvertFailed for what is just a typo.
-    const long_name = "a" ** 1000;
+    const long_name = repeat("a", 1000);
     try std.testing.expectError(error.UnknownBase, core.generate(h.converter(), e, .{ .base = long_name, .clock_ms = 0 }, &out_buf));
     try std.testing.expect(h.lastError().len > 0);
     try std.testing.expect(std.unicode.utf8ValidateSlice(h.lastError()));
@@ -460,7 +474,7 @@ test "C surface end to end" {
     try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_salt(z, null));
     try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h", "62", &out, out.len));
     try std.testing.expectEqualStrings(unsalted, std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
-    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_set_salt(z, "s" ** (core.max_salt_bytes + 1)));
+    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_set_salt(z, repeat("s", core.max_salt_bytes + 1)));
 
     // Error text survives into the C string.
     try std.testing.expectEqual(@as(c_int, 1), capi.zuid_generate(z, "%d", "hexx", &out, out.len));
@@ -564,7 +578,7 @@ test "a salt moves the hashed names and leaves the rest alone" {
     try std.testing.expectEqualStrings("testhost", literal);
 
     // The ceiling is where the C module's fixed buffer stops.
-    const at_max = "s" ** core.max_salt_bytes;
+    const at_max = repeat("s", core.max_salt_bytes);
     _ = try core.generate(h.converter(), fixed.interface(), .{ .format = "%h", .salt = at_max, .clock_ms = 0 }, &salted_buf);
     const past_max = core.generate(h.converter(), fixed.interface(), .{ .format = "%h", .salt = at_max ++ "s", .clock_ms = 0 }, &salted_buf);
     try std.testing.expectError(core.Error.SaltTooLong, past_max);
@@ -621,7 +635,7 @@ test "a cached text verdict does not follow the base that earned it" {
     var fixed: FixedEnv = .{};
     var out_buf: [core.out_buf_len]u8 = undefined;
 
-    const long_name = "6" ** 100;
+    const long_name = repeat("6", 100);
     const cases = [_]struct { base: []const u8, want: ?core.Error }{
         .{ .base = "62", .want = null },
         .{ .base = "bytes", .want = core.Error.BaseNotText },
@@ -725,12 +739,12 @@ test "a long identifier is bounded only by the caller's buffer" {
     }.f;
 
     // 200 UUIDs in base 62, 22 symbols each: 4400 bytes, past the old ceiling.
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%g" ** 200, "62", &big, big.len));
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, repeat("%g", 200), "62", &big, big.len));
     try std.testing.expectEqual(@as(usize, 200 * 22), spanOf(&big).len);
 
     // A literal that long as well, since the old buffer bounded the whole
     // rendering rather than any one component.
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "x" ** 5000, "62", &big, big.len));
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, repeat("x", 5000), "62", &big, big.len));
     try std.testing.expectEqual(@as(usize, 5000), spanOf(&big).len);
 
     // Exactly enough room, and one byte short of it. %d in base 62 is 6

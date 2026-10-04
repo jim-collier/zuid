@@ -16,6 +16,8 @@
 ##		  is no binary to release.
 ##		- On a Mac everything is universal, x86_64 and arm64 merged by lipo.
 ##		  cicd.bash vendors the second Wasmtime archive that needs.
+##		- Builds with the zig on PATH. cicd.bash --package puts the Zig it
+##		  found first there, so run it that way, or put Zig 0.17.0 first.
 ##	Syntax:
 ##		package.bash [--out DIR] [--version V]
 ##	History: At bottom.
@@ -325,6 +327,7 @@ fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "
 
 
 ##	History:
+##		- 20261003 JC: Zig 0.17.0.
 ##		- 20261003 JC: Universal on a Mac: an x86_64 and an arm64 slice, merged by lipo.
 ##		- 20261002 JC: Build for a named target: baseline CPU, glibc 2.28, macOS 13.0. macOS host.
 ##		- 20260917 JC: Drop the header from the deb and rpm; keep the library symlinks.

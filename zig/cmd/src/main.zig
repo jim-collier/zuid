@@ -18,8 +18,8 @@ const curated_list = blk: {
     // Where help descriptions start, and where they wrap.
     const desc_col = 30;
     const wrap_col = 80;
-    const indent = " " ** desc_col;
-    var joined: []const u8 = indent;
+    const indent: [desc_col]u8 = @splat(' ');
+    var joined: []const u8 = &indent;
     var line_len: usize = desc_col;
     for (zuid.core.curated_bases, 0..) |base, i| {
         const last = i + 1 == zuid.core.curated_bases.len;
