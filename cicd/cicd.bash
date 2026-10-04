@@ -11,6 +11,7 @@
 ##		- 20260805 JC: Backup and publish stage.
 ##		- 20260930 JC: Test IDs, one line per test. Pipeline self-test.
 ##		- 20261003 JC: Zig 0.17.0, found beside an older one on PATH.
+##		- 20261003 JC: Publishing to GitHub releases.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 declare    thisVersion="0.1.0"
@@ -33,6 +34,13 @@ fConfig(){ :;
 
 	## Merge targets, never places to commit.
 	default_protectedBranches=("main" "dev")
+
+	## --publish tags and releases from this branch only.
+	default_releaseBranch="main"
+
+	## One asset per release target, by the name the installers ask for. --publish
+	## refuses a set with any of these missing, unless --allow-partial.
+	default_releaseAssets=("zuid-linux-x86_64.tgz" "zuid-linux-arm64.tgz" "zuid-darwin-universal.tgz" "zuid-windows-x86_64.zip" "zuid-windows-arm64.zip")
 
 	## Vendored Wasmtime C API, pinned. Fetched into zig/vendor/ when absent.
 	## One checksum per platform, as <arch>-<os>=<sha256>, in Wasmtime's own names.
@@ -122,7 +130,9 @@ fPrint_Help(){
 		    --dogfood         Install for daily use even on a quick run. A full run
 		                      installs anyway.
 		    --no-dogfood      Do not install, however the run went.
-		    --publish         Publish a release. Not implemented yet.
+		    --publish         Publish a GitHub release of the version in
+		                      zig/lib/src/core.zig. Implies --package. See below.
+		    --allow-partial   Let --publish go ahead with some platforms missing.
 		    -q, --quiet       No banner and no prompting. Without -m the commit
 		                      message is generated.
 		    -h, --help        This.
@@ -151,6 +161,18 @@ fPrint_Help(){
 		disk. --no-backup turns it off; so does --commit or --push, which take over
 		the git half.
 
+		--publish runs only on ${releaseBranch}, with a clean tree, HEAD pushed, and no tag
+		yet for the version. It uploads dist/ plus whatever is in dist-incoming/.
+		That is where the Mac and Windows files go, copied from the dist/ of a
+		--package run of the same commit on each. Only the top level counts, and
+		checksums.txt and dot files there are ignored.
+		It checks that every platform has an asset, writes one checksums.txt over
+		all of them, shows the plan and asks. Then it tags HEAD v<version> and
+		go/v<version>, pushes both, creates the release with gh, a prerelease when
+		the version has a '-', and waits for the download to answer. The notes are
+		changelog.md's section for that version, if it has one. What was uploaded
+		stays in dist/release/ until the next --package.
+
 		Exit code is 0 only if every stage that ran passed.
 	EOF_h7wq4
 	fEcho_Clean ""
@@ -178,6 +200,8 @@ fMain(){
 	local    default_minVer_Zig=""
 	local -a default_crossTargets=()
 	local -a default_protectedBranches=()
+	local    default_releaseBranch=""
+	local -a default_releaseAssets=()
 	local    default_wasmtimeVer=""
 	local -a default_wasmtimeSha256s=()
 	local    default_reactorPackage=""
@@ -191,6 +215,8 @@ fMain(){
 	local -r minVer_Zig="${default_minVer_Zig}"
 	local -ra crossTargets=("${default_crossTargets[@]}")
 	local -ra protectedBranches=("${default_protectedBranches[@]}")
+	local -r  releaseBranch="${default_releaseBranch}"
+	local -ra releaseAssets=("${default_releaseAssets[@]}")
 	local -r wasmtimeVer="${default_wasmtimeVer}"
 	local -ra wasmtimeSha256s=("${default_wasmtimeSha256s[@]}")
 	local -r reactorPackage="${default_reactorPackage}"
@@ -207,6 +233,7 @@ fMain(){
 	local -r zigDir="${repoRoot}/zig"
 	local -r artifactDir="${repoRoot}/cicd/artifacts"
 	local -r utilityDir="${repoRoot}/cicd/utility"
+	local -r incomingDir="${repoRoot}/dist-incoming"
 	local -r runStamp="$(date +%Y%m%d-%H%M%S)"
 
 	## No single stage gets the whole machine. Half the cores, at least one.
@@ -226,6 +253,8 @@ fMain(){
 	local -i backupAsked=0
 	local -i doDogfood=1
 	local -i dogfoodAsked=0
+	local -i doPublish=0
+	local -i allowPartial=0
 	fInit "${@}"
 	readonly onlyToolchain
 	readonly doCross
@@ -233,6 +262,11 @@ fMain(){
 	readonly doSync
 	readonly doPush
 	readonly doPackage
+	readonly doPublish
+	readonly allowPartial
+
+	## Set by the publish preflight, read by the publish stage.
+	local publishVersion="" publishRemote="" publishHead=""
 
 	## Dogfooding rides along with every full run - the whole point is that daily
 	## use is the build that just passed. A quick run is mid-iteration, so it stays
@@ -271,6 +305,7 @@ fMain(){
 	if ((! doQuick));              then fStage_Profile;   fi
 	if ((! doQuick));              then fStage_Demo;      fi
 	if ((doPackage));              then fStage_Package;   fi
+	if ((doPublish));              then fStage_Publish;   fi
 	if ((doZig)) && ((doDogfood)); then fStage_Dogfood;   fi
 	if ((doBackup));               then fStage_Backup;    fi
 	if ((doCommit));               then fStage_Commit;    fi
@@ -327,12 +362,9 @@ fInit(){
 			--no-backup)  doBackup=0; backupAsked=0 ;;
 			--dogfood)    doDogfood=1; dogfoodAsked=1 ;;
 			--no-dogfood) doDogfood=0; dogfoodAsked=0 ;;
+			--publish)    doPublish=1; doPackage=1 ;;
+			--allow-partial) allowPartial=1 ;;
 			-q|--quiet)   doQuietly=1 ;;
-
-			## Opt-in stages that do not exist yet. Say so rather than pretending.
-			--publish)
-				fThrowError "Not implemented yet: '${currentArg}'. Publishing waits on the repo existing and on packaging covering more than this platform."  "${FUNCNAME[0]}"
-				;;
 
 			## ¯\_(:/)_/¯
 			*)  fThrowError "Argument invalid or not expected in this context: '$1'."  "${FUNCNAME[0]}" ;;
@@ -354,6 +386,14 @@ fInit(){
 
 	## A bare -m is not that clash - the message is what the helper commits with.
 	if ((doBackup)); then doCommit=0; fi
+
+	if ((allowPartial)) && ((! doPublish)); then
+		fThrowError "--allow-partial only means something with --publish."  "${FUNCNAME[0]}"
+	fi
+	## Every release asset comes out of the Zig build.
+	if ((doPublish)) && [[ "${onlyToolchain}" == "go" ]]; then
+		fThrowError "--publish needs the Zig side, which builds every release asset. Drop --only go."  "${FUNCNAME[0]}"
+	fi
 
 }
 
@@ -496,6 +536,8 @@ fPreflight(){
 	fi
 
 	[[ -f "${repoRoot}/testdata/vectors.tsv" ]] || fThrowError "Missing the shared test vectors: 'testdata/vectors.tsv'."  "${FUNCNAME[0]}"
+
+	if ((doPublish)); then fPublish_Preflight; fi
 
 }
 
@@ -1480,7 +1522,12 @@ fStage_Package(){
 	local -r packager="${utilityDir}/package.bash"
 	[[ -x "${packager}" ]] || fThrowError "Missing the packager: '${packager}'."  "${FUNCNAME[0]}"
 
-	"${packager}" --out "${repoRoot}/dist"
+	## Named for the version the binary reports, not for git describe. The Mac and
+	## Windows files are built on their own machines before the tag exists, and
+	## have to match what the Linux box then publishes.
+	local packageVersion=""
+	packageVersion="$(fCoreVersion)" || fThrowError "Could not read the version from zig/lib/src/core.zig."  "${FUNCNAME[0]}"
+	"${packager}" --out "${repoRoot}/dist" --version "v${packageVersion}"
 
 	## The release has to run on machines older than this one. These check that
 	## it did not pick up this one's CPU, glibc or macOS version. Linux makes an
@@ -1762,6 +1809,206 @@ fStage_Package_Arm64(){  ## scratch dir, glibc floor
 		fi
 		fTestPass
 	done
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The one place the version lives. Empty output is an error.
+fCoreVersion(){
+	local version=""
+	version="$(sed -n 's/^pub const version = "\([^"]*\)".*/\1/p' "${zigDir}/lib/src/core.zig" 2>/dev/null || true)"
+	[[ -n "${version}" ]] || return 1
+	printf '%s\n' "${version}"
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Everything --publish needs that can be known before the build, so a refusal
+## comes in seconds rather than after it. ZUID_GH names another gh, which is
+## how the tests run this without reaching GitHub.
+fPublish_Preflight(){
+
+	local -r ghCmd="${ZUID_GH:-gh}"
+	_fMustBeInPath curl
+	command -v "${ghCmd}" >/dev/null 2>&1 || fThrowError "--publish creates the release with gh, which is not installed."  "${FUNCNAME[0]}"
+	"${ghCmd}" auth status >/dev/null 2>&1 || fThrowError "gh is not logged in. Run 'gh auth login' first."  "${FUNCNAME[0]}"
+
+	local -r branch="$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD)"
+	if [[ "${branch}" != "${releaseBranch}" ]]; then
+		fThrowError "Releases come from '${releaseBranch}' only, and this is '${branch}'."  "${FUNCNAME[0]}"
+	fi
+	if [[ -n "$(git -C "${repoRoot}" status --porcelain)" ]]; then
+		fThrowError "The tree has uncommitted changes. A release is built from a commit, so commit or stash them first."  "${FUNCNAME[0]}"
+	fi
+
+	## The tag goes on what the remote already has, or the release would point
+	## at a commit nobody else can fetch.
+	publishRemote="$(git -C "${repoRoot}" config "branch.${branch}.remote" || true)"
+	local -r upstream="$(git -C "${repoRoot}" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+	if [[ -z "${publishRemote}" ]] || [[ -z "${upstream}" ]]; then
+		fThrowError "'${branch}' tracks no remote branch, so there is nowhere to push the tags."  "${FUNCNAME[0]}"
+	fi
+	publishHead="$(git -C "${repoRoot}" rev-parse HEAD)"
+	if [[ "${publishHead}" != "$(git -C "${repoRoot}" rev-parse "${upstream}")" ]]; then
+		fThrowError "HEAD is not what ${upstream} has. Push or pull first."  "${FUNCNAME[0]}"
+	fi
+
+	publishVersion="$(fCoreVersion || true)"
+	if [[ ! "${publishVersion}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+		fThrowError "zig/lib/src/core.zig's version '${publishVersion}' is not a release version."  "${FUNCNAME[0]}"
+	fi
+
+	local remoteTags=""
+	remoteTags="$(git -C "${repoRoot}" ls-remote --tags "${publishRemote}")" || fThrowError "Could not list the tags on ${publishRemote}."  "${FUNCNAME[0]}"
+	local tag=""
+	for tag in "v${publishVersion}" "go/v${publishVersion}"; do
+		if git -C "${repoRoot}" rev-parse -q --verify "refs/tags/${tag}" >/dev/null \
+			|| [[ $'\n'"${remoteTags}"$'\n' == *$'\t'"refs/tags/${tag}"$'\n'* ]]; then
+			fThrowError "Tag ${tag} already exists. Bump the version in zig/lib/src/core.zig first."  "${FUNCNAME[0]}"
+		fi
+	done
+
+	fEcho_Clean "Publish ....: v${publishVersion} from ${branch} at ${publishHead:0:12}"
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## One release from this machine's dist/ and the files copied in from the
+## others, with one checksums.txt over all of it. Nothing is tagged or pushed
+## until the plan has been shown and agreed to.
+fStage_Publish(){
+
+	fEcho_Clean
+	fEcho "Publish"
+
+	local -r ghCmd="${ZUID_GH:-gh}"
+	local -r tag="v${publishVersion}"
+	local -r goTag="go/v${publishVersion}"
+	local -r distDir="${repoRoot}/dist"
+	local -r stageDir="${distDir}/release"
+
+	## The build ran since the preflight. The demo render is the one tracked
+	## file a run rewrites, and no asset includes it.
+	if [[ "$(git -C "${repoRoot}" rev-parse HEAD)" != "${publishHead}" ]]; then
+		fThrowError "HEAD moved during the run. Nothing was published."  "${FUNCNAME[0]}"
+	fi
+	if [[ -n "$(git -C "${repoRoot}" status --porcelain -- . ':!assets/demo.gif')" ]]; then
+		fThrowError "Files changed during the run. Nothing was published."  "${FUNCNAME[0]}"
+	fi
+
+	## dist/ was emptied by this run's packaging, so the stage directory is new
+	## unless something else made it. Hard links where they work.
+	mkdir "${stageDir}" || fThrowError "'${stageDir}' already exists, so it is not this run's."  "${FUNCNAME[0]}"
+	## GitHub turns anything outside [A-Za-z0-9._-] in an asset name into '.',
+	## so the name is changed here, before hashing, to match what it will serve.
+	local source="" name=""
+	local -i fromIncoming=0
+	while IFS= read -r source; do
+		name="$(basename "${source}")"
+		name="${name//[^A-Za-z0-9._-]/.}"
+		if [[ -e "${stageDir}/${name}" ]]; then
+			fThrowError "Two assets would be named '${name}'. Remove one from dist-incoming/."  "${FUNCNAME[0]}"
+		fi
+		ln "${source}" "${stageDir}/${name}" 2>/dev/null || cp "${source}" "${stageDir}/${name}"
+		if [[ "${source}" == "${incomingDir}"/* ]]; then fromIncoming=$((fromIncoming + 1)); fi
+	done < <(
+		find "${distDir}" -maxdepth 1 -type f ! -name '.*' ! -name checksums.txt | sort
+		if [[ -d "${incomingDir}" ]]; then find "${incomingDir}" -maxdepth 1 -type f ! -name '.*' ! -name checksums.txt | sort; fi
+	)
+
+	local -a assets=()
+	local file=""
+	for file in "${stageDir}"/*; do
+		if [[ -f "${file}" ]]; then assets+=("${file##*/}"); fi
+	done
+	((${#assets[@]})) || fThrowError "Nothing to publish in dist/ or dist-incoming/."  "${FUNCNAME[0]}"
+
+	## A tarball built from another version unpacks to another directory name,
+	## which is how a stale copy from the Mac shows.
+	local asset="" topDir=""
+	for asset in "${assets[@]}"; do
+		[[ "${asset}" == *.tgz ]] || continue
+		topDir="$(tar -tzf "${stageDir}/${asset}" 2>/dev/null | awk -F/ 'NR == 1 { print $1 }' || true)"
+		if [[ "${topDir}" != "zuid-${tag}" ]]; then
+			fThrowError "${asset} unpacks to '${topDir}/', not 'zuid-${tag}/', so it was built from another version."  "${FUNCNAME[0]}"
+		fi
+	done
+
+	local -a missing=()
+	for asset in "${releaseAssets[@]}"; do
+		[[ -e "${stageDir}/${asset}" ]] || missing+=("${asset}")
+	done
+	if ((${#missing[@]})) && ((! allowPartial)); then
+		fThrowError "No asset for: ${missing[*]}. Copy them into dist-incoming/, or pass --allow-partial to publish without them."  "${FUNCNAME[0]}"
+	fi
+
+	local -a sha256=(sha256sum)
+	command -v sha256sum >/dev/null 2>&1 || sha256=(shasum -a 256)
+	local sums=""
+	sums="$(cd "${stageDir}" && "${sha256[@]}" "${assets[@]}")" || fThrowError "Could not hash the assets."  "${FUNCNAME[0]}"
+	printf '%s\n' "${sums}" > "${stageDir}/checksums.txt"
+
+	## The changelog's own section for this version, up to the next one.
+	local notes=""
+	if [[ -f "${repoRoot}/changelog.md" ]]; then
+		notes="$(TAG="${tag}" awk '
+			/^## / { if (inside) exit; split($0, words, " "); inside = (words[2] == ENVIRON["TAG"]); next }
+			inside { print }
+		' "${repoRoot}/changelog.md")"
+	fi
+
+	local prerelease=""
+	if [[ "${publishVersion}" == *-* ]]; then prerelease=" (prerelease)"; fi
+	fEcho_Clean "Release ....: ${tag}${prerelease}"
+	fEcho_Clean "Tags .......: ${tag} and ${goTag} on ${publishHead:0:12}, pushed to ${publishRemote}"
+	fEcho_Clean "Assets .....: ${#assets[@]}, ${fromIncoming} of them from dist-incoming/, plus checksums.txt"
+	for asset in "${assets[@]}"; do fEcho_Clean "               ${asset}"; done
+	if ((${#missing[@]})); then fEcho_Clean "Missing ....: ${missing[*]}"; fi
+	if [[ -n "${notes//[[:space:]]/}" ]]; then
+		fEcho_Clean "Notes ......: changelog.md, section ${tag}"
+	else
+		fEcho_Clean "Notes ......: none - changelog.md has no section for ${tag}"
+	fi
+
+	## Anything but a yes is a no, an empty or missing answer included.
+	if ((! doQuietly)); then
+		local answer=""
+		fEcho_Clean
+		read -r -p "  Publish it? [y/N] " answer || true
+		if [[ "${answer,,}" != "y" ]] && [[ "${answer,,}" != "yes" ]]; then
+			fThrowError "Not published. Nothing was tagged or pushed."  "${FUNCNAME[0]}"
+		fi
+	fi
+
+	git -C "${repoRoot}" tag -a "${tag}"   -m "${tag}"   "${publishHead}"
+	git -C "${repoRoot}" tag -a "${goTag}" -m "${goTag}" "${publishHead}"
+	if ! git -C "${repoRoot}" push --atomic "${publishRemote}" "refs/tags/${tag}" "refs/tags/${goTag}"; then
+		git -C "${repoRoot}" tag -d "${tag}" "${goTag}" >/dev/null
+		fThrowError "Could not push the tags, so nothing was published. The local ones were removed again."  "${FUNCNAME[0]}"
+	fi
+
+	local -a ghArgs=(release create "${tag}" --verify-tag --title "${tag}" --notes "${notes}")
+	if [[ -n "${prerelease}" ]]; then ghArgs+=(--prerelease); fi
+	for asset in "${assets[@]}" checksums.txt; do ghArgs+=("${stageDir}/${asset}"); done
+	if ! (cd "${repoRoot}" && "${ghCmd}" "${ghArgs[@]}"); then
+		fThrowError "Both tags are pushed, but the release was not created. Run 'gh release create ${tag} --verify-tag' with the files in dist/release/, or delete both tags from ${publishRemote} and publish again."  "${FUNCNAME[0]}"
+	fi
+
+	## The tag shows before the assets do, for a minute or so.
+	local url=""
+	url="$(cd "${repoRoot}" && "${ghCmd}" release view "${tag}" --json assets --jq '.assets[] | select(.name == "checksums.txt") | .url' 2>/dev/null || true)"
+	[[ -n "${url}" ]] || fThrowError "${tag} is released, but gh lists no checksums.txt on it."  "${FUNCNAME[0]}"
+	local -i tries=1
+	until curl -fsSL -o /dev/null "${url}" 2>/dev/null; do
+		if ((tries >= 30)); then
+			fThrowError "${tag} is released, but ${url} still does not answer after five minutes. Check it by hand."  "${FUNCNAME[0]}"
+		fi
+		tries=$((tries + 1))
+		sleep 10
+	done
+	fEcho_Clean "Download ...: ${url}"
 
 }
 
