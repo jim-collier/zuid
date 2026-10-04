@@ -10,6 +10,7 @@
 ##		- 20260804 JC: Remote sync, artifacts, profiling, demo, packaging, dogfood.
 ##		- 20260805 JC: Backup and publish stage.
 ##		- 20260930 JC: Test IDs, one line per test. Pipeline self-test.
+##		- 20261003 JC: Zig 0.17.0, found beside an older one on PATH.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 declare    thisVersion="0.1.0"
@@ -23,7 +24,7 @@ fConfig(){ :;
 	## Toolchain floors. Only the machine that produces the wasm artifact needs Go
 	## 1.24+, but one floor is easier to reason about than two.
 	default_minVer_Go="1.24"
-	default_minVer_Zig="0.16.0"
+	default_minVer_Zig="0.17.0"
 
 	## Cross targets for --cross, as GOOS/GOARCH. Go builds these with cgo off, as
 	## compile checks. The Zig side does not use this list. Its macOS arm64 build is
@@ -129,6 +130,9 @@ fPrint_Help(){
 		stage checks. The Zig stage vendors the Wasmtime C API into zig/vendor/ when
 		absent, and builds the reactor wasm module there from the pinned convertbase
 		release.
+
+		Zig is ZIG if set, else the zig on PATH if it is ${default_minVer_Zig} or newer,
+		else ~/.local/zig-<platform>-${default_minVer_Zig}/zig.
 
 		Every run is logged to cicd/artifacts/, along with any profile and demo it
 		produced. Those are rotated, not kept forever, and none of it is committed.
@@ -485,10 +489,8 @@ fPreflight(){
 	fi
 
 	if ((doZig)); then
-		_fMustBeInPath zig
-		local -r haveVer_Zig="$(zig version)"
-		fVersion_AtLeast "${haveVer_Zig}" "${minVer_Zig}" || fThrowError "Zig ${minVer_Zig} or newer required, found '${haveVer_Zig}'."  "${FUNCNAME[0]}"
-		fEcho_Clean "Zig ........: ${haveVer_Zig}"
+		fFindZig "${minVer_Zig}"
+		fEcho_Clean "Zig ........: $(zig version) ($(readlink -f "$(command -v zig)"))"
 	fi
 
 	[[ -f "${repoRoot}/testdata/vectors.tsv" ]] || fThrowError "Missing the shared test vectors: 'testdata/vectors.tsv'."  "${FUNCNAME[0]}"
@@ -838,8 +840,8 @@ fStage_Go_Consumer(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The format string is the one part of a request that arrives verbatim from
 ## whoever is calling. Go's fuzzer drives it here; the Zig side has matching
-## fuzz tests, but 0.16.0's own test runner does not compile in fuzz mode, so
-## those only replay their corpus during the Zig stage.
+## fuzz tests, which 0.17.0 can run in fuzz mode but this pipeline does not yet,
+## so those only replay their corpus during the Zig stage.
 fStage_Go_Fuzz(){
 
 	fEcho_Clean
@@ -1762,6 +1764,36 @@ fVersion_AtLeast(){
 		return 1
 	fi
 	return 0
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Other projects on the same machine may pin an older Zig through the shared
+## 'zig' link, so this one finds its own: ZIG if set, else the zig on PATH if
+## it is new enough, else ~/.local/zig-<platform>-<version>/zig, the way the
+## release tarballs unpack. The one picked goes first on PATH as 'zig', so
+## package.bash and the harnesses run it too.
+fFindZig(){  ## minimum version
+	local -r want="$1"
+	local found="" candidate=""
+	if [[ -n "${ZIG:-}" ]]; then
+		[[ -x "${ZIG}" ]] || fThrowError "ZIG is set to '${ZIG}', which is not a program."  "${FUNCNAME[0]}"
+		found="${ZIG}"
+	elif candidate="$(command -v zig 2>/dev/null)" && fVersion_AtLeast "$("${candidate}" version 2>/dev/null || true)" "${want}"; then
+		return 0
+	else
+		for candidate in "${HOME}"/.local/zig-*-"${want}"/zig; do
+			if [[ -x "${candidate}" ]]; then found="${candidate}"; break; fi
+		done
+		[[ -n "${found}" ]] || fThrowError "Zig ${want} or newer required, found '$(zig version 2>/dev/null || echo none)' on PATH. Set ZIG to its binary, or unpack the release as ~/.local/zig-<platform>-${want}."  "${FUNCNAME[0]}"
+	fi
+	local -r have="$("${found}" version 2>/dev/null || true)"
+	fVersion_AtLeast "${have}" "${want}" || fThrowError "Zig ${want} or newer required, found '${have}' at ${found}."  "${FUNCNAME[0]}"
+	local linkDir=""
+	linkDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	_scratchDirs+=("${linkDir}")
+	ln -s "$(readlink -f "${found}")" "${linkDir}/zig"
+	export PATH="${linkDir}:${PATH}"
 }
 
 

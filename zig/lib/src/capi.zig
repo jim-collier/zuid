@@ -17,7 +17,7 @@ const clock = @import("clock.zig");
 // itself, smp_allocator in a release build.
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 const gpa = switch (builtin.mode) {
-    .Debug => debug_allocator.allocator(),
+    .debug => debug_allocator.allocator(),
     else => std.heap.smp_allocator,
 };
 
@@ -29,7 +29,7 @@ const gpa = switch (builtin.mode) {
 // Debug only, so a release build carries neither the counter nor the chance of
 // it wrapping on a caller's double free - which is already outside the
 // contract the header states.
-const counts_contexts = builtin.mode == .Debug;
+const counts_contexts = builtin.mode == .debug;
 var live_contexts: usize = 0;
 
 /// Contexts created and not yet freed. Always zero in a release build.
@@ -41,7 +41,7 @@ pub fn liveContexts() usize {
 /// per leak. Always zero in a release build, which has no such allocator.
 pub fn leakCount() usize {
     return switch (builtin.mode) {
-        .Debug => debug_allocator.detectLeaks(),
+        .debug => debug_allocator.detectLeaks(),
         else => 0,
     };
 }

@@ -153,11 +153,11 @@ Writing our own would mean reproducing all of that and then debugging it, in a p
 
 #### What is actually detected, and what is not
 
-The 0.16 behaviour, which is narrower than it looks:
+The 0.16 and 0.17 behaviour, which is narrower than it looks:
 
 - Leaks and double frees are caught, with full stack traces at the allocation and at both frees.
 - **A use-after-free read or write is not caught.** `never_unmap` and `retain_metadata` are worth setting, but not for the reason they look like: they keep the mapping alive and the metadata around, which widens *double-free* reporting and turns a would-be segfault into a legible message. The standard library's own doc comments say exactly this. There is no page protection in the implementation, so touching freed memory silently succeeds.
-- Zig 0.16 has no AddressSanitizer for Zig code - `zig build-exe` offers only `-fsanitize-c` and `-fsanitize-thread`. `zig cc -fsanitize=address` does not link either, because the ASan runtime is not included.
+- Zig 0.17 has no AddressSanitizer for Zig code - `zig build-exe` offers only `-fsanitize-c` and `-fsanitize-thread`. `zig cc -fsanitize=address` does not link either, because the ASan runtime is not included.
 
 That gap is the strongest argument for the first rule rather than an argument against it. Since nothing will catch a dangling pointer in Zig, the defense that works is not having one: a core that never takes an allocator has no freeable pointer to dangle, and an arena has no individual free to get wrong.
 
@@ -341,7 +341,7 @@ Base conversion is a direct function call in Go, and a WebAssembly call through 
 
 ### Software stack
 
-- **Zig 0.16** for the identifier core, the command-line tool, and the C module. Its C interoperation is direct, and `zig cc` cross-compiles to every target from one machine, which removes the usual reason a C artifact is expensive to distribute. Current stable was chosen while no Zig code existed yet: 0.13 through 0.16 rewrote both the I/O and the allocator surfaces, so starting on the old one would have meant porting later for nothing.
+- **Zig 0.17** for the identifier core, the command-line tool, and the C module. Its C interoperation is direct, and `zig cc` cross-compiles to every target from one machine, which removes the usual reason a C artifact is expensive to distribute. Current stable was chosen while no Zig code existed yet: 0.13 through 0.16 rewrote both the I/O and the allocator surfaces, so starting on the old one would have meant porting later for nothing. The move from 0.16 to 0.17 came for fuzz mode, which 0.16.0 could not build.
 - **Go** for the module, importing `convertbase`.
 - **WebAssembly** as the bridge from Zig to base conversion.
 
@@ -370,7 +370,7 @@ Two things follow from acquisition being outside the vectors:
 
 The expected column comes from a third independent derivation, working from this document rather than from either implementation, so that "both sides agree" cannot mean "both sides are wrong the same way".
 
-The vectors say nothing about what happens to a format string nobody sane would write, so both sides fuzz that separately. The Go module's `FuzzGenerate` drives the format and the base name, and asks for two things: a failed call returns no identifier, and the same request twice returns the same one. A full pipeline run gives it twenty seconds. The Zig side has the matching pair - one over the core parser, one over the C `zuid_generate` - and they additionally check that a call which failed part way through handed every wasm region back. Those only replay their corpus for now, because Zig 0.16.0's own test runner does not compile in fuzz mode.
+The vectors say nothing about what happens to a format string nobody sane would write, so both sides fuzz that separately. The Go module's `FuzzGenerate` drives the format and the base name, and asks for two things: a failed call returns no identifier, and the same request twice returns the same one. A full pipeline run gives it twenty seconds. The Zig side has the matching pair - one over the core parser, one over the C `zuid_generate` - and they additionally check that a call which failed part way through handed every wasm region back. Those only replay their corpus for now. Zig 0.17.0 can run them in fuzz mode, and the pipeline does not do that yet.
 
 ## Relationship to x9muid1
 

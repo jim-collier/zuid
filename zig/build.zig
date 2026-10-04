@@ -26,6 +26,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const wasmtime = wasmtimeDir(b, target);
+    const headers = translateHeaders(b, target, optimize, wasmtime);
 
     // The command, importing the library as a Zig module.
     const lib_mod = b.createModule(.{
@@ -33,7 +34,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    wireWasmtime(b, lib_mod, wasmtime);
+    wireWasmtime(b, lib_mod, wasmtime, headers);
 
     const cmd_mod = b.createModule(.{
         .root_source_file = b.path("cmd/src/main.zig"),
@@ -61,7 +62,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    wireWasmtimeNoArchive(b, capi_static_mod, wasmtime);
+    wireWasmtimeNoArchive(b, capi_static_mod, wasmtime, headers);
     const static_lib = b.addLibrary(.{
         .name = "zuid",
         .linkage = .static,
@@ -78,7 +79,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    wireWasmtime(b, capi_shared_mod, wasmtime);
+    wireWasmtime(b, capi_shared_mod, wasmtime, headers);
     const shared_lib = b.addLibrary(.{
         .name = "zuid",
         .linkage = .dynamic,
@@ -107,7 +108,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    wireWasmtime(b, test_mod, wasmtime);
+    wireWasmtime(b, test_mod, wasmtime, headers);
     test_mod.addAnonymousImport("vectors.tsv", .{
         .root_source_file = b.path("../testdata/vectors.tsv"),
     });
@@ -182,7 +183,8 @@ fn relinkDylib(
 /// platforms export one set from one file. Mach-O names take a leading
 /// underscore, and both linkers read the * wildcard the same way.
 fn exportedSymbols(b: *std.Build) []const u8 {
-    const map = b.build_root.handle.readFileAlloc(b.graph.io, "lib/zuid.map", b.allocator, .limited(64 * 1024)) catch |err|
+    const map_path = b.root.joinString(b.allocator, "lib/zuid.map") catch @panic("OOM");
+    const map = std.Io.Dir.cwd().readFileAlloc(b.graph.io, map_path, b.allocator, .limited(64 * 1024)) catch |err|
         std.process.fatal("could not read lib/zuid.map: {t}", .{err});
     var list: std.ArrayList(u8) = .empty;
     var in_global = false;
@@ -226,13 +228,14 @@ fn buildEpoch(b: *std.Build) i64 {
                 std.log.warn("SOURCE_DATE_EPOCH is not a number ('{s}'); using the HEAD commit date instead", .{trimmed});
             }
         }
-        // Clang reads it too, for @cImport, and refuses anything but a number.
-        // A warm cache hid that.
+        // translate-c reads it too, and refuses anything but a number. A warm
+        // cache hid that. Zig 0.17 runs the steps in another process, which
+        // this does not reach, so translateHeader drops it for its own.
         _ = b.graph.environ_map.swapRemove("SOURCE_DATE_EPOCH");
     }
 
     var code: u8 = 0;
-    const out = b.runAllowFail(&.{ "git", "-C", b.build_root.path orelse ".", "log", "-1", "--format=%ct" }, &code, .ignore) catch return 0;
+    const out = b.runAllowFail(&.{ "git", "-C", b.root.toString(b.allocator) catch @panic("OOM"), "log", "-1", "--format=%ct" }, &code, .ignore) catch return 0;
     return std.fmt.parseInt(i64, std.mem.trim(u8, out, " \r\n"), 10) catch 0;
 }
 
@@ -246,31 +249,82 @@ fn wasmtimeDir(b: *std.Build, target: std.Build.ResolvedTarget) []const u8 {
     if (t.cpu.arch == host.cpu.arch and t.os.tag == host.os.tag) return "vendor/wasmtime";
     const dir = b.fmt("vendor/wasmtime-{s}-{s}", .{ @tagName(t.cpu.arch), @tagName(t.os.tag) });
     // Otherwise the first error is a missing header, which says nothing about why.
-    b.build_root.handle.access(b.graph.io, b.fmt("{s}/lib/libwasmtime.a", .{dir}), .{}) catch
+    b.root.access(b.graph.io, b.fmt("{s}/lib/libwasmtime.a", .{dir}), .{}) catch
         std.process.fatal("no Wasmtime for {s}-{s} in {s}. cicd/cicd.bash vendors one on a Mac for the other macOS slice; for anything else, add its pin there first.", .{ @tagName(t.cpu.arch), @tagName(t.os.tag), dir });
     return dir;
 }
 
+/// The C each library file reads, from lib/c/, as the modules clock.zig,
+/// env.zig and host.zig import. Translated once and shared by every artifact.
+const Headers = struct {
+    clock: *std.Build.Module,
+    env: *std.Build.Module,
+    wasmtime: *std.Build.Module,
+};
+
+fn translateHeaders(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.Optimize, wasmtime: []const u8) Headers {
+    const wasmtime_h = translateHeader(b, target, optimize, "lib/c/wasmtime.h", wasmtime);
+    // The translation cache sees only the files it is handed. Wasmtime's own
+    // header carries the release version, so a new pin changes it.
+    wasmtime_h.run.addFileInput(b.path(b.fmt("{s}/include/wasmtime.h", .{wasmtime})));
+    return .{
+        .clock = translateHeader(b, target, optimize, "lib/c/clock.h", null).module,
+        .env = translateHeader(b, target, optimize, "lib/c/env.h", null).module,
+        .wasmtime = wasmtime_h.module,
+    };
+}
+
+/// Zig's own translate-c, run as a command rather than through
+/// b.addTranslateC, since only a command step can keep SOURCE_DATE_EPOCH away
+/// from it (see buildEpoch). Not the translate-c package either, which would
+/// need a fetch, so an offline build still works.
+fn translateHeader(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.Optimize,
+    header: []const u8,
+    wasmtime: ?[]const u8,
+) struct { run: *std.Build.Step.Run, module: *std.Build.Module } {
+    const run = b.addSystemCommand(&.{ b.graph.zig_exe, "translate-c", "-lc" });
+    run.setName(b.fmt("translate-c {s}", .{std.fs.path.basename(header)}));
+    if (!target.query.isNative()) {
+        run.addArgs(&.{ "-target", target.query.zigTriple(b.allocator) catch @panic("OOM") });
+    }
+    run.addArg(b.fmt("-O{t}", .{optimize}));
+    if (wasmtime) |dir| run.addPrefixedDirectoryArg("-I", b.path(b.fmt("{s}/include", .{dir})));
+    run.addFileArg(b.path(header));
+    run.removeEnvironmentVariable("SOURCE_DATE_EPOCH");
+    const source = run.captureStdOut(.{ .basename = b.fmt("{s}.zig", .{std.fs.path.stem(header)}) });
+    return .{ .run = run, .module = b.createModule(.{
+        .root_source_file = source,
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    }) };
+}
+
 /// Everything a module needs to host the reactor: the embedded wasm bytes,
-/// the Wasmtime headers, and the static archive with its link dependencies.
-fn wireWasmtime(b: *std.Build, mod: *std.Build.Module, wasmtime: []const u8) void {
-    wireWasmtimeInner(b, mod, wasmtime, true);
+/// the translated headers, and the Wasmtime archive with its link dependencies.
+fn wireWasmtime(b: *std.Build, mod: *std.Build.Module, wasmtime: []const u8, headers: Headers) void {
+    wireWasmtimeInner(b, mod, wasmtime, headers, true);
 }
 
 /// The static C library's variant. Same headers and wasm bytes, but the
 /// Wasmtime archive is left out: whoever links the static library supplies it,
 /// which is what zuid.h has always told them to do. Adding it here instead
 /// nested a 67 MB archive inside libzuid.a, where no linker looks for it.
-fn wireWasmtimeNoArchive(b: *std.Build, mod: *std.Build.Module, wasmtime: []const u8) void {
-    wireWasmtimeInner(b, mod, wasmtime, false);
+fn wireWasmtimeNoArchive(b: *std.Build, mod: *std.Build.Module, wasmtime: []const u8, headers: Headers) void {
+    wireWasmtimeInner(b, mod, wasmtime, headers, false);
 }
 
-fn wireWasmtimeInner(b: *std.Build, mod: *std.Build.Module, wasmtime: []const u8, link_archive: bool) void {
+fn wireWasmtimeInner(b: *std.Build, mod: *std.Build.Module, wasmtime: []const u8, headers: Headers, link_archive: bool) void {
     mod.link_libc = true;
     mod.addAnonymousImport("convert-base-reactor.wasm", .{
         .root_source_file = b.path("vendor/convert-base-reactor.wasm"),
     });
-    mod.addIncludePath(b.path(b.fmt("{s}/include", .{wasmtime})));
+    mod.addImport("c_clock", headers.clock);
+    mod.addImport("c_env", headers.env);
+    mod.addImport("c_wasmtime", headers.wasmtime);
     if (link_archive) {
         mod.addObjectFile(b.path(b.fmt("{s}/lib/libwasmtime.a", .{wasmtime})));
         // Wasmtime registers unwind frames for its jitted code; Zig bundles this.

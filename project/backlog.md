@@ -43,18 +43,30 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - Move the Zig side to 0.17.0.
 	- ID: 2026100313583935
 	- Type: Task
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs external testing: on b26, install Zig 0.17.0 beside 0.16.0 as `~/.local/zig-x86_64-macos-0.17.0`, checked against the download index, and run the pipeline with `--package`. That builds the arm64 macOS slice of the universal release, which has only been cross-compiled so far.
 	- Opened: 20261003-135839
 	- Opened by: JC
 	- Target OS: Any
 	- Estimated effort: Low
 	- Decision: Move to 0.17.0.
+		- The pipeline finds its own Zig: `ZIG` if set, else the `zig` on PATH if it is new enough, else `~/.local/zig-<platform>-0.17.0/zig`. Whichever it picks goes first on PATH, so the packaging script and the test scripts use it too. The shared `zig` link stays on 0.16.0 for the other projects.
+		- The C headers are translated with Zig's own `translate-c`, not the separate package, so an offline build needs nothing fetched.
+		- `DebugAllocator` stays for now. It still builds on 0.17.0.
 	- Progress log:
 		- 20261003: Zig 0.17.0 came out 2026-10-01. A trial port builds, passes all 30 Zig tests, and the C module still works from gcc. It took small changes in seven files plus three short C headers. `details.md` has the list.
 		- 20261003: The Zig fuzz item under Old format waits on this. Fuzz mode works in 0.17.0.
 		- 20261003: Other projects on the build machine still pin 0.16.0, so the two versions have to sit side by side there. b26 needs 0.17.0 too.
-		- 20261003: Question: go ahead? 0.16.0 is a settled choice, so the move needs a yes first.
-	- Test case: none. It was a trial run only, and nothing in the tree changed.
+		- 20261003: Question: go ahead? 0.16.0 is a settled choice, so the move needs a yes first. Answered yes, 20261003.
+		- 20261003: Done on branch `zig017`. Ported as the trial did, and 0.17.0 is installed beside 0.16.0 on the build machine.
+		- 20261003: An empty `SOURCE_DATE_EPOCH` broke the build on 0.17.0, and the existing test for it caught that. The build script can no longer clear the variable for the header step, so that step now runs as a plain command with it removed.
+		- 20261003: Question: move to `SafeAllocator`? Zig 0.17.0 deprecates `DebugAllocator` in its favor, but it is a different allocator, not a rename. It catches more, so the memory-safety section in `design.md` would need rewriting, and the leak test would need another way to count. Kept as is until then.
+		- 20261003: The ReleaseSafe test run fails the leaked-context test, on 0.16.0 as well. The pipeline tests in Debug, so it only matters to the fuzz item.
+	- Verified: a full pipeline run (`cicd.bash --no-dogfood --no-backup`) and one with `--cross` both passed on Linux, with no test skipped. A ReleaseSafe build runs. A release package for glibc 2.28 builds. Both macOS slices cross-compile and link. A no-op rebuild takes under a tenth of a second.
+	- Swept: every `@cImport`, array `**`, upper-case optimize tag and `build_root` in `zig/`, and every Zig version mention outside the backlog. `cicd.bash` and `package.bash` are the only scripts that run `zig`, and both get the one the pipeline picked.
+	- Branch: zig017
+	- Commit:
+	- Test case: the existing suites, with no new test. `Eq9nb3o`, the empty `SOURCE_DATE_EPOCH` build, failed on the first port and passes now.
 
 - Drop BSD from the installer and the docs.
 	- ID: 2026100315241091

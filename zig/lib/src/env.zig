@@ -5,7 +5,7 @@
 
 //! The live side of core's Env interface: the one place the machine's own
 //! state is read. Everything goes through libc, which the library links for
-//! Wasmtime anyway, and which keeps this off 0.16's Io-bound file API - the C
+//! Wasmtime anyway, and which keeps this off the Io-bound file API - the C
 //! module has no Io instance to hand it.
 //!
 //! No allocator here either. Names go into caller buffers and the MAC comes
@@ -20,21 +20,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const core = @import("core.zig");
 
-const c = @cImport({
-    @cInclude("stdlib.h");
-    @cInclude("unistd.h");
-    @cInclude("pwd.h");
-    @cInclude("netdb.h");
-    @cInclude("ifaddrs.h");
-    @cInclude("net/if.h");
-    if (builtin.os.tag == .linux) {
-        @cInclude("netpacket/packet.h");
-    } else if (builtin.os.tag.isDarwin()) {
-        @cInclude("net/if_dl.h");
-        // unistd.h has getentropy on Linux only.
-        @cInclude("sys/random.h");
-    }
-});
+// lib/c/env.h, translated by build.zig.
+const c = @import("c_env");
 
 /// One remembered name. Reading it again would cost a syscall or a lookup for
 /// a value that cannot usefully change.

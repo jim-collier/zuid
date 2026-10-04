@@ -15,11 +15,8 @@
 const std = @import("std");
 const core = @import("core.zig");
 
-const c = @cImport({
-    @cInclude("wasm.h");
-    @cInclude("wasi.h");
-    @cInclude("wasmtime.h");
-});
+// lib/c/wasmtime.h, translated by build.zig.
+const c = @import("c_wasmtime");
 
 // Registered in build.zig as an anonymous import pointing at zig/vendor/,
 // where cicd builds it from the same pinned convertbase release the Go module
