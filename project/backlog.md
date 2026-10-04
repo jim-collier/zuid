@@ -40,33 +40,10 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ## Issues
 
-- FreeBSD kernel panics while zuid runs.
-	- ID: 2026100413383471
-	- Type: Bug
-	- Status: Waiting for answers
-	- Needs external testing: Yes, on `vmFreeBSD`.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261004-133835
-	- Opened by: JC
-	- Parent ID: 2026100413383571
-	- Target OS: FreeBSD 15.1, x86_64
-	- Test environment: `vmFreeBSD`, 8 CPUs, 8 GB.
-	- Version and build: 1.0.0-alpha.1 (build ddg8r), from the `freebsd` branch.
-	- Steps to reproduce [Bug]:
-		- Run `cli-test.bash --bin <tarball>/bin/zuid` on the VM.
-	- Incorrect behavior [Bug]: The kernel panicked about two minutes in: "Fatal trap 12: page fault while in kernel mode", current process zuid. The backtrace runs from a user page fault through `vm_fault` and `vm_page_activate` into `vm_page_pqstate_commit`.
-	- Expected behavior [Bug]: No program can panic the kernel. At worst zuid crashes.
-	- Reproduced [Bug]: No. Once, 20261004. The test log was lost in the reboot, so which case was running is not known.
-	- Possible cause [Bug]: A FreeBSD kernel bug in its page-queue code, reached by Wasmtime's large memory reservations and guard pages. A program cannot cause a kernel page fault by itself.
-	- Progress log:
-		- 20261004: The crash dump is `/var/crash/vmcore.0` on the VM.
-		- 20261004: Before it, the tarball's command, the 30 Zig tests and the C smoke test, static and shared, all passed there.
-	- Branch: freebsd
-
 - FreeBSD x86_64 release.
 	- ID: 2026100413383571
 	- Type: Enhancement
-	- Status: Waiting for answers
+	- Status: Waiting on signoff
 	- Needs local test suite run?: Yes. `cicd.bash --package` covers it.
 	- Needs external testing: Yes, on `vmFreeBSD`.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
@@ -84,13 +61,41 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- 20261004: Reverses 2026100315241091. FreeBSD packages Wasmtime's C library as `libwasmtime`, which that item did not know.
 		- 20261004: The pins are `libwasmtime-45.0.0_1` and `zstd-1.5.7_2` from the FreeBSD 14 quarterly repo. FreeBSD's build of Wasmtime calls zstd, so its `libzstd.a` is linked too and ships in the tarball with zstd's BSD license.
 		- 20261004: `%m` reads AF_LINK as on macOS. Two lines.
-		- 20261004: On `vmFreeBSD`: the tarball's command, every component including `%m`, the 30 Zig tests, and `capi_smoke.c` with the base `cc` against both libraries all pass. `cli-test.bash` panicked the kernel; see 2026100413383471.
+		- 20261004: On `vmFreeBSD`: the tarball's command, every component including `%m`, the 30 Zig tests, and `capi_smoke.c` with the base `cc` against both libraries all pass. `cli-test.bash` panicked the kernel once; see 2026100413383471.
+		- 20261004: On `vmFreeBSD`: `cli-test.bash` against the tarball's command passed 69 of 69, 40 times over.
+		- 20261004: `pipeline-test.bash` case ErkRrml failed about half the time, before this work too. Its fixture ID came from the clock, and the stray scan skips a word with no digit or capital past its first letter. It now uses a fixed time.
 	- Decisions:
 		- FreeBSD 14 as the floor, to match the package repo.
 		- Wasmtime stays, rather than an interpreter for this one platform.
 		- x86_64 only.
 	- Branch: freebsd
 	- Test case: ErlUUiQ to ErlUUiU under `--package` on Linux: an x86_64 FreeBSD build with zstd and its license, no AVX, no libc past FreeBSD 14, and the two links. Each failed on a release broken for it: no zstd license, a Linux binary, an AVX build, a FreeBSD 15 build, and a static and a shared library with no `zuid_*`. ErlUUiV, ErlUUiW, ErlUUiX and ErlX0RL in `installer-test.bash`, with a stand-in `uname`; the first three failed on the old `install.bash`. Ergbz3Z now uses OpenBSD.
+
+- FreeBSD kernel panics while zuid runs.
+	- ID: 2026100413383471
+	- Type: Bug
+	- Status: Can't reproduce
+	- Needs external testing: Yes, on `vmFreeBSD`.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261004-133835
+	- Opened by: JC
+	- Parent ID: 2026100413383571
+	- Target OS: FreeBSD 15.1, x86_64
+	- Test environment: `vmFreeBSD`, 8 CPUs, 8 GB.
+	- Version and build: 1.0.0-alpha.1 (build ddg8r), from the `freebsd` branch.
+	- Steps to reproduce [Bug]:
+		- Run `cli-test.bash --bin <tarball>/bin/zuid` on the VM.
+	- Incorrect behavior [Bug]: The kernel panicked about two minutes in: "Fatal trap 12: page fault while in kernel mode", current process zuid. The backtrace runs from a user page fault through `vm_fault` and `vm_page_activate` into `vm_page_pqstate_commit`.
+	- Expected behavior [Bug]: No program can panic the kernel. At worst zuid crashes.
+	- Reproduced [Bug]: No. It happened once, 20261004, and the test log was lost in the reboot. 40 more runs of `cli-test.bash` did not bring it back: 16 one after another, and 24 four at a time with the Zig tests between them, with every zuid call logged to disk.
+	- Possible cause [Bug]: A FreeBSD kernel bug in its page-queue code, reached by Wasmtime's large memory reservations and guard pages. A program cannot cause a kernel page fault by itself. FreeBSD has a page-queue race of the same kind open on powerpc64le under heavy load, bug 296767; not shown to be the same one.
+	- Progress log:
+		- 20261004: The crash dump is `/var/crash/vmcore.0` on the VM.
+		- 20261004: Before it, the tarball's command, the 30 Zig tests and the C smoke test, static and shared, all passed there.
+		- 20261004: The 40 runs above passed, 69 of 69 each, and the 24 Zig test runs passed.
+	- Decisions:
+		- Not a reason to hold the FreeBSD release, since zuid cannot cause or fix a kernel fault. Reopen if it comes back.
+	- Branch: freebsd
 
 - Drop BSD from the installer and the docs.
 	- ID: 2026100315241091
