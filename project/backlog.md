@@ -223,6 +223,16 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Progress log:
 		- 20261003: waits on its parent.
 
+- When creating a release, use a table to group downloads.
+	- ID: 2026100409432309
+	- Type: Feature
+	- Status: Queued
+	- Opened: 20261004-094323
+	- Opened by: JC
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- CPU architecture in columns, and target OS in rows.
+
 - macOS gets a universal binary for both amd64 and ARM.
 	- ID: 2026100313105241
 	- Type: Enhancement
