@@ -145,7 +145,7 @@ Preferred. `v1.0.0-alpha.1` is published for x86_64 Linux; on any other platform
 
 The `.deb` and `.rpm` install the command. The C module - the header, the static and shared libraries, and the Wasmtime archive the static one needs - comes in the `.tgz`.
 
-Windows, macOS, and ARM builds are not produced yet. The command embeds a WebAssembly runtime, and one is vendored per platform; the rest follow once those are in place.
+Windows builds are not produced yet. macOS and ARM builds are produced but not published yet. The command embeds a WebAssembly runtime, and one is vendored per platform; the rest follow once those are in place.
 
 ### Direct install script
 

@@ -43,7 +43,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - Drop BSD from the installer and the docs.
 	- ID: 2026100315241091
 	- Type: Task
-	- Status: Waiting on signoff
+	- Status: Done
 	- Opened: 20261003-152410
 	- Opened by: JC
 	- Target OS: BSD
@@ -63,15 +63,14 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Commit: f835fe0
 	- Test case: Ergbz3Z, Ergbz3a in `installer-test.bash`, with a stand-in `uname` reporting FreeBSD. The `install.ps1` refusal has no test, since pwsh's `$IsLinux` cannot be faked from outside.
 	- Acceptance signoff: README text changed.
+	- Closed: 20261004-073955
 
 - Linux arm64 release, cross-built on the Linux build machine.
 	- ID: 2026100317515523
 	- Type: Enhancement
-	- Status: Waiting for testing
+	- Status: Done
 	- Needs local test suite run?: No. The `--package` and `--cross` runs pass.
-	- Needs external testing: on `vmDebARM64`, both of these need root there:
-		- Install the arm64 `.deb`.
-		- Run `install.ps1` against a local release, once pwsh is installed.
+	- Needs external testing: No. Done on `vmDebARM64`, 20261004.
 	- Opened: 20261003-175155
 	- Opened by: JC
 	- Related IDs: 2026100315241096, 2026100313105241
@@ -101,10 +100,14 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- 20261003, on `vmDebARM64` from a `--package` run of `main` at 0d01af3: the bare binary and the tarball's `bin/zuid` run, with `--version`, the default, `%d%r`, `%m` and `-n 3`. `%m` gives the VM's own network card address.
 		- 20261003, on `vmDebARM64`: `capi_smoke.c` built with the VM's gcc runs against the tarball's shared library, and against its static ones both named directly and through the header's link line.
 		- 20261003, on `vmDebARM64`: `install.bash --target user` against a local release picked `linux/arm64`, fetched only the arm64 tarball and the checksums, and the installed command runs. A second run said it was already installed.
+		- 20261004, on `vmDebARM64`: the arm64 `.deb` installs with apt and puts `zuid` in `/usr/bin`, and the command runs. It removes cleanly.
+		- 20261004, on `vmDebARM64` with pwsh 7.6.6: `install.ps1 -Target user` against a local release picked `linux/arm64`, fetched only the arm64 tarball and the checksums, and the installed command runs. A second run said it was already installed, and `-Uninstall` removed it.
 	- Swept: every `uname -m` use, asset name and `vendor/wasmtime` path in `cicd/`, `build.zig`, both installers and `installer-test.bash`. The x86_64 release checks now read the x86_64 release on any Linux host.
 	- Branch: arm64
 	- Commit: 9631a0b
 	- Test case: `ErgjCkT` to `ErgjCkX` under `--package` on Linux: arch of every file and package, no instructions past armv8-a, glibc 2.28, and the two links. Each failed on a release broken for it: an x86_64 binary or `.deb` under the arm64 name, a build for a newer CPU, a build for glibc 2.39, an empty `libzuid.a`, and a shared library with no `zuid_*`. `ErgjCkY` and `ErgjCkZ` in `installer-test.bash`, with a stand-in `uname` reporting `aarch64`, failed with `install.bash` picking x86_64. `install.ps1` has no test, since pwsh's architecture cannot be faked from outside.
+	- Acceptance signoff: Self-closed: the intent was clear, it builds what was asked, and it passed on an arm64 machine.
+	- Closed: 20261004-074509
 
 - The macOS build hangs on Zig 0.17.0.
 	- ID: 2026100318410002
@@ -162,6 +165,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- 20261003: Done on branch `zig017`. Ported as the trial did, and 0.17.0 is installed beside 0.16.0 on the build machine.
 		- 20261003: An empty `SOURCE_DATE_EPOCH` broke the build on 0.17.0, and the existing test for it caught that. The build script can no longer clear the variable for the header step, so that step now runs as a plain command with it removed.
 		- 20261003: Question: move to `SafeAllocator`? Zig 0.17.0 deprecates `DebugAllocator` in its favor, but it is a different allocator, not a rename. It catches more, so the memory-safety section in `design.md` would need rewriting, and the leak test would need another way to count. Kept as is until then.
+		- 20261004: Answer: either way. `DebugAllocator` stays. It is unchanged in 0.17.0, and `SafeAllocator` counts leaks only by tearing itself down, which the leak test cannot use. Revisit when a Zig release removes it.
 		- 20261003: The ReleaseSafe test run fails the leaked-context test, on 0.16.0 as well. The pipeline tests in Debug, so it only matters to the fuzz item.
 		- 20261003: The b26 run failed. The Zig build hangs on macOS, so nothing past the Go stages ran there. Back to Queued until 2026100318410002 is fixed. 0.17.0 is installed on b26 now, checked against the download index.
 	- Verified: a full pipeline run (`cicd.bash --no-dogfood --no-backup`) and one with `--cross` both passed on Linux, with no test skipped. A ReleaseSafe build runs. A release package for glibc 2.28 builds. Both macOS slices cross-compile and link. A no-op rebuild takes under a tenth of a second.
@@ -486,6 +490,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Note: 20261003, `ZUID_GH` names another `gh`. The tests use a stub with a local bare remote, so nothing reaches GitHub.
 	- Note: 20261003, the old check that `--publish` is refused (`ErOjF72`) is commented out with the reason.
 	- Note: 20261003, branch `publish`. The first real run waits on the Windows build, or on a go-ahead to publish with `--allow-partial`. The version in `core.zig` is still `1.0.0-alpha.1`, so a run today refuses on that tag.
+	- Decision: 20261004, the first real run waits on the Windows build. No `--allow-partial`.
 	- Test case: `ErgqYt2` to `ErgqYtH` and `ErgqjsR` in `pipeline-test.bash`. Each was seen to fail with its check broken.
 	- Opened: 20260802-025417
 
