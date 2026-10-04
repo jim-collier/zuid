@@ -245,14 +245,24 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - When creating a release, use a table to group downloads.
 	- ID: 2026100409432309
 	- Type: Feature
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Opened: 20261004-094323
 	- Opened by: JC
 	- Target OS: Any
 	- Requirements  [Feature]:
 		- CPU architecture in columns, and target OS in rows.
+	- Progress log:
+		- 20261004: `--publish` adds a "Downloads" table to the notes. Rows are Linux, macOS, Windows, FreeBSD; columns are x86_64 and arm64. Each cell links every file for that pair: tarball or zip, bare binary, `.deb`, `.rpm`. A cell with no file shows `-`.
+		- A file the table cannot place, such as another CPU or no OS in its name, is linked in a line under the table. `checksums.txt` is linked after that.
+		- The links need the repo's address, which comes from `gh repo view`. The preflight refuses if gh cannot name the repo, so no tag is pushed for a release that would fail anyway.
+		- Verified: `pipeline-test.bash` 44 passed, `test-ids.py check`, shellcheck. A sample passed through GitHub's markdown renderer kept the spanned cell.
 	- Decisions:
 		- 20261004: the macOS universal file spans both architecture columns. A markdown table cannot span cells, so the release notes need an HTML table for this.
+		- 20261004: the table goes after the changelog section, under its own "Downloads" heading. What changed reads first, and GitHub lists the assets at the bottom of the page anyway. With no changelog section the notes are the table alone, where before they were empty.
+		- 20261004: every row shows even with no files, as dashes, so the layout is the same in every release.
+	- Branch: dl-table
+	- Commit: de03ae4
+	- Test case: `pipeline-test.bash` Erm9fTp (rows and columns), Erm9fTq (spanned macOS cell), Erm9fTr (missing target), Erm9fTs (changelog, table, then checksums.txt), ErmAuec (refusal when gh cannot name the repo). All failed before the change.
 
 - Release builds target the build machine's CPU.
 	- ID: 2026093018112406
