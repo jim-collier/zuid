@@ -105,6 +105,8 @@ case "$(uname -s)" in
 esac
 ## What an arm64 Linux host fetches, which a stand-in uname can ask for anywhere.
 armAsset="${PROG}-linux-arm64.tgz"
+## Likewise a FreeBSD one.
+bsdAsset="${PROG}-freebsd-x86_64.tgz"
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -188,6 +190,9 @@ fMakeRelease(){
 		tar -czf "${outDir}/${armAsset}" -C "${stageDir}" "${PROG}-${tag}"
 		( cd "${outDir}" && sha256sum "${armAsset}" >> checksums.txt )
 	fi
+	fWriteStandIn "${tag}" "${bsdAsset}" "${standIn}"
+	tar -czf "${outDir}/${bsdAsset}" -C "${stageDir}" "${PROG}-${tag}"
+	( cd "${outDir}" && sha256sum "${bsdAsset}" >> checksums.txt )
 }
 fMakeRelease "v2.1.0-beta.1"
 fMakeRelease "v2.0.0"
@@ -765,8 +770,8 @@ fCase_MissingValue(){
 	done
 }
 
-## There is no BSD build, since Wasmtime publishes none. install.bash used to
-## take any system it did not know for FreeBSD and go looking for that tarball.
+## install.bash used to take any system it did not know for FreeBSD and go
+## looking for that tarball. OpenBSD has no build.
 fCase_NoBuild(){
 	local out="" rc=0 home=""
 	local -r fakeDir="${work}/fake-uname"
@@ -775,7 +780,7 @@ fCase_NoBuild(){
 		printf '#!/usr/bin/env bash\n'
 		printf 'realUname=%q\n' "$(command -v uname)"
 		cat <<'SH'
-case "${1:-}" in -s) echo FreeBSD ;; *) exec "${realUname}" "$@" ;; esac
+case "${1:-}" in -s) echo OpenBSD ;; *) exec "${realUname}" "$@" ;; esac
 SH
 	} > "${fakeDir}/uname"
 	chmod +x "${fakeDir}/uname"
@@ -784,7 +789,7 @@ SH
 	out="$(HOME="${home}" PATH="${fakeDir}:${PATH}" bash "${bashCopy}" --target user --yes 2>&1)" || rc=$?
 
 	fId Ergbz3Z "bash: a system with no build says so by name"
-	if ((rc != 0)) && [[ "${out}" == *"FreeBSD"* && "${out}" == *"no ${PROG} build"* ]]
+	if ((rc != 0)) && [[ "${out}" == *"OpenBSD"* && "${out}" == *"no ${PROG} build"* ]]
 		then fPass
 		else fFail "rc=${rc} and '${out}'"
 	fi
@@ -823,6 +828,51 @@ SH
 	if [[ "${got}" == "2.0.0" && "$("${home}/.local/bin/${PROG}" 2>&1 || true)" == *"${armAsset}"* ]]
 		then fPass
 		else fFail "should install v2.0.0 from ${armAsset}, got ${got}: $("${home}/.local/bin/${PROG}" 2>&1 || true). Output: ${out}"
+	fi
+}
+
+## FreeBSD says amd64 and the release says x86_64. It has no arm64 build, so an
+## arm64 FreeBSD machine is refused rather than handed the Linux one.
+fCase_FreeBSD(){
+	local out="" home="" got="" rc=0 before=""
+	local -r fakeDir="${work}/fake-uname-freebsd"
+	mkdir -p "${fakeDir}"
+	{
+		printf '#!/usr/bin/env bash\n'
+		printf 'realUname=%q\n' "$(command -v uname)"
+		cat <<'SH'
+case "${1:-}" in -s) echo FreeBSD ;; -m) echo "${FAKE_MACHINE:-amd64}" ;; *) exec "${realUname}" "$@" ;; esac
+SH
+	} > "${fakeDir}/uname"
+	chmod +x "${fakeDir}/uname"
+	home="$(fNewHome "freebsd")"
+	: > "${work}/requests.log"
+	out="$(HOME="${home}" PATH="${fakeDir}:${PATH}" bash "${bashCopy}" --target user --yes 2>&1)" || true
+	got="$(fInstalledVersion "${home}")"
+
+	fId ErlUUiV "bash: an amd64 FreeBSD machine fetches the FreeBSD x86_64 tarball"
+	if grep -q "/${bsdAsset}\$" "${work}/requests.log" && ! grep -q '\.tgz$' <(grep -v "/${bsdAsset}\$" "${work}/requests.log")
+		then fPass
+		else fFail "asked for: $(grep '\.tgz$' "${work}/requests.log" | tr '\n' ' '). Output: ${out}"
+	fi
+	fId ErlUUiW "bash: and installs it"
+	if [[ "${got}" == "2.0.0" && "$("${home}/.local/bin/${PROG}" 2>&1 || true)" == *"${bsdAsset}"* ]]
+		then fPass
+		else fFail "should install v2.0.0 from ${bsdAsset}, got ${got}: $("${home}/.local/bin/${PROG}" 2>&1 || true). Output: ${out}"
+	fi
+
+	home="$(fNewHome "freebsd-arm64")"
+	before="$(fRequestCount)"
+	out="$(HOME="${home}" FAKE_MACHINE=arm64 PATH="${fakeDir}:${PATH}" bash "${bashCopy}" --target user --yes 2>&1)" || rc=$?
+	fId ErlUUiX "bash: an arm64 FreeBSD machine is told there is no build for it"
+	if ((rc != 0)) && [[ "${out}" == *"FreeBSD"* && "${out}" == *"arm64"* && "${out}" == *"no ${PROG} build"* ]]
+		then fPass
+		else fFail "rc=${rc} and '${out}'"
+	fi
+	fId ErlX0RL "bash: and downloads nothing"
+	if [[ "$(fRequestCount)" == "${before}" ]]
+		then fPass
+		else fFail "it fetched anyway. Output: ${out}"
 	fi
 }
 
@@ -883,6 +933,7 @@ if [[ "${only}" != "ps1" ]]; then
 	fCase_MissingValue
 	fCase_NoBuild
 	fCase_Arm64Linux
+	fCase_FreeBSD
 	fCase_ForeignLink "bash" "fRunBash"
 fi
 

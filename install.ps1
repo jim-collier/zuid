@@ -81,7 +81,7 @@ elseif ($IsLinux) {
 	$archiveExtension = 'tgz'
 }
 else {
-	## No BSD build, since Wasmtime publishes none.
+	## PowerShell does not support FreeBSD, so install.bash covers it.
 	Stop-WithMessage "no $program build exists for $([System.Runtime.InteropServices.RuntimeInformation]::OSDescription). Build from source instead - see the README."
 }
 

@@ -40,7 +40,7 @@ fConfig(){ :;
 
 	## One asset per release target, by the name the installers ask for. --publish
 	## refuses a set with any of these missing, unless --allow-partial.
-	default_releaseAssets=("zuid-linux-x86_64.tgz" "zuid-linux-arm64.tgz" "zuid-darwin-universal.tgz" "zuid-windows-x86_64.zip" "zuid-windows-arm64.zip")
+	default_releaseAssets=("zuid-linux-x86_64.tgz" "zuid-linux-arm64.tgz" "zuid-freebsd-x86_64.tgz" "zuid-darwin-universal.tgz" "zuid-windows-x86_64.zip" "zuid-windows-arm64.zip")
 
 	## Vendored Wasmtime C API, pinned. Fetched into zig/vendor/ when absent.
 	## One checksum per platform, as <arch>-<os>=<sha256>, in Wasmtime's own names.
@@ -52,6 +52,17 @@ fConfig(){ :;
 		"aarch64-linux=c1ef99bb4ef0151282f339e22a67f8229d9ab336f9a17387e65f140b79c45be1"
 		"x86_64-macos=627622087b77b92c163e826ec6ebf834a70d78735828043edf7ace263f8a9e62"
 		"aarch64-macos=1854c8f03a764c89afe77fa88d9092ab89a368e527cd27a12959b1d91152324e"
+	)
+
+	## Wasmtime releases nothing for FreeBSD, so its C API comes from FreeBSD's
+	## own package, plus the zstd package that build calls. The FreeBSD 14 repo,
+	## so the release runs on 14 and later. A repo drops a package's file when it
+	## moves on to a new build, and the fetch then 404s: repin from the repo's
+	## packagesite. Linux vendors these under --package, which releases FreeBSD.
+	default_freebsdRepo="https://pkg.freebsd.org/FreeBSD:14:amd64/quarterly"
+	default_freebsdPkgs=(
+		"libwasmtime-45.0.0_1=6ccbb278a884e666b44be96f82ec6a27a1abc81a7497211af1b69eee8b649bc3"
+		"zstd-1.5.7_2=c6f339787fa2883ea4d0d5f3b8d100f8bf7a43e55b7c671824eb0f6a22d9371a"
 	)
 
 	## The reactor wasm module is built from this package, which go.mod pins to
@@ -204,6 +215,8 @@ fMain(){
 	local -a default_releaseAssets=()
 	local    default_wasmtimeVer=""
 	local -a default_wasmtimeSha256s=()
+	local    default_freebsdRepo=""
+	local -a default_freebsdPkgs=()
 	local    default_reactorPackage=""
 	local -a default_dogfoodDirs=()
 	local    default_rarExcludes=""
@@ -219,6 +232,8 @@ fMain(){
 	local -ra releaseAssets=("${default_releaseAssets[@]}")
 	local -r wasmtimeVer="${default_wasmtimeVer}"
 	local -ra wasmtimeSha256s=("${default_wasmtimeSha256s[@]}")
+	local -r  freebsdRepo="${default_freebsdRepo}"
+	local -ra freebsdPkgs=("${default_freebsdPkgs[@]}")
 	local -r reactorPackage="${default_reactorPackage}"
 	local -ra dogfoodDirs=("${default_dogfoodDirs[@]}")
 	local -r  rarExcludes="${default_rarExcludes}"
@@ -954,7 +969,8 @@ fStage_Zig_Vendor(){
 	## vendor/wasmtime. A Mac also gets the other macOS one beside it, as
 	## vendor/wasmtime-<platform>, for the second slice of its universal release.
 	## Linux gets the other Linux one there under --package, since it releases
-	## both architectures. build.zig and package.bash look for it there.
+	## both architectures, and FreeBSD's too. build.zig and package.bash look for
+	## it there.
 	local hostOs="" hostArch=""
 	case "$(uname -s)" in
 		Linux)  hostOs="linux" ;;
@@ -974,6 +990,7 @@ fStage_Zig_Vendor(){
 	for platform in "${releasePlatforms[@]}"; do
 		if [[ "${platform}" != "${hostPlatform}" ]]; then fVendor_Wasmtime "${platform}" "${vendorDir}/wasmtime-${platform}"; fi
 	done
+	if [[ "${hostOs}" == "linux" ]] && ((doPackage)); then fVendor_FreeBSD "${vendorDir}/wasmtime-x86_64-freebsd"; fi
 
 	## The reactor wasm module, built from the same convertbase release go.mod
 	## pins. Building it here rather than copying a prebuilt artifact is what
@@ -1054,6 +1071,57 @@ fVendor_Wasmtime(){  ## platform, destination
 	mv "${parentDir}/${wtName}" "${dest}"
 	printf '%s\n' "${wasmtimeVer}" > "${wtStamp}"
 	fEcho_Clean "Wasmtime ...: vendored ${platform}"
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## FreeBSD's Wasmtime, from its packages into the same layout as Wasmtime's own
+## release: include/ and lib/libwasmtime.a, with libzstd.a beside it, and zstd's
+## license for the release to carry.
+fVendor_FreeBSD(){  ## destination
+
+	local -r dest="$1"
+	local -r parentDir="$(dirname "${dest}")"
+	local -r stamp="${dest}/.version"
+	local -r want="${freebsdPkgs[*]%%=*}"
+	if [[ -f "${dest}/include/wasmtime.h" ]] && [[ "$(cat "${stamp}" 2>/dev/null || true)" == "${want}" ]]; then
+		fEcho_Clean "Wasmtime ...: ${want} x86_64-freebsd present"
+		return 0
+	fi
+
+	_fMustBeInPath curl
+	_fMustBeInPath shasum
+	_fMustBeInPath tar
+	local -r unpackDir="${parentDir}/.freebsd-unpack"
+	rm -rf "${unpackDir:?}"
+	mkdir -p "${unpackDir}"
+	local pin="" pkgName="" pkgSum="" pkgFile="" gotSum=""
+	for pin in "${freebsdPkgs[@]}"; do
+		pkgName="${pin%%=*}"; pkgSum="${pin#*=}"
+		pkgFile="${unpackDir}/${pkgName}.pkg"
+		fEcho_Clean "Wasmtime ...: fetching FreeBSD ${pkgName}"
+		curl -sSL --fail -o "${pkgFile}" "${freebsdRepo}/All/${pkgName}.pkg" \
+			|| fThrowError "Could not download ${pkgName} from ${freebsdRepo}. The repo may have moved on to a newer build; repin default_freebsdPkgs from its packagesite."  "${FUNCNAME[0]}"
+		gotSum="$(shasum -a 256 "${pkgFile}" | awk '{print $1}')"
+		[[ "${gotSum}" == "${pkgSum}" ]] || fThrowError "FreeBSD ${pkgName} checksum mismatch: got ${gotSum}."  "${FUNCNAME[0]}"
+		## A package is a tarball of absolute paths under /usr/local.
+		tar --no-same-owner --no-same-permissions -xf "${pkgFile}" -C "${unpackDir}" 2>/dev/null \
+			|| fThrowError "Could not unpack ${pkgName}."  "${FUNCNAME[0]}"
+	done
+
+	local -r usrLocal="${unpackDir}/usr/local"
+	rm -rf "${dest:?}"
+	mkdir -p "${dest}/lib"
+	cp -R "${usrLocal}/include" "${dest}/"
+	cp "${usrLocal}/lib/libwasmtime.a" "${usrLocal}/lib/libzstd.a" "${dest}/lib/"
+	## zstd is dual BSD and GPLv2; the release takes it under BSD, whose text
+	## carries the copyright line a binary distribution has to reproduce.
+	cp "$(find "${usrLocal}/share/licenses" -path '*/zstd-*/BSD3CLAUSE' -print -quit)" "${dest}/LICENSE-zstd" \
+		|| fThrowError "The zstd package has no BSD3CLAUSE license file."  "${FUNCNAME[0]}"
+	rm -rf "${unpackDir:?}"
+	printf '%s\n' "${want}" > "${stamp}"
+	fEcho_Clean "Wasmtime ...: vendored ${want} x86_64-freebsd"
 
 }
 
@@ -1618,15 +1686,8 @@ fStage_Package(){
 			avxTarget="${thinDir}/zuid-x86_64"
 			lipo -thin x86_64 "${release}" -output "${avxTarget}" || fTestFail "could not take the x86_64 slice out of ${release}."
 		fi
-		## Wasmtime's Rust asks the CPU before it uses AVX, so it is left out.
-		## Its names start with _ZN, or _R for the newer mangling.
 		local avxScan=""
-		avxScan="$(objdump -d --no-show-raw-insn "${avxTarget}" | awk '
-			/^[0-9a-f]+ <.*>:$/ { fn = $2; gsub(/^<|>:$/, "", fn); rust = (fn ~ /^_?_(ZN|R[0-9]*[BCIMNXY])/); next }
-			rust || (fn in seen) { next }
-			/:[[:space:]]+v[a-z]/ || /%[yz]mm/ { seen[fn] = 1; if (++count <= 3) names = names " " fn }
-			END { print count + 0 names }
-		')"
+		avxScan="$(fAvxScan "${avxTarget}")"
 		if [[ "${avxScan%% *}" != "0" ]]; then
 			fTestFail "${avxScan%% *} functions use AVX, such as ${avxScan#* }. package.bash has to name a target."
 		fi
@@ -1654,6 +1715,7 @@ fStage_Package(){
 	fi
 
 	fStage_Package_Arm64 "${thinDir}" "${glibcFloor}"
+	fStage_Package_FreeBSD "${thinDir}"
 
 	local -r macFloor="13.0"
 	fId ErbFB7D "the release asks for macOS ${macFloor}"
@@ -1703,6 +1765,136 @@ fStage_Package(){
 	fi
 
 	rm -rf "${thinDir}"
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Prints how many functions use AVX, then up to three of their names.
+## Wasmtime's Rust asks the CPU before it uses AVX, so it is left out. Its names
+## start with _ZN, or _R for the newer mangling.
+fAvxScan(){  ## x86_64 binary
+	objdump -d --no-show-raw-insn "$1" | awk '
+		/^[0-9a-f]+ <.*>:$/ { fn = $2; gsub(/^<|>:$/, "", fn); rust = (fn ~ /^_?_(ZN|R[0-9]*[BCIMNXY])/); next }
+		rust || (fn in seen) { next }
+		/:[[:space:]]+v[a-z]/ || /%[yz]mm/ { seen[fn] = 1; if (++count <= 3) names = names " " fn }
+		END { print count + 0 names }
+	'
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The FreeBSD x86_64 release, cross-built on Linux from FreeBSD's own Wasmtime
+## package. As with arm64, nothing here can run it; vmFreeBSD does that by hand.
+fStage_Package_FreeBSD(){  ## scratch dir
+
+	local -r scratchDir="$1"
+	local -r bsdRelease="${repoRoot}/dist/zuid-freebsd-x86_64"
+	local -r bsdTree="${scratchDir}/freebsd"
+	local -i isLinux=0 haveReadelf=0 haveObjdump=0
+	if [[ "$(uname -s)" == "Linux" ]];          then isLinux=1;     fi
+	if command -v readelf >/dev/null 2>&1;      then haveReadelf=1; fi
+	if command -v objdump >/dev/null 2>&1;      then haveObjdump=1; fi
+
+	local bsdLib=""
+	if ((isLinux)) && [[ -f "${bsdRelease}.tgz" ]]; then
+		mkdir -p "${bsdTree}"
+		tar -xzf "${bsdRelease}.tgz" -C "${bsdTree}"
+		bsdLib="$(find "${bsdTree}" -mindepth 2 -maxdepth 2 -type d -name lib -print -quit)"
+	fi
+
+	## Zig leaves the ELF header's OS/ABI at System V, so that says nothing.
+	## FreeBSD knows its programs by their ABI note and loader, and a shared
+	## library by the libc it needs: libc.so.7, where Linux has libc.so.6.
+	fId ErlUUiQ "the FreeBSD release is an x86_64 FreeBSD build, and its tarball has zstd and its license"
+	if ((! isLinux)); then
+		fTestSkip "Linux only"
+	elif ((! haveReadelf)); then
+		fTestSkip "no readelf"
+	else
+		[[ -n "${bsdLib}" ]] || fTestFail "there is no lib/ in ${bsdRelease}.tgz."
+		local -ra bsdPrograms=("${bsdRelease}" "${bsdLib}/../bin/zuid")
+		local -r bsdShared="$(find "${bsdLib}" -maxdepth 1 -type f -name 'libzuid.so.*' -print -quit)"
+		local -a bsdFiles=("${bsdPrograms[@]}" "${bsdShared}" "${bsdLib}/libzuid.a" "${bsdLib}/libwasmtime.a" "${bsdLib}/libzstd.a" "${bsdLib}/../share/LICENSE-zstd.txt")
+		local bsdFile="" machines=""
+		for bsdFile in "${bsdFiles[@]}"; do
+			[[ -f "${bsdFile}" ]] || fTestFail "${bsdFile:-the shared library} is missing."
+		done
+		machines="$(readelf -h "${bsdFiles[@]:0:6}" | awk '$1 == "Machine:" { $1 = ""; print substr($0, 2) }' | sort -u)"
+		if [[ "${machines}" != "Advanced Micro Devices X86-64" ]]; then
+			fTestFail "the binaries and libraries are for '${machines//$'\n'/, }'."
+		fi
+		for bsdFile in "${bsdPrograms[@]}"; do
+			[[ "$(readelf -n "${bsdFile}")" == *"FreeBSD"*"NT_VERSION"* ]] || fTestFail "$(basename "${bsdFile}") has no FreeBSD ABI note."
+			[[ "$(readelf -l "${bsdFile}")" == *"/libexec/ld-elf.so.1"* ]] || fTestFail "$(basename "${bsdFile}") does not ask for FreeBSD's loader."
+		done
+		[[ "$(readelf -d "${bsdShared}")" == *"[libc.so.7]"* ]] || fTestFail "$(basename "${bsdShared}") does not need FreeBSD's libc.so.7."
+		grep -q "Meta Platforms" "${bsdLib}/../share/LICENSE-zstd.txt" || fTestFail "LICENSE-zstd.txt is not zstd's BSD license."
+		fTestPass
+	fi
+
+	fId ErlUUiR "the FreeBSD release uses no AVX in code built here"
+	if ((! isLinux)); then
+		fTestSkip "Linux only"
+	elif ((! haveObjdump)); then
+		fTestSkip "no objdump"
+	else
+		[[ -f "${bsdRelease}" ]] || fTestFail "there is no ${bsdRelease}."
+		local bsdAvx=""
+		bsdAvx="$(fAvxScan "${bsdRelease}")"
+		if [[ "${bsdAvx%% *}" != "0" ]]; then
+			fTestFail "${bsdAvx%% *} functions use AVX, such as ${bsdAvx#* }. package.bash has to name a target."
+		fi
+		fTestPass
+	fi
+
+	## FreeBSD versions libc's symbols by release: FBSD_1.7 is 14, FBSD_1.8 is
+	## 15. A symbol from a newer one would keep the release off 14.
+	local -r fbsdFloor="1.7"
+	fId ErlUUiS "the FreeBSD release needs nothing from libc past FreeBSD 14 (FBSD_${fbsdFloor})"
+	if ((! isLinux)); then
+		fTestSkip "Linux only"
+	elif ((! haveReadelf)); then
+		fTestSkip "no readelf"
+	else
+		[[ -f "${bsdRelease}" ]] || fTestFail "there is no ${bsdRelease}."
+		local fbsdNewest=""
+		fbsdNewest="$(readelf -W --dyn-syms "${bsdRelease}" | grep -o 'FBSD_[0-9.]*' | sort -u -V | tail -n 1 || true)"
+		fbsdNewest="${fbsdNewest#FBSD_}"
+		if [[ -z "${fbsdNewest}" ]]; then
+			fTestFail "found no FreeBSD symbol versions in ${bsdRelease}."
+		fi
+		if [[ "$(printf '%s\n' "${fbsdNewest}" "${fbsdFloor}" | sort -V | tail -n 1)" != "${fbsdFloor}" ]]; then
+			fTestFail "it needs FBSD_${fbsdNewest}."
+		fi
+		fTestPass
+	fi
+
+	## Link only, as for arm64. zuid.h gives the static line.
+	local -r smokeSrc="${zigDir}/lib/test/capi_smoke.c"
+	local -ra bsdCc=(zig cc -target "x86_64-freebsd.14.0")
+	local -a links=(
+		"static:-Wl,-Bstatic -lzuid -lwasmtime -lzstd -Wl,-Bdynamic -lunwind -lpthread -lm"
+		"shared:-lzuid"
+	)
+	local link="" linkKind=""
+	local -a linkFlags=()
+	for link in "${links[@]}"; do
+		linkKind="${link%%:*}"
+		read -r -a linkFlags <<< "${link#*:}"
+		fId "${linkKind}" static=ErlUUiT shared=ErlUUiU "capi_smoke.c links for FreeBSD against the tarball's ${linkKind} library"
+		if ((! isLinux)); then
+			fTestSkip "Linux only"
+			continue
+		fi
+		[[ -n "${bsdLib}" ]] || fTestFail "there is no lib/ in ${bsdRelease}.tgz."
+		"${bsdCc[@]}" -I "${bsdLib}/../include" "${smokeSrc}" -L "${bsdLib}" "${linkFlags[@]}" \
+			-o "${scratchDir}/smoke-freebsd-${linkKind}" || fTestFail "did not link."
+		if ((haveReadelf)) && [[ "$(readelf -l "${scratchDir}/smoke-freebsd-${linkKind}")" != *"/libexec/ld-elf.so.1"* ]]; then
+			fTestFail "it did not link as a FreeBSD program."
+		fi
+		fTestPass
+	done
 
 }
 

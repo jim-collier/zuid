@@ -25,6 +25,9 @@
 	the release puts libwasmtime.a in the same lib/ directory - plus the usual
 	system libraries:
 		-lzuid -lwasmtime -lpthread -ldl -lm
+	On FreeBSD the Wasmtime archive also calls zstd, so the release puts
+	libzstd.a in lib/ too:
+		-lzuid -lwasmtime -lzstd -lpthread -lm
 */
 
 #ifndef ZUID_H

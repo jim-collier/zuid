@@ -330,5 +330,9 @@ fn wireWasmtimeInner(b: *std.Build, mod: *std.Build.Module, wasmtime: []const u8
         mod.addObjectFile(b.path(b.fmt("{s}/lib/libwasmtime.a", .{wasmtime})));
         // Wasmtime registers unwind frames for its jitted code; Zig bundles this.
         mod.linkSystemLibrary("unwind", .{});
+        // FreeBSD's own package build of Wasmtime calls zstd. cicd.bash vendors
+        // that package's libzstd.a beside it.
+        if (mod.resolved_target.?.result.os.tag == .freebsd)
+            mod.addObjectFile(b.path(b.fmt("{s}/lib/libzstd.a", .{wasmtime})));
     }
 }

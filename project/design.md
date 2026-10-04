@@ -97,6 +97,8 @@ The identifier core stays native Zig. Only base conversion crosses the WebAssemb
 
 Among the runtimes considered, we decided on the Wasmtime C API: it is the reference implementation, has the best-documented C interface, and is the fastest of the options. It is also the heaviest, and it is not present on a stock system, so it is vendored rather than assumed present. The build pins a release, verifies its checksum, and links the static archive, so the binary and the shared library are self-contained; the module bytes are embedded at build time for the same reason.
 
+Wasmtime publishes no FreeBSD build, but FreeBSD packages one. The FreeBSD release links that package's archive, pinned by checksum like the rest, with the zstd archive that build calls. It runs behind Wasmtime's own releases and its port has no maintainer, so it is the first place to look if that build breaks. Switching to an interpreter for one platform was not worth it.
+
 An interpreter such as wasm3 would vendor far more cleanly and is the fallback if the dependency proves painful. Generating one identifier is microseconds of work either way, so this is a build-complexity decision far more than a speed one.
 
 Two properties of that runtime shape the build:

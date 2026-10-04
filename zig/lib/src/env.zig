@@ -136,7 +136,7 @@ fn readFqdn(out: []u8) core.Error![]const u8 {
 /// routing table on three platforms; interface order is stable enough for a
 /// value whose only job is to differ between hosts.
 ///
-/// Linux and macOS only so far.
+/// Linux, macOS and FreeBSD.
 fn vtMac(ctx: *anyopaque) core.Error![6]u8 {
     const self: *Live = @ptrCast(@alignCast(ctx));
     if (self.hardware) |cached| return cached;
@@ -146,7 +146,7 @@ fn vtMac(ctx: *anyopaque) core.Error![6]u8 {
 }
 
 fn readMac() core.Error![6]u8 {
-    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) return core.Error.EnvUnavailable;
+    if (builtin.os.tag != .linux and builtin.os.tag != .freebsd and !builtin.os.tag.isDarwin()) return core.Error.EnvUnavailable;
 
     var list: ?*c.struct_ifaddrs = null;
     if (c.getifaddrs(&list) != 0) return core.Error.EnvUnavailable;
@@ -186,7 +186,7 @@ pub const MacPick = struct {
 const LinkAddress = struct { index: c_int, mac: [6]u8 };
 
 /// An EUI-48 and its interface index, if this entry is one. Linux reports a
-/// hardware address as AF_PACKET and macOS as AF_LINK.
+/// hardware address as AF_PACKET, and macOS and FreeBSD as AF_LINK.
 fn linkAddress(addr: *const c.struct_sockaddr) ?LinkAddress {
     if (builtin.os.tag == .linux) {
         if (addr.*.sa_family != c.AF_PACKET) return null;
