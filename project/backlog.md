@@ -109,6 +109,29 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Acceptance signoff: Self-closed: the intent was clear, it builds what was asked, and it passed on an arm64 machine.
 	- Closed: 20261004-074509
 
+- `test-ids.py check` missed test IDs kept in an array.
+	- ID: 2026100409004496
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: Low
+	- Opened: 20261004-090044
+	- Opened by: JC
+	- Related IDs: 2026100317515523
+	- Steps to reproduce [Bug]:
+		- Keep a check's ID in a bash array instead of on its `fId` line, as the two arm64 link checks did.
+		- Run `cicd/utility/test-ids.py check`.
+	- Incorrect behavior [Bug]: It passes without reading those IDs, so a duplicate or a malformed one would go through.
+	- Expected behavior [Bug]: Every ID in the pipeline is checked, or the check fails.
+	- Reproduced [Bug]: 20261004, on `ErgjCkW` and `ErgjCkX` in `cicd.bash`.
+	- Actual cause [Bug]:
+		- The check only reads IDs at the start of an `fId` or `fWant*` line, and the array put them somewhere else.
+	- Actual fix [Bug]:
+		- The arm64 link checks use `fId`'s keyed form, like the cross targets.
+		- The check also fails on a word that looks like an ID but that no test line names, and on a `// test-id:` mark that is not above a test. A comment is let through, so a retired test can stay in one.
+	- Branch: idgaps
+	- Test case: `ErkRrmk` to `ErkRrmo` in `pipeline-test.bash`, against a scratch tree. `ErkRrml`, `ErkRrmm` and `ErkRrmo` failed on the old `test-ids.py`. `ErkRrmn` failed with the comment exemption taken out.
+	- Closed: 20261004-090044
+
 - The macOS build hangs on Zig 0.17.0.
 	- ID: 2026100318410002
 	- Type: Bug
@@ -455,7 +478,8 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Done: 20261003: a full pipeline run fuzzes both Zig fuzz tests after the Zig tests, 50K iterations each. A quick run prints a skip line instead. It takes about 35 s here, and about 13 s more after a change to the Zig source.
 	- Decision: 20261003, open to change: 50K iterations, and Debug, since the leaked-context test counts contexts only there. A find fails the stage from the output, not the exit code. Its input is kept in `cicd/artifacts/fuzz/`, which nothing rotates, and printed as a string ready for the test's corpus. The limit is always attached with `=`, since a bare `--fuzz` starts a web server.
 	- Verified: a planted two-byte failure in the format test turned the stage red, with Zig's crash line, and the kept input failed the plain test run once added to the corpus. A planted panic in the C test, run through the same command, ended in the same `input saved to` line. No port was opened during a run. A full `cicd.bash --no-dogfood --no-backup -q` passes.
-	- Test case: `ErgeVve`.
+	- Done: 20261004: each fuzz test prints its own line under its own ID, as the Go one does. They used to share one line under `ErgeVve`, so a find could not say whose it was. A find now fails the test that found it, and the other shows as skipped.
+	- Test case: `Eq9zVsH` and `Eq9zVsI` in the fuzz stage. `ErkRrmp` to `ErkRrmr` in `pipeline-test.bash` run the stage with a stand-in `zig`: a clean run, a find, and a broken run. All three failed on the old stage. `ErgeVve` is retired.
 	- Note: still needs a pipeline run on b26, like 2026100313583935.
 	- Opened: 20260917-131500
 

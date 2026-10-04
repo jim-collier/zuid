@@ -605,7 +605,7 @@ fStage_TestIds(){
 		fEcho_Clean "Skipped ....: python3 not installed."
 		return 0
 	fi
-	python3 "${utilityDir}/test-ids.py" check || fThrowError "Some tests have no ID, or share one. 'cicd/utility/test-ids.py new' makes one."  "${FUNCNAME[0]}"
+	python3 "${utilityDir}/test-ids.py" check || fThrowError "Some tests have no ID, share one, or have one nothing checks. 'cicd/utility/test-ids.py new' makes one."  "${FUNCNAME[0]}"
 
 }
 
@@ -1105,9 +1105,23 @@ fStage_Zig_Fuzz(){
 	fEcho "Zig: fuzz"
 
 	local -r fuzzLimit="50K"
-	fId ErgeVve "the Zig fuzz tests, fuzzed for ${fuzzLimit} iterations"
+
+	## One line per fuzz test under its own ID, as the Go side does. The limit
+	## is per test, not shared.
+	local -a fuzzIds=() fuzzNames=()
+	local fuzzId="" fuzzName=""
+	while IFS=$'\t' read -r fuzzId fuzzName; do
+		fuzzIds+=("${fuzzId}")
+		fuzzNames+=("${fuzzName}")
+	done < <(python3 "${utilityDir}/test-ids.py" fuzzers || true)
+	((${#fuzzIds[@]} > 0)) || fThrowError "No Zig test calls std.testing.fuzz, so there is nothing to fuzz."  "${FUNCNAME[0]}"
+
+	local -i i=0
 	if ((doQuick)); then
-		fTestSkip "a quick run"
+		for i in "${!fuzzIds[@]}"; do
+			fId "${fuzzIds[i]}" "${fuzzNames[i]}, fuzzed for ${fuzzLimit} iterations"
+			fTestSkip "a quick run"
+		done
 		return 0
 	fi
 
@@ -1125,15 +1139,38 @@ fStage_Zig_Fuzz(){
 
 	local -r findLine="$(grep -m1 -F "input saved to '" "${fuzzLog}" || true)"
 	if [[ -z "${findLine}" ]] && ((exitCode == 0)); then
-		fTestPass
+		for i in "${!fuzzIds[@]}"; do
+			fId "${fuzzIds[i]}" "${fuzzNames[i]}, fuzzed for ${fuzzLimit} iterations"
+			fTestPass
+		done
 		rm -rf "${logDir}"
 		return 0
 	fi
 
 	cat "${fuzzLog}"
 	if [[ -z "${findLine}" ]]; then
-		fTestFail "zig build test --fuzz=${fuzzLimit} exited ${exitCode}."
+		## A build error or a broken runner, not a find, so no one test is to blame.
+		for i in "${!fuzzIds[@]}"; do
+			fEcho_Clean "  FAIL ..: ${fuzzIds[i]} ${fuzzNames[i]}, fuzzed for ${fuzzLimit} iterations"
+		done
+		fThrowError "zig build test --fuzz=${fuzzLimit} exited ${exitCode}."  "${FUNCNAME[0]}"
 	fi
+
+	## "test 'tests.test.<name>' terminated ...; input saved to '...'". The
+	## others stopped with it, so they were not fuzzed to the limit.
+	local failName="${findLine#*test \'}"
+	failName="${failName%%\' *}"
+	failName="${failName#*.test.}"
+	local failId="???????"
+	for i in "${!fuzzIds[@]}"; do
+		if [[ "${fuzzNames[i]}" == "${failName}" ]]; then failId="${fuzzIds[i]}"; fi
+	done
+	for i in "${!fuzzIds[@]}"; do
+		[[ "${fuzzIds[i]}" == "${failId}" ]] && continue
+		fId "${fuzzIds[i]}" "${fuzzNames[i]}, fuzzed for ${fuzzLimit} iterations"
+		fTestSkip "fuzzing stopped at the find in ${failId}"
+	done
+	fId "${failId}" "${failName}, fuzzed for ${fuzzLimit} iterations"
 
 	## The cache copy is overwritten by the next find, and artifacts/fuzz is
 	## not rotated, so the input stays until somebody adds it to the corpus.
@@ -1787,15 +1824,15 @@ fStage_Package_Arm64(){  ## scratch dir, glibc floor
 	local -r smokeSrc="${zigDir}/lib/test/capi_smoke.c"
 	local -ra armCc=(zig cc -target "aarch64-linux-gnu.${glibcFloor}")
 	local -a links=(
-		"ErgjCkW:static:-Wl,-Bstatic -lzuid -lwasmtime -Wl,-Bdynamic -lunwind -lpthread -ldl -lm"
-		"ErgjCkX:shared:-lzuid"
+		"static:-Wl,-Bstatic -lzuid -lwasmtime -Wl,-Bdynamic -lunwind -lpthread -ldl -lm"
+		"shared:-lzuid"
 	)
-	local link="" linkId="" linkKind="" linkMachine=""
+	local link="" linkKind="" linkMachine=""
 	local -a linkFlags=()
 	for link in "${links[@]}"; do
-		linkId="${link%%:*}"; link="${link#*:}"; linkKind="${link%%:*}"
+		linkKind="${link%%:*}"
 		read -r -a linkFlags <<< "${link#*:}"
-		fId "${linkId}" "capi_smoke.c links for Linux arm64 against the tarball's ${linkKind} library"
+		fId "${linkKind}" static=ErgjCkW shared=ErgjCkX "capi_smoke.c links for Linux arm64 against the tarball's ${linkKind} library"
 		if ((! isLinux)); then
 			fTestSkip "Linux only"
 			continue
