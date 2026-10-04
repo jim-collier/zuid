@@ -285,6 +285,7 @@ cat > "${stubBin}/gh" <<'EOF_gh'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
 	"auth status")    exit 0 ;;
+	"repo view")      [[ -z "${GH_STUB_NO_REPO:-}" ]] || exit 1; printf 'https://github.com/example/zuid\n'; exit 0 ;;
 	"release create") shift 2; printf '%s\0' "$@" > "${GH_STUB_LOG:?}"; exit 0 ;;
 	"release view")   printf 'file://%s\n' "${GH_STUB_SERVED:?}"; exit 0 ;;
 esac
@@ -350,7 +351,7 @@ fPublishIn(){  ## name, quiet, allow partial
 		# shellcheck disable=2329
 		fThrowError(){ printf '%s\n' "$1"; exit 1; }
 		local fn=""
-		for fn in fConfig _fMustBeInPath fCoreVersion fPublish_Preflight fStage_Publish; do
+		for fn in fConfig _fMustBeInPath fCoreVersion fPublish_Preflight fPublish_Downloads fStage_Publish; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		fConfig
@@ -359,7 +360,7 @@ fPublishIn(){  ## name, quiet, allow partial
 			repoRoot="${dir}/repo"; zigDir="${dir}/repo/zig"; incomingDir="${dir}/repo/dist-incoming"
 			releaseBranch="${default_releaseBranch}"; releaseAssets=("${default_releaseAssets[@]}")
 			doQuietly="$2"; allowPartial="$3"
-			publishVersion=""; publishRemote=""; publishHead=""
+			publishVersion=""; publishRemote=""; publishHead=""; publishRepoUrl=""
 		}
 		export GH_STUB_LOG="${dir}/gh-create" GH_STUB_SERVED="${dir}/repo/dist/release/checksums.txt"
 		fPublish_Preflight
@@ -458,6 +459,13 @@ fStaleTarball(){
 fStaleTarball
 fWantPublishRefusal ErgqYtH "a copied-in tarball from another version is refused" stale "built from another version" 1 0
 
+## A remote gh cannot match to a GitHub repo, so the notes would have no
+## links. The tags must not go out first.
+fPublishRepo norepo 1.0.0-beta.1
+export GH_STUB_NO_REPO=1
+fWantPublishRefusal ErmAuec "--publish is refused when gh cannot name the repo" norepo "gh cannot tell which GitHub repo this is" 1 0
+unset GH_STUB_NO_REPO
+
 ## One full run, answered yes, for the cases after it to read.
 fPublishRepo beta 1.0.0-beta.1
 betaOut="$(printf 'y\n' | fPublishIn beta 0 0)" && betaRc=0 || betaRc=$?
@@ -539,6 +547,83 @@ if [[ -e "${work}/stable/gh-create" ]]; then mapfile -d '' -t stableArgs < "${wo
 if ((rc == 0)) && ((${#stableArgs[@]})) && [[ " ${stableArgs[*]} " != *" --prerelease "* ]]
 	then fPass
 	else fFail "exited ${rc}, gh got '${stableArgs[*]:0:6}', said '${out: -160}'"
+fi
+
+## The download table in the notes. This set has both Linux packages for both
+## CPUs, and one file named for no OS.
+fNotesOf(){  ## gh-create log
+	local -a args=()
+	local -i i=0
+	[[ -e "$1" ]] && mapfile -d '' -t args < "$1"
+	for ((i = 0; i < ${#args[@]}; i++)); do
+		if [[ "${args[i]}" == "--notes" ]]; then printf '%s' "${args[i + 1]:-}"; fi
+	done
+}
+tableDl="https://github.com/example/zuid/releases/download/v1.0.0-beta.1"
+fLinks(){  ## asset...
+	local links="" name=""
+	for name in "$@"; do links+="${links:+<br>}<a href=\"${tableDl}/${name}\">${name}</a>"; done
+	printf '%s' "${links}"
+}
+fPublishRepo table 1.0.0-beta.1
+for name in 'zuid_1.0.0~beta.1_arm64.deb' 'zuid-1.0.0~beta.1-1.x86_64.rpm' 'zuid-1.0.0~beta.1-1.aarch64.rpm' 'zuid-1.0.0-beta.1-src.tar.gz'; do
+	printf '%s\n' "${name}" > "${work}/table/repo/dist/${name}"
+done
+tableOut="$(fPublishIn table 1 0 < /dev/null)" || true
+tableNotes="$(fNotesOf "${work}/table/gh-create")"
+tableRows=()
+mapfile -t tableRows < <(grep '^<tr>' <<< "${tableNotes}" || true)
+
+fId Erm9fTp "the download table has a row per OS and a column per CPU"
+tableBad=""
+tableWant=(
+	"<tr><th></th><th>x86_64</th><th>arm64</th></tr>"
+	"<tr><th>Linux</th><td>$(fLinks zuid-linux-x86_64.tgz zuid-linux-x86_64 zuid_1.0.0.beta.1_amd64.deb zuid-1.0.0.beta.1-1.x86_64.rpm)</td><td>$(fLinks zuid-linux-arm64.tgz zuid-linux-arm64 zuid_1.0.0.beta.1_arm64.deb zuid-1.0.0.beta.1-1.aarch64.rpm)</td></tr>"
+	"<tr><th>macOS</th>"
+	"<tr><th>Windows</th><td>$(fLinks zuid-windows-x86_64.zip)</td><td>$(fLinks zuid-windows-arm64.zip)</td></tr>"
+	"<tr><th>FreeBSD</th><td>$(fLinks zuid-freebsd-x86_64.tgz zuid-freebsd-x86_64)</td><td>-</td></tr>"
+)
+((${#tableRows[@]} == ${#tableWant[@]})) || tableBad+=" ${#tableRows[@]} rows, wanted ${#tableWant[@]};"
+for ((rowIndex = 0; rowIndex < ${#tableWant[@]}; rowIndex++)); do
+	if [[ "${tableWant[rowIndex]}" == *"</tr>" ]]; then
+		[[ "${tableRows[rowIndex]:-}" == "${tableWant[rowIndex]}" ]] || tableBad+=" row ${rowIndex} was '${tableRows[rowIndex]:-}';"
+	else
+		[[ "${tableRows[rowIndex]:-}" == "${tableWant[rowIndex]}"* ]] || tableBad+=" row ${rowIndex} was '${tableRows[rowIndex]:-}';"
+	fi
+done
+if [[ -z "${tableBad}" ]]
+	then fPass
+	else fFail "${tableBad} said '${tableOut: -160}'"
+fi
+
+fId Erm9fTq "the macOS universal files span both CPU columns"
+macWant="<tr><th>macOS</th><td colspan=\"2\" align=\"center\">$(fLinks zuid-darwin-universal.tgz zuid-darwin-universal)</td></tr>"
+if [[ "${tableRows[2]:-}" == "${macWant}" ]]
+	then fPass
+	else fFail "macOS row was '${tableRows[2]:-}'"
+fi
+
+## The partial run above left out both Windows files.
+fId Erm9fTr "a target with no file gets a dash in its cell"
+partialNotes="$(fNotesOf "${work}/partial/gh-create")"
+partialRows=()
+mapfile -t partialRows < <(grep '^<tr>' <<< "${partialNotes}" || true)
+if [[ "${partialRows[3]:-}" == "<tr><th>Windows</th><td>-</td><td>-</td></tr>" ]] && [[ "${partialRows[1]:-}" == "<tr><th>Linux</th><td><a href="* ]] && [[ "${partialNotes}" != *zuid-windows* ]]
+	then fPass
+	else fFail "rows were '${partialRows[*]:-}'"
+fi
+
+fId Erm9fTs "the changelog comes first, then the table, then the other files and checksums.txt"
+notesBad=""
+inTable="${tableNotes#*<table>}"; inTable="${inTable%%</table>*}"
+afterTable="${tableNotes#*</table>}"
+[[ "${tableNotes}" == *"Notes for this one."*"### Downloads"*"<table>"*"</table>"* ]] || notesBad+=" not in changelog, heading, table order;"
+[[ "${inTable}" != *checksums.txt* ]] || notesBad+=" checksums.txt is in the table;"
+[[ "${inTable}" != *-src.tar.gz* ]] || notesBad+=" the source tarball is in the table;"
+[[ "${afterTable}" == *"[zuid-1.0.0-beta.1-src.tar.gz](${tableDl}/zuid-1.0.0-beta.1-src.tar.gz)"*"[checksums.txt](${tableDl}/checksums.txt)"* ]] || notesBad+=" other files and checksums.txt are not linked after the table;"
+if [[ -z "${notesBad}" ]]
+	then fPass
+	else fFail "${notesBad} notes were '${tableNotes:0:400}'"
 fi
 
 
@@ -712,6 +797,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261004 JC: The download table in the release notes.
 ##		- 20261004 JC: test-ids.py and the Zig fuzz report.
 ##		- 20261003 JC: Publishing.
 ##		- 20260930 JC: Created.
