@@ -105,9 +105,9 @@ fPrint_Help(){
 		    --only <go|zig>   Drive one toolchain instead of both. Only that one has
 		                      to be installed.
 		    --cross           Also cross-compile for: ${crossTargets[*]}
-		    --quick           Skip the slow stages: profiling and the demo, plus the
-		                      dogfood install. The backup and everything that gates
-		                      a merge still run.
+		    --quick           Skip the slow stages: fuzzing, profiling and the demo,
+		                      plus the dogfood install. The backup and everything
+		                      that gates a merge still run.
 		    --no-sync         Skip the remote refresh at the start.
 		    -m, --message     Commit message. Implies --commit.
 		    --commit          Commit if everything passed. Refuses on a protected
@@ -840,8 +840,7 @@ fStage_Go_Consumer(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The format string is the one part of a request that arrives verbatim from
 ## whoever is calling. Go's fuzzer drives it here; the Zig side has matching
-## fuzz tests, which 0.17.0 can run in fuzz mode but this pipeline does not yet,
-## so those only replay their corpus during the Zig stage.
+## fuzz tests, which fStage_Zig_Fuzz runs in fuzz mode.
 fStage_Go_Fuzz(){
 
 	fEcho_Clean
@@ -1044,6 +1043,68 @@ fStage_Zig(){
 
 	fStage_Zig_Cli
 	fStage_Zig_CApi
+	fStage_Zig_Fuzz
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The two fuzz tests in tests.zig, this time in fuzz mode. In Debug, because
+## the leaked-context test counts contexts only there and fails in a release
+## build. A find still exits 0, so the output is read for it.
+fStage_Zig_Fuzz(){
+
+	fEcho_Clean
+	fEcho "Zig: fuzz"
+
+	local -r fuzzLimit="50K"
+	fId ErgeVve "the Zig fuzz tests, fuzzed for ${fuzzLimit} iterations"
+	if ((doQuick)); then
+		fTestSkip "a quick run"
+		return 0
+	fi
+
+	cd "${zigDir}" || fThrowError "Missing the Zig tree: '${zigDir}'."  "${FUNCNAME[0]}"
+
+	local logDir=""
+	logDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	_scratchDirs+=("${logDir}")
+	local -r fuzzLog="${logDir}/fuzz.log"
+
+	## The limit has to stay attached with '='. A bare --fuzz never ends and
+	## starts a web server, and that is how a separate word would be read.
+	local -i exitCode=0
+	env -u DISPLAY -u WAYLAND_DISPLAY zig build "-j${buildJobs}" test "--fuzz=${fuzzLimit}" > "${fuzzLog}" 2>&1 || exitCode=$?
+
+	local -r findLine="$(grep -m1 -F "input saved to '" "${fuzzLog}" || true)"
+	if [[ -z "${findLine}" ]] && ((exitCode == 0)); then
+		fTestPass
+		rm -rf "${logDir}"
+		return 0
+	fi
+
+	cat "${fuzzLog}"
+	if [[ -z "${findLine}" ]]; then
+		fTestFail "zig build test --fuzz=${fuzzLimit} exited ${exitCode}."
+	fi
+
+	## The cache copy is overwritten by the next find, and artifacts/fuzz is
+	## not rotated, so the input stays until somebody adds it to the corpus.
+	local crashFile="${findLine##*input saved to \'}"
+	crashFile="${crashFile%\'*}"
+	[[ "${crashFile}" == /* ]] || crashFile="${zigDir}/${crashFile}"
+	local -r keepDir="${artifactDir}/fuzz"
+	local -r keptFile="${keepDir}/zig-crash_${runStamp}"
+	mkdir -p "${keepDir}"
+	if ! cp "${crashFile}" "${keptFile}"; then
+		fTestFail "Fuzzing found a failing input, and '${crashFile}' could not be kept."
+	fi
+	## The saved bytes replay as they are when added to the test's corpus.
+	## printf, since fEcho_Clean's echo -e would undo the escapes.
+	if [[ -n "$(command -v python3 2>/dev/null || true)" ]]; then
+		printf 'As a corpus entry: %s\n' "$(python3 -c 'import sys; print("\"" + "".join(chr(c) if 32 <= c < 127 and c not in (34, 92) else "\\x%02x" % c for c in open(sys.argv[1], "rb").read()) + "\"")' "${keptFile}")"
+	fi
+	fTestFail "Fuzzing found a failing input, kept as ${keptFile}."
 
 }
 
