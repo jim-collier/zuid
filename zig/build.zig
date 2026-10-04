@@ -264,13 +264,20 @@ const Headers = struct {
 };
 
 fn translateHeaders(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.Optimize, wasmtime: []const u8) Headers {
-    const wasmtime_h = translateHeader(b, target, optimize, "lib/c/wasmtime.h", wasmtime);
+    const to_file = b.addExecutable(.{
+        .name = "to_file",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/to_file.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    const wasmtime_h = translateHeader(b, to_file, target, optimize, "lib/c/wasmtime.h", wasmtime);
     // The translation cache sees only the files it is handed. Wasmtime's own
     // header carries the release version, so a new pin changes it.
     wasmtime_h.run.addFileInput(b.path(b.fmt("{s}/include/wasmtime.h", .{wasmtime})));
     return .{
-        .clock = translateHeader(b, target, optimize, "lib/c/clock.h", null).module,
-        .env = translateHeader(b, target, optimize, "lib/c/env.h", null).module,
+        .clock = translateHeader(b, to_file, target, optimize, "lib/c/clock.h", null).module,
+        .env = translateHeader(b, to_file, target, optimize, "lib/c/env.h", null).module,
         .wasmtime = wasmtime_h.module,
     };
 }
@@ -278,16 +285,24 @@ fn translateHeaders(b: *std.Build, target: std.Build.ResolvedTarget, optimize: s
 /// Zig's own translate-c, run as a command rather than through
 /// b.addTranslateC, since only a command step can keep SOURCE_DATE_EPOCH away
 /// from it (see buildEpoch). Not the translate-c package either, which would
-/// need a fetch, so an offline build still works.
+/// need a fetch, so an offline build still works. It writes through to_file,
+/// not captureStdOut, since on macOS it hangs when its stdout is a pipe.
 fn translateHeader(
     b: *std.Build,
+    to_file: *std.Build.Step.Compile,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.Optimize,
     header: []const u8,
     wasmtime: ?[]const u8,
 ) struct { run: *std.Build.Step.Run, module: *std.Build.Module } {
-    const run = b.addSystemCommand(&.{ b.graph.zig_exe, "translate-c", "-lc" });
+    const run = b.addRunArtifact(to_file);
+    const source = run.addOutputFileArg(b.fmt("{s}.zig", .{std.fs.path.stem(header)}));
     run.setName(b.fmt("translate-c {s}", .{std.fs.path.basename(header)}));
+    run.addArgs(&.{ b.graph.zig_exe, "translate-c", "-lc" });
+    // Its own cache, or it keeps one beside build.zig and a build given
+    // --cache-dir still gets a warm translation.
+    run.addArg("--cache-dir");
+    run.addDirectoryArg(.cache_root);
     if (!target.query.isNative()) {
         run.addArgs(&.{ "-target", target.query.zigTriple(b.allocator) catch @panic("OOM") });
     }
@@ -295,7 +310,8 @@ fn translateHeader(
     if (wasmtime) |dir| run.addPrefixedDirectoryArg("-I", b.path(b.fmt("{s}/include", .{dir})));
     run.addFileArg(b.path(header));
     run.removeEnvironmentVariable("SOURCE_DATE_EPOCH");
-    const source = run.captureStdOut(.{ .basename = b.fmt("{s}.zig", .{std.fs.path.stem(header)}) });
+    // to_file has no progress to report, and would only hand the pipe on.
+    run.disable_zig_progress = true;
     return .{ .run = run, .module = b.createModule(.{
         .root_source_file = source,
         .target = target,
