@@ -12,6 +12,7 @@
 ##		- 20260930 JC: Test IDs, one line per test. Pipeline self-test.
 ##		- 20261003 JC: Zig 0.17.0, found beside an older one on PATH.
 ##		- 20261003 JC: Publishing to GitHub releases.
+##		- 20261004 JC: Runs in a linked worktree, minus the backup.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 declare    thisVersion="0.1.0"
@@ -170,7 +171,7 @@ fPrint_Help(){
 		and pushing through the helper in cicd/utility/. Build caches and other
 		regenerable trees are left out, so the archive is a fraction of what is on
 		disk. --no-backup turns it off; so does --commit or --push, which take over
-		the git half.
+		the git half. A linked worktree skips it, since it is not the project tree.
 
 		--publish runs only on ${releaseBranch}, with a clean tree, HEAD pushed, and no tag
 		yet for the version. It uploads dist/ plus whatever is in dist-incoming/.
@@ -266,6 +267,7 @@ fMain(){
 	local -i doPackage=0
 	local -i doBackup=1
 	local -i backupAsked=0
+	local -i backupInWorktree=0
 	local -i doDogfood=1
 	local -i dogfoodAsked=0
 	local -i doPublish=0
@@ -323,6 +325,7 @@ fMain(){
 	if ((doPublish));              then fStage_Publish;   fi
 	if ((doZig)) && ((doDogfood)); then fStage_Dogfood;   fi
 	if ((doBackup));               then fStage_Backup;    fi
+	if ((backupInWorktree));       then fEcho_Clean; fEcho_Clean "Backup .....: skipped in a linked worktree"; fi
 	if ((doCommit));               then fStage_Commit;    fi
 	if ((doPush));                 then fStage_Push;      fi
 
@@ -399,6 +402,20 @@ fInit(){
 		doBackup=0
 	fi
 
+	## The helper archives the folder above the checkout, which for a linked
+	## worktree is not the project, and it wants a real .git directory there.
+	if ((doBackup)); then
+		local -r gitDir="$(git -C "${repoRoot}" rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
+		local -r gitCommonDir="$(git -C "${repoRoot}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+		if [[ "${gitDir}" != "${gitCommonDir}" ]]; then
+			if ((backupAsked)); then
+				fThrowError "--backup archives the project tree, so it runs from the main checkout, not a linked worktree."  "${FUNCNAME[0]}"
+			fi
+			doBackup=0
+			backupInWorktree=1
+		fi
+	fi
+
 	## A bare -m is not that clash - the message is what the helper commits with.
 	if ((doBackup)); then doCommit=0; fi
 
@@ -473,7 +490,8 @@ fStage_Sync(){
 	fEcho_Clean
 	fEcho "Remote sync"
 
-	[[ -d "${repoRoot}/.git" ]] || fThrowError "Not a git repo: '${repoRoot}'."  "${FUNCNAME[0]}"
+	## Asks git, since a linked worktree has a .git file, not a directory.
+	[[ "$(git -C "${repoRoot}" rev-parse --show-cdup 2>/dev/null || echo no)" == "" ]] || fThrowError "Not a git repo: '${repoRoot}'."  "${FUNCNAME[0]}"
 
 	if [[ -z "$(git -C "${repoRoot}" remote)" ]]; then
 		fEcho_Clean "Remote .....: none - nothing to sync"
@@ -529,7 +547,8 @@ fPreflight(){
 	fEcho_Clean
 	fEcho "Preflight"
 
-	[[ -d "${repoRoot}/.git" ]] || fThrowError "Not a git repo: '${repoRoot}'."  "${FUNCNAME[0]}"
+	## Asks git, since a linked worktree has a .git file, not a directory.
+	[[ "$(git -C "${repoRoot}" rev-parse --show-cdup 2>/dev/null || echo no)" == "" ]] || fThrowError "Not a git repo: '${repoRoot}'."  "${FUNCNAME[0]}"
 
 	local -r branch="$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD)"
 	fEcho_Clean "Branch .....: ${branch}"
