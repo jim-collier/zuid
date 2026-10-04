@@ -65,7 +65,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Verified: a full pipeline run (`cicd.bash --no-dogfood --no-backup`) and one with `--cross` both passed on Linux, with no test skipped. A ReleaseSafe build runs. A release package for glibc 2.28 builds. Both macOS slices cross-compile and link. A no-op rebuild takes under a tenth of a second.
 	- Swept: every `@cImport`, array `**`, upper-case optimize tag and `build_root` in `zig/`, and every Zig version mention outside the backlog. `cicd.bash` and `package.bash` are the only scripts that run `zig`, and both get the one the pipeline picked.
 	- Branch: zig017
-	- Commit:
+	- Commit: 161affa
 	- Test case: the existing suites, with no new test. `Eq9nb3o`, the empty `SOURCE_DATE_EPOCH` build, failed on the first port and passes now.
 
 - Drop BSD from the installer and the docs.
