@@ -97,6 +97,20 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Not a reason to hold the FreeBSD release, since zuid cannot cause or fix a kernel fault. Reopen if it comes back.
 	- Branch: freebsd
 
+- Update vmFreeBSD's kernel and every package, then retry the panic.
+	- ID: 2026100415162238
+	- Type: Task
+	- Status: Queued
+	- Needs external testing: Yes, on `vmFreeBSD`.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261004-151622
+	- Opened by: JC
+	- Parent ID: 2026100413383471
+	- Target OS: FreeBSD 15.1, x86_64
+	- Requirements  [Feature]:
+		- Update the base system and kernel with FreeBSD's own updater, and every package with `pkg upgrade`. Reboot.
+		- Rerun `cli-test.bash` against the release on the VM, logged to disk as before, to see whether the panic still shows up.
+
 - Drop BSD from the installer and the docs.
 	- ID: 2026100315241091
 	- Type: Task
