@@ -366,9 +366,14 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ### Features and enhancements
 
-- 🔘 Run the Zig fuzz tests in fuzz mode, once a Zig release can build one.
+- 🔬 Run the Zig fuzz tests in fuzz mode, once a Zig release can build one.
 	- Note: the tests are written and replay their corpus on every run. `zig build test --fuzz` fails to compile inside 0.16.0's own test runner, so nothing on this side can fix it. `details.md` has the error.
 	- Note: 20261003: Zig 0.17.0 runs fuzz mode, `--fuzz=<limit>` too, on a tiny test and on ours. There is no 0.16 point release with the fix. So this waits on 2026100313583935, the move to 0.17.0. One catch: a run that finds a bad input still exits 0, so the pipeline stage has to read the output. The 0.17.0 download was checked against the sha256 in Zig's download index.
+	- Done: 20261003: a full pipeline run fuzzes both Zig fuzz tests after the Zig tests, 50K iterations each. A quick run prints a skip line instead. It takes about 35 s here, and about 13 s more after a change to the Zig source.
+	- Decision: 20261003, open to change: 50K iterations, and Debug, since the leaked-context test counts contexts only there. A find fails the stage from the output, not the exit code. Its input is kept in `cicd/artifacts/fuzz/`, which nothing rotates, and printed as a string ready for the test's corpus. The limit is always attached with `=`, since a bare `--fuzz` starts a web server.
+	- Verified: a planted two-byte failure in the format test turned the stage red, with Zig's crash line, and the kept input failed the plain test run once added to the corpus. A planted panic in the C test, run through the same command, ended in the same `input saved to` line. No port was opened during a run. A full `cicd.bash --no-dogfood --no-backup -q` passes.
+	- Test case: `ErgeVve`.
+	- Note: still needs a pipeline run on b26, like 2026100313583935.
 	- Opened: 20260917-131500
 
 - 🛠️ `%m` is Linux-only on the Zig side - it reads `getifaddrs` for `AF_PACKET`, and macOS wants `AF_LINK` instead. The Go module is already portable, and the help text and the C header both say so. Do it alongside the cross targets, since nothing on the Zig side cross-compiles yet either.
