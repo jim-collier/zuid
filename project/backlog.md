@@ -207,6 +207,39 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Update the base system and kernel with FreeBSD's own updater, and every package with `pkg upgrade`. Reboot.
 		- Rerun `cli-test.bash` against the release on the VM, logged to disk as before, to see whether the panic still shows up.
 
+- Windows x86_64 build, cross-built on Linux.
+	- ID: 2026100416052035
+	- Type: Enhancement
+	- Status: Queued
+	- Needs external testing: Yes, on vm925w or b29w.
+	- Opened: 20261004-160520
+	- Opened by: JC
+	- Target OS: Windows 10 and later, x86_64
+	- Requirements  [Feature]:
+		- The command, `zuid.dll` with its import library, and the static library, built by Zig on the Linux build machine.
+		- Every component works there, `%m` included.
+		- The Zig tests and `capi_smoke.c` pass on a Windows test box.
+	- Progress log:
+		- 20261004: Split from the packaging and `%m` items under Old format. Built on the Linux machine, by direct answer 20261004. Both Windows boxes also have a mingw bash and git-bash, off PATH.
+		- 20261004: Wasmtime v47.0.3 publishes an x86_64 mingw C API archive. For arm64 there is only the MSVC one.
+
+- Windows release packages, x86_64 and arm64.
+	- ID: 2026100416052036
+	- Type: Enhancement
+	- Status: Queued
+	- Needs external testing: Yes, on vm925w or b29w.
+	- Opened: 20261004-160520
+	- Opened by: JC
+	- Prereq IDs: 2026100416052035
+	- Target OS: Windows 10 and later, x86_64 and arm64
+	- Requirements  [Feature]:
+		- `zuid-windows-x86_64.zip` and `zuid-windows-arm64.zip` from `--package` on Linux, with their bare `.exe` files.
+		- `install.ps1` installs them.
+		- The release checks run on them, as on the other targets.
+	- Progress log:
+		- 20261004: Split from the packaging item under Old format. Windows ships as a `.zip` for `install.ps1`.
+		- 20261004: arm64 has only Wasmtime's MSVC archive. Its `wasmtime.dll` may link from a mingw build, since a DLL's C interface does not depend on the toolchain. Untested.
+
 - Move the Zig side to 0.17.0.
 	- ID: 2026100313583935
 	- Type: Task
@@ -620,6 +653,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Should work on Windows too.
 	- Done: macOS, 20260930. Windows is left.
 	- Decision: 20261003, the Windows build may run on a Windows test box, so the MSVC toolchain is open as well as mingw. MSVC is preferred where the box has the build tools, since most Windows C users link with it.
+	- Note: 20261004, the Windows build is cross-built on Linux after all, by direct answer. See 2026100416052035.
 	- Opened: 20260802-135041
 
 - 🔘 Packaging for other platforms. Needs a Wasmtime archive vendored per target. Blocked on that, and on the Zig side building for Windows at all.
@@ -631,6 +665,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Decision: 20261003, a Windows package is a `.zip`, installed by `install.ps1`.
 	- Decision: 20261003, Linux arm64 is tested on the `vmDebARM64` virtual machine, not only built.
 	- Note: 20261003, Linux arm64 is built and checked, and waits on testing on `vmDebARM64`. See 2026100317515523.
+	- Note: 20261004, Windows is split out as 2026100416052035 and 2026100416052036.
 	- Opened: 20260802-025417
 
 - 🔬 Publishing. `--publish` stays rejected with a reason until there is somewhere to publish to.
