@@ -71,6 +71,38 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Branch: freebsd
 	- Test case: ErlUUiQ to ErlUUiU under `--package` on Linux: an x86_64 FreeBSD build with zstd and its license, no AVX, no libc past FreeBSD 14, and the two links. Each failed on a release broken for it: no zstd license, a Linux binary, an AVX build, a FreeBSD 15 build, and a static and a shared library with no `zuid_*`. ErlUUiV, ErlUUiW, ErlUUiX and ErlX0RL in `installer-test.bash`, with a stand-in `uname`; the first three failed on the old `install.bash`. Ergbz3Z now uses OpenBSD.
 
+- The macOS build hangs on Zig 0.17.0.
+	- ID: 2026100318410002
+	- Type: Bug
+	- Status: Waiting for testing
+	- Needs local test suite run?: No. A full `cicd.bash --no-dogfood --no-backup --cross -q` passed on Linux with the fix.
+	- Needs external testing: Yes. The full pipeline run on b26, batched with 2026100313583935 and the Zig fuzz item.
+	- Priority|Severity [Bug]: High
+	- Opened: 20261003-184100
+	- Opened by: JC
+	- Related IDs: 2026100313583935, 2026100415475381
+	- Target OS: macOS
+	- Steps to reproduce [Bug]:
+		- On b26, run `cicd.bash` with Zig 0.17.0.
+		- Or by hand: `zig translate-c -lc <any header> | wc -c`.
+	- Incorrect behavior [Bug]: The Zig stage never ends. The three header steps sit at full CPU.
+	- Expected behavior [Bug]: The build finishes, as it does on Linux.
+	- Reproduced [Bug]: Yes, on b26, 20261003. Even a one-line header hangs when the output goes to a pipe. The same command writing to a file finishes at once.
+	- Possible cause [Bug]: Zig copies its output to stdout with `fcopyfile`, which fails on a pipe there, and Zig retries forever. The header step reads stdout through a pipe. No upstream report found.
+	- Progress log:
+		- 20261003: Untested idea: have the step write to its output file through `sh -c`, so Zig never writes to a pipe.
+		- 20261004: Reproduced again on b26: piped, a one-line header gave no output in 20 s; to a file it finished at once. `zig translate-c` has no output file option, so the step cannot just name one.
+		- 20261004: Not `sh -c`, since a native Windows build has no `sh`. A small Zig helper does the redirect on every host instead.
+		- 20261004: Found along the way: `Eq9nb3o` could not see the header step at all. The translator kept its own cache beside `build.zig`, so the test's fresh cache still got a warm translation. Fixed here, since the test pins what this step must keep.
+		- 20261004: Also found: a cold global cache fails the empty `SOURCE_DATE_EPOCH` build anyway, in Zig's own libunwind build. Same on `main`. Logged as 2026100415475381.
+	- Actual cause [Bug]: `zig translate-c` copies its cached result to stdout with `fcopyfile` on macOS. Read in Zig's source, not traced: an error that is not "unsupported" makes the copy report zero bytes, and the caller asks again forever. Linux takes another path.
+	- Actual fix [Bug]: The three header steps run `zig translate-c` through `zig/tools/to_file.zig`, which gives it a file for stdout. Still a Run step, so it still drops `SOURCE_DATE_EPOCH`. The translator now gets the build's cache directory too.
+	- Verified: on b26, a fresh-cache build finished in about 23 s, a fresh-cache build with `SOURCE_DATE_EPOCH` empty finished too, and all 30 Zig tests passed. That copy had no git history, so it had no build number to check. On Linux, the translated headers match `zig translate-c` byte for byte, the arm64 Linux and FreeBSD cross builds work, a no-op rebuild takes under a tenth of a second, and the full pipeline passes.
+	- Swept: `captureStdOut` and `addSystemCommand` in `build.zig`, and every `zig` call in the scripts. The header steps were the only place Zig wrote a file to a pipe. `cicd.bash`'s `zig fmt` check now covers `zig/tools`.
+	- Branch: machang
+	- Commit: 47c1134
+	- Test case: new `Erm4m6a` fails if `build.zig` captures a command's stdout. It fails on the old `build.zig` and passes now. A Linux build cannot hang, so the hang itself waits on the b26 run. `Eq9nb3o` now fails when the step stops dropping `SOURCE_DATE_EPOCH`; before the cache fix it passed either way.
+
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -97,6 +129,22 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Not a reason to hold the FreeBSD release, since zuid cannot cause or fix a kernel fault. Reopen if it comes back.
 	- Branch: freebsd
 
+- A build with `SOURCE_DATE_EPOCH` empty fails when Zig's global cache is cold.
+	- ID: 2026100415475381
+	- Type: Bug
+	- Status: Queued
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20261004-154753
+	- Opened by: JC
+	- Related IDs: 2026100318410002, 2026100313583935
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- In `zig/`: `SOURCE_DATE_EPOCH= ZIG_GLOBAL_CACHE_DIR=<new dir> zig build --cache-dir <new dir>`, with Zig 0.17.0.
+	- Incorrect behavior [Bug]: The build fails. Zig's own libunwind build passes the empty value to clang, which refuses it.
+	- Expected behavior [Bug]: The build finishes and takes the commit date, as it does with a warm global cache.
+	- Reproduced [Bug]: Yes, 20261004 on Linux, on `main` and on branch `machang`.
+	- Possible cause [Bug]: Since 0.17, `build.zig` cannot clear the variable for the compile steps, only for Run steps. `Eq9nb3o` misses it, since it gives the build a fresh local cache but keeps the warm global one.
+
 - Update vmFreeBSD's kernel and every package, then retry the panic.
 	- ID: 2026100415162238
 	- Type: Task
@@ -110,117 +158,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Requirements  [Feature]:
 		- Update the base system and kernel with FreeBSD's own updater, and every package with `pkg upgrade`. Reboot.
 		- Rerun `cli-test.bash` against the release on the VM, logged to disk as before, to see whether the panic still shows up.
-
-- Drop BSD from the installer and the docs.
-	- ID: 2026100315241091
-	- Type: Task
-	- Status: Done
-	- Opened: 20261003-152410
-	- Opened by: JC
-	- Target OS: BSD
-	- Requirements  [Feature]:
-		- `install.bash` stops treating any other system as FreeBSD, and says the platform has no build.
-		- README drops BSD from the platform list and the install table.
-		- `package.bash` stops listing BSD among the builds still to come.
-	- Progress log:
-		- 20261003: `install.bash` refuses any system other than Linux or macOS, naming it and saying no build exists for it. It used to call any such system FreeBSD and go looking for that tarball.
-		- 20261003: `install.ps1` had the same gap: anything not Windows or macOS got the Linux build. It now refuses those the same way.
-		- 20261003: README, `package.bash` and an `env.zig` comment drop BSD.
-		- Verified: the new test failed on the old `install.bash` and passes on the new one. `installer-test.bash` passed in full, both installers, and `cicd.bash --quick --no-backup` passed. Shellcheck is clean.
-		- Swept: README, design.md, contributing.md, changelog.md, `install.ps1`, `cicd/` and `installer-test.bash`. Left alone: "BSD wc" in `cli-test.bash` and "BSD sed" in `installer-test.bash`, which are about the macOS tools; the closed item that listed BSD in the installer; the platform decision under Old format. `cicd.bash`'s `--cross` list has no BSD entry.
-	- Decisions:
-		- No BSD target. Wasmtime publishes no BSD build, so there is nothing to embed.
-	- Branch: nobsd
-	- Commit: f835fe0
-	- Test case: Ergbz3Z, Ergbz3a in `installer-test.bash`, with a stand-in `uname` reporting FreeBSD. The `install.ps1` refusal has no test, since pwsh's `$IsLinux` cannot be faked from outside.
-	- Acceptance signoff: README text changed.
-	- Closed: 20261004-073955
-
-- Linux arm64 release, cross-built on the Linux build machine.
-	- ID: 2026100317515523
-	- Type: Enhancement
-	- Status: Done
-	- Needs local test suite run?: No. The `--package` and `--cross` runs pass.
-	- Needs external testing: No. Done on `vmDebARM64`, 20261004.
-	- Opened: 20261003-175155
-	- Opened by: JC
-	- Related IDs: 2026100315241096, 2026100313105241
-	- Target OS: Linux, arm64
-	- Requirements  [Feature]:
-		- A Linux arm64 tarball, bare binary, `.deb` and `.rpm` beside the x86_64 ones, with the same layout.
-		- It runs on a plain armv8-a CPU with glibc 2.28.
-		- Both installers fetch it on an arm64 Linux machine.
-	- Progress log:
-		- 20261003: The arm64 Wasmtime pin is the sha256 of the v47.0.3 release asset, downloaded and hashed. It matches the digest GitHub lists for that asset.
-		- 20261003: On Linux, `package.bash` builds both architectures whatever the host is, and makes one release for each. The pipeline fetches the other architecture's Wasmtime only for `--package`.
-		- 20261003: The new assets are `zuid-linux-arm64`, its `.tgz`, `zuid_<version>_arm64.deb` and `zuid-<version>.aarch64.rpm`.
-		- 20261003: Both installers already picked the arm64 asset on an `aarch64` machine. No change there.
-		- 20261003: README is unchanged. It lists what is published, and nothing arm64 is yet.
-		- 20261003: `package.bash` now stages each release in a function, so the Mac path changed shape too. It still makes one universal release. The b26 run 2026100313583935 waits on covers it.
-		- 20261003: On an arm64 Linux host the AVX check skips when its objdump cannot read x86_64, as it used to skip there.
-	- Decisions:
-		- Cross-built on the x86_64 Linux build machine, since Zig cross-compiles Linux with nothing extra installed.
-		- Every `--package` run on Linux builds both. There is no separate switch.
-		- The arm64 baseline is plain armv8-a, which Zig picks once the target is named. The check allows the pointer authentication instructions an older CPU runs as no-ops.
-		- All three are open to change.
-	- Verified:
-		- `cicd/cicd.bash --package --no-dogfood --no-backup -q` passes. It fetched and checked the arm64 Wasmtime itself and wrote all eight assets.
-		- `cicd/cicd.bash --cross --no-dogfood --no-backup -q` passes.
-		- The arm64 tarball lists the same files as the x86_64 one. The `.deb` says arm64 and the `.rpm` says aarch64.
-		- `capi_smoke.c` links for arm64 against the tarball's static and shared libraries. Not run, since nothing here runs arm64 code.
-		- 20261003, on `vmDebARM64` from a `--package` run of `main` at 0d01af3: the bare binary and the tarball's `bin/zuid` run, with `--version`, the default, `%d%r`, `%m` and `-n 3`. `%m` gives the VM's own network card address.
-		- 20261003, on `vmDebARM64`: `capi_smoke.c` built with the VM's gcc runs against the tarball's shared library, and against its static ones both named directly and through the header's link line.
-		- 20261003, on `vmDebARM64`: `install.bash --target user` against a local release picked `linux/arm64`, fetched only the arm64 tarball and the checksums, and the installed command runs. A second run said it was already installed.
-		- 20261004, on `vmDebARM64`: the arm64 `.deb` installs with apt and puts `zuid` in `/usr/bin`, and the command runs. It removes cleanly.
-		- 20261004, on `vmDebARM64` with pwsh 7.6.6: `install.ps1 -Target user` against a local release picked `linux/arm64`, fetched only the arm64 tarball and the checksums, and the installed command runs. A second run said it was already installed, and `-Uninstall` removed it.
-	- Swept: every `uname -m` use, asset name and `vendor/wasmtime` path in `cicd/`, `build.zig`, both installers and `installer-test.bash`. The x86_64 release checks now read the x86_64 release on any Linux host.
-	- Branch: arm64
-	- Commit: 9631a0b
-	- Test case: `ErgjCkT` to `ErgjCkX` under `--package` on Linux: arch of every file and package, no instructions past armv8-a, glibc 2.28, and the two links. Each failed on a release broken for it: an x86_64 binary or `.deb` under the arm64 name, a build for a newer CPU, a build for glibc 2.39, an empty `libzuid.a`, and a shared library with no `zuid_*`. `ErgjCkY` and `ErgjCkZ` in `installer-test.bash`, with a stand-in `uname` reporting `aarch64`, failed with `install.bash` picking x86_64. `install.ps1` has no test, since pwsh's architecture cannot be faked from outside.
-	- Acceptance signoff: Self-closed: the intent was clear, it builds what was asked, and it passed on an arm64 machine.
-	- Closed: 20261004-074509
-
-- `test-ids.py check` missed test IDs kept in an array.
-	- ID: 2026100409004496
-	- Type: Bug
-	- Status: Done
-	- Priority|Severity [Bug]: Low
-	- Opened: 20261004-090044
-	- Opened by: JC
-	- Related IDs: 2026100317515523
-	- Steps to reproduce [Bug]:
-		- Keep a check's ID in a bash array instead of on its `fId` line, as the two arm64 link checks did.
-		- Run `cicd/utility/test-ids.py check`.
-	- Incorrect behavior [Bug]: It passes without reading those IDs, so a duplicate or a malformed one would go through.
-	- Expected behavior [Bug]: Every ID in the pipeline is checked, or the check fails.
-	- Reproduced [Bug]: 20261004, on `ErgjCkW` and `ErgjCkX` in `cicd.bash`.
-	- Actual cause [Bug]:
-		- The check only reads IDs at the start of an `fId` or `fWant*` line, and the array put them somewhere else.
-	- Actual fix [Bug]:
-		- The arm64 link checks use `fId`'s keyed form, like the cross targets.
-		- The check also fails on a word that looks like an ID but that no test line names, and on a `// test-id:` mark that is not above a test. A comment is let through, so a retired test can stay in one.
-	- Branch: idgaps
-	- Test case: `ErkRrmk` to `ErkRrmo` in `pipeline-test.bash`, against a scratch tree. `ErkRrml`, `ErkRrmm` and `ErkRrmo` failed on the old `test-ids.py`. `ErkRrmn` failed with the comment exemption taken out.
-	- Closed: 20261004-090044
-
-- The macOS build hangs on Zig 0.17.0.
-	- ID: 2026100318410002
-	- Type: Bug
-	- Status: Queued
-	- Priority|Severity [Bug]: High
-	- Opened: 20261003-184100
-	- Opened by: JC
-	- Related IDs: 2026100313583935
-	- Target OS: macOS
-	- Steps to reproduce [Bug]:
-		- On b26, run `cicd.bash` with Zig 0.17.0.
-		- Or by hand: `zig translate-c -lc <any header> | wc -c`.
-	- Incorrect behavior [Bug]: The Zig stage never ends. The three header steps sit at full CPU.
-	- Expected behavior [Bug]: The build finishes, as it does on Linux.
-	- Reproduced [Bug]: Yes, on b26, 20261003. Even a one-line header hangs when the output goes to a pipe. The same command writing to a file finishes at once.
-	- Possible cause [Bug]: Zig copies its output to stdout with `fcopyfile`, which fails on a pipe there, and Zig retries forever. The header step reads stdout through a pipe. No upstream report found.
-	- Progress log:
-		- 20261003: Untested idea: have the step write to its output file through `sh -c`, so Zig never writes to a pipe.
 
 - `cicd.bash` refuses to run in a git worktree.
 	- ID: 2026100318410007
@@ -305,51 +242,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- CPU architecture in columns, and target OS in rows.
 	- Decisions:
 		- 20261004: the macOS universal file spans both architecture columns. A markdown table cannot span cells, so the release notes need an HTML table for this.
-
-- macOS gets a universal binary for both amd64 and ARM.
-	- ID: 2026100313105241
-	- Type: Enhancement
-	- Status: Done
-	- Needs local test suite run?: No. The full pipeline passes on Linux.
-	- Needs external testing:
-		- Run the arm64 slice on an Apple Silicon Mac: the command, and `capi_smoke.c` against the tarball's libraries.
-		- A live install on a Mac, once a macOS asset is published.
-	- Opened: 20261003-131052
-	- Opened by: JC
-	- Related IDs: 2026093018112406, 2026093018112419
-	- Target OS: macOS
-	- Progress log:
-		- 20261003: The arm64 Wasmtime pin is the sha256 of the v47.0.3 release asset, downloaded and hashed. It matches the digest GitHub lists for that asset.
-		- 20261003: Both slices cross-build from Linux and merge into fat files. The one exception is `libwasmtime.a`, which the Linux `lipo` cannot read, so it waits on b26.
-		- 20261003: Found along the way: Zig's macOS static library gives its members no read permission, which broke the archive cleanup in `package.bash` on any Mac with llvm-ar. Fixed.
-		- 20261003: `package.bash` builds each slice into its own tree now, not `zig-out`. So after `--package` the dogfood install gets the build the tests ran on, not the release build.
-		- 20261003: For 2026093018112419, each slice is still a separate tree before the merge, so a per-slice relink can go there.
-		- 20261003: The b26 tests pass. Waits on signoff for the one-asset name and the installer change.
-		- 20261003: Signed off. The arm64 slice still has not run on an Apple Silicon Mac.
-	- Decisions:
-		- Fat: the command, `libzuid.a` and `libzuid.dylib`. Also `libwasmtime.a` in the tarball, since `zuid.h` tells a static consumer to link it.
-		- The macOS tarball is still built on a Mac, with Apple's `lipo`. The Linux cross-build was only a check.
-		- One asset, `zuid-darwin-universal`, instead of one per architecture. Both installers fetch it on any Mac.
-		- Both slices ask for macOS 13.0. The arm64 slice gets the M1 as its baseline CPU, the oldest arm64 Mac.
-		- A non-host target's Wasmtime goes in `vendor/wasmtime-<platform>`. The build machine's own stays in `vendor/wasmtime`.
-		- `--cross` is left alone. Its list is for Go compile checks only.
-	- Verified:
-		- `zig build` for x86_64 and arm64 macOS, from Linux.
-		- `package.bash`'s macOS path, built here: a `zuid-darwin-universal` binary and tarball, with fat files, the dylib symlinks, the right install name, an ad-hoc signed arm64 slice, and minimum macOS 13.0 in both slices.
-		- `capi_smoke.c` links against the universal static and shared libraries for both slices.
-		- The vendor stage picks, fetches and checks the right archives for an Intel Mac, an Apple Silicon Mac and Linux.
-		- A real Linux `package.bash` run gives the same tarball layout as before, and its checks pass.
-		- `cicd/cicd.bash --cross` passes, 222 test IDs.
-		- 20261003, on b26 at c10d2ee: the full pipeline with `--package` passes. The vendor stage fetched and checked the arm64 Wasmtime itself. The only skips are `ErbFB7C` (Linux only), the CLI profile and the demo.
-		- 20261003, on b26: `lipo -info` lists x86_64 and arm64 for `dist/zuid-darwin-universal`, and for `bin/zuid`, `lib/libzuid.a`, `lib/libzuid.1.0.0.dylib` and `lib/libwasmtime.a` from the tarball.
-		- 20261003, on b26: the x86_64 slice runs. `--version` and a default identifier work, and `capi_smoke.c` built with clang `-arch x86_64` against the tarball's static and shared libraries runs and passes.
-		- 20261003, on b26: `capi_smoke.c` links with clang `-arch arm64`, static and shared.
-		- 20261003, on b26: `installer-test.bash` passes for both installers against a local release serving `zuid-darwin-universal.tgz`. Nothing is published for macOS yet, so no live install.
-	- Swept: every `vendor/wasmtime` path, `uname -m` use and asset name in `cicd/`, both installers and `installer-test.bash`. `cicd.bash` used to look up an arm64 Mac's pin under `arm64-macos`, which matches nothing; it says `aarch64` now.
-	- Branch: universal
-	- Commit: d1144f7
-	- Test case: `Erfhegq` checks every binary and library has both slices. `ErbFB7B` and `ErbFB7D` read each slice of a fat file now. Each was watched to fail on a broken universal release: a thin binary, a thin `libzuid.a` in the tarball, an arm64 slice asking for macOS 14.0, and an x86_64 slice built for x86_64_v3. They run under `--package` on a Mac.
-	- Closed: 20261003-162000
 
 - Release builds target the build machine's CPU.
 	- ID: 2026093018112406
@@ -478,26 +370,28 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: `ErOkWfZ`, `ErOkWfb`.
 	- Closed: 20260930-155553
 
-- Build and test on macOS.
-	- ID: 2026093018112471
-	- Type: Enhancement
+- `test-ids.py check` missed test IDs kept in an array.
+	- ID: 2026100409004496
+	- Type: Bug
 	- Status: Done
-	- Opened: 20260930-181124
+	- Priority|Severity [Bug]: Low
+	- Opened: 20261004-090044
 	- Opened by: JC
-	- Target OS: macOS, Intel
-	- Requirements  [Feature]:
-		- The whole pipeline passes on a Mac.
-		- `%m` reads a hardware address there.
-	- Progress log:
-		- `getentropy` comes from `sys/random.h` there.
-		- `%m` reads `AF_LINK`.
-		- The shared library's install name carries the ABI major, `@rpath/libzuid.1.dylib`.
-		- The Wasmtime pin is per platform.
-		- The harnesses no longer depend on GNU `sed -i`, `wc` padding or `nproc`.
-	- Branch: macos
-	- Commit: 277947e
-	- Test case: the existing suites, run on macOS. `EqA3RdB` and `EqA3RdC` check the macOS names.
-	- Closed: 20260930-181124
+	- Related IDs: 2026100317515523
+	- Steps to reproduce [Bug]:
+		- Keep a check's ID in a bash array instead of on its `fId` line, as the two arm64 link checks did.
+		- Run `cicd/utility/test-ids.py check`.
+	- Incorrect behavior [Bug]: It passes without reading those IDs, so a duplicate or a malformed one would go through.
+	- Expected behavior [Bug]: Every ID in the pipeline is checked, or the check fails.
+	- Reproduced [Bug]: 20261004, on `ErgjCkW` and `ErgjCkX` in `cicd.bash`.
+	- Actual cause [Bug]:
+		- The check only reads IDs at the start of an `fId` or `fWant*` line, and the array put them somewhere else.
+	- Actual fix [Bug]:
+		- The arm64 link checks use `fId`'s keyed form, like the cross targets.
+		- The check also fails on a word that looks like an ID but that no test line names, and on a `// test-id:` mark that is not above a test. A comment is let through, so a retired test can stay in one.
+	- Branch: idgaps
+	- Test case: `ErkRrmk` to `ErkRrmo` in `pipeline-test.bash`, against a scratch tree. `ErkRrml`, `ErkRrmm` and `ErkRrmo` failed on the old `test-ids.py`. `ErkRrmn` failed with the comment exemption taken out.
+	- Closed: 20261004-090044
 
 - The macOS shared library exports all of Wasmtime.
 	- ID: 2026093018112419
@@ -528,6 +422,141 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: `Eq9gPQm` runs on macOS now, and on both systems reads the allowed names from `lib/zuid.map` and checks every function `zuid.h` declares is exported. It failed on b26 with the old `build.zig` (828 stray exports) and passes with the fix. New `ErfrKRQ` checks each slice of the release dylib under `--package`: exports, install name with its versions, macOS 13.0, and the arm64 signature. Its export check failed on a release built with the old `build.zig`. Its install name check rejects the first relink's dylib, which had compatibility version 0.0.0.
 	- Acceptance signoff: Self-closed: the intent was clear, and the tests failed before the fix and pass after.
 	- Closed: 20261003-143030
+
+- Drop BSD from the installer and the docs.
+	- ID: 2026100315241091
+	- Type: Task
+	- Status: Done
+	- Opened: 20261003-152410
+	- Opened by: JC
+	- Target OS: BSD
+	- Requirements  [Feature]:
+		- `install.bash` stops treating any other system as FreeBSD, and says the platform has no build.
+		- README drops BSD from the platform list and the install table.
+		- `package.bash` stops listing BSD among the builds still to come.
+	- Progress log:
+		- 20261003: `install.bash` refuses any system other than Linux or macOS, naming it and saying no build exists for it. It used to call any such system FreeBSD and go looking for that tarball.
+		- 20261003: `install.ps1` had the same gap: anything not Windows or macOS got the Linux build. It now refuses those the same way.
+		- 20261003: README, `package.bash` and an `env.zig` comment drop BSD.
+		- Verified: the new test failed on the old `install.bash` and passes on the new one. `installer-test.bash` passed in full, both installers, and `cicd.bash --quick --no-backup` passed. Shellcheck is clean.
+		- Swept: README, design.md, contributing.md, changelog.md, `install.ps1`, `cicd/` and `installer-test.bash`. Left alone: "BSD wc" in `cli-test.bash` and "BSD sed" in `installer-test.bash`, which are about the macOS tools; the closed item that listed BSD in the installer; the platform decision under Old format. `cicd.bash`'s `--cross` list has no BSD entry.
+	- Decisions:
+		- No BSD target. Wasmtime publishes no BSD build, so there is nothing to embed.
+	- Branch: nobsd
+	- Commit: f835fe0
+	- Test case: Ergbz3Z, Ergbz3a in `installer-test.bash`, with a stand-in `uname` reporting FreeBSD. The `install.ps1` refusal has no test, since pwsh's `$IsLinux` cannot be faked from outside.
+	- Acceptance signoff: README text changed.
+	- Closed: 20261004-073955
+
+- Linux arm64 release, cross-built on the Linux build machine.
+	- ID: 2026100317515523
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: No. The `--package` and `--cross` runs pass.
+	- Needs external testing: No. Done on `vmDebARM64`, 20261004.
+	- Opened: 20261003-175155
+	- Opened by: JC
+	- Related IDs: 2026100315241096, 2026100313105241
+	- Target OS: Linux, arm64
+	- Requirements  [Feature]:
+		- A Linux arm64 tarball, bare binary, `.deb` and `.rpm` beside the x86_64 ones, with the same layout.
+		- It runs on a plain armv8-a CPU with glibc 2.28.
+		- Both installers fetch it on an arm64 Linux machine.
+	- Progress log:
+		- 20261003: The arm64 Wasmtime pin is the sha256 of the v47.0.3 release asset, downloaded and hashed. It matches the digest GitHub lists for that asset.
+		- 20261003: On Linux, `package.bash` builds both architectures whatever the host is, and makes one release for each. The pipeline fetches the other architecture's Wasmtime only for `--package`.
+		- 20261003: The new assets are `zuid-linux-arm64`, its `.tgz`, `zuid_<version>_arm64.deb` and `zuid-<version>.aarch64.rpm`.
+		- 20261003: Both installers already picked the arm64 asset on an `aarch64` machine. No change there.
+		- 20261003: README is unchanged. It lists what is published, and nothing arm64 is yet.
+		- 20261003: `package.bash` now stages each release in a function, so the Mac path changed shape too. It still makes one universal release. The b26 run 2026100313583935 waits on covers it.
+		- 20261003: On an arm64 Linux host the AVX check skips when its objdump cannot read x86_64, as it used to skip there.
+	- Decisions:
+		- Cross-built on the x86_64 Linux build machine, since Zig cross-compiles Linux with nothing extra installed.
+		- Every `--package` run on Linux builds both. There is no separate switch.
+		- The arm64 baseline is plain armv8-a, which Zig picks once the target is named. The check allows the pointer authentication instructions an older CPU runs as no-ops.
+		- All three are open to change.
+	- Verified:
+		- `cicd/cicd.bash --package --no-dogfood --no-backup -q` passes. It fetched and checked the arm64 Wasmtime itself and wrote all eight assets.
+		- `cicd/cicd.bash --cross --no-dogfood --no-backup -q` passes.
+		- The arm64 tarball lists the same files as the x86_64 one. The `.deb` says arm64 and the `.rpm` says aarch64.
+		- `capi_smoke.c` links for arm64 against the tarball's static and shared libraries. Not run, since nothing here runs arm64 code.
+		- 20261003, on `vmDebARM64` from a `--package` run of `main` at 0d01af3: the bare binary and the tarball's `bin/zuid` run, with `--version`, the default, `%d%r`, `%m` and `-n 3`. `%m` gives the VM's own network card address.
+		- 20261003, on `vmDebARM64`: `capi_smoke.c` built with the VM's gcc runs against the tarball's shared library, and against its static ones both named directly and through the header's link line.
+		- 20261003, on `vmDebARM64`: `install.bash --target user` against a local release picked `linux/arm64`, fetched only the arm64 tarball and the checksums, and the installed command runs. A second run said it was already installed.
+		- 20261004, on `vmDebARM64`: the arm64 `.deb` installs with apt and puts `zuid` in `/usr/bin`, and the command runs. It removes cleanly.
+		- 20261004, on `vmDebARM64` with pwsh 7.6.6: `install.ps1 -Target user` against a local release picked `linux/arm64`, fetched only the arm64 tarball and the checksums, and the installed command runs. A second run said it was already installed, and `-Uninstall` removed it.
+	- Swept: every `uname -m` use, asset name and `vendor/wasmtime` path in `cicd/`, `build.zig`, both installers and `installer-test.bash`. The x86_64 release checks now read the x86_64 release on any Linux host.
+	- Branch: arm64
+	- Commit: 9631a0b
+	- Test case: `ErgjCkT` to `ErgjCkX` under `--package` on Linux: arch of every file and package, no instructions past armv8-a, glibc 2.28, and the two links. Each failed on a release broken for it: an x86_64 binary or `.deb` under the arm64 name, a build for a newer CPU, a build for glibc 2.39, an empty `libzuid.a`, and a shared library with no `zuid_*`. `ErgjCkY` and `ErgjCkZ` in `installer-test.bash`, with a stand-in `uname` reporting `aarch64`, failed with `install.bash` picking x86_64. `install.ps1` has no test, since pwsh's architecture cannot be faked from outside.
+	- Acceptance signoff: Self-closed: the intent was clear, it builds what was asked, and it passed on an arm64 machine.
+	- Closed: 20261004-074509
+
+- macOS gets a universal binary for both amd64 and ARM.
+	- ID: 2026100313105241
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: No. The full pipeline passes on Linux.
+	- Needs external testing:
+		- Run the arm64 slice on an Apple Silicon Mac: the command, and `capi_smoke.c` against the tarball's libraries.
+		- A live install on a Mac, once a macOS asset is published.
+	- Opened: 20261003-131052
+	- Opened by: JC
+	- Related IDs: 2026093018112406, 2026093018112419
+	- Target OS: macOS
+	- Progress log:
+		- 20261003: The arm64 Wasmtime pin is the sha256 of the v47.0.3 release asset, downloaded and hashed. It matches the digest GitHub lists for that asset.
+		- 20261003: Both slices cross-build from Linux and merge into fat files. The one exception is `libwasmtime.a`, which the Linux `lipo` cannot read, so it waits on b26.
+		- 20261003: Found along the way: Zig's macOS static library gives its members no read permission, which broke the archive cleanup in `package.bash` on any Mac with llvm-ar. Fixed.
+		- 20261003: `package.bash` builds each slice into its own tree now, not `zig-out`. So after `--package` the dogfood install gets the build the tests ran on, not the release build.
+		- 20261003: For 2026093018112419, each slice is still a separate tree before the merge, so a per-slice relink can go there.
+		- 20261003: The b26 tests pass. Waits on signoff for the one-asset name and the installer change.
+		- 20261003: Signed off. The arm64 slice still has not run on an Apple Silicon Mac.
+	- Decisions:
+		- Fat: the command, `libzuid.a` and `libzuid.dylib`. Also `libwasmtime.a` in the tarball, since `zuid.h` tells a static consumer to link it.
+		- The macOS tarball is still built on a Mac, with Apple's `lipo`. The Linux cross-build was only a check.
+		- One asset, `zuid-darwin-universal`, instead of one per architecture. Both installers fetch it on any Mac.
+		- Both slices ask for macOS 13.0. The arm64 slice gets the M1 as its baseline CPU, the oldest arm64 Mac.
+		- A non-host target's Wasmtime goes in `vendor/wasmtime-<platform>`. The build machine's own stays in `vendor/wasmtime`.
+		- `--cross` is left alone. Its list is for Go compile checks only.
+	- Verified:
+		- `zig build` for x86_64 and arm64 macOS, from Linux.
+		- `package.bash`'s macOS path, built here: a `zuid-darwin-universal` binary and tarball, with fat files, the dylib symlinks, the right install name, an ad-hoc signed arm64 slice, and minimum macOS 13.0 in both slices.
+		- `capi_smoke.c` links against the universal static and shared libraries for both slices.
+		- The vendor stage picks, fetches and checks the right archives for an Intel Mac, an Apple Silicon Mac and Linux.
+		- A real Linux `package.bash` run gives the same tarball layout as before, and its checks pass.
+		- `cicd/cicd.bash --cross` passes, 222 test IDs.
+		- 20261003, on b26 at c10d2ee: the full pipeline with `--package` passes. The vendor stage fetched and checked the arm64 Wasmtime itself. The only skips are `ErbFB7C` (Linux only), the CLI profile and the demo.
+		- 20261003, on b26: `lipo -info` lists x86_64 and arm64 for `dist/zuid-darwin-universal`, and for `bin/zuid`, `lib/libzuid.a`, `lib/libzuid.1.0.0.dylib` and `lib/libwasmtime.a` from the tarball.
+		- 20261003, on b26: the x86_64 slice runs. `--version` and a default identifier work, and `capi_smoke.c` built with clang `-arch x86_64` against the tarball's static and shared libraries runs and passes.
+		- 20261003, on b26: `capi_smoke.c` links with clang `-arch arm64`, static and shared.
+		- 20261003, on b26: `installer-test.bash` passes for both installers against a local release serving `zuid-darwin-universal.tgz`. Nothing is published for macOS yet, so no live install.
+	- Swept: every `vendor/wasmtime` path, `uname -m` use and asset name in `cicd/`, both installers and `installer-test.bash`. `cicd.bash` used to look up an arm64 Mac's pin under `arm64-macos`, which matches nothing; it says `aarch64` now.
+	- Branch: universal
+	- Commit: d1144f7
+	- Test case: `Erfhegq` checks every binary and library has both slices. `ErbFB7B` and `ErbFB7D` read each slice of a fat file now. Each was watched to fail on a broken universal release: a thin binary, a thin `libzuid.a` in the tarball, an arm64 slice asking for macOS 14.0, and an x86_64 slice built for x86_64_v3. They run under `--package` on a Mac.
+	- Closed: 20261003-162000
+
+- Build and test on macOS.
+	- ID: 2026093018112471
+	- Type: Enhancement
+	- Status: Done
+	- Opened: 20260930-181124
+	- Opened by: JC
+	- Target OS: macOS, Intel
+	- Requirements  [Feature]:
+		- The whole pipeline passes on a Mac.
+		- `%m` reads a hardware address there.
+	- Progress log:
+		- `getentropy` comes from `sys/random.h` there.
+		- `%m` reads `AF_LINK`.
+		- The shared library's install name carries the ABI major, `@rpath/libzuid.1.dylib`.
+		- The Wasmtime pin is per platform.
+		- The harnesses no longer depend on GNU `sed -i`, `wc` padding or `nproc`.
+	- Branch: macos
+	- Commit: 277947e
+	- Test case: the existing suites, run on macOS. `EqA3RdB` and `EqA3RdC` check the macOS names.
+	- Closed: 20260930-181124
 
 - A Linux arm64 test machine.
 	- ID: 2026100315241096

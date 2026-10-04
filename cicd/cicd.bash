@@ -1151,7 +1151,7 @@ fStage_Zig(){
 
 	## zig fmt is silent on success and lists offenders on failure. Plain 'if',
 	## not a trailing '&&' - that exact pattern has killed this script before.
-	local -r unformattedZig="$(zig fmt --check build.zig lib/src cmd/src 2>&1 || true)"
+	local -r unformattedZig="$(zig fmt --check build.zig tools lib/src cmd/src 2>&1 || true)"
 	if [[ -n "${unformattedZig}" ]]; then
 		fThrowError "zig fmt would rewrite: ${unformattedZig//$'\n'/, }"  "${FUNCNAME[0]}"
 	fi
@@ -1293,9 +1293,19 @@ fStage_Zig_BuildStamp(){
 	stampDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${stampDir}")
 
+	## Zig 0.17.0 on macOS spins forever copying its output into a pipe, and a
+	## captured stdout is a pipe. tools/to_file.zig gives it a file instead. A
+	## Linux build never hangs, so look for the call.
+	fId Erm4m6a "no build step reads a command's stdout through a pipe"
+	local -r buildCode="$(grep -v '^[[:space:]]*//' "${zigDir}/build.zig" || true)"
+	if [[ "${buildCode}" == *captureStdOut* ]]; then
+		fTestFail "build.zig captures a command's stdout. zig translate-c hangs on macOS when that is a pipe; run it through tools/to_file.zig."
+	fi
+	fTestPass
+
 	fId Eq9nb3o "the build number survives an empty SOURCE_DATE_EPOCH"
-	## Its own cache, since clang chokes on the empty value too, and a cached
-	## @cImport never runs clang.
+	## Its own cache, since translate-c and clang choke on the empty value, and
+	## a cached translation or object never runs them.
 	(
 		cd "${zigDir}" || exit 1
 		SOURCE_DATE_EPOCH="" zig build "-j${buildJobs}" --cache-dir "${stampDir}/cache" --prefix "${stampDir}" || exit 1
