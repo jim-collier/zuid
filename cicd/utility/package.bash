@@ -9,13 +9,14 @@
 ##		    - the bare CLI binary (grab-and-run)
 ##		    - .deb and .rpm, via nfpm
 ##		    - checksums.txt over everything
-##		- Only the host system, for now: Linux or macOS. The Zig side embeds a
-##		  Wasmtime static archive, and one is vendored per platform; until
-##		  Windows has one there is nothing to link against. The Go module
-##		  cross-compiles fine, but it is a module - there is no binary to
-##		  release.
+##		- Only what the host system can make, for now: Linux or macOS. The Zig
+##		  side embeds a Wasmtime static archive, and one is vendored per
+##		  platform; until Windows has one there is nothing to link against. The
+##		  Go module cross-compiles fine, but it is a module - there is no binary
+##		  to release.
 ##		- On Linux, one release each for x86_64 and arm64, whichever the host
-##		  is. cicd.bash --package vendors the other one's Wasmtime archive.
+##		  is, and one for x86_64 FreeBSD. cicd.bash --package vendors the
+##		  Wasmtime archives the host's own is not.
 ##		- On a Mac everything is universal, x86_64 and arm64 merged by lipo.
 ##		  cicd.bash vendors the second Wasmtime archive that needs.
 ##		- Builds with the zig on PATH. cicd.bash --package puts the Zig it
@@ -80,13 +81,13 @@ esac
 ## ones. Naming a target also gives that target's baseline CPU: plain armv8-a
 ## for arm64 Linux, and the M1 for arm64 macOS, the oldest there is. 2.28 and
 ## 13.0 are what cicd.bash checks the result against; 13.0 is as far back as Zig
-## goes.
+## goes. FreeBSD 14.0 matches the package repo its Wasmtime comes from.
 ## Linux makes one release per architecture. A Mac builds one slice per
 ## architecture and merges them into one release, whichever it is.
 mergeSlices=0
 case "$(uname -s)" in
-	Linux)  osLabel="linux";  hostOs="linux"; zigTargets=("x86_64-linux-gnu.2.28" "aarch64-linux-gnu.2.28") ;;
-	Darwin) osLabel="darwin"; hostOs="macos"; zigTargets=("x86_64-macos.13.0" "aarch64-macos.13.0"); mergeSlices=1 ;;
+	Linux)  hostOs="linux"; zigTargets=("x86_64-linux-gnu.2.28" "aarch64-linux-gnu.2.28" "x86_64-freebsd.14.0") ;;
+	Darwin) hostOs="macos"; zigTargets=("x86_64-macos.13.0" "aarch64-macos.13.0"); mergeSlices=1 ;;
 	*) echo "unsupported system: $(uname -s)" >&2; exit 2 ;;
 esac
 
@@ -94,6 +95,8 @@ esac
 ## x86_64 because "AMD64" reads as a processor brand to anyone who has not met
 ## the convention. nfpm turns arm64 into aarch64 for the rpm itself.
 fArchLabel(){ case "$1" in aarch64*) echo "arm64" ;; *) echo "x86_64" ;; esac ;}
+## The name in the asset, which the installers ask for. Zig says macos.
+fOsLabel(){   case "$1" in *-macos*) echo "darwin" ;; *-freebsd*) echo "freebsd" ;; *) echo "linux" ;; esac ;}
 fGoArch(){    case "$1" in arm64) echo "arm64" ;; *) echo "amd64" ;; esac ;}
 
 work="$(mktemp -d)"
@@ -202,11 +205,15 @@ fi
 ## the last good run's artifacts alone.
 slices=()
 for zigTarget in "${zigTargets[@]}"; do
-	slice="${work}/slice-${zigTarget%%-*}"
+	slice="${work}/slice-${zigTarget}"
 	wasmtimeArchive="$(fWasmtimeArchive "${zigTarget}")"
 	[[ -f "${wasmtimeArchive}" ]] || fDie "missing ${wasmtimeArchive}. Run cicd.bash --package first; it vendors Wasmtime."
 	( cd "${root}/zig" && zig build -Doptimize=ReleaseSafe -Dtarget="${zigTarget}" --prefix "${slice}" )
 	cp "${wasmtimeArchive}" "${slice}/lib/"
+	## FreeBSD's Wasmtime calls zstd, so a static consumer needs it too.
+	if [[ "$(fOsLabel "${zigTarget}")" == "freebsd" ]]; then
+		cp "$(dirname "${wasmtimeArchive}")/libzstd.a" "${slice}/lib/"
+	fi
 	fNormalizeArchive "${slice}/lib/libzuid.a"
 	slices+=("${slice}")
 done
@@ -237,8 +244,8 @@ fMergeSlices(){  ## stage, subdir, slice...
 }
 
 ## One release: the tarball, the bare binary and, on Linux, the packages.
-fRelease(){  ## label, slice...
-	local -r label="$1"; shift
+fRelease(){  ## os label, arch label, slice...
+	local -r osLabel="$1" label="$2"; shift 2
 	local -r stage="${work}/release-${label}/${PKG}-${VERSION}"
 	mkdir -p "${stage}/bin" "${stage}/lib" "${stage}/include" "${stage}/share"
 	fMergeSlices "${stage}" bin "$@"
@@ -250,6 +257,9 @@ fRelease(){  ## label, slice...
 	cp "${root}/zig/lib/LICENSE.txt"           "${stage}/share/LICENSE-module.txt"
 	cp "${root}/zig/lib/NOTICE.txt"            "${stage}/share/"
 	cp "${root}/README.md"                     "${stage}/share/"
+	if [[ -f "${stage}/lib/libzstd.a" ]]; then
+		cp "${root}/zig/vendor/wasmtime-x86_64-freebsd/LICENSE-zstd" "${stage}/share/LICENSE-zstd.txt"
+	fi
 
 	tar -C "$(dirname "${stage}")" -czf "${OUT}/${PKG}-${osLabel}-${label}.tgz" "$(basename "${stage}")"
 	cp "${stage}/bin/${EXE}" "${OUT}/${PKG}-${osLabel}-${label}"
@@ -271,7 +281,7 @@ fRelease(){  ## label, slice...
 
 haveNfpm=0
 if command -v nfpm >/dev/null 2>&1; then haveNfpm=1; fi
-if [[ "${osLabel}" == "linux" ]] && ((! haveNfpm)); then
+if [[ "${hostOs}" == "linux" ]] && ((! haveNfpm)); then
 	fWarn "nfpm missing; skipping .deb/.rpm - go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest"
 fi
 
@@ -314,10 +324,10 @@ fLinuxPackages(){  ## stage, label
 }
 
 if ((mergeSlices)); then
-	fRelease "universal" "${slices[@]}"
+	fRelease "darwin" "universal" "${slices[@]}"
 else
 	for slice in "${slices[@]}"; do
-		fRelease "$(fArchLabel "${slice##*/slice-}")" "${slice}"
+		fRelease "$(fOsLabel "${slice##*/slice-}")" "$(fArchLabel "${slice##*/slice-}")" "${slice}"
 	done
 fi
 
@@ -360,6 +370,7 @@ fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "
 
 
 ##	History:
+##		- 20261004 JC: FreeBSD x86_64, cross-built on Linux from FreeBSD's own Wasmtime package.
 ##		- 20261003 JC: Linux arm64, cross-built beside x86_64 on any Linux host.
 ##		- 20261003 JC: Zig 0.17.0.
 ##		- 20261003 JC: Universal on a Mac: an x86_64 and an arm64 slice, merged by lipo.

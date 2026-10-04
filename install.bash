@@ -54,10 +54,11 @@ case "${release}" in stable|dev) ;; *) fDie "--release wants stable or dev, got 
 ## Where things go. A user install needs no privileges and is the default when
 ## the system directories are not writable.
 
-## Linux and macOS only. There is no BSD build, since Wasmtime publishes none.
+## Linux, macOS and FreeBSD. FreeBSD keeps third-party software under /usr/local.
 case "$(uname -s)" in
-	Linux)   osLabel="linux";  systemDir="/opt/${PROG}"; systemLink="/usr/local/bin/${PROG}"; userDir="${HOME}/.local/share/${PROG}" ;;
-	Darwin)  osLabel="darwin"; systemDir="/opt/${PROG}"; systemLink="/usr/local/bin/${PROG}"; userDir="${HOME}/Library/Application Support/${PROG}" ;;
+	Linux)   osLabel="linux";   systemDir="/opt/${PROG}";       systemLink="/usr/local/bin/${PROG}"; userDir="${HOME}/.local/share/${PROG}" ;;
+	Darwin)  osLabel="darwin";  systemDir="/opt/${PROG}";       systemLink="/usr/local/bin/${PROG}"; userDir="${HOME}/Library/Application Support/${PROG}" ;;
+	FreeBSD) osLabel="freebsd"; systemDir="/usr/local/${PROG}"; systemLink="/usr/local/bin/${PROG}"; userDir="${HOME}/.local/share/${PROG}" ;;
 	*) fDie "no ${PROG} build exists for $(uname -s). On Windows use install.ps1; elsewhere, build from source - see the README." ;;
 esac
 userLink="${HOME}/.local/bin/${PROG}"
@@ -145,6 +146,9 @@ fi
 
 ## The macOS release is one universal build, for either architecture.
 if [[ "${osLabel}" == "darwin" ]]; then arch="universal"; fi
+if [[ "${osLabel}" == "freebsd" && "${arch}" != "x86_64" ]]; then
+	fDie "no ${PROG} build exists for FreeBSD ${arch}, only x86_64. Build from source - see the README."
+fi
 
 ## GitHub's 'latest' endpoint only ever answers with a full release, so it 404s
 ## on a repository whose releases are all prereleases. Listing them instead
@@ -277,6 +281,7 @@ printf '\n'
 
 
 ##	History:
+##		- 20261004 JC: FreeBSD x86_64.
 ##		- 20261003 JC: No BSD build, so a system other than Linux or macOS is refused by name.
 ##		- 20261003 JC: macOS fetches the universal build.
 ##		- 20260805 JC: Pick the release from the full list; fall back to a prerelease.

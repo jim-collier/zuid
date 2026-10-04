@@ -225,8 +225,10 @@ fPublishRepo(){  ## name, version
 	git -C "${dir}/repo" push -q -u origin main 2>/dev/null
 	fTarball "${dir}/repo/dist/zuid-linux-x86_64.tgz" "${version}"
 	fTarball "${dir}/repo/dist/zuid-linux-arm64.tgz" "${version}"
+	fTarball "${dir}/repo/dist/zuid-freebsd-x86_64.tgz" "${version}"
 	printf 'x86_64\n' > "${dir}/repo/dist/zuid-linux-x86_64"
 	printf 'arm64\n'  > "${dir}/repo/dist/zuid-linux-arm64"
+	printf 'freebsd\n' > "${dir}/repo/dist/zuid-freebsd-x86_64"
 	printf 'stale\n'  > "${dir}/repo/dist/checksums.txt"
 	: > "${dir}/repo/dist/.zuid-package-dir"
 	fTarball "${dir}/repo/dist-incoming/zuid-darwin-universal.tgz" "${version}"
@@ -401,8 +403,8 @@ else
 	[[ "$(wc -l < "${sumsFile}")" -eq $((${#betaUploads[@]} - 1)) ]] || sumsBad+=" $(wc -l < "${sumsFile}") lines for $((${#betaUploads[@]} - 1)) assets;"
 	(cd "$(dirname "${sumsFile}")" && sha256sum --quiet -c checksums.txt >/dev/null 2>&1) || sumsBad+=" a hash does not match;"
 fi
-## Five targets, three bare binaries, the package and checksums.txt.
-((${#betaUploads[@]} == 10)) || sumsBad+=" ${#betaUploads[@]} uploads, expected 10;"
+## Six targets, four bare binaries, the package and checksums.txt.
+((${#betaUploads[@]} == 12)) || sumsBad+=" ${#betaUploads[@]} uploads, expected 12;"
 if [[ -z "${sumsBad}" ]]
 	then fPass
 	else fFail "${sumsBad}"
@@ -451,7 +453,10 @@ utilityDir="${cicd%/*}/utility"
 idsTree="${work}/ids"
 mkdir -p "${idsTree}/cicd/utility" "${idsTree}/zig/lib/src"
 cp "${utilityDir}/test-ids.py" "${idsTree}/cicd/utility/"
-mapfile -t fixtureIds < <(python3 "${idsTree}/cicd/utility/test-ids.py" new -n 4)
+## A fixed time, not now. The stray scan skips a word with no digit or capital
+## past its first letter, and an ID made now is sometimes all lower case there,
+## which let ErkRrml pass the check it is meant to fail.
+mapfile -t fixtureIds < <(python3 "${idsTree}/cicd/utility/test-ids.py" new -n 4 --at 2026-09-01T12:00:00Z)
 
 fIdsTree(){  ## cicd.bash body, extra Zig text
 	printf '%s\n' "$1" > "${idsTree}/cicd/cicd.bash"

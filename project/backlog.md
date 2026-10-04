@@ -40,6 +40,58 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ## Issues
 
+- FreeBSD kernel panics while zuid runs.
+	- ID: 2026100413383471
+	- Type: Bug
+	- Status: Waiting for answers
+	- Needs external testing: Yes, on `vmFreeBSD`.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261004-133835
+	- Opened by: JC
+	- Parent ID: 2026100413383571
+	- Target OS: FreeBSD 15.1, x86_64
+	- Test environment: `vmFreeBSD`, 8 CPUs, 8 GB.
+	- Version and build: 1.0.0-alpha.1 (build ddg8r), from the `freebsd` branch.
+	- Steps to reproduce [Bug]:
+		- Run `cli-test.bash --bin <tarball>/bin/zuid` on the VM.
+	- Incorrect behavior [Bug]: The kernel panicked about two minutes in: "Fatal trap 12: page fault while in kernel mode", current process zuid. The backtrace runs from a user page fault through `vm_fault` and `vm_page_activate` into `vm_page_pqstate_commit`.
+	- Expected behavior [Bug]: No program can panic the kernel. At worst zuid crashes.
+	- Reproduced [Bug]: No. Once, 20261004. The test log was lost in the reboot, so which case was running is not known.
+	- Possible cause [Bug]: A FreeBSD kernel bug in its page-queue code, reached by Wasmtime's large memory reservations and guard pages. A program cannot cause a kernel page fault by itself.
+	- Progress log:
+		- 20261004: The crash dump is `/var/crash/vmcore.0` on the VM.
+		- 20261004: Before it, the tarball's command, the 30 Zig tests and the C smoke test, static and shared, all passed there.
+	- Branch: freebsd
+
+- FreeBSD x86_64 release.
+	- ID: 2026100413383571
+	- Type: Enhancement
+	- Status: Waiting for answers
+	- Needs local test suite run?: Yes. `cicd.bash --package` covers it.
+	- Needs external testing: Yes, on `vmFreeBSD`.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261004-133835
+	- Opened by: JC
+	- Related IDs: 2026100315241091, 2026100413383471
+	- Target OS: FreeBSD 14 and later, x86_64
+	- Requirements  [Feature]:
+		- A FreeBSD x86_64 tarball and bare binary, cross-built on Linux beside the Linux ones.
+		- Wasmtime from FreeBSD's own package, pinned by checksum, since Wasmtime publishes no FreeBSD build.
+		- `%m` works there.
+		- `install.bash` installs it on FreeBSD, and refuses FreeBSD arm64 and other BSDs by name.
+		- `--publish` wants it in the release set.
+	- Progress log:
+		- 20261004: Reverses 2026100315241091. FreeBSD packages Wasmtime's C library as `libwasmtime`, which that item did not know.
+		- 20261004: The pins are `libwasmtime-45.0.0_1` and `zstd-1.5.7_2` from the FreeBSD 14 quarterly repo. FreeBSD's build of Wasmtime calls zstd, so its `libzstd.a` is linked too and ships in the tarball with zstd's BSD license.
+		- 20261004: `%m` reads AF_LINK as on macOS. Two lines.
+		- 20261004: On `vmFreeBSD`: the tarball's command, every component including `%m`, the 30 Zig tests, and `capi_smoke.c` with the base `cc` against both libraries all pass. `cli-test.bash` panicked the kernel; see 2026100413383471.
+	- Decisions:
+		- FreeBSD 14 as the floor, to match the package repo.
+		- Wasmtime stays, rather than an interpreter for this one platform.
+		- x86_64 only.
+	- Branch: freebsd
+	- Test case: ErlUUiQ to ErlUUiU under `--package` on Linux: an x86_64 FreeBSD build with zstd and its license, no AVX, no libc past FreeBSD 14, and the two links. Each failed on a release broken for it: no zstd license, a Linux binary, an AVX build, a FreeBSD 15 build, and a static and a shared library with no `zuid_*`. ErlUUiV, ErlUUiW, ErlUUiX and ErlX0RL in `installer-test.bash`, with a stand-in `uname`; the first three failed on the old `install.bash`. Ergbz3Z now uses OpenBSD.
+
 - Drop BSD from the installer and the docs.
 	- ID: 2026100315241091
 	- Type: Task
@@ -506,6 +558,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Note: `package.bash` builds the macOS tarball and binary on a Mac, 20261002. Nothing is published for it yet.
 	- Note: `build.zig` and `package.bash` take a non-host target's Wasmtime from `vendor/wasmtime-<platform>`, as the macOS universal build does, 20261003. Another target needs its pin and a fetch.
 	- Decision: 20261003, the targets are Linux x86_64 and arm64 on glibc, macOS universal, and Windows x86_64 and arm64. No BSD. Others such as armv7, riscv64, musl and Android are out for now.
+	- Note: 20261004, FreeBSD x86_64 is back, from FreeBSD's own Wasmtime package. See 2026100413383571.
 	- Decision: 20261003, a Windows package is a `.zip`, installed by `install.ps1`.
 	- Decision: 20261003, Linux arm64 is tested on the `vmDebARM64` virtual machine, not only built.
 	- Note: 20261003, Linux arm64 is built and checked, and waits on testing on `vmDebARM64`. See 2026100317515523.

@@ -19,4 +19,6 @@
 #include <net/if_dl.h>
 /* unistd.h has getentropy on Linux only. */
 #include <sys/random.h>
+#elif defined(__FreeBSD__)
+#include <net/if_dl.h>
 #endif
