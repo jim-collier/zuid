@@ -64,43 +64,14 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: Ergbz3Z, Ergbz3a in `installer-test.bash`, with a stand-in `uname` reporting FreeBSD. The `install.ps1` refusal has no test, since pwsh's `$IsLinux` cannot be faked from outside.
 	- Acceptance signoff: README text changed.
 
-- Move the Zig side to 0.17.0.
-	- ID: 2026100313583935
-	- Type: Task
-	- Status: Waiting for testing
-	- Needs external testing: on b26, install Zig 0.17.0 beside 0.16.0 as `~/.local/zig-x86_64-macos-0.17.0`, checked against the download index, and run the pipeline with `--package`. That builds the arm64 macOS slice of the universal release, which has only been cross-compiled so far.
-	- Opened: 20261003-135839
-	- Opened by: JC
-	- Target OS: Any
-	- Estimated effort: Low
-	- Decision: Move to 0.17.0.
-		- The pipeline finds its own Zig: `ZIG` if set, else the `zig` on PATH if it is new enough, else `~/.local/zig-<platform>-0.17.0/zig`. Whichever it picks goes first on PATH, so the packaging script and the test scripts use it too. The shared `zig` link stays on 0.16.0 for the other projects.
-		- The C headers are translated with Zig's own `translate-c`, not the separate package, so an offline build needs nothing fetched.
-		- `DebugAllocator` stays for now. It still builds on 0.17.0.
-	- Progress log:
-		- 20261003: Zig 0.17.0 came out 2026-10-01. A trial port builds, passes all 30 Zig tests, and the C module still works from gcc. It took small changes in seven files plus three short C headers. `details.md` has the list.
-		- 20261003: The Zig fuzz item under Old format waits on this. Fuzz mode works in 0.17.0.
-		- 20261003: Other projects on the build machine still pin 0.16.0, so the two versions have to sit side by side there. b26 needs 0.17.0 too.
-		- 20261003: Question: go ahead? 0.16.0 is a settled choice, so the move needs a yes first. Answered yes, 20261003.
-		- 20261003: Done on branch `zig017`. Ported as the trial did, and 0.17.0 is installed beside 0.16.0 on the build machine.
-		- 20261003: An empty `SOURCE_DATE_EPOCH` broke the build on 0.17.0, and the existing test for it caught that. The build script can no longer clear the variable for the header step, so that step now runs as a plain command with it removed.
-		- 20261003: Question: move to `SafeAllocator`? Zig 0.17.0 deprecates `DebugAllocator` in its favor, but it is a different allocator, not a rename. It catches more, so the memory-safety section in `design.md` would need rewriting, and the leak test would need another way to count. Kept as is until then.
-		- 20261003: The ReleaseSafe test run fails the leaked-context test, on 0.16.0 as well. The pipeline tests in Debug, so it only matters to the fuzz item.
-	- Verified: a full pipeline run (`cicd.bash --no-dogfood --no-backup`) and one with `--cross` both passed on Linux, with no test skipped. A ReleaseSafe build runs. A release package for glibc 2.28 builds. Both macOS slices cross-compile and link. A no-op rebuild takes under a tenth of a second.
-	- Swept: every `@cImport`, array `**`, upper-case optimize tag and `build_root` in `zig/`, and every Zig version mention outside the backlog. `cicd.bash` and `package.bash` are the only scripts that run `zig`, and both get the one the pipeline picked.
-	- Branch: zig017
-	- Commit: 161affa
-	- Test case: the existing suites, with no new test. `Eq9nb3o`, the empty `SOURCE_DATE_EPOCH` build, failed on the first port and passes now.
-
 - Linux arm64 release, cross-built on the Linux build machine.
 	- ID: 2026100317515523
 	- Type: Enhancement
 	- Status: Waiting for testing
 	- Needs local test suite run?: No. The `--package` and `--cross` runs pass.
-	- Needs external testing: on `vmDebARM64`, from a `--package` run's `dist/`:
-		- Run `zuid-linux-arm64`, and build and run `capi_smoke.c` with the VM's gcc against the arm64 tarball's static and shared libraries.
+	- Needs external testing: on `vmDebARM64`, both of these need root there:
 		- Install the arm64 `.deb`.
-		- Run both installers against a local release. `install.ps1` needs pwsh on the VM first.
+		- Run `install.ps1` against a local release, once pwsh is installed.
 	- Opened: 20261003-175155
 	- Opened by: JC
 	- Related IDs: 2026100315241096, 2026100313105241
@@ -127,10 +98,77 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- `cicd/cicd.bash --cross --no-dogfood --no-backup -q` passes.
 		- The arm64 tarball lists the same files as the x86_64 one. The `.deb` says arm64 and the `.rpm` says aarch64.
 		- `capi_smoke.c` links for arm64 against the tarball's static and shared libraries. Not run, since nothing here runs arm64 code.
+		- 20261003, on `vmDebARM64` from a `--package` run of `main` at 0d01af3: the bare binary and the tarball's `bin/zuid` run, with `--version`, the default, `%d%r`, `%m` and `-n 3`. `%m` gives the VM's own network card address.
+		- 20261003, on `vmDebARM64`: `capi_smoke.c` built with the VM's gcc runs against the tarball's shared library, and against its static ones both named directly and through the header's link line.
+		- 20261003, on `vmDebARM64`: `install.bash --target user` against a local release picked `linux/arm64`, fetched only the arm64 tarball and the checksums, and the installed command runs. A second run said it was already installed.
 	- Swept: every `uname -m` use, asset name and `vendor/wasmtime` path in `cicd/`, `build.zig`, both installers and `installer-test.bash`. The x86_64 release checks now read the x86_64 release on any Linux host.
 	- Branch: arm64
 	- Commit: 9631a0b
 	- Test case: `ErgjCkT` to `ErgjCkX` under `--package` on Linux: arch of every file and package, no instructions past armv8-a, glibc 2.28, and the two links. Each failed on a release broken for it: an x86_64 binary or `.deb` under the arm64 name, a build for a newer CPU, a build for glibc 2.39, an empty `libzuid.a`, and a shared library with no `zuid_*`. `ErgjCkY` and `ErgjCkZ` in `installer-test.bash`, with a stand-in `uname` reporting `aarch64`, failed with `install.bash` picking x86_64. `install.ps1` has no test, since pwsh's architecture cannot be faked from outside.
+
+- The macOS build hangs on Zig 0.17.0.
+	- ID: 2026100318410002
+	- Type: Bug
+	- Status: Queued
+	- Priority|Severity [Bug]: High
+	- Opened: 20261003-184100
+	- Opened by: JC
+	- Related IDs: 2026100313583935
+	- Target OS: macOS
+	- Steps to reproduce [Bug]:
+		- On b26, run `cicd.bash` with Zig 0.17.0.
+		- Or by hand: `zig translate-c -lc <any header> | wc -c`.
+	- Incorrect behavior [Bug]: The Zig stage never ends. The three header steps sit at full CPU.
+	- Expected behavior [Bug]: The build finishes, as it does on Linux.
+	- Reproduced [Bug]: Yes, on b26, 20261003. Even a one-line header hangs when the output goes to a pipe. The same command writing to a file finishes at once.
+	- Possible cause [Bug]: Zig copies its output to stdout with `fcopyfile`, which fails on a pipe there, and Zig retries forever. The header step reads stdout through a pipe. No upstream report found.
+	- Progress log:
+		- 20261003: Untested idea: have the step write to its output file through `sh -c`, so Zig never writes to a pipe.
+
+- `cicd.bash` refuses to run in a git worktree.
+	- ID: 2026100318410007
+	- Type: Bug
+	- Status: Queued
+	- Priority|Severity [Bug]: Low
+	- Opened: 20261003-184100
+	- Opened by: JC
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- `git worktree add <dir> main`, then run `cicd/cicd.bash` there.
+	- Incorrect behavior [Bug]: It stops at once with "Not a git repo".
+	- Expected behavior [Bug]: It runs, since a worktree is a full checkout.
+	- Reproduced [Bug]: Yes, 20261003.
+	- Possible cause [Bug]: The sync and preflight checks look for a `.git` directory, and in a worktree `.git` is a file.
+
+- Move the Zig side to 0.17.0.
+	- ID: 2026100313583935
+	- Type: Task
+	- Status: Queued
+	- Needs external testing: on b26, install Zig 0.17.0 beside 0.16.0 as `~/.local/zig-x86_64-macos-0.17.0`, checked against the download index, and run the pipeline with `--package`. That builds the arm64 macOS slice of the universal release, which has only been cross-compiled so far.
+	- Opened: 20261003-135839
+	- Opened by: JC
+	- Prereq IDs: 2026100318410002
+	- Target OS: Any
+	- Estimated effort: Low
+	- Decision: Move to 0.17.0.
+		- The pipeline finds its own Zig: `ZIG` if set, else the `zig` on PATH if it is new enough, else `~/.local/zig-<platform>-0.17.0/zig`. Whichever it picks goes first on PATH, so the packaging script and the test scripts use it too. The shared `zig` link stays on 0.16.0 for the other projects.
+		- The C headers are translated with Zig's own `translate-c`, not the separate package, so an offline build needs nothing fetched.
+		- `DebugAllocator` stays for now. It still builds on 0.17.0.
+	- Progress log:
+		- 20261003: Zig 0.17.0 came out 2026-10-01. A trial port builds, passes all 30 Zig tests, and the C module still works from gcc. It took small changes in seven files plus three short C headers. `details.md` has the list.
+		- 20261003: The Zig fuzz item under Old format waits on this. Fuzz mode works in 0.17.0.
+		- 20261003: Other projects on the build machine still pin 0.16.0, so the two versions have to sit side by side there. b26 needs 0.17.0 too.
+		- 20261003: Question: go ahead? 0.16.0 is a settled choice, so the move needs a yes first. Answered yes, 20261003.
+		- 20261003: Done on branch `zig017`. Ported as the trial did, and 0.17.0 is installed beside 0.16.0 on the build machine.
+		- 20261003: An empty `SOURCE_DATE_EPOCH` broke the build on 0.17.0, and the existing test for it caught that. The build script can no longer clear the variable for the header step, so that step now runs as a plain command with it removed.
+		- 20261003: Question: move to `SafeAllocator`? Zig 0.17.0 deprecates `DebugAllocator` in its favor, but it is a different allocator, not a rename. It catches more, so the memory-safety section in `design.md` would need rewriting, and the leak test would need another way to count. Kept as is until then.
+		- 20261003: The ReleaseSafe test run fails the leaked-context test, on 0.16.0 as well. The pipeline tests in Debug, so it only matters to the fuzz item.
+		- 20261003: The b26 run failed. The Zig build hangs on macOS, so nothing past the Go stages ran there. Back to Queued until 2026100318410002 is fixed. 0.17.0 is installed on b26 now, checked against the download index.
+	- Verified: a full pipeline run (`cicd.bash --no-dogfood --no-backup`) and one with `--cross` both passed on Linux, with no test skipped. A ReleaseSafe build runs. A release package for glibc 2.28 builds. Both macOS slices cross-compile and link. A no-op rebuild takes under a tenth of a second.
+	- Swept: every `@cImport`, array `**`, upper-case optimize tag and `build_root` in `zig/`, and every Zig version mention outside the backlog. `cicd.bash` and `package.bash` are the only scripts that run `zig`, and both get the one the pipeline picked.
+	- Branch: zig017
+	- Commit: 161affa
+	- Test case: the existing suites, with no new test. `Eq9nb3o`, the empty `SOURCE_DATE_EPOCH` build, failed on the first port and passes now.
 
 - When a shcl upgrade breaks compatibility with the application config file(s).
 	- ID: 2026100313105246
@@ -408,6 +446,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 - 🔬 Run the Zig fuzz tests in fuzz mode, once a Zig release can build one.
 	- Note: the tests are written and replay their corpus on every run. `zig build test --fuzz` fails to compile inside 0.16.0's own test runner, so nothing on this side can fix it. `details.md` has the error.
+	- Note: 20261003: the b26 run stopped before the fuzz stage, at the Zig build hang, 2026100318410002.
 	- Note: 20261003: Zig 0.17.0 runs fuzz mode, `--fuzz=<limit>` too, on a tiny test and on ours. There is no 0.16 point release with the fix. So this waits on 2026100313583935, the move to 0.17.0. One catch: a run that finds a bad input still exits 0, so the pipeline stage has to read the output. The 0.17.0 download was checked against the sha256 in Zig's download index.
 	- Done: 20261003: a full pipeline run fuzzes both Zig fuzz tests after the Zig tests, 50K iterations each. A quick run prints a skip line instead. It takes about 35 s here, and about 13 s more after a change to the Zig source.
 	- Decision: 20261003, open to change: 50K iterations, and Debug, since the leaked-context test counts contexts only there. A find fails the stage from the output, not the exit code. Its input is kept in `cicd/artifacts/fuzz/`, which nothing rotates, and printed as a string ready for the test's corpus. The limit is always attached with `=`, since a bare `--fuzz` starts a web server.
