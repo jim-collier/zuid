@@ -232,6 +232,8 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Target OS: Any
 	- Requirements  [Feature]:
 		- CPU architecture in columns, and target OS in rows.
+	- Decisions:
+		- 20261004: the macOS universal file spans both architecture columns. A markdown table cannot span cells, so the release notes need an HTML table for this.
 
 - macOS gets a universal binary for both amd64 and ARM.
 	- ID: 2026100313105241
