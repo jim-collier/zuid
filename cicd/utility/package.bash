@@ -5,17 +5,18 @@
 ##	Purpose:
 ##		- Builds the release artifacts for whatever platform this machine can
 ##		  actually produce, into the output directory:
-##		    - a tarball of the CLI, its C libraries, and the header
+##		    - a tarball of the CLI, its C libraries, and the header, or a zip
+##		      for Windows
 ##		    - the bare CLI binary (grab-and-run)
 ##		    - .deb and .rpm, via nfpm
 ##		    - checksums.txt over everything
-##		- Only what the host system can make, for now: Linux or macOS. Windows
-##		  cross-builds on Linux, and cicd.bash --package checks that, but it is
-##		  not packaged here yet. The Go module cross-compiles fine, but it is a
-##		  module - there is no binary to release.
+##		- Only what the host system can make: Linux or macOS. The Go module
+##		  cross-compiles fine, but it is a module - there is no binary to
+##		  release.
 ##		- On Linux, one release each for x86_64 and arm64, whichever the host
-##		  is, and one for x86_64 FreeBSD. cicd.bash --package vendors the
-##		  Wasmtime archives the host's own is not.
+##		  is, one for x86_64 FreeBSD, and one each for x86_64 and arm64
+##		  Windows. cicd.bash --package vendors the Wasmtime archives the host's
+##		  own is not.
 ##		- On a Mac everything is universal, x86_64 and arm64 merged by lipo.
 ##		  cicd.bash vendors the second Wasmtime archive that needs.
 ##		- Builds with the zig on PATH. cicd.bash --package puts the Zig it
@@ -92,11 +93,12 @@ esac
 ## for arm64 Linux, and the M1 for arm64 macOS, the oldest there is. 2.28 and
 ## 13.0 are what cicd.bash checks the result against; 13.0 is as far back as Zig
 ## goes. FreeBSD 14.0 matches the package repo its Wasmtime comes from.
+## Windows has no version in the target; Zig's floor there is Windows 10.
 ## Linux makes one release per architecture. A Mac builds one slice per
 ## architecture and merges them into one release, whichever it is.
 mergeSlices=0
 case "$(uname -s)" in
-	Linux)  hostOs="linux"; zigTargets=("x86_64-linux-gnu.2.28" "aarch64-linux-gnu.2.28" "x86_64-freebsd.14.0") ;;
+	Linux)  hostOs="linux"; zigTargets=("x86_64-linux-gnu.2.28" "aarch64-linux-gnu.2.28" "x86_64-freebsd.14.0" "x86_64-windows-gnu" "aarch64-windows-gnu") ;;
 	Darwin) hostOs="macos"; zigTargets=("x86_64-macos.13.0" "aarch64-macos.13.0"); mergeSlices=1 ;;
 	*) echo "unsupported system: $(uname -s)" >&2; exit 2 ;;
 esac
@@ -106,7 +108,7 @@ esac
 ## the convention. nfpm turns arm64 into aarch64 for the rpm itself.
 fArchLabel(){ case "$1" in aarch64*) echo "arm64" ;; *) echo "x86_64" ;; esac ;}
 ## The name in the asset, which the installers ask for. Zig says macos.
-fOsLabel(){   case "$1" in *-macos*) echo "darwin" ;; *-freebsd*) echo "freebsd" ;; *) echo "linux" ;; esac ;}
+fOsLabel(){   case "$1" in *-macos*) echo "darwin" ;; *-freebsd*) echo "freebsd" ;; *-windows*) echo "windows" ;; *) echo "linux" ;; esac ;}
 fGoArch(){    case "$1" in arm64) echo "arm64" ;; *) echo "amd64" ;; esac ;}
 
 work="$(mktemp -d)"
@@ -185,21 +187,30 @@ fNormalizeArchive(){  ## path
 	local extractDir; extractDir="$(mktemp -d "${work}/ar.XXXXXX")"
 	## llvm-ar extracts on basenames into the working directory, which is the
 	## whole point: the paths go away here. Zig's Mach-O archives give their
-	## members mode 000, so they come out unreadable.
-	( cd "${extractDir}" && "${llvmAr}" x "${archive}" && chmod u+r ./*.o && "${llvmAr}" rcsD "${archive}.new" ./*.o )
+	## members mode 000, so they come out unreadable. Windows members are .obj.
+	( cd "${extractDir}" && "${llvmAr}" x "${archive}" && chmod u+r ./* && "${llvmAr}" rcsD "${archive}.new" ./* )
 	mv "${archive}.new" "${archive}"
 }
 
 ## Same rule as build.zig: the build machine's own Wasmtime is vendor/wasmtime,
 ## and any other target's is beside it under Wasmtime's platform name.
-fWasmtimeArchive(){  ## zig target
+fWasmtimeDir(){  ## zig target
 	local -r arch="${1%%-*}" rest="${1#*-}"
 	local -r os="${rest%%[-.]*}"
 	if [[ "${arch}" == "${zigArch}" && "${os}" == "${hostOs}" ]]; then
-		echo "${root}/zig/vendor/wasmtime/lib/libwasmtime.a"
+		echo "${root}/zig/vendor/wasmtime"
 	else
-		echo "${root}/zig/vendor/wasmtime-${arch}-${os}/lib/libwasmtime.a"
+		echo "${root}/zig/vendor/wasmtime-${arch}-${os}"
 	fi
+}
+
+## Also build.zig's rule. arm64 Windows links Wasmtime's DLL through its import
+## library, since Wasmtime has no mingw build for it.
+fWasmtimeArchive(){  ## zig target
+	case "$1" in
+		aarch64-windows*) echo "$(fWasmtimeDir "$1")/lib/wasmtime.dll.lib" ;;
+		*)                echo "$(fWasmtimeDir "$1")/lib/libwasmtime.a" ;;
+	esac
 }
 
 ## Each slice is a whole tree. zuid.h tells a static consumer to link -lzuid
@@ -211,15 +222,36 @@ if ((mergeSlices)); then
 	lipo="$(command -v lipo || true)"
 	[[ -n "${lipo}" ]] || fDie "lipo not found. It comes with Xcode's command line tools."
 fi
+## Windows releases are zips, which is what Windows opens by itself and what
+## install.ps1 expects. Like nfpm, a box without zip skips them with a warning.
+haveZip=0
+if command -v zip >/dev/null 2>&1; then haveZip=1; fi
+if [[ "${hostOs}" == "linux" ]] && ((! haveZip)); then
+	fWarn "zip missing; skipping the Windows releases"
+	zigTargets=("${zigTargets[@]/*-windows-*/}")
+fi
+
 ## Every slice is built before anything is staged, so a build that fails leaves
 ## the last good run's artifacts alone.
 slices=()
 for zigTarget in "${zigTargets[@]}"; do
+	[[ -n "${zigTarget}" ]] || continue
 	slice="${work}/slice-${zigTarget}"
 	wasmtimeArchive="$(fWasmtimeArchive "${zigTarget}")"
 	[[ -f "${wasmtimeArchive}" ]] || fDie "missing ${wasmtimeArchive}. Run cicd.bash --package first; it vendors Wasmtime."
 	( cd "${root}/zig" && zig build -Doptimize=ReleaseSafe -Dtarget="${zigTarget}" --prefix "${slice}" )
-	cp "${wasmtimeArchive}" "${slice}/lib/"
+	case "${zigTarget}" in
+		## The command and both libraries load wasmtime.dll, so it goes beside
+		## them. Its import library is renamed to what -lwasmtime finds, for a
+		## static link of libzuid.a, the way zuid.lib goes with zuid.dll.
+		aarch64-windows*)
+			cp "$(dirname "${wasmtimeArchive}")/wasmtime.dll" "${slice}/bin/"
+			cp "${wasmtimeArchive}" "${slice}/lib/wasmtime.lib"
+			;;
+		*)
+			cp "${wasmtimeArchive}" "${slice}/lib/"
+			;;
+	esac
 	## FreeBSD's Wasmtime calls zstd, so a static consumer needs it too.
 	if [[ "$(fOsLabel "${zigTarget}")" == "freebsd" ]]; then
 		cp "$(dirname "${wasmtimeArchive}")/libzstd.a" "${slice}/lib/"
@@ -254,9 +286,14 @@ fMergeSlices(){  ## stage, subdir, slice...
 }
 
 ## One release: the tarball, the bare binary and, on Linux, the packages.
+## Windows gets a zip, and its bare binary only where it runs alone.
 fRelease(){  ## os label, arch label, slice...
 	local -r osLabel="$1" label="$2"; shift 2
-	local -r stage="${work}/release-${label}/${PKG}-${VERSION}"
+	local exe="${EXE}"
+	if [[ "${osLabel}" == "windows" ]]; then exe="${EXE}.exe"; fi
+	## Per OS as well, or a release takes in the files of the one before it on
+	## the same CPU.
+	local -r stage="${work}/release-${osLabel}-${label}/${PKG}-${VERSION}"
 	mkdir -p "${stage}/bin" "${stage}/lib" "${stage}/include" "${stage}/share"
 	fMergeSlices "${stage}" bin "$@"
 	fMergeSlices "${stage}" lib "$@"
@@ -271,8 +308,17 @@ fRelease(){  ## os label, arch label, slice...
 		cp "${root}/zig/vendor/wasmtime-x86_64-freebsd/LICENSE-zstd" "${stage}/share/LICENSE-zstd.txt"
 	fi
 
-	tar -C "$(dirname "${stage}")" -czf "${OUT}/${PKG}-${osLabel}-${label}.tgz" "$(basename "${stage}")"
-	cp "${stage}/bin/${EXE}" "${OUT}/${PKG}-${osLabel}-${label}"
+	if [[ "${osLabel}" == "windows" ]]; then
+		cp "$(fWasmtimeDir "${1##*/slice-}")/LICENSE" "${stage}/share/LICENSE-wasmtime.txt"
+		( cd "$(dirname "${stage}")" && zip -q -r -X "${OUT}/${PKG}-${osLabel}-${label}.zip" "$(basename "${stage}")" )
+		## arm64 needs wasmtime.dll beside it, so it is not one file there.
+		if [[ ! -f "${stage}/bin/wasmtime.dll" ]]; then
+			cp "${stage}/bin/${exe}" "${OUT}/${PKG}-${osLabel}-${label}.exe"
+		fi
+	else
+		tar -C "$(dirname "${stage}")" -czf "${OUT}/${PKG}-${osLabel}-${label}.tgz" "$(basename "${stage}")"
+		cp "${stage}/bin/${exe}" "${OUT}/${PKG}-${osLabel}-${label}"
+	fi
 	fEcho "built ${osLabel}/${label}"
 	if [[ "${osLabel}" == "linux" ]]; then fLinuxPackages "${stage}" "${label}"; fi
 }
@@ -343,13 +389,6 @@ fi
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## What is deliberately not built here yet, so a missing artifact reads as a
-## known gap rather than a silent one.
-
-fWarn "windows builds, but is not packaged yet"
-
-
-#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## GitHub rewrites '~' to '.' in an uploaded asset filename, so a Debian-style
 ## name would reach a downloader spelled differently from the way checksums.txt
 ## lists it. Rename before hashing and the two agree. Only the filename changes -
@@ -380,6 +419,7 @@ fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "
 
 
 ##	History:
+##		- 20261004 JC: Windows x86_64 and arm64 zips, cross-built on Linux.
 ##		- 20261004 JC: FreeBSD x86_64, cross-built on Linux from FreeBSD's own Wasmtime package.
 ##		- 20261003 JC: Linux arm64, cross-built beside x86_64 on any Linux host.
 ##		- 20261003 JC: Zig 0.17.0.

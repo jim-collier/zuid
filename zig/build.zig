@@ -265,9 +265,20 @@ fn wasmtimeDir(b: *std.Build, target: std.Build.ResolvedTarget) []const u8 {
     if (t.cpu.arch == host.cpu.arch and t.os.tag == host.os.tag) return "vendor/wasmtime";
     const dir = b.fmt("vendor/wasmtime-{s}-{s}", .{ @tagName(t.cpu.arch), @tagName(t.os.tag) });
     // Otherwise the first error is a missing header, which says nothing about why.
-    b.root.access(b.graph.io, b.fmt("{s}/lib/libwasmtime.a", .{dir}), .{}) catch
+    b.root.access(b.graph.io, b.fmt("{s}/{s}", .{ dir, wasmtimeLibrary(target) }), .{}) catch
         std.process.fatal("no Wasmtime for {s}-{s} in {s}. cicd/cicd.bash vendors one for the other macOS slice on a Mac, and for the other Linux architecture, FreeBSD and Windows with --package; for anything else, add its pin there first.", .{ @tagName(t.cpu.arch), @tagName(t.os.tag), dir });
     return dir;
+}
+
+/// What links Wasmtime in, under the vendored tree. Its own static archive,
+/// except on arm64 Windows, where Wasmtime publishes only an MSVC build. That
+/// archive asks for MSVC's static C runtime, LIBCMT, which a mingw link does
+/// not have. Its DLL imports nothing past Windows itself, so a mingw build
+/// links the DLL through its import library and the release puts wasmtime.dll
+/// beside zuid.exe.
+fn wasmtimeLibrary(target: std.Build.ResolvedTarget) []const u8 {
+    const t = target.result;
+    return if (t.os.tag == .windows and t.cpu.arch == .aarch64) "lib/wasmtime.dll.lib" else "lib/libwasmtime.a";
 }
 
 /// The C each library file reads, from lib/c/, as the modules clock.zig,
@@ -358,7 +369,7 @@ fn wireWasmtimeInner(b: *std.Build, mod: *std.Build.Module, wasmtime: []const u8
     mod.addImport("c_env", headers.env);
     mod.addImport("c_wasmtime", headers.wasmtime);
     if (link_archive) {
-        mod.addObjectFile(b.path(b.fmt("{s}/lib/libwasmtime.a", .{wasmtime})));
+        mod.addObjectFile(b.path(b.fmt("{s}/{s}", .{ wasmtime, wasmtimeLibrary(mod.resolved_target.?) })));
         // Wasmtime registers unwind frames for its jitted code; Zig bundles this.
         mod.linkSystemLibrary("unwind", .{});
         // FreeBSD's own package build of Wasmtime calls zstd. cicd.bash vendors

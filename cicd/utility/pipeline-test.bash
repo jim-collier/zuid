@@ -567,7 +567,7 @@ fLinks(){  ## asset...
 	printf '%s' "${links}"
 }
 fPublishRepo table 1.0.0-beta.1
-for name in 'zuid_1.0.0~beta.1_arm64.deb' 'zuid-1.0.0~beta.1-1.x86_64.rpm' 'zuid-1.0.0~beta.1-1.aarch64.rpm' 'zuid-1.0.0-beta.1-src.tar.gz'; do
+for name in 'zuid_1.0.0~beta.1_arm64.deb' 'zuid-1.0.0~beta.1-1.x86_64.rpm' 'zuid-1.0.0~beta.1-1.aarch64.rpm' 'zuid-1.0.0-beta.1-src.tar.gz' 'zuid-windows-x86_64.exe'; do
 	printf '%s\n' "${name}" > "${work}/table/repo/dist/${name}"
 done
 tableOut="$(fPublishIn table 1 0 < /dev/null)" || true
@@ -581,7 +581,7 @@ tableWant=(
 	"<tr><th></th><th>x86_64</th><th>arm64</th></tr>"
 	"<tr><th>Linux</th><td>$(fLinks zuid-linux-x86_64.tgz zuid-linux-x86_64 zuid_1.0.0.beta.1_amd64.deb zuid-1.0.0.beta.1-1.x86_64.rpm)</td><td>$(fLinks zuid-linux-arm64.tgz zuid-linux-arm64 zuid_1.0.0.beta.1_arm64.deb zuid-1.0.0.beta.1-1.aarch64.rpm)</td></tr>"
 	"<tr><th>macOS</th>"
-	"<tr><th>Windows</th><td>$(fLinks zuid-windows-x86_64.zip)</td><td>$(fLinks zuid-windows-arm64.zip)</td></tr>"
+	"<tr><th>Windows</th><td>$(fLinks zuid-windows-x86_64.zip zuid-windows-x86_64.exe)</td><td>$(fLinks zuid-windows-arm64.zip)</td></tr>"
 	"<tr><th>FreeBSD</th><td>$(fLinks zuid-freebsd-x86_64.tgz zuid-freebsd-x86_64)</td><td>-</td></tr>"
 )
 ((${#tableRows[@]} == ${#tableWant[@]})) || tableBad+=" ${#tableRows[@]} rows, wanted ${#tableWant[@]};"
