@@ -245,6 +245,35 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Commit: 47c1134
 	- Test case: new `Erm4m6a` fails if `build.zig` captures a command's stdout. It fails on the old `build.zig` and passes now. A Linux build cannot hang, so the hang itself waits on the b26 run. `Eq9nb3o` now fails when the step stops dropping `SOURCE_DATE_EPOCH`; before the cache fix it passed either way.
 
+- The Linux, macOS and FreeBSD tarballs have `libwasmtime.a` without Wasmtime's license.
+	- ID: 2026100417324819
+	- Type: Bug
+	- Status: Waiting for testing
+	- Needs local test suite run?: No. A full `cicd.bash --package --no-dogfood --no-backup -q` passed on Linux with the fix.
+	- Needs external testing: Yes. A `--package` run on b26, for the macOS tarball and ErmYT8R. Batch it with the other b26 items.
+	- Priority|Severity [Bug]: Low
+	- Opened: 20261004-173248
+	- Opened by: JC
+	- Related IDs: 2026100416052036
+	- Steps to reproduce [Bug]:
+		- List any `.tgz` from `--package`.
+	- Incorrect behavior [Bug]:
+		- `lib/libwasmtime.a` is there, and nothing in `share/` is Wasmtime's Apache-2.0 license, which has to go along with a copy of it.
+	- Expected behavior [Bug]:
+		- `share/LICENSE-wasmtime.txt`, as the Windows zips have. FreeBSD's vendored package keeps no license file yet, so that fetch needs one too.
+	- Reproduced [Bug]: 20261004, on the Linux tarballs, `.deb` and `.rpm` from `main`. The command links Wasmtime in statically, so the packages lacked it too, and they also lacked the module's Apache license and NOTICE.
+	- Actual cause [Bug]:
+		- `package.bash` copied Wasmtime's license only for the Windows zips. The FreeBSD fetch kept zstd's license and not Wasmtime's.
+	- Actual fix [Bug]:
+		- Every tarball and zip gets `share/LICENSE-wasmtime.txt`, from `LICENSE` in the vendored Wasmtime tree. Linux, macOS and Windows take it from Wasmtime's own pinned archive. FreeBSD's `libwasmtime` package keeps it as `share/licenses/libwasmtime-*/APACHE20`, which is Wasmtime's `LICENSE` word for word, and the fetch now copies it in as `LICENSE`. A FreeBSD tree vendored before this has no `LICENSE`, so it is fetched again.
+		- The `.deb` and `.rpm` also get `LICENSE-wasmtime.txt`, `LICENSE-module.txt` and `NOTICE.txt`, beside the GPL text they had.
+		- Note: the bare binaries still go out with no license file beside them, as before.
+	- Verified: the full `--package` run above. The FreeBSD fetch ran again and its `LICENSE` matches Wasmtime's own. Both macOS archives at the pinned checksums have the same `LICENSE`. Every new check failed against the release built from `main`, and the tarball check failed with the module's license in place of Wasmtime's.
+	- Swept: every tarball, both zips, both `.deb` and both `.rpm`. The Windows check now reads for the text only Wasmtime's license has, as the new checks do. `install.bash` and `install.ps1` install the whole tree, so nothing changes there. The macOS tarball change is only read, not run.
+	- Branch: wtlicense
+	- Commit: 2dd0931
+	- Test case: ErmYT8O to ErmYT8V, one per release: the Linux x86_64 and arm64, FreeBSD and macOS tarballs, and each `.deb` and `.rpm`. Each Linux one failed on `main`'s release and passes now. ErmYT8R runs only on a Mac and has not run.
+
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -284,21 +313,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Requirements  [Feature]:
 		- Update the base system and kernel with FreeBSD's own updater, and every package with `pkg upgrade`. Reboot.
 		- Rerun `cli-test.bash` against the release on the VM, logged to disk as before, to see whether the panic still shows up.
-
-- The Linux, macOS and FreeBSD tarballs have `libwasmtime.a` without Wasmtime's license.
-	- ID: 2026100417324819
-	- Type: Bug
-	- Status: Queued
-	- Priority|Severity [Bug]: Low
-	- Opened: 20261004-173248
-	- Opened by: JC
-	- Related IDs: 2026100416052036
-	- Steps to reproduce [Bug]:
-		- List any `.tgz` from `--package`.
-	- Incorrect behavior [Bug]:
-		- `lib/libwasmtime.a` is there, and nothing in `share/` is Wasmtime's Apache-2.0 license, which has to go along with a copy of it.
-	- Expected behavior [Bug]:
-		- `share/LICENSE-wasmtime.txt`, as the Windows zips have. FreeBSD's vendored package keeps no license file yet, so that fetch needs one too.
 
 - Move the Zig side to 0.17.0.
 	- ID: 2026100313583935

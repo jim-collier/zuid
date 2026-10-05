@@ -1127,15 +1127,16 @@ fVendor_Wasmtime(){  ## platform, destination
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## FreeBSD's Wasmtime, from its packages into the same layout as Wasmtime's own
-## release: include/ and lib/libwasmtime.a, with libzstd.a beside it, and zstd's
-## license for the release to carry.
+## release: include/, lib/libwasmtime.a and LICENSE, with libzstd.a beside it,
+## and zstd's license for the release to carry.
 fVendor_FreeBSD(){  ## destination
 
 	local -r dest="$1"
 	local -r parentDir="$(dirname "${dest}")"
 	local -r stamp="${dest}/.version"
 	local -r want="${freebsdPkgs[*]%%=*}"
-	if [[ -f "${dest}/include/wasmtime.h" ]] && [[ "$(cat "${stamp}" 2>/dev/null || true)" == "${want}" ]]; then
+	## A tree vendored before the license was copied has none, so it is fetched again.
+	if [[ -f "${dest}/include/wasmtime.h" && -f "${dest}/LICENSE" ]] && [[ "$(cat "${stamp}" 2>/dev/null || true)" == "${want}" ]]; then
 		fEcho_Clean "Wasmtime ...: ${want} x86_64-freebsd present"
 		return 0
 	fi
@@ -1169,6 +1170,10 @@ fVendor_FreeBSD(){  ## destination
 	## carries the copyright line a binary distribution has to reproduce.
 	cp "$(find "${usrLocal}/share/licenses" -path '*/zstd-*/BSD3CLAUSE' -print -quit)" "${dest}/LICENSE-zstd" \
 		|| fThrowError "The zstd package has no BSD3CLAUSE license file."  "${FUNCNAME[0]}"
+	## The port installs Wasmtime's own LICENSE under the name of its license,
+	## so this is upstream's text, LLVM exception and all.
+	cp "$(find "${usrLocal}/share/licenses" -path '*/libwasmtime-*/APACHE20' -print -quit)" "${dest}/LICENSE" \
+		|| fThrowError "The libwasmtime package has no APACHE20 license file."  "${FUNCNAME[0]}"
 	rm -rf "${unpackDir:?}"
 	printf '%s\n' "${want}" > "${stamp}"
 	fEcho_Clean "Wasmtime ...: vendored ${want} x86_64-freebsd"
@@ -1779,6 +1784,7 @@ fStage_Package(){
 	fStage_Package_Arm64 "${thinDir}" "${glibcFloor}"
 	fStage_Package_FreeBSD "${thinDir}"
 	fStage_Package_Windows "${thinDir}"
+	fStage_Package_Licenses "${thinDir}"
 
 	local -r macFloor="13.0"
 	fId ErbFB7D "the release asks for macOS ${macFloor}"
@@ -1958,7 +1964,7 @@ fStage_Package_Windows(){  ## scratch dir
 			else
 				cmp -s "${winBare}" "${winRoot}/bin/zuid.exe" || fTestFail "$(basename "${winBare}") is missing, or is not the zip's zuid.exe."
 			fi
-			grep -q "Apache License" "${winRoot}/share/LICENSE-wasmtime.txt" || fTestFail "LICENSE-wasmtime.txt is not Wasmtime's license."
+			grep -q "Combined Software" "${winRoot}/share/LICENSE-wasmtime.txt" || fTestFail "LICENSE-wasmtime.txt is not Wasmtime's license."
 			fTestPass
 		fi
 
@@ -2201,6 +2207,71 @@ fStage_Package_FreeBSD(){  ## scratch dir
 		if ((haveReadelf)) && [[ "$(readelf -l "${scratchDir}/smoke-freebsd-${linkKind}")" != *"/libexec/ld-elf.so.1"* ]]; then
 			fTestFail "it did not link as a FreeBSD program."
 		fi
+		fTestPass
+	done
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Every tarball has libwasmtime.a, and every command has Wasmtime linked in,
+## so each one goes with Wasmtime's license. The Windows zips are checked with
+## their other files. The GPLv2 clause is in Wasmtime's text and not in the
+## plain Apache license the module has.
+fStage_Package_Licenses(){  ## scratch dir
+
+	local -r scratchDir="$1"
+	local -r wasmtimeMark="Combined Software"
+	local -i isLinux=0 isMac=0 haveNfpm=0
+	if [[ "$(uname -s)" == "Linux" ]];  then isLinux=1; fi
+	if [[ "$(uname -s)" == "Darwin" ]]; then isMac=1;   fi
+	if command -v nfpm >/dev/null 2>&1; then haveNfpm=1; fi
+
+	local archive="" kind="" arch="" file="" found="" text="" tree="" packageList=""
+	for archive in linux-x86_64 linux-arm64 freebsd-x86_64 darwin-universal deb-x86_64 deb-arm64 rpm-x86_64 rpm-arm64; do
+		kind="${archive%%-*}"; arch="${archive#*-}"
+		fId "${archive}" linux-x86_64=ErmYT8O linux-arm64=ErmYT8P freebsd-x86_64=ErmYT8Q darwin-universal=ErmYT8R deb-x86_64=ErmYT8S deb-arm64=ErmYT8T rpm-x86_64=ErmYT8U rpm-arm64=ErmYT8V "the ${archive} release has Wasmtime's license"
+		case "${kind}" in
+			darwin) if ((! isMac));   then fTestSkip "macOS only"; continue; fi ;;
+			*)      if ((! isLinux)); then fTestSkip "Linux only"; continue; fi ;;
+		esac
+		case "${kind}" in
+			linux|freebsd|darwin)
+				found="${repoRoot}/dist/zuid-${archive}.tgz"
+				[[ -f "${found}" ]] || fTestFail "there is no $(basename "${found}")."
+				tree="${scratchDir}/license-${archive}"
+				mkdir -p "${tree}"
+				tar -xzf "${found}" -C "${tree}"
+				file="$(find "${tree}" -path '*/share/LICENSE-wasmtime.txt' -print -quit)"
+				[[ -n "${file}" ]] || fTestFail "$(basename "${found}") has no share/LICENSE-wasmtime.txt."
+				grep -q "${wasmtimeMark}" "${file}" || fTestFail "share/LICENSE-wasmtime.txt is not Wasmtime's license."
+				;;
+			deb|rpm)
+				if ((! haveNfpm)); then fTestSkip "no nfpm, so package.bash made no packages"; continue; fi
+				## Each format's own word for the architecture.
+				case "${archive}" in
+					deb-x86_64) found="$(find "${repoRoot}/dist" -maxdepth 1 -name 'zuid_*_amd64.deb' -print -quit)" ;;
+					deb-arm64)  found="$(find "${repoRoot}/dist" -maxdepth 1 -name 'zuid_*_arm64.deb' -print -quit)" ;;
+					rpm-x86_64) found="$(find "${repoRoot}/dist" -maxdepth 1 -name 'zuid-*.x86_64.rpm' -print -quit)" ;;
+					rpm-arm64)  found="$(find "${repoRoot}/dist" -maxdepth 1 -name 'zuid-*.aarch64.rpm' -print -quit)" ;;
+				esac
+				[[ -n "${found}" ]] || fTestFail "the ${arch} .${kind} is missing from dist/."
+				if [[ "${kind}" == "deb" ]]; then
+					if ! command -v dpkg-deb >/dev/null 2>&1; then fTestSkip "no dpkg-deb"; continue; fi
+					packageList="$(dpkg-deb --fsys-tarfile "${found}" | tar -t)"
+					text="$(dpkg-deb --fsys-tarfile "${found}" | tar -xO ./usr/share/doc/zuid/LICENSE-wasmtime.txt 2>/dev/null || true)"
+				else
+					if ! command -v rpm2cpio >/dev/null 2>&1 || ! command -v cpio >/dev/null 2>&1; then fTestSkip "no rpm2cpio or cpio"; continue; fi
+					packageList="$(rpm2cpio "${found}" | cpio -it --quiet)"
+					text="$(rpm2cpio "${found}" | cpio -i --quiet --to-stdout ./usr/share/licenses/zuid/LICENSE-wasmtime.txt 2>/dev/null || true)"
+				fi
+				[[ "${text}" == *"${wasmtimeMark}"* ]] || fTestFail "$(basename "${found}") has no Wasmtime license."
+				## The module is linked in too, under Apache with its NOTICE.
+				for file in LICENSE-module.txt NOTICE.txt; do
+					[[ "${packageList}" == *"/zuid/${file}"* ]] || fTestFail "$(basename "${found}") has no ${file}."
+				done
+				;;
+		esac
 		fTestPass
 	done
 
