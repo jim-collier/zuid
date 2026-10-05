@@ -9,11 +9,10 @@
 ##		    - the bare CLI binary (grab-and-run)
 ##		    - .deb and .rpm, via nfpm
 ##		    - checksums.txt over everything
-##		- Only what the host system can make, for now: Linux or macOS. The Zig
-##		  side embeds a Wasmtime static archive, and one is vendored per
-##		  platform; until Windows has one there is nothing to link against. The
-##		  Go module cross-compiles fine, but it is a module - there is no binary
-##		  to release.
+##		- Only what the host system can make, for now: Linux or macOS. Windows
+##		  cross-builds on Linux, and cicd.bash --package checks that, but it is
+##		  not packaged here yet. The Go module cross-compiles fine, but it is a
+##		  module - there is no binary to release.
 ##		- On Linux, one release each for x86_64 and arm64, whichever the host
 ##		  is, and one for x86_64 FreeBSD. cicd.bash --package vendors the
 ##		  Wasmtime archives the host's own is not.
@@ -347,7 +346,7 @@ fi
 ## What is deliberately not built here yet, so a missing artifact reads as a
 ## known gap rather than a silent one.
 
-fWarn "windows needs a Wasmtime archive vendored and a Windows-capable env.zig; not built"
+fWarn "windows builds, but is not packaged yet"
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••

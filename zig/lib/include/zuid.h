@@ -28,6 +28,13 @@
 	On FreeBSD the Wasmtime archive also calls zstd, so the release puts
 	libzstd.a in lib/ too:
 		-lzuid -lwasmtime -lzstd -lpthread -lm
+	On Windows the shared library is zuid.dll. MSVC and mingw both link it
+	through its import library, zuid.lib, given as a file, since mingw's
+	-lzuid finds the static library first. The static library is libzuid.a.
+	It is a mingw archive, which MSVC cannot link, and it needs the mingw
+	libwasmtime.a beside it plus these system libraries:
+		-lzuid -lwasmtime -lws2_32 -liphlpapi -lbcrypt -ladvapi32 -luserenv
+		-lole32 -lntdll
 */
 
 #ifndef ZUID_H
@@ -81,7 +88,6 @@ void zuid_free(zuid *z);
 		%u  user name, hashed by default
 		%f  fully-qualified name, hashed by default
 		%m  hardware address of the lowest-numbered non-loopback interface
-		    (Linux only so far)
 		%g  a UUID v4, rendered as the 128-bit number it is
 		%r  random symbols from a cryptographic source
 		%%  a literal '%'

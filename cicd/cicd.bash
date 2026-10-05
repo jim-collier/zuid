@@ -46,13 +46,15 @@ fConfig(){ :;
 	## Vendored Wasmtime C API, pinned. Fetched into zig/vendor/ when absent.
 	## One checksum per platform, as <arch>-<os>=<sha256>, in Wasmtime's own names.
 	## A Mac vendors both macOS ones, since its release is universal. Linux
-	## vendors both Linux ones under --package, which releases both.
+	## vendors both Linux ones under --package, which releases both, and the
+	## mingw one, which is what a Zig Windows build links.
 	default_wasmtimeVer="v47.0.3"
 	default_wasmtimeSha256s=(
 		"x86_64-linux=aaa3621f2a3d8393696702897f8f78a1cc504437d500701496d560125aefd732"
 		"aarch64-linux=c1ef99bb4ef0151282f339e22a67f8229d9ab336f9a17387e65f140b79c45be1"
 		"x86_64-macos=627622087b77b92c163e826ec6ebf834a70d78735828043edf7ace263f8a9e62"
 		"aarch64-macos=1854c8f03a764c89afe77fa88d9092ab89a368e527cd27a12959b1d91152324e"
+		"x86_64-mingw=355a0c7b49b92bb011e74a4047cc1186271aeb8c8cfcc4360248caaf3c4d5f38"
 	)
 
 	## Wasmtime releases nothing for FreeBSD, so its C API comes from FreeBSD's
@@ -990,8 +992,8 @@ fStage_Zig_Vendor(){
 	## vendor/wasmtime. A Mac also gets the other macOS one beside it, as
 	## vendor/wasmtime-<platform>, for the second slice of its universal release.
 	## Linux gets the other Linux one there under --package, since it releases
-	## both architectures, and FreeBSD's too. build.zig and package.bash look for
-	## it there.
+	## both architectures, and FreeBSD's and Windows' too. build.zig and
+	## package.bash look for it there, under Zig's name for the platform.
 	local hostOs="" hostArch=""
 	case "$(uname -s)" in
 		Linux)  hostOs="linux" ;;
@@ -1012,6 +1014,7 @@ fStage_Zig_Vendor(){
 		if [[ "${platform}" != "${hostPlatform}" ]]; then fVendor_Wasmtime "${platform}" "${vendorDir}/wasmtime-${platform}"; fi
 	done
 	if [[ "${hostOs}" == "linux" ]] && ((doPackage)); then fVendor_FreeBSD "${vendorDir}/wasmtime-x86_64-freebsd"; fi
+	if [[ "${hostOs}" == "linux" ]] && ((doPackage)); then fVendor_Wasmtime "x86_64-mingw" "${vendorDir}/wasmtime-x86_64-windows"; fi
 
 	## The reactor wasm module, built from the same convertbase release go.mod
 	## pins. Building it here rather than copying a prebuilt artifact is what
@@ -1072,12 +1075,15 @@ fVendor_Wasmtime(){  ## platform, destination
 		return 0
 	fi
 
+	## Wasmtime zips its Windows archives, and GNU tar cannot read a zip.
+	local wtExt="tar.xz"
+	if [[ "${platform}" == *-mingw || "${platform}" == *-windows ]]; then wtExt="zip"; fi
 	_fMustBeInPath curl
 	_fMustBeInPath shasum
-	_fMustBeInPath tar
+	if [[ "${wtExt}" == "zip" ]]; then _fMustBeInPath unzip; else _fMustBeInPath tar; fi
 	local -r wtName="wasmtime-${wasmtimeVer}-${platform}-c-api"
-	local -r wtUrl="https://github.com/bytecodealliance/wasmtime/releases/download/${wasmtimeVer}/${wtName}.tar.xz"
-	local -r wtTar="${parentDir}/${wtName}.tar.xz"
+	local -r wtUrl="https://github.com/bytecodealliance/wasmtime/releases/download/${wasmtimeVer}/${wtName}.${wtExt}"
+	local -r wtTar="${parentDir}/${wtName}.${wtExt}"
 	fEcho_Clean "Wasmtime ...: fetching ${wasmtimeVer} ${platform}"
 	curl -sSL --fail -o "${wtTar}" "${wtUrl}" || fThrowError "Could not download '${wtUrl}'."  "${FUNCNAME[0]}"
 	## shasum, not sha256sum: it is on both Linux and macOS.
@@ -1086,7 +1092,11 @@ fVendor_Wasmtime(){  ## platform, destination
 		rm -f "${wtTar}"
 		fThrowError "Wasmtime ${platform} checksum mismatch: got ${wtSum}."  "${FUNCNAME[0]}"
 	fi
-	tar --no-same-owner --no-same-permissions -xf "${wtTar}" -C "${parentDir}"
+	if [[ "${wtExt}" == "zip" ]]; then
+		unzip -q -o "${wtTar}" -d "${parentDir}"
+	else
+		tar --no-same-owner --no-same-permissions -xf "${wtTar}" -C "${parentDir}"
+	fi
 	rm -f "${wtTar}"
 	rm -rf "${dest:?}"
 	mv "${parentDir}/${wtName}" "${dest}"
@@ -1749,6 +1759,7 @@ fStage_Package(){
 
 	fStage_Package_Arm64 "${thinDir}" "${glibcFloor}"
 	fStage_Package_FreeBSD "${thinDir}"
+	fStage_Package_Windows "${thinDir}"
 
 	local -r macFloor="13.0"
 	fId ErbFB7D "the release asks for macOS ${macFloor}"
@@ -1813,6 +1824,108 @@ fAvxScan(){  ## x86_64 binary
 		/:[[:space:]]+v[a-z]/ || /%[yz]mm/ { seen[fn] = 1; if (++count <= 3) names = names " " fn }
 		END { print count + 0 names }
 	'
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Prints a PE file's machine field, then IMAGE_FILE_DLL as 1 or 0, or nothing
+## for a file that is not PE. x86_64 is 8664.
+fPeHeader(){  ## file
+	[[ "$(head -c 2 "$1")" == "MZ" ]] || return 0
+	local peOffset=""
+	peOffset="$(od -An -tu4 -j 60 -N 4 "$1" | tr -d ' ')"
+	[[ "$(od -An -c -j "${peOffset}" -N 4 "$1" | tr -d ' ')" == 'PE\0\0' ]] || return 0
+	local -r machine="$(od -An -tx2 -j $((peOffset + 4)) -N 2 "$1" | tr -d ' ')"
+	local -r traits="$(od -An -tu2 -j $((peOffset + 22)) -N 2 "$1" | tr -d ' ')"
+	echo "${machine} $(( (traits & 0x2000) != 0 ))"
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The Windows x86_64 build, cross-built on Linux against Wasmtime's mingw
+## archive. Nothing here can run it, so this checks what it is and what the DLL
+## exports, and that capi_smoke.c links against both libraries. Packaging it is
+## not written yet, so it builds into scratch rather than dist/.
+fStage_Package_Windows(){  ## scratch dir
+
+	local -r scratchDir="$1"
+	local -r winTree="${scratchDir}/windows"
+	local -r winTarget="x86_64-windows-gnu"
+	local -i isLinux=0
+	if [[ "$(uname -s)" == "Linux" ]]; then isLinux=1; fi
+
+	fId ErmM9mS "the Windows x86_64 build cross-compiles: zuid.exe, zuid.dll with its import library, and libzuid.a"
+	if ((! isLinux)); then
+		fTestSkip "Linux only"
+	else
+		( cd "${zigDir}" && zig build "-j${buildJobs}" -Doptimize=ReleaseSafe "-Dtarget=${winTarget}" --prefix "${winTree}" ) \
+			|| fTestFail "zig build -Dtarget=${winTarget} failed."
+		local winFile=""
+		for winFile in bin/zuid.exe bin/zuid.dll lib/zuid.lib lib/libzuid.a include/zuid.h; do
+			[[ -f "${winTree}/${winFile}" ]] || fTestFail "${winFile} is missing."
+		done
+		[[ "$(fPeHeader "${winTree}/bin/zuid.exe")" == "8664 0" ]] || fTestFail "zuid.exe is not an x86_64 Windows program."
+		[[ "$(fPeHeader "${winTree}/bin/zuid.dll")" == "8664 1" ]] || fTestFail "zuid.dll is not an x86_64 Windows DLL."
+		fTestPass
+	fi
+
+	## A DLL exports only what is marked for export, so there is no map to
+	## apply. Wasmtime's own objects mark four debugger hooks, which come along.
+	## Nothing can displace them, since Windows binds a DLL's calls inside it.
+	local winReadobj="" candidate=""
+	for candidate in llvm-readobj llvm-readobj-21 llvm-readobj-20 llvm-readobj-19 llvm-readobj-18 llvm-readobj-17 llvm-readobj-16; do
+		if command -v "${candidate}" >/dev/null 2>&1; then winReadobj="${candidate}"; break; fi
+	done
+	fId ErmM9mT "zuid.dll exports what zuid.h declares, and otherwise only Wasmtime's debugger hooks"
+	if ((! isLinux)); then
+		fTestSkip "Linux only"
+	elif [[ -z "${winReadobj}" ]]; then
+		fTestSkip "no llvm-readobj"
+	else
+		local winExports="" exportProblem=""
+		winExports="$("${winReadobj}" --coff-exports "${winTree}/bin/zuid.dll" | awk '$1 == "Name:" { print $2 }' \
+			| grep -Ev '^(__jit_debug_(descriptor|register_code)|wasmtime_(set_vmctx_memory|resolve_vmctx_memory_ptr)_[0-9_]+)$' || true)"
+		exportProblem="$(fExportProblems "${winExports}")"
+		if [[ -n "${exportProblem}" ]]; then fTestFail "${exportProblem}"; fi
+		fTestPass
+	fi
+
+	## Link only, with zig cc standing in for mingw gcc. The static line has the
+	## system libraries zuid.h gives, plus -lunwind, which gcc would get from
+	## libgcc. The archives are named by path, since zig cc's -lzuid finds the
+	## import library first, where mingw's ld finds libzuid.a.
+	local -r smokeSrc="${zigDir}/lib/test/capi_smoke.c"
+	local -r winLib="${winTree}/lib"
+	local -a links=(
+		"static:${winLib}/libzuid.a ${winLib}/libwasmtime.a -lws2_32 -liphlpapi -lbcrypt -ladvapi32 -luserenv -lole32 -lntdll -lunwind"
+		"shared:${winLib}/zuid.lib"
+	)
+	local link="" linkKind="" smokeExe=""
+	local -i importsDll=0
+	local -a linkFlags=()
+	for link in "${links[@]}"; do
+		linkKind="${link%%:*}"
+		read -r -a linkFlags <<< "${link#*:}"
+		fId "${linkKind}" static=ErmM9mU shared=ErmM9mV "capi_smoke.c links for Windows against the ${linkKind} library"
+		if ((! isLinux)); then
+			fTestSkip "Linux only"
+			continue
+		fi
+		## A release puts libwasmtime.a beside libzuid.a. Not -L into vendor/,
+		## where -lwasmtime would find the import library for wasmtime.dll.
+		cp "${zigDir}/vendor/wasmtime-x86_64-windows/lib/libwasmtime.a" "${winLib}/"
+		smokeExe="${scratchDir}/smoke-windows-${linkKind}.exe"
+		zig cc -target "${winTarget}" -I "${winTree}/include" "${smokeSrc}" "${linkFlags[@]}" -o "${smokeExe}" \
+			|| fTestFail "did not link."
+		[[ "$(fPeHeader "${smokeExe}")" == "8664 0" ]] || fTestFail "it did not link as an x86_64 Windows program."
+		## The import table names each DLL as plain text.
+		importsDll=0
+		if grep -qaiF 'zuid.dll' "${smokeExe}"; then importsDll=1; fi
+		if [[ "${linkKind}" == "static" ]] && ((importsDll)); then fTestFail "it loads zuid.dll rather than holding the library."; fi
+		if [[ "${linkKind}" == "shared" ]] && ((! importsDll)); then fTestFail "it does not load zuid.dll."; fi
+		fTestPass
+	done
+
 }
 
 

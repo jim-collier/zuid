@@ -26,6 +26,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const wasmtime = wasmtimeDir(b, target);
+    const is_windows = target.result.os.tag == .windows;
     const headers = translateHeaders(b, target, optimize, wasmtime);
 
     // The command, importing the library as a Zig module.
@@ -72,7 +73,14 @@ pub fn build(b: *std.Build) void {
     // A C consumer links with its own toolchain, which has no Zig compiler-rt.
     static_lib.bundle_compiler_rt = true;
     static_lib.installHeader(b.path("lib/include/zuid.h"), "zuid.h");
-    b.installArtifact(static_lib);
+    // Zig calls a Windows static library zuid.lib, the name the DLL's import
+    // library takes. It is a mingw archive, needing the mingw Wasmtime beside
+    // it, so it gets mingw's name.
+    if (is_windows) {
+        b.getInstallStep().dependOn(&b.addInstallLibFile(static_lib.getEmittedBin(), "libzuid.a").step);
+    } else {
+        b.installArtifact(static_lib);
+    }
 
     const capi_shared_mod = b.createModule(.{
         .root_source_file = b.path("lib/src/capi.zig"),
@@ -90,7 +98,9 @@ pub fn build(b: *std.Build) void {
     // Only the zuid_* entry points are visible, and everything else binds
     // inside the library. zuid.h calls the shared library self-contained, and
     // without this it exported the whole Wasmtime C API for anyone to displace.
-    // Zig's Mach-O linker ignores it; see relinkDylib.
+    // Zig's Mach-O linker ignores it; see relinkDylib. A DLL exports only what
+    // is marked for export, which is the zuid_* functions plus four debugger
+    // hooks Wasmtime's own objects mark.
     shared_lib.setVersionScript(b.path("lib/zuid.map"));
     // macOS's soname. Zig's default is the bare libzuid.dylib, which would let
     // a program built against ABI 1 load ABI 2.
@@ -98,7 +108,8 @@ pub fn build(b: *std.Build) void {
         shared_lib.install_name = b.fmt("@rpath/libzuid.{d}.dylib", .{abi_version.major});
     }
     shared_lib.installHeader(b.path("lib/include/zuid.h"), "zuid.h");
-    const install_shared = b.addInstallArtifact(shared_lib, .{});
+    // The command's PDB has the same name, and Zig reads it for a stack trace.
+    const install_shared = b.addInstallArtifact(shared_lib, .{ .pdb_dir = if (is_windows) .disabled else .default });
     b.getInstallStep().dependOn(&install_shared.step);
     if (target.result.os.tag == .macos) relinkDylib(b, target, shared_lib, static_lib, wasmtime, install_shared);
 
@@ -246,7 +257,8 @@ fn buildEpoch(b: *std.Build) i64 {
 /// machine's own. Any other target's sits beside it under Wasmtime's name for
 /// the platform, such as vendor/wasmtime-aarch64-macos, the second slice of a
 /// macOS universal build, or vendor/wasmtime-aarch64-linux for the arm64 Linux
-/// release. package.bash picks the same way.
+/// release. Windows is vendor/wasmtime-x86_64-windows, though Wasmtime calls
+/// its archive x86_64-mingw. package.bash picks the same way.
 fn wasmtimeDir(b: *std.Build, target: std.Build.ResolvedTarget) []const u8 {
     const host = b.graph.host.result;
     const t = target.result;
@@ -254,7 +266,7 @@ fn wasmtimeDir(b: *std.Build, target: std.Build.ResolvedTarget) []const u8 {
     const dir = b.fmt("vendor/wasmtime-{s}-{s}", .{ @tagName(t.cpu.arch), @tagName(t.os.tag) });
     // Otherwise the first error is a missing header, which says nothing about why.
     b.root.access(b.graph.io, b.fmt("{s}/lib/libwasmtime.a", .{dir}), .{}) catch
-        std.process.fatal("no Wasmtime for {s}-{s} in {s}. cicd/cicd.bash vendors one for the other macOS slice on a Mac, and for the other Linux architecture with --package; for anything else, add its pin there first.", .{ @tagName(t.cpu.arch), @tagName(t.os.tag), dir });
+        std.process.fatal("no Wasmtime for {s}-{s} in {s}. cicd/cicd.bash vendors one for the other macOS slice on a Mac, and for the other Linux architecture, FreeBSD and Windows with --package; for anything else, add its pin there first.", .{ @tagName(t.cpu.arch), @tagName(t.os.tag), dir });
     return dir;
 }
 
@@ -354,4 +366,11 @@ fn wireWasmtimeInner(b: *std.Build, mod: *std.Build.Module, wasmtime: []const u8
         if (mod.resolved_target.?.result.os.tag == .freebsd)
             mod.addObjectFile(b.path(b.fmt("{s}/lib/libzstd.a", .{wasmtime})));
     }
+    // What env_windows.zig and Wasmtime's Rust call. zuid.h gives a static
+    // consumer the same list.
+    if (mod.resolved_target.?.result.os.tag == .windows) {
+        for (windows_libs) |name| mod.linkSystemLibrary(name, .{});
+    }
 }
+
+const windows_libs = [_][]const u8{ "ws2_32", "iphlpapi", "bcrypt", "advapi32", "userenv", "ole32", "ntdll" };

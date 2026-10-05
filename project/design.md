@@ -367,7 +367,7 @@ Pinning all of that is what makes an identifier generator testable at all. So ne
 
 Two things follow from acquisition being outside the vectors:
 
-- The two implementations can disagree on what the live machine says. `%f` is the clearest case: one side asks the C resolver, which reads the hosts file before DNS, and the other asks DNS directly. On a host with a hosts-file domain and no DNS record they answer differently. That is accepted rather than fixed - matching two platforms' name resolution exactly is not worth what it would cost - but it means live values are per-machine, not part of the spec.
+- The two implementations can disagree on what the live machine says. `%f` is the clearest case: one side asks the C resolver, which reads the hosts file before DNS, and the other asks DNS directly. On a host with a hosts-file domain and no DNS record they answer differently. That is accepted rather than fixed - matching two platforms' name resolution exactly is not worth what it would cost - but it means live values are per-machine, not part of the spec. `%u` on Windows is another: Go's `user.Current` gives `DOMAIN\name`, and the Zig side gives the logon name alone.
 - Each source is read once per process and kept. None of them can change in a way that should change an identifier mid-run, and the reads are not cheap: walking every network interface costs far more than the base conversion it feeds, and resolving a qualified name can block on the network.
 
 The expected column comes from a third independent derivation, working from this document rather than from either implementation, so that "both sides agree" cannot mean "both sides are wrong the same way".
