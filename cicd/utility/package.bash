@@ -304,12 +304,14 @@ fRelease(){  ## os label, arch label, slice...
 	cp "${root}/zig/lib/LICENSE.txt"           "${stage}/share/LICENSE-module.txt"
 	cp "${root}/zig/lib/NOTICE.txt"            "${stage}/share/"
 	cp "${root}/README.md"                     "${stage}/share/"
+	## Every release has Wasmtime in it, if only inside the command, so every
+	## one has its license. Each slice of a universal release has the same pin.
+	cp "$(fWasmtimeDir "${1##*/slice-}")/LICENSE" "${stage}/share/LICENSE-wasmtime.txt"
 	if [[ -f "${stage}/lib/libzstd.a" ]]; then
 		cp "${root}/zig/vendor/wasmtime-x86_64-freebsd/LICENSE-zstd" "${stage}/share/LICENSE-zstd.txt"
 	fi
 
 	if [[ "${osLabel}" == "windows" ]]; then
-		cp "$(fWasmtimeDir "${1##*/slice-}")/LICENSE" "${stage}/share/LICENSE-wasmtime.txt"
 		( cd "$(dirname "${stage}")" && zip -q -r -X "${OUT}/${PKG}-${osLabel}-${label}.zip" "$(basename "${stage}")" )
 		## arm64 needs wasmtime.dll beside it, so it is not one file there.
 		if [[ ! -f "${stage}/bin/wasmtime.dll" ]]; then
@@ -369,6 +371,18 @@ fLinuxPackages(){  ## stage, label
 		    dst: /usr/share/licenses/${PKG}/LICENSE.txt
 		    packager: rpm
 	EOF
+	## The command links the module and Wasmtime in, so their licenses go too.
+	local file=""
+	for file in LICENSE-module.txt NOTICE.txt LICENSE-wasmtime.txt; do
+		cat >>"${cfg}" <<-EOF
+			  - src: ${stage}/share/${file}
+			    dst: /usr/share/doc/${PKG}/${file}
+			    packager: deb
+			  - src: ${stage}/share/${file}
+			    dst: /usr/share/licenses/${PKG}/${file}
+			    packager: rpm
+		EOF
+	done
 	local fmt=""
 	for fmt in deb rpm; do
 		if nfpm package --config "${cfg}" --packager "${fmt}" --target "${OUT}/" >/dev/null 2>&1; then
@@ -419,6 +433,7 @@ fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "
 
 
 ##	History:
+##		- 20261004 JC: Wasmtime's license in every release, and the module's and Wasmtime's in the deb and rpm.
 ##		- 20261004 JC: Windows x86_64 and arm64 zips, cross-built on Linux.
 ##		- 20261004 JC: FreeBSD x86_64, cross-built on Linux from FreeBSD's own Wasmtime package.
 ##		- 20261003 JC: Linux arm64, cross-built beside x86_64 on any Linux host.
