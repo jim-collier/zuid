@@ -2643,6 +2643,8 @@ fPublish_Downloads(){  ## download URL, asset...
 	local -ra osOrder=("linux" "darwin" "windows" "freebsd")
 	local -rA osTitles=([linux]="Linux" [darwin]="macOS" [windows]="Windows" [freebsd]="FreeBSD")
 	local -ra cpuOrder=("x86_64" "arm64")
+	## macOS ships one universal file, so its row is one cell even when it is missing.
+	local -rA universalOnly=([darwin]=1)
 	local -A cells=()
 	local -a ranked=() others=()
 	local asset="" rank="" words="" os="" cpu="" cell="" row=""
@@ -2691,8 +2693,8 @@ fPublish_Downloads(){  ## download URL, asset...
 	printf '</tr>\n'
 	for os in "${osOrder[@]}"; do
 		row="<tr><th>${osTitles[${os}]}</th>"
-		if [[ -n "${cells["${os}/any"]:-}" ]] && [[ -z "${cells["${os}/x86_64"]:-}${cells["${os}/arm64"]:-}" ]]; then
-			row+="<td colspan=\"${#cpuOrder[@]}\" align=\"center\">${cells["${os}/any"]}</td>"
+		if [[ -z "${cells["${os}/x86_64"]:-}${cells["${os}/arm64"]:-}" ]] && [[ -n "${cells["${os}/any"]:-}${universalOnly[${os}]:-}" ]]; then
+			row+="<td colspan=\"${#cpuOrder[@]}\" align=\"center\">${cells["${os}/any"]:--}</td>"
 		else
 			for cpu in "${cpuOrder[@]}"; do
 				cell="${cells["${os}/${cpu}"]:-}"

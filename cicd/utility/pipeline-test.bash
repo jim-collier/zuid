@@ -614,6 +614,17 @@ if [[ "${partialRows[3]:-}" == "<tr><th>Windows</th><td>-</td><td>-</td></tr>" ]
 	else fFail "rows were '${partialRows[*]:-}'"
 fi
 
+fPublishRepo nomac 1.0.0-beta.1
+rm -f "${work}/nomac/repo/dist-incoming/"zuid-darwin-universal*
+fId ErmpEWr "a missing macOS file gets one dash across both columns"
+out="$(fPublishIn nomac 1 1 < /dev/null)" && rc=0 || rc=$?
+nomacRows=()
+mapfile -t nomacRows < <(grep '^<tr>' <<< "$(fNotesOf "${work}/nomac/gh-create")" || true)
+if ((rc == 0)) && [[ "${nomacRows[2]:-}" == "<tr><th>macOS</th><td colspan=\"2\" align=\"center\">-</td></tr>" ]]
+	then fPass
+	else fFail "exited ${rc}, rows were '${nomacRows[*]:-}'"
+fi
+
 fId Erm9fTs "the changelog comes first, then the table, then the other files and checksums.txt"
 notesBad=""
 inTable="${tableNotes#*<table>}"; inTable="${inTable%%</table>*}"
