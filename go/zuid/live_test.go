@@ -82,3 +82,19 @@ func TestPickMACSkipsSharedAddress(t *testing.T) {
 		t.Errorf("picked %v with only the shared address left, want none", got)
 	}
 }
+
+// On Windows user.Current gives DOMAIN\name, and Zig's GetUserNameW the name
+// alone. %u is the name alone on both.
+// test-id: ErmqB7D
+func TestBareAccountNameDropsDomain(t *testing.T) {
+	cases := map[string]string{
+		`VM925W\WinTest`: "WinTest",
+		"ÅSA":            "ÅSA",
+		`\wintest`:       "wintest",
+	}
+	for name, want := range cases {
+		if got := bareAccountName(name); got != want {
+			t.Errorf("bareAccountName(%q) = %q, want %q", name, got, want)
+		}
+	}
+}

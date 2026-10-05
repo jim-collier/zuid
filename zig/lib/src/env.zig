@@ -89,13 +89,8 @@ fn vtUsername(ctx: *anyopaque, out: []u8) core.Error![]const u8 {
 }
 
 fn readUsername(out: []u8) core.Error![]const u8 {
-    if (is_windows) {
-        const name: ?[]const u8 = windows.username(out) catch |err| switch (err) {
-            core.Error.BufferTooSmall => return err,
-            else => null,
-        };
-        if (name) |found| return found;
-    } else if (c.getpwuid(c.getuid())) |entry| {
+    if (is_windows) return windows.username(out);
+    if (c.getpwuid(c.getuid())) |entry| {
         if (entry.*.pw_name) |name| {
             return copyOut(std.mem.span(name), out);
         }

@@ -5,23 +5,32 @@
 
 //! env.zig's reads on Windows, where libc has no user database, no
 //! getifaddrs and no getentropy. Each one asks the Win32 API instead. %m
-//! walks the adapter list Go's net.Interfaces walks, and %h comes to the name
-//! Go's os.Hostname reads, so the two sides agree on those.
+//! walks the adapter list Go's net.Interfaces walks, %h comes to the name
+//! Go's os.Hostname reads, and %u is lower-cased by the same call Go makes, so
+//! the two sides agree on those.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const core = @import("core.zig");
 const env = @import("env.zig");
 
 // lib/c/env.h, translated by build.zig.
 const c = @import("c_env");
 
-/// The logon name, without the domain. Go's user.Current gives DOMAIN\name.
+/// The logon name, falling back to the environment as Go does. Either way it
+/// goes through accountName, so the two sides give the same %u.
 pub fn username(out: []u8) core.Error![]const u8 {
     var wide: [c.UNLEN + 1]u16 = undefined;
     var len: c.DWORD = wide.len;
-    if (c.GetUserNameW(&wide, &len) == 0 or len < 2) return core.Error.EnvUnavailable;
     // The count includes the terminating NUL.
-    return toUtf8(wide[0 .. len - 1], out);
+    if (c.GetUserNameW(&wide, &len) != 0 and len >= 2) return accountName(wide[0 .. len - 1], out);
+    // The wide reads, as Go's os.Getenv does. getenv would give the ANSI code page.
+    const L = std.unicode.utf8ToUtf16LeStringLiteral;
+    for ([_][*:0]const u16{ L("USER"), L("LOGNAME"), L("USERNAME") }) |key| {
+        len = c.GetEnvironmentVariableW(key, &wide, wide.len);
+        if (len > 0 and len < wide.len) return accountName(wide[0..len], out);
+    }
+    return core.Error.EnvUnavailable;
 }
 
 /// The DNS name with its primary suffix, if the machine has one. %h cuts it at
@@ -91,7 +100,47 @@ pub fn mac() core.Error![6]u8 {
     return pick.found orelse core.Error.EnvUnavailable;
 }
 
+/// The name after any DOMAIN\ prefix. GetUserNameW has none, but Go's
+/// user.Current and an environment value can.
+fn bareAccountName(comptime T: type, name: []const T) []const T {
+    const cut = std.mem.lastIndexOfScalar(T, name, '\\') orelse return name;
+    return name[cut + 1 ..];
+}
+
+/// Windows ignores case in account names, so %u drops it. Go calls the same
+/// function with the same locale, so a name outside ASCII comes out the same.
+fn accountName(name: []const u16, out: []u8) core.Error![]const u8 {
+    const bare = bareAccountName(u16, name);
+    var lower: [c.UNLEN + 1]u16 = undefined;
+    if (bare.len == 0) return core.Error.EnvUnavailable;
+    // LOCALE_NAME_INVARIANT is the empty string.
+    const invariant = [_:0]u16{};
+    const written = c.LCMapStringEx(&invariant, c.LCMAP_LOWERCASE, bare.ptr, @intCast(bare.len), &lower, lower.len, null, null, 0);
+    if (written <= 0) return core.Error.EnvUnavailable;
+    return toUtf8(lower[0..@intCast(written)], out);
+}
+
 fn toUtf8(wide: []const u16, out: []u8) core.Error![]const u8 {
     if (std.unicode.calcWtf8Len(wide) > out.len) return core.Error.BufferTooSmall;
     return out[0..std.unicode.wtf16LeToWtf8(out, wide)];
+}
+
+// A name from Go's user.Current or the environment can carry the domain.
+// test-id: ErmqB7B
+test "a Windows account name drops its domain" {
+    const L = std.unicode.utf8ToUtf16LeStringLiteral;
+    try std.testing.expectEqualSlices(u16, L("WinTest"), bareAccountName(u16, L("VM925W\\WinTest")));
+    try std.testing.expectEqualSlices(u16, L("ÅSA"), bareAccountName(u16, L("ÅSA")));
+    try std.testing.expectEqualSlices(u16, L("wintest"), bareAccountName(u16, L("\\wintest")));
+}
+
+// Windows ignores case in account names. Go's zuid_windows_test.go checks the
+// same pairs, since both sides have to lower-case outside ASCII alike.
+// test-id: ErmqB7C
+test "a Windows account name is lower-cased" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    const L = std.unicode.utf8ToUtf16LeStringLiteral;
+    var out: [core.name_buf_len]u8 = undefined;
+    try std.testing.expectEqualStrings("wintest", try accountName(L("VM925W\\WinTest"), &out));
+    try std.testing.expectEqualStrings("åsa.öberg", try accountName(L("KÖNIG\\ÅSA.ÖBERG"), &out));
 }

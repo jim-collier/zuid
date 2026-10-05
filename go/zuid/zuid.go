@@ -640,15 +640,21 @@ var liveHostname = sync.OnceValues(func() (string, error) {
 var liveUsername = sync.OnceValues(func() (string, error) {
 	usernameReads.Add(1)
 	if current, err := user.Current(); err == nil && current.Username != "" {
-		return current.Username, nil
+		return accountName(current.Username)
 	}
 	for _, key := range []string{"USER", "LOGNAME", "USERNAME"} {
 		if name := os.Getenv(key); name != "" {
-			return name, nil
+			return accountName(name)
 		}
 	}
 	return "", errors.New("no user name available")
 })
+
+// bareAccountName drops a DOMAIN\ prefix. user.Current gives one on Windows,
+// and the Zig side's GetUserNameW does not.
+func bareAccountName(name string) string {
+	return name[strings.LastIndexByte(name, '\\')+1:]
+}
 
 // liveFQDN is best-effort. A host with no domain has no qualified name to
 // find, and falling back to the short name beats failing the identifier.
