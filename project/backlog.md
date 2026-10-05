@@ -243,8 +243,8 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - `pipeline-test.bash` fails on a Mac with the stock Python.
 	- ID: 2026100417561172
 	- Type: Bug
-	- Status: Queued
-	- Needs external testing: Yes. A full pipeline run on b26.
+	- Status: Waiting for testing
+	- Needs external testing: Yes. A full pipeline run on b26. `pipeline-test.bash` alone already passed there.
 	- Priority|Severity [Bug]: Avg
 	- Opened: 20261004-175611
 	- Opened by: JC
@@ -259,6 +259,19 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Possible cause [Bug]: Python before 3.11 cannot read a trailing `Z` in `fromisoformat`. The fixture came in with 34a071b. Not yet decided whether the fix goes in the fixture or in `test-ids.py`.
 	- Progress log:
 		- 20261004: With that one fixture date written as `+00:00`, the rest of the full `--package` run passed on b26.
+		- 20261004: Every Python script the pipeline runs was checked against 3.9. Only `--at` with a `Z` needed newer. `gen-demo-gif.py` needs 3.11 for `tomllib` and already says so in one line, and the demo stage skips when it fails.
+		- 20261004: A bad `--at` threw a traceback too. It now prints one line and exits 2.
+	- Actual cause [Bug]:
+		- `test-ids.py new --at` handed the time straight to `fromisoformat`, which takes a trailing `Z` only from Python 3.11. The script header promises an ISO 8601 time, and `Z` is ISO.
+	- Decisions:
+		- The fix goes in `test-ids.py`, not the fixture, since its header promises ISO times.
+		- Python 3.9 is the floor for the pipeline, since that is what stock macOS has. `gen-demo-gif.py` is the one exception, at 3.11, and the demo stage is optional.
+	- Actual fix [Bug]: `--at` turns a trailing `Z` into `+00:00` before parsing. The fixture now uses `+00:00`, so a `Z` failure shows as its own test instead of killing the run.
+	- Verified: On b26 with Python 3.9.6, `pipeline-test.bash` failed `ErmeArM` and `ErmeArN` with the old `test-ids.py`, and passed all 48 with the fix. Here on 3.13 it passes all 48, and `ErmeArN` fails with the old script. `test-ids.py check` and shellcheck pass.
+	- Swept: `flame-report.py`, `pprof2flame.py`, `gen-demo-gif.py` and `test-ids.py`, for `fromisoformat`, `match`, `X | Y` unions, `zip(strict=)`, `datetime.UTC`, `tomllib`, parenthesized `with`, `pairwise` and `bit_count`. All four parse and start on b26's 3.9.6. The inline `python3 -c` lines in `cicd.bash`, `cli-test.bash` and `installer-test.bash` use nothing past 3.9.
+	- Branch: pyfloor
+	- Commit: 99f35d1
+	- Test case: `ErmeArM` (`--at` with `Z` matches `+00:00`) and `ErmeArN` (a bad `--at` gives one line, no traceback), in `pipeline-test.bash`. `ErmeArM` passes on 3.11 and newer either way; only a 3.9 or 3.10 run proves it.
 
 - Update vmFreeBSD's kernel and every package, then retry the panic.
 	- ID: 2026100415162238
