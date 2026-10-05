@@ -765,14 +765,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ### Features and enhancements
 
-- 🛠️ `%m` is Linux-only on the Zig side - it reads `getifaddrs` for `AF_PACKET`, and macOS wants `AF_LINK` instead. The Go module is already portable, and the help text and the C header both say so. Do it alongside the cross targets, since nothing on the Zig side cross-compiles yet either.
-	- Should work on Windows too.
-	- Done: macOS, 20260930. Windows is left.
-	- Decision: 20261003, the Windows build may run on a Windows test box, so the MSVC toolchain is open as well as mingw. MSVC is preferred where the box has the build tools, since most Windows C users link with it.
-	- Note: 20261004, the Windows build is cross-built on Linux after all, by direct answer. See 2026100416052035.
-	- Opened: 20260802-135041
-
-- 🔘 Packaging for other platforms. Needs a Wasmtime archive vendored per target. Blocked on that, and on the Zig side building for Windows at all.
+- 🔬 Packaging for other platforms. Needs a Wasmtime archive vendored per target. Blocked on that, and on the Zig side building for Windows at all.
 	- Note: x86_64 macOS has its pin and builds natively, 20260930.
 	- Note: `package.bash` builds the macOS tarball and binary on a Mac, 20261002. Nothing is published for it yet.
 	- Note: `build.zig` and `package.bash` take a non-host target's Wasmtime from `vendor/wasmtime-<platform>`, as the macOS universal build does, 20261003. Another target needs its pin and a fetch.
@@ -782,6 +775,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Decision: 20261003, Linux arm64 is tested on the `vmDebARM64` virtual machine, not only built.
 	- Note: 20261003, Linux arm64 is built and checked, and waits on testing on `vmDebARM64`. See 2026100317515523.
 	- Note: 20261004, Windows is split out as 2026100416052035 and 2026100416052036.
+	- Note: 20261004, every target is built now. Windows x86_64 and arm64 zips are cross-built on Linux, and the x86_64 one passed on vm925w. Left to run: the arm64 Windows build and the arm64 macOS slice, on real arm64 machines.
 	- Opened: 20260802-025417
 
 - 🔬 Publishing. `--publish` stays rejected with a reason until there is somewhere to publish to.
@@ -801,6 +795,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Note: 20261003, branch `publish`. The first real run waits on the Windows build, or on a go-ahead to publish with `--allow-partial`. The version in `core.zig` is still `1.0.0-alpha.1`, so a run today refuses on that tag.
 	- Decision: 20261004, the first real run waits on the Windows build. No `--allow-partial`.
 	- Test case: `ErgqYt2` to `ErgqYtH` and `ErgqjsR` in `pipeline-test.bash`. Each was seen to fail with its check broken.
+	- Note: 20261004, the Windows zips are built on Linux now, so every target lands in `dist/` and `dist-incoming/` is only for the macOS tarball. The first real run needs the version in `core.zig` moved to `1.0.0-beta.1`, and a go-ahead, since it publishes.
 	- Opened: 20260802-025417
 
 - 🛠️ Tag the Go module as `go/v<version>` at the next release, so it can be asked for by version. A module in a subdirectory needs the prefix, and the plain `v1.0.0-alpha.1` tag does not reach it - `go get ...@v1.0.0-alpha.1` answers "found, but does not contain package". Deferred because pushing a public tag is a release decision, not a code fix. `README.md` says how to pin a commit meanwhile.
@@ -819,10 +814,11 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- 🔘 Config file creation belongs to the command only, never to either module.
 	- Opened: 20260801-090104
 
-- 🔘 C module cross targets, cross-compiled with `zig cc`. Needs a vendored Wasmtime archive per target, the same blocker as packaging for other platforms.
+- 🔬 C module cross targets, cross-compiled with `zig cc`. Needs a vendored Wasmtime archive per target, the same blocker as packaging for other platforms.
 	- Note: `build.zig` takes a non-host target's Wasmtime from `vendor/wasmtime-<platform>`, as the macOS universal build does, 20261003. Another target needs its pin and a fetch.
 	- Decision: 20261003, the same targets as packaging for other platforms.
 	- Note: 20261003, Linux arm64 is built and checked, and waits on testing on `vmDebARM64`. See 2026100317515523.
+	- Note: 20261004, Windows x86_64 and arm64 are built too. `capi_smoke.c` passed on vm925w with mingw gcc against both libraries, and with MSVC against the DLL. Same arm64 gap as packaging.
 	- Opened: 20260801-090104
 
 ### Done
@@ -1031,6 +1027,16 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Closed: 20260804-224440
 
 #### Done - Features and enhancements
+
+- ✅ `%m` is Linux-only on the Zig side - it reads `getifaddrs` for `AF_PACKET`, and macOS wants `AF_LINK` instead. The Go module is already portable, and the help text and the C header both say so. Do it alongside the cross targets, since nothing on the Zig side cross-compiles yet either.
+	- Should work on Windows too.
+	- Done: macOS, 20260930. Windows is left.
+	- Decision: 20261003, the Windows build may run on a Windows test box, so the MSVC toolchain is open as well as mingw. MSVC is preferred where the box has the build tools, since most Windows C users link with it.
+	- Note: 20261004, the Windows build is cross-built on Linux after all, by direct answer. See 2026100416052035.
+	- Done: 20261004, Windows, through GetAdaptersAddresses. Go and Zig gave the same `%m` on vm925w. See 2026100416052035.
+	- Test case: the Zig tests and the `--package` Windows checks, run on vm925w. No test pins the Windows address itself, since it differs per machine.
+	- Opened: 20260802-135041
+	- Closed: 20261004-182500
 
 - ✅ Run the Zig fuzz tests in fuzz mode, once a Zig release can build one.
 	- Note: the tests are written and replay their corpus on every run. `zig build test --fuzz` fails to compile inside 0.16.0's own test runner, so nothing on this side can fix it. `details.md` has the error.
