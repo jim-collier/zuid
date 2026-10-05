@@ -200,6 +200,7 @@ The module sits in a subdirectory, so pinning it to a release needs a `go/`-pref
 | git, curl, tar, sha256sum | any | fetching and verifying the vendored runtime |
 | gcc or clang | any | checking that a foreign toolchain can use the C module |
 | shellcheck | any | linting the build script |
+| python3 | 3.9 or newer | the test ID check and the profile report |
 
 Optional, and each stage that wants one skips itself with a note when it is missing:
 
@@ -207,7 +208,7 @@ Optional, and each stage that wants one skips itself with a note when it is miss
 | :-- | :-- |
 | nfpm | building `.deb` and `.rpm` packages |
 | zip | building the Windows `.zip` packages |
-| python3 with pillow, gifsicle | rendering the demo animation |
+| python3 3.11 or newer with pillow, gifsicle | rendering the demo animation |
 | perf, inferno | profiling the command |
 
 If the `zig` on PATH is older, `cicd/cicd.bash` takes the one named by `ZIG`, or a release unpacked as `~/.local/zig-<platform>-0.17.0`, and every stage uses that one.

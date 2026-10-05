@@ -40,152 +40,10 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ## Issues
 
-- Windows x86_64 build, cross-built on Linux.
-	- ID: 2026100416052035
-	- Type: Enhancement
-	- Status: Waiting for answers
-	- Needs local test suite run?: Yes. `cicd.bash --package` covers it.
-	- Needs external testing: Done on vm925w, 20261004.
-	- Opened: 20261004-160520
-	- Opened by: JC
-	- Target OS: Windows 10 and later, x86_64
-	- Requirements  [Feature]:
-		- The command, `zuid.dll` with its import library, and the static library, built by Zig on the Linux build machine.
-		- Every component works there, `%m` included.
-		- The Zig tests and `capi_smoke.c` pass on a Windows test box.
-	- Progress log:
-		- 20261004: Split from the packaging and `%m` items under Old format. Built on the Linux machine, by direct answer 20261004. Both Windows boxes also have a mingw bash and git-bash, off PATH.
-		- 20261004: Wasmtime v47.0.3 publishes an x86_64 mingw C API archive. For arm64 there is only the MSVC one.
-		- 20261004: Built for `x86_64-windows-gnu` against Wasmtime's mingw archive, pinned by the digest GitHub lists for it and vendored under `--package` as `vendor/wasmtime-x86_64-windows`.
-		- 20261004: The live reads go to the Win32 API on Windows: the logon name, the DNS computer name, getaddrinfo for the FQDN, the adapter list for `%m`, and the system RNG.
-		- 20261004: `%m` takes the lowest-numbered adapter with a hardware address that is not loopback, numbered as Go numbers it. Go and Zig gave the same `%m` on vm925w. `%h` and `%f` matched too.
-		- 20261004: `%u` does not match. Go's `user.Current` gives `VM925W\wintest` on vm925w, and the Zig side gives `wintest`. Design already lets the two sides differ on live values, and it is noted there.
-		- 20261004: Question: should `%u` on Windows be the logon name alone, as now, or `DOMAIN\name`, as Go's is? Either side can change to match.
-		- 20261004: The DLL also exports four debugger hooks from Wasmtime's own objects, beside the `zuid_*` functions. Those objects mark them for export, and a DLL has no map to hide them. Nothing can displace them, since Windows binds a DLL's own calls inside it. Removing them would mean editing the pinned archive.
-		- 20261004: The `--package` check builds into scratch, not `dist/`. The packaging item can point it at the zip.
-		- 20261004: MSVC links the DLL through `zuid.lib` and runs. It cannot link `libzuid.a`, which is a mingw archive.
-	- Decisions:
-		- Names: `zuid.exe`, `zuid.dll`, its import library `zuid.lib`, and the static library `libzuid.a`. Zig calls both libraries `zuid.lib`, so the static one takes mingw's name, since only mingw can link it.
-		- The DLL's PDB is not installed, since the command's has the same name.
-	- Verified: on vm925w, the cross-built command with `--no-hash -f '%d %h %u %f %m %g %r'`, hashed, the default and `-n 3`. All 30 Zig tests from `zig build test-bin`. `capi_smoke.c` with mingw gcc 16.1 against the DLL and, with the line `zuid.h` gives, against `libzuid.a`, run from a folder with no DLL; MSVC 2022 against the DLL. `capi_interpose.c` with both against the DLL. On Linux, the full pipeline and one with `--package`, which fetched and checked the new pin.
-	- Swept: the `%m` notes in the help text, `zuid.h` and design.md. `package.bash`'s note on Windows. `wasmtimeDir` in `build.zig` and `fWasmtimeArchive` in `package.bash` both find `vendor/wasmtime-x86_64-windows`.
-	- Branch: winbuild
-	- Commit: 8ee3066
-	- Test case: ErmM9mS to ErmM9mV under `--package` on Linux: the build and what it is, the DLL's exports, and `capi_smoke.c` linking against each library. Each failed with its fault planted: no Windows headers, the Wasmtime hooks not allowed, `-liphlpapi` dropped, and the static link pointed at the import library. ElpGOHX, the live environment test, passed on vm925w.
-
-- A build with `SOURCE_DATE_EPOCH` empty fails when Zig's global cache is cold.
-	- ID: 2026100415475381
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Priority|Severity [Bug]: Avg
-	- Opened: 20261004-154753
-	- Opened by: JC
-	- Related IDs: 2026100318410002, 2026100313583935, 2026093018112445
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- In `zig/`: `SOURCE_DATE_EPOCH= ZIG_GLOBAL_CACHE_DIR=<new dir> zig build --cache-dir <new dir>`, with Zig 0.17.0.
-	- Incorrect behavior [Bug]: The build fails. Zig's own libunwind build passes the empty value to clang, which refuses it.
-	- Expected behavior [Bug]: The build finishes and takes the commit date, as it does with a warm global cache.
-	- Reproduced [Bug]: Yes, 20261004 on Linux, on `main` and on branch `machang`.
-	- Possible cause [Bug]: Since 0.17, `build.zig` cannot clear the variable for the compile steps, only for Run steps. `Eq9nb3o` misses it, since it gives the build a fresh local cache but keeps the warm global one.
-	- Actual cause [Bug]: Upstream behavior, not this repo. Zig 0.17.0 runs clang with its own environment when it builds libunwind and libc into the global cache, and clang refuses an empty or non-numeric value. A cached copy never runs clang, and the value is not part of the cache key. zuid has no C sources of its own, so these are the only places clang runs.
-	- Progress log:
-		- 20261004: Reproduced on Linux: the build failed on `UnwindRegistersSave.S` and `UnwindRegistersRestore.S`, plus clang notes from the C files with no file name. With nothing set, the same cold build took 2 min 28 s. An empty program linking libc and libunwind fails the same way, in 4 s.
-		- 20261004: Read in 0.17.0's `src/Compilation.zig`: `evalZigLlvmProcess` spawns `zig clang` with no environment of its own, and the Maker spawns compile steps with its own environment too. Outside Debug, Zig passes `-Werror=date-time`, so the value cannot change those libraries.
-		- 20261004: No report found on Codeberg or the old GitHub tracker. Draft, not filed: "Zig's own libunwind and libc builds fail with an empty SOURCE_DATE_EPOCH on a cold global cache. `SOURCE_DATE_EPOCH= zig build-exe a.zig -lc -lunwind` with a new `ZIG_GLOBAL_CACHE_DIR` fails with clang's 'must be a non-negative decimal integer' error; with a warm cache it works. Whether a build passes depends on cache state. The variable is not in those libraries' cache keys, and `-Werror=date-time` keeps it from changing them outside Debug. Suggest not passing it to these sub-builds, or dropping an invalid one."
-		- 20261004: `Eq9nb3o` stays on the warm global cache. A direct `zig build` with the value empty fails cold whatever this repo does, so a cold `Eq9nb3o` could never pass. A cold run through the scripts would add about 2.5 min, mostly rebuilding Zig's build runner; Zig's own libc, libunwind and compiler_rt take about 8 s of that.
-	- Actual fix [Bug]: `cicd.bash`, in preflight, and `package.bash` drop an empty or non-numeric value before running zig, with a note for a non-numeric one, the same as `build.zig` treats it. The README says to unset it for a plain `zig build`.
-	- Verified: a full `cicd.bash --no-dogfood --no-backup -q` run with the value empty and a new global cache passed, in 6 min 13 s. The same in a clone of `main`, with `--only zig --quick`, failed in the first Zig build with clang's error.
-	- Note: 20261004, on b26 at 12d2b2d: the full `--package` run passed, with `ErmER3z`, `ErmER40` and `Eq9nb3o`. The variable was not set there, so that run did not try an empty one on a cold global cache.
-	- Swept: every `zig` call in `cicd.bash` runs after preflight; `package.bash` is the other script that runs zig, and the harnesses run only stand-in zigs. `install.bash` and `install.ps1` do not build.
-	- Branch: emptyepoch
-	- Commit: e8f7545
-	- Test case: new `ErmER3z` and `ErmER40` in `pipeline-test.bash` check that `cicd.bash` and `package.bash` keep an empty, blank or non-numeric value from zig, and keep a number. Both failed on the old scripts and pass now.
-
-- FreeBSD x86_64 release.
-	- ID: 2026100413383571
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: Yes. `cicd.bash --package` covers it.
-	- Needs external testing: Yes, on `vmFreeBSD`.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261004-133835
-	- Opened by: JC
-	- Related IDs: 2026100315241091, 2026100413383471
-	- Target OS: FreeBSD 14 and later, x86_64
-	- Requirements  [Feature]:
-		- A FreeBSD x86_64 tarball and bare binary, cross-built on Linux beside the Linux ones.
-		- Wasmtime from FreeBSD's own package, pinned by checksum, since Wasmtime publishes no FreeBSD build.
-		- `%m` works there.
-		- `install.bash` installs it on FreeBSD, and refuses FreeBSD arm64 and other BSDs by name.
-		- `--publish` wants it in the release set.
-	- Progress log:
-		- 20261004: Reverses 2026100315241091. FreeBSD packages Wasmtime's C library as `libwasmtime`, which that item did not know.
-		- 20261004: The pins are `libwasmtime-45.0.0_1` and `zstd-1.5.7_2` from the FreeBSD 14 quarterly repo. FreeBSD's build of Wasmtime calls zstd, so its `libzstd.a` is linked too and ships in the tarball with zstd's BSD license.
-		- 20261004: `%m` reads AF_LINK as on macOS. Two lines.
-		- 20261004: On `vmFreeBSD`: the tarball's command, every component including `%m`, the 30 Zig tests, and `capi_smoke.c` with the base `cc` against both libraries all pass. `cli-test.bash` panicked the kernel once; see 2026100413383471.
-		- 20261004: On `vmFreeBSD`: `cli-test.bash` against the tarball's command passed 69 of 69, 40 times over.
-		- 20261004: `pipeline-test.bash` case ErkRrml failed about half the time, before this work too. Its fixture ID came from the clock, and the stray scan skips a word with no digit or capital past its first letter. It now uses a fixed time.
-		- 20261004: The release from 7dbdc21 passed again on `vmFreeBSD`: `cli-test.bash` 69 of 69, 40 times over, the 30 Zig tests, and `capi_smoke.c` with the base `cc` against both libraries. The VM was already up to date, at 15.1-RELEASE-p4.
-	- Decisions:
-		- FreeBSD 14 as the floor, to match the package repo.
-		- Wasmtime stays, rather than an interpreter for this one platform.
-		- x86_64 only.
-	- Branch: freebsd
-	- Test case: ErlUUiQ to ErlUUiU under `--package` on Linux: an x86_64 FreeBSD build with zstd and its license, no AVX, no libc past FreeBSD 14, and the two links. Each failed on a release broken for it: no zstd license, a Linux binary, an AVX build, a FreeBSD 15 build, and a static and a shared library with no `zuid_*`. ErlUUiV, ErlUUiW, ErlUUiX and ErlX0RL in `installer-test.bash`, with a stand-in `uname`; the first three failed on the old `install.bash`. Ergbz3Z now uses OpenBSD.
-
-- `cicd.bash` refuses to run in a git worktree.
-	- ID: 2026100318410007
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Priority|Severity [Bug]: Low
-	- Opened: 20261003-184100
-	- Opened by: JC
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- `git worktree add <dir> main`, then run `cicd/cicd.bash` there.
-	- Incorrect behavior [Bug]: It stops at once with "Not a git repo".
-	- Expected behavior [Bug]: It runs, since a worktree is a full checkout.
-	- Reproduced [Bug]: Yes, 20261003.
-	- Possible cause [Bug]: The sync and preflight checks look for a `.git` directory, and in a worktree `.git` is a file.
-	- Actual cause [Bug]: As above. Both checks tested for a `.git` directory.
-	- Progress log:
-		- 20261004: The backup stage is skipped in a linked worktree, with a line saying so, and `--backup` asked for by name is refused there. The helper archives the folder above the checkout, which for a worktree is not the project, and it wants a real `.git` directory. Making the backup work from a worktree would mean archiving the main checkout's project instead, which is a bigger change than this item.
-		- 20261004: Verified: `cicd.bash --quick --no-dogfood -q` from a scratch worktree passed, with the backup skipped. `--backup` there was refused before any stage. `pipeline-test.bash` 39 of 39, `test-ids.py check` and shellcheck pass.
-	- Decisions:
-		- Skip the backup in a worktree rather than make it work there. Open to a different call.
-	- Actual fix [Bug]: Sync and preflight ask git whether the folder is the top of a checkout. Argument handling spots a linked worktree by its git dir differing from the common one.
-	- Swept: every `.git` path test in `cicd/` and the rest of the repo. `package.bash` and the test harnesses had none. The vendored `n8git_backup-and-publish` tests `.git/HEAD` and stays as is, since `cicd.bash` no longer calls it from a worktree.
-	- Branch: worktree
-	- Commit: 9ff63b7
-	- Test case: Erm7vCh, Erm7vCi, Erm7vCk and Erm7vCl in `pipeline-test.bash`, which all failed before the fix. Erm7vCj checks a folder that is not a checkout's top is still refused.
-
-- When creating a release, use a table to group downloads.
-	- ID: 2026100409432309
-	- Type: Feature
-	- Status: Waiting on signoff
-	- Opened: 20261004-094323
-	- Opened by: JC
-	- Target OS: Any
-	- Requirements  [Feature]:
-		- CPU architecture in columns, and target OS in rows.
-	- Progress log:
-		- 20261004: `--publish` adds a "Downloads" table to the notes. Rows are Linux, macOS, Windows, FreeBSD; columns are x86_64 and arm64. Each cell links every file for that pair: tarball or zip, bare binary, `.deb`, `.rpm`. A cell with no file shows `-`.
-		- A file the table cannot place, such as another CPU or no OS in its name, is linked in a line under the table. `checksums.txt` is linked after that.
-		- The links need the repo's address, which comes from `gh repo view`. The preflight refuses if gh cannot name the repo, so no tag is pushed for a release that would fail anyway.
-		- Verified: `pipeline-test.bash` 44 passed, `test-ids.py check`, shellcheck. A sample passed through GitHub's markdown renderer kept the spanned cell.
-	- Decisions:
-		- 20261004: the macOS universal file spans both architecture columns. A markdown table cannot span cells, so the release notes need an HTML table for this.
-		- 20261004: the table goes after the changelog section, under its own "Downloads" heading. What changed reads first, and GitHub lists the assets at the bottom of the page anyway. With no changelog section the notes are the table alone, where before they were empty.
-		- 20261004: every row shows even with no files, as dashes, so the layout is the same in every release.
-	- Branch: dl-table
-	- Commit: de03ae4
-	- Test case: `pipeline-test.bash` Erm9fTp (rows and columns), Erm9fTq (spanned macOS cell), Erm9fTr (missing target), Erm9fTs (changelog, table, then checksums.txt), ErmAuec (refusal when gh cannot name the repo). All failed before the change.
-
 - Windows release packages, x86_64 and arm64.
 	- ID: 2026100416052036
 	- Type: Enhancement
-	- Status: Waiting on signoff
+	- Status: Waiting for testing
 	- Needs local test suite run?: Done. `cicd.bash --package --no-dogfood --no-backup -q` passed, 20261004.
 	- Needs external testing: Yes, on vm925w or b29w. The x86_64 zip and `install.ps1` passed on vm925w, 20261004. The arm64 release has had static checks only, since there is no arm64 Windows machine: `zuid.exe`, `zuid.dll` and `capi_smoke.c` still need a run on one. A system install from an elevated shell was not run either.
 	- Opened: 20261004-160520
@@ -205,6 +63,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- 20261004: `install.ps1` is meant for PowerShell 7, as the README says. Under Windows PowerShell 5.1 it used to stop with "The variable '$IsWindows' cannot be retrieved". It now says it needs PowerShell 7 and stops before doing anything.
 		- 20261004: `install.ps1` and `run-latest.ps1` were not ASCII, from the copyright line and the section rules. They are now, with the copyright written without the ID, and a docs check keeps every `.ps1` that way.
 		- 20261004: The Linux, macOS and FreeBSD tarballs have `libwasmtime.a` without Wasmtime's license. Logged as 2026100417324819.
+		- 20261004: x86_64 is done. Left open only for an arm64 run on real hardware, which is not yet possible here.
 	- Decisions:
 		- 20261004, open to change: no bare `.exe` for arm64, since it cannot run without `wasmtime.dll` beside it. The requirement asked for one per target.
 		- 20261004, open to change: arm64's import library for `wasmtime.dll` goes in as `lib/wasmtime.lib`, the name `-lwasmtime` finds with mingw's ld, lld and Zig alike. Wasmtime's own `wasmtime.dll.lib` name is found by none of them.
@@ -241,6 +100,40 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Decisions:
 		- Not a reason to hold the FreeBSD release, since zuid cannot cause or fix a kernel fault. Reopen if it comes back.
 	- Branch: freebsd
+
+- Windows x86_64 build, cross-built on Linux.
+	- ID: 2026100416052035
+	- Type: Enhancement
+	- Status: Started
+	- Needs local test suite run?: Yes. `cicd.bash --package` covers it.
+	- Needs external testing: Done on vm925w, 20261004.
+	- Opened: 20261004-160520
+	- Opened by: JC
+	- Target OS: Windows 10 and later, x86_64
+	- Requirements  [Feature]:
+		- The command, `zuid.dll` with its import library, and the static library, built by Zig on the Linux build machine.
+		- Every component works there, `%m` included.
+		- The Zig tests and `capi_smoke.c` pass on a Windows test box.
+	- Progress log:
+		- 20261004: Split from the packaging and `%m` items under Old format. Built on the Linux machine, by direct answer 20261004. Both Windows boxes also have a mingw bash and git-bash, off PATH.
+		- 20261004: Wasmtime v47.0.3 publishes an x86_64 mingw C API archive. For arm64 there is only the MSVC one.
+		- 20261004: Built for `x86_64-windows-gnu` against Wasmtime's mingw archive, pinned by the digest GitHub lists for it and vendored under `--package` as `vendor/wasmtime-x86_64-windows`.
+		- 20261004: The live reads go to the Win32 API on Windows: the logon name, the DNS computer name, getaddrinfo for the FQDN, the adapter list for `%m`, and the system RNG.
+		- 20261004: `%m` takes the lowest-numbered adapter with a hardware address that is not loopback, numbered as Go numbers it. Go and Zig gave the same `%m` on vm925w. `%h` and `%f` matched too.
+		- 20261004: `%u` does not match. Go's `user.Current` gives `VM925W\wintest` on vm925w, and the Zig side gives `wintest`. Design already lets the two sides differ on live values, and it is noted there.
+		- 20261004: Question: should `%u` on Windows be the logon name alone, as now, or `DOMAIN\name`, as Go's is? Either side can change to match.
+		- 20261004: The DLL also exports four debugger hooks from Wasmtime's own objects, beside the `zuid_*` functions. Those objects mark them for export, and a DLL has no map to hide them. Nothing can displace them, since Windows binds a DLL's own calls inside it. Removing them would mean editing the pinned archive.
+		- 20261004: The `--package` check builds into scratch, not `dist/`. The packaging item can point it at the zip.
+		- 20261004: MSVC links the DLL through `zuid.lib` and runs. It cannot link `libzuid.a`, which is a mingw archive.
+		- 20261004: Answer was a question: why not just always lower-case it? Lower-casing alone does not match the two, since Go keeps the `VM925W\` prefix. Windows ignores case in account names, so both sides will give the bare name, lower-cased, on Windows.
+	- Decisions:
+		- Names: `zuid.exe`, `zuid.dll`, its import library `zuid.lib`, and the static library `libzuid.a`. Zig calls both libraries `zuid.lib`, so the static one takes mingw's name, since only mingw can link it.
+		- The DLL's PDB is not installed, since the command's has the same name.
+	- Verified: on vm925w, the cross-built command with `--no-hash -f '%d %h %u %f %m %g %r'`, hashed, the default and `-n 3`. All 30 Zig tests from `zig build test-bin`. `capi_smoke.c` with mingw gcc 16.1 against the DLL and, with the line `zuid.h` gives, against `libzuid.a`, run from a folder with no DLL; MSVC 2022 against the DLL. `capi_interpose.c` with both against the DLL. On Linux, the full pipeline and one with `--package`, which fetched and checked the new pin.
+	- Swept: the `%m` notes in the help text, `zuid.h` and design.md. `package.bash`'s note on Windows. `wasmtimeDir` in `build.zig` and `fWasmtimeArchive` in `package.bash` both find `vendor/wasmtime-x86_64-windows`.
+	- Branch: winbuild
+	- Commit: 8ee3066
+	- Test case: ErmM9mS to ErmM9mV under `--package` on Linux: the build and what it is, the DLL's exports, and `capi_smoke.c` linking against each library. Each failed with its fault planted: no Windows headers, the Wasmtime hooks not allowed, `-liphlpapi` dropped, and the static link pointed at the import library. ElpGOHX, the live environment test, passed on vm925w.
 
 - When a shcl upgrade breaks compatibility with the application config file(s).
 	- ID: 2026100313105246
@@ -349,6 +242,37 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: `ErU3R79`, `ErU3R7A`. Both watched to fail without the skip.
 	- Closed: 20261001-135500
 
+- A build with `SOURCE_DATE_EPOCH` empty fails when Zig's global cache is cold.
+	- ID: 2026100415475381
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20261004-154753
+	- Opened by: JC
+	- Related IDs: 2026100318410002, 2026100313583935, 2026093018112445
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- In `zig/`: `SOURCE_DATE_EPOCH= ZIG_GLOBAL_CACHE_DIR=<new dir> zig build --cache-dir <new dir>`, with Zig 0.17.0.
+	- Incorrect behavior [Bug]: The build fails. Zig's own libunwind build passes the empty value to clang, which refuses it.
+	- Expected behavior [Bug]: The build finishes and takes the commit date, as it does with a warm global cache.
+	- Reproduced [Bug]: Yes, 20261004 on Linux, on `main` and on branch `machang`.
+	- Possible cause [Bug]: Since 0.17, `build.zig` cannot clear the variable for the compile steps, only for Run steps. `Eq9nb3o` misses it, since it gives the build a fresh local cache but keeps the warm global one.
+	- Actual cause [Bug]: Upstream behavior, not this repo. Zig 0.17.0 runs clang with its own environment when it builds libunwind and libc into the global cache, and clang refuses an empty or non-numeric value. A cached copy never runs clang, and the value is not part of the cache key. zuid has no C sources of its own, so these are the only places clang runs.
+	- Progress log:
+		- 20261004: Reproduced on Linux: the build failed on `UnwindRegistersSave.S` and `UnwindRegistersRestore.S`, plus clang notes from the C files with no file name. With nothing set, the same cold build took 2 min 28 s. An empty program linking libc and libunwind fails the same way, in 4 s.
+		- 20261004: Read in 0.17.0's `src/Compilation.zig`: `evalZigLlvmProcess` spawns `zig clang` with no environment of its own, and the Maker spawns compile steps with its own environment too. Outside Debug, Zig passes `-Werror=date-time`, so the value cannot change those libraries.
+		- 20261004: No report found on Codeberg or the old GitHub tracker. Draft, not filed: "Zig's own libunwind and libc builds fail with an empty SOURCE_DATE_EPOCH on a cold global cache. `SOURCE_DATE_EPOCH= zig build-exe a.zig -lc -lunwind` with a new `ZIG_GLOBAL_CACHE_DIR` fails with clang's 'must be a non-negative decimal integer' error; with a warm cache it works. Whether a build passes depends on cache state. The variable is not in those libraries' cache keys, and `-Werror=date-time` keeps it from changing them outside Debug. Suggest not passing it to these sub-builds, or dropping an invalid one."
+		- 20261004: `Eq9nb3o` stays on the warm global cache. A direct `zig build` with the value empty fails cold whatever this repo does, so a cold `Eq9nb3o` could never pass. A cold run through the scripts would add about 2.5 min, mostly rebuilding Zig's build runner; Zig's own libc, libunwind and compiler_rt take about 8 s of that.
+	- Actual fix [Bug]: `cicd.bash`, in preflight, and `package.bash` drop an empty or non-numeric value before running zig, with a note for a non-numeric one, the same as `build.zig` treats it. The README says to unset it for a plain `zig build`.
+	- Verified: a full `cicd.bash --no-dogfood --no-backup -q` run with the value empty and a new global cache passed, in 6 min 13 s. The same in a clone of `main`, with `--only zig --quick`, failed in the first Zig build with clang's error.
+	- Note: 20261004, on b26 at 12d2b2d: the full `--package` run passed, with `ErmER3z`, `ErmER40` and `Eq9nb3o`. The variable was not set there, so that run did not try an empty one on a cold global cache.
+	- Swept: every `zig` call in `cicd.bash` runs after preflight; `package.bash` is the other script that runs zig, and the harnesses run only stand-in zigs. `install.bash` and `install.ps1` do not build.
+	- Branch: emptyepoch
+	- Commit: e8f7545
+	- Test case: new `ErmER3z` and `ErmER40` in `pipeline-test.bash` check that `cicd.bash` and `package.bash` keep an empty, blank or non-numeric value from zig, and keep a number. Both failed on the old scripts and pass now.
+	- Acceptance signoff: Self-closed: the pipeline builds with the value empty, and the cause is upstream.
+	- Closed: 20261004-184405
+
 - `pipeline-test.bash` fails on a Mac with the stock Python.
 	- ID: 2026100417561172
 	- Type: Bug
@@ -370,6 +294,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- 20261004: With that one fixture date written as `+00:00`, the rest of the full `--package` run passed on b26.
 		- 20261004: Every Python script the pipeline runs was checked against 3.9. Only `--at` with a `Z` needed newer. `gen-demo-gif.py` needs 3.11 for `tomllib` and already says so in one line, and the demo stage skips when it fails.
 		- 20261004: A bad `--at` threw a traceback too. It now prints one line and exits 2.
+		- 20261004: README lists Python 3.9 for the pipeline and 3.11 for the demo, by direct answer.
 	- Actual cause [Bug]:
 		- `test-ids.py new --at` handed the time straight to `fromisoformat`, which takes a trailing `Z` only from Python 3.11. The script header promises an ISO 8601 time, and `Z` is ISO.
 	- Decisions:
@@ -465,6 +390,40 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: `ErOkWfZ`, `ErOkWfb`.
 	- Closed: 20260930-155553
 
+- FreeBSD x86_64 release.
+	- ID: 2026100413383571
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Yes. `cicd.bash --package` covers it.
+	- Needs external testing: Yes, on `vmFreeBSD`.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261004-133835
+	- Opened by: JC
+	- Related IDs: 2026100315241091, 2026100413383471
+	- Target OS: FreeBSD 14 and later, x86_64
+	- Requirements  [Feature]:
+		- A FreeBSD x86_64 tarball and bare binary, cross-built on Linux beside the Linux ones.
+		- Wasmtime from FreeBSD's own package, pinned by checksum, since Wasmtime publishes no FreeBSD build.
+		- `%m` works there.
+		- `install.bash` installs it on FreeBSD, and refuses FreeBSD arm64 and other BSDs by name.
+		- `--publish` wants it in the release set.
+	- Progress log:
+		- 20261004: Reverses 2026100315241091. FreeBSD packages Wasmtime's C library as `libwasmtime`, which that item did not know.
+		- 20261004: The pins are `libwasmtime-45.0.0_1` and `zstd-1.5.7_2` from the FreeBSD 14 quarterly repo. FreeBSD's build of Wasmtime calls zstd, so its `libzstd.a` is linked too and ships in the tarball with zstd's BSD license.
+		- 20261004: `%m` reads AF_LINK as on macOS. Two lines.
+		- 20261004: On `vmFreeBSD`: the tarball's command, every component including `%m`, the 30 Zig tests, and `capi_smoke.c` with the base `cc` against both libraries all pass. `cli-test.bash` panicked the kernel once; see 2026100413383471.
+		- 20261004: On `vmFreeBSD`: `cli-test.bash` against the tarball's command passed 69 of 69, 40 times over.
+		- 20261004: `pipeline-test.bash` case ErkRrml failed about half the time, before this work too. Its fixture ID came from the clock, and the stray scan skips a word with no digit or capital past its first letter. It now uses a fixed time.
+		- 20261004: The release from 7dbdc21 passed again on `vmFreeBSD`: `cli-test.bash` 69 of 69, 40 times over, the 30 Zig tests, and `capi_smoke.c` with the base `cc` against both libraries. The VM was already up to date, at 15.1-RELEASE-p4.
+	- Decisions:
+		- FreeBSD 14 as the floor, to match the package repo.
+		- Wasmtime stays, rather than an interpreter for this one platform.
+		- x86_64 only.
+	- Branch: freebsd
+	- Test case: ErlUUiQ to ErlUUiU under `--package` on Linux: an x86_64 FreeBSD build with zstd and its license, no AVX, no libc past FreeBSD 14, and the two links. Each failed on a release broken for it: no zstd license, a Linux binary, an AVX build, a FreeBSD 15 build, and a static and a shared library with no `zuid_*`. ErlUUiV, ErlUUiW, ErlUUiX and ErlX0RL in `installer-test.bash`, with a stand-in `uname`; the first three failed on the old `install.bash`. Ergbz3Z now uses OpenBSD.
+	- Acceptance signoff: Self-closed: the release passed on FreeBSD 15.1, and the panic is tracked on its own.
+	- Closed: 20261004-184405
+
 - Update vmFreeBSD's kernel and every package, then retry the panic.
 	- ID: 2026100415162238
 	- Type: Task
@@ -485,6 +444,34 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: none. A check of the test machine, not of zuid; the runs above are the result.
 	- Acceptance signoff: Self-closed: the update check and the retest ran.
 	- Closed: 20261004-183600
+
+- `cicd.bash` refuses to run in a git worktree.
+	- ID: 2026100318410007
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: Low
+	- Opened: 20261003-184100
+	- Opened by: JC
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- `git worktree add <dir> main`, then run `cicd/cicd.bash` there.
+	- Incorrect behavior [Bug]: It stops at once with "Not a git repo".
+	- Expected behavior [Bug]: It runs, since a worktree is a full checkout.
+	- Reproduced [Bug]: Yes, 20261003.
+	- Possible cause [Bug]: The sync and preflight checks look for a `.git` directory, and in a worktree `.git` is a file.
+	- Actual cause [Bug]: As above. Both checks tested for a `.git` directory.
+	- Progress log:
+		- 20261004: The backup stage is skipped in a linked worktree, with a line saying so, and `--backup` asked for by name is refused there. The helper archives the folder above the checkout, which for a worktree is not the project, and it wants a real `.git` directory. Making the backup work from a worktree would mean archiving the main checkout's project instead, which is a bigger change than this item.
+		- 20261004: Verified: `cicd.bash --quick --no-dogfood -q` from a scratch worktree passed, with the backup skipped. `--backup` there was refused before any stage. `pipeline-test.bash` 39 of 39, `test-ids.py check` and shellcheck pass.
+	- Decisions:
+		- Skip the backup in a worktree rather than make it work there. Confirmed by direct answer 20261004.
+	- Actual fix [Bug]: Sync and preflight ask git whether the folder is the top of a checkout. Argument handling spots a linked worktree by its git dir differing from the common one.
+	- Swept: every `.git` path test in `cicd/` and the rest of the repo. `package.bash` and the test harnesses had none. The vendored `n8git_backup-and-publish` tests `.git/HEAD` and stays as is, since `cicd.bash` no longer calls it from a worktree.
+	- Branch: worktree
+	- Commit: 9ff63b7
+	- Test case: Erm7vCh, Erm7vCi, Erm7vCk and Erm7vCl in `pipeline-test.bash`, which all failed before the fix. Erm7vCj checks a folder that is not a checkout's top is still refused.
+	- Acceptance signoff: Self-closed: it runs in a worktree, and skipping the backup there was confirmed.
+	- Closed: 20261004-184405
 
 - `test-ids.py check` missed test IDs kept in an array.
 	- ID: 2026100409004496
@@ -531,6 +518,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Actual fix [Bug]:
 		- Every tarball and zip gets `share/LICENSE-wasmtime.txt`, from `LICENSE` in the vendored Wasmtime tree. Linux, macOS and Windows take it from Wasmtime's own pinned archive. FreeBSD's `libwasmtime` package keeps it as `share/licenses/libwasmtime-*/APACHE20`, which is Wasmtime's `LICENSE` word for word, and the fetch now copies it in as `LICENSE`. A FreeBSD tree vendored before this has no `LICENSE`, so it is fetched again.
 		- The `.deb` and `.rpm` also get `LICENSE-wasmtime.txt`, `LICENSE-module.txt` and `NOTICE.txt`, beside the GPL text they had.
+		- The module license and NOTICE stay in the packages, by direct answer 20261004.
 		- Note: the bare binaries still go out with no license file beside them, as before.
 	- Verified: the full `--package` run above. The FreeBSD fetch ran again and its `LICENSE` matches Wasmtime's own. Both macOS archives at the pinned checksums have the same `LICENSE`. Every new check failed against the release built from `main`, and the tarball check failed with the module's license in place of Wasmtime's.
 	- Swept: every tarball, both zips, both `.deb` and both `.rpm`. The Windows check now reads for the text only Wasmtime's license has, as the new checks do. `install.bash` and `install.ps1` install the whole tree, so nothing changes there. The macOS tarball change is only read, not run.
@@ -570,6 +558,32 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: `Eq9gPQm` runs on macOS now, and on both systems reads the allowed names from `lib/zuid.map` and checks every function `zuid.h` declares is exported. It failed on b26 with the old `build.zig` (828 stray exports) and passes with the fix. New `ErfrKRQ` checks each slice of the release dylib under `--package`: exports, install name with its versions, macOS 13.0, and the arm64 signature. Its export check failed on a release built with the old `build.zig`. Its install name check rejects the first relink's dylib, which had compatibility version 0.0.0.
 	- Acceptance signoff: Self-closed: the intent was clear, and the tests failed before the fix and pass after.
 	- Closed: 20261003-143030
+
+- When creating a release, use a table to group downloads.
+	- ID: 2026100409432309
+	- Type: Feature
+	- Status: Done
+	- Opened: 20261004-094323
+	- Opened by: JC
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- CPU architecture in columns, and target OS in rows.
+	- Progress log:
+		- 20261004: `--publish` adds a "Downloads" table to the notes. Rows are Linux, macOS, Windows, FreeBSD; columns are x86_64 and arm64. Each cell links every file for that pair: tarball or zip, bare binary, `.deb`, `.rpm`. A cell with no file shows `-`.
+		- A file the table cannot place, such as another CPU or no OS in its name, is linked in a line under the table. `checksums.txt` is linked after that.
+		- The links need the repo's address, which comes from `gh repo view`. The preflight refuses if gh cannot name the repo, so no tag is pushed for a release that would fail anyway.
+		- Verified: `pipeline-test.bash` 44 passed, `test-ids.py check`, shellcheck. A sample passed through GitHub's markdown renderer kept the spanned cell.
+		- 20261004: A missing macOS file now shows one dash across both columns, the same layout as when it is there.
+	- Decisions:
+		- 20261004: the macOS universal file spans both architecture columns. A markdown table cannot span cells, so the release notes need an HTML table for this.
+		- 20261004: the table goes after the changelog section, under its own "Downloads" heading. What changed reads first, and GitHub lists the assets at the bottom of the page anyway. With no changelog section the notes are the table alone, where before they were empty.
+		- 20261004: every row shows even with no files, as dashes, so the layout is the same in every release.
+		- 20261004: a missing macOS file is one dash across both columns. Left to this side by direct answer.
+	- Branch: dl-table
+	- Commit: de03ae4
+	- Test case: `pipeline-test.bash` Erm9fTp (rows and columns), Erm9fTq (spanned macOS cell), Erm9fTr (missing target), ErmpEWr (missing macOS file), Erm9fTs (changelog, table, then checksums.txt), ErmAuec (refusal when gh cannot name the repo). All failed before their change.
+	- Acceptance signoff: Self-closed: the table is built and checked, and the open layout question was answered.
+	- Closed: 20261004-184405
 
 - Move the Zig side to 0.17.0.
 	- ID: 2026100313583935
