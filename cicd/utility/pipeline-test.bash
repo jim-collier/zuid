@@ -234,6 +234,18 @@ if [[ -z "${notTopBad}" ]]
 	else fFail "${notTopBad}"
 fi
 
+## Run through a symlinked folder, the root kept the link's name, and a find
+## started there listed only the link. The sync refusal names the root.
+fId ErqU8vW "the repo root is the real folder when cicd.bash is run through a symlink"
+mkdir -p "${work}/linked/real/cicd"
+cp "${cicd}" "${work}/linked/real/cicd/"
+ln -s real "${work}/linked/link"
+out="$(cd "${work}/linked" && env -u ZUID_CICD_QUIET bash link/cicd/cicd.bash -q --no-backup --no-dogfood 2>&1 < /dev/null)" && rc=0 || rc=$?
+if ((rc != 0)) && [[ "${out}" == *"Not a git repo: '$(cd "${work}/linked/real" && pwd -P)'"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '$(grep -m1 'Not a git repo' <<< "${out}" || true)'"
+fi
+
 ## The backup helper archives the folder above the checkout, which for a
 ## worktree is not the project, so the default backup steps aside there.
 fInitIn(){  ## repo dir, args...

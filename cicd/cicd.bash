@@ -248,7 +248,9 @@ fMain(){
 	local -ri keepMonthly="${default_keepMonthly}"
 
 	## Layout. This script lives in the repo's cicd/, so the repo root is one up.
-	local -r repoRoot="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+	## Physical, since find does not descend a symlink it is handed as a start.
+	## Run as zuid/repo/cicd/cicd.bash, the PowerShell check found nothing.
+	local -r repoRoot="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 	[[ -n "${repoRoot}" ]] || fThrowError "Could not resolve the repo root."  "${FUNCNAME[0]}"
 	local -r goDir="${repoRoot}/go"
 	local -r zigDir="${repoRoot}/zig"
