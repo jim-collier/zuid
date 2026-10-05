@@ -138,7 +138,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Swept: the `%m` notes in the help text, `zuid.h` and design.md. `package.bash`'s note on Windows. `wasmtimeDir` in `build.zig` and `fWasmtimeArchive` in `package.bash` both find `vendor/wasmtime-x86_64-windows`.
 	- Swept: every live read of the user name, `liveUsername` in Go and `readUsername` in Zig, with their fallbacks to the environment. `WithUsername`, `Env` and the C API's injected names do not pass through either. The `%u` notes in design.md, the help text and `zuid.h`; only design.md mentioned the domain.
 	- Branch: winbuild, then winuser
-	- Commit: 8ee3066
+	- Commit: 8ee3066, then 158a367
 	- Test case: ErmM9mS to ErmM9mV under `--package` on Linux: the build and what it is, the DLL's exports, and `capi_smoke.c` linking against each library. Each failed with its fault planted: no Windows headers, the Wasmtime hooks not allowed, `-liphlpapi` dropped, and the static link pointed at the import library. ElpGOHX, the live environment test, passed on vm925w. ErmqB7B and ErmqB7D, the domain dropped, on every platform. ErmqB7C and ErmqB7E, the same two names lower-cased on Windows, one of them outside ASCII; ErmqB7E also checks the live name has no domain. Each failed before the change, the Windows pair on vm925w.
 
 - When a shcl upgrade breaks compatibility with the application config file(s).
