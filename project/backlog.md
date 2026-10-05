@@ -249,6 +249,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Verified: on vm925w, the cross-built command with `--no-hash -f '%d %h %u %f %m %g %r'`, hashed, the default and `-n 3`. All 30 Zig tests from `zig build test-bin`. `capi_smoke.c` with mingw gcc 16.1 against the DLL and, with the line `zuid.h` gives, against `libzuid.a`, run from a folder with no DLL; MSVC 2022 against the DLL. `capi_interpose.c` with both against the DLL. On Linux, the full pipeline and one with `--package`, which fetched and checked the new pin.
 	- Swept: the `%m` notes in the help text, `zuid.h` and design.md. `package.bash`'s note on Windows. `wasmtimeDir` in `build.zig` and `fWasmtimeArchive` in `package.bash` both find `vendor/wasmtime-x86_64-windows`.
 	- Branch: winbuild
+	- Commit: 8ee3066
 	- Test case: ErmM9mS to ErmM9mV under `--package` on Linux: the build and what it is, the DLL's exports, and `capi_smoke.c` linking against each library. Each failed with its fault planted: no Windows headers, the Wasmtime hooks not allowed, `-liphlpapi` dropped, and the static link pointed at the import library. ElpGOHX, the live environment test, passed on vm925w.
 
 - Windows release packages, x86_64 and arm64.
