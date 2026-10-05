@@ -96,6 +96,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- 20261004: `Eq9nb3o` stays on the warm global cache. A direct `zig build` with the value empty fails cold whatever this repo does, so a cold `Eq9nb3o` could never pass. A cold run through the scripts would add about 2.5 min, mostly rebuilding Zig's build runner; Zig's own libc, libunwind and compiler_rt take about 8 s of that.
 	- Actual fix [Bug]: `cicd.bash`, in preflight, and `package.bash` drop an empty or non-numeric value before running zig, with a note for a non-numeric one, the same as `build.zig` treats it. The README says to unset it for a plain `zig build`.
 	- Verified: a full `cicd.bash --no-dogfood --no-backup -q` run with the value empty and a new global cache passed, in 6 min 13 s. The same in a clone of `main`, with `--only zig --quick`, failed in the first Zig build with clang's error.
+	- Note: 20261004, on b26 at 12d2b2d: the full `--package` run passed, with `ErmER3z`, `ErmER40` and `Eq9nb3o`. The variable was not set there, so that run did not try an empty one on a cold global cache.
 	- Swept: every `zig` call in `cicd.bash` runs after preflight; `package.bash` is the other script that runs zig, and the harnesses run only stand-in zigs. `install.bash` and `install.ps1` do not build.
 	- Branch: emptyepoch
 	- Commit: e8f7545
@@ -213,67 +214,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Commit: 0263572
 	- Test case: ErmM9mS to ErmM9mV now read the x86_64 zip. New: ErmS0zB, no AVX in code built here, read through the PDB; ErmS0zC and ErmS0zD, every DLL loaded is Windows' own or in the zip, and every function asked of one in the zip is exported; ErmS0zE to ErmS0zH, the arm64 zip's files and machine type, `zuid.dll`'s exports, and `capi_smoke.c` linking against both libraries; ErmS0zI, every `.ps1` is ASCII. Each failed with its fault planted: a missing license, a missing or extra bare `.exe`, a stand-in `wasmtime.dll`, Wasmtime's DLL as `zuid.dll`, x86_64 libraries in the arm64 zip, an x86_64_v3 build, `ws2_32` dropped from the allowed list, and the old `install.ps1` or a byte-order mark. Erm9fTp, the download table, failed with the `.exe` ranked ahead of the zip. The Windows install run is by hand and has no ID.
 
-- The macOS build hangs on Zig 0.17.0.
-	- ID: 2026100318410002
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: No. A full `cicd.bash --no-dogfood --no-backup --cross -q` passed on Linux with the fix.
-	- Needs external testing: Yes. The full pipeline run on b26, batched with 2026100313583935 and the Zig fuzz item.
-	- Priority|Severity [Bug]: High
-	- Opened: 20261003-184100
-	- Opened by: JC
-	- Related IDs: 2026100313583935, 2026100415475381
-	- Target OS: macOS
-	- Steps to reproduce [Bug]:
-		- On b26, run `cicd.bash` with Zig 0.17.0.
-		- Or by hand: `zig translate-c -lc <any header> | wc -c`.
-	- Incorrect behavior [Bug]: The Zig stage never ends. The three header steps sit at full CPU.
-	- Expected behavior [Bug]: The build finishes, as it does on Linux.
-	- Reproduced [Bug]: Yes, on b26, 20261003. Even a one-line header hangs when the output goes to a pipe. The same command writing to a file finishes at once.
-	- Possible cause [Bug]: Zig copies its output to stdout with `fcopyfile`, which fails on a pipe there, and Zig retries forever. The header step reads stdout through a pipe. No upstream report found.
-	- Progress log:
-		- 20261003: Untested idea: have the step write to its output file through `sh -c`, so Zig never writes to a pipe.
-		- 20261004: Reproduced again on b26: piped, a one-line header gave no output in 20 s; to a file it finished at once. `zig translate-c` has no output file option, so the step cannot just name one.
-		- 20261004: Not `sh -c`, since a native Windows build has no `sh`. A small Zig helper does the redirect on every host instead.
-		- 20261004: Found along the way: `Eq9nb3o` could not see the header step at all. The translator kept its own cache beside `build.zig`, so the test's fresh cache still got a warm translation. Fixed here, since the test pins what this step must keep.
-		- 20261004: Also found: a cold global cache fails the empty `SOURCE_DATE_EPOCH` build anyway, in Zig's own libunwind build. Same on `main`. Logged as 2026100415475381.
-	- Actual cause [Bug]: `zig translate-c` copies its cached result to stdout with `fcopyfile` on macOS. Read in Zig's source, not traced: an error that is not "unsupported" makes the copy report zero bytes, and the caller asks again forever. Linux takes another path.
-	- Actual fix [Bug]: The three header steps run `zig translate-c` through `zig/tools/to_file.zig`, which gives it a file for stdout. Still a Run step, so it still drops `SOURCE_DATE_EPOCH`. The translator now gets the build's cache directory too.
-	- Verified: on b26, a fresh-cache build finished in about 23 s, a fresh-cache build with `SOURCE_DATE_EPOCH` empty finished too, and all 30 Zig tests passed. That copy had no git history, so it had no build number to check. On Linux, the translated headers match `zig translate-c` byte for byte, the arm64 Linux and FreeBSD cross builds work, a no-op rebuild takes under a tenth of a second, and the full pipeline passes.
-	- Swept: `captureStdOut` and `addSystemCommand` in `build.zig`, and every `zig` call in the scripts. The header steps were the only place Zig wrote a file to a pipe. `cicd.bash`'s `zig fmt` check now covers `zig/tools`.
-	- Branch: machang
-	- Commit: 47c1134
-	- Test case: new `Erm4m6a` fails if `build.zig` captures a command's stdout. It fails on the old `build.zig` and passes now. A Linux build cannot hang, so the hang itself waits on the b26 run. `Eq9nb3o` now fails when the step stops dropping `SOURCE_DATE_EPOCH`; before the cache fix it passed either way.
-
-- The Linux, macOS and FreeBSD tarballs have `libwasmtime.a` without Wasmtime's license.
-	- ID: 2026100417324819
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: No. A full `cicd.bash --package --no-dogfood --no-backup -q` passed on Linux with the fix.
-	- Needs external testing: Yes. A `--package` run on b26, for the macOS tarball and ErmYT8R. Batch it with the other b26 items.
-	- Priority|Severity [Bug]: Low
-	- Opened: 20261004-173248
-	- Opened by: JC
-	- Related IDs: 2026100416052036
-	- Steps to reproduce [Bug]:
-		- List any `.tgz` from `--package`.
-	- Incorrect behavior [Bug]:
-		- `lib/libwasmtime.a` is there, and nothing in `share/` is Wasmtime's Apache-2.0 license, which has to go along with a copy of it.
-	- Expected behavior [Bug]:
-		- `share/LICENSE-wasmtime.txt`, as the Windows zips have. FreeBSD's vendored package keeps no license file yet, so that fetch needs one too.
-	- Reproduced [Bug]: 20261004, on the Linux tarballs, `.deb` and `.rpm` from `main`. The command links Wasmtime in statically, so the packages lacked it too, and they also lacked the module's Apache license and NOTICE.
-	- Actual cause [Bug]:
-		- `package.bash` copied Wasmtime's license only for the Windows zips. The FreeBSD fetch kept zstd's license and not Wasmtime's.
-	- Actual fix [Bug]:
-		- Every tarball and zip gets `share/LICENSE-wasmtime.txt`, from `LICENSE` in the vendored Wasmtime tree. Linux, macOS and Windows take it from Wasmtime's own pinned archive. FreeBSD's `libwasmtime` package keeps it as `share/licenses/libwasmtime-*/APACHE20`, which is Wasmtime's `LICENSE` word for word, and the fetch now copies it in as `LICENSE`. A FreeBSD tree vendored before this has no `LICENSE`, so it is fetched again.
-		- The `.deb` and `.rpm` also get `LICENSE-wasmtime.txt`, `LICENSE-module.txt` and `NOTICE.txt`, beside the GPL text they had.
-		- Note: the bare binaries still go out with no license file beside them, as before.
-	- Verified: the full `--package` run above. The FreeBSD fetch ran again and its `LICENSE` matches Wasmtime's own. Both macOS archives at the pinned checksums have the same `LICENSE`. Every new check failed against the release built from `main`, and the tarball check failed with the module's license in place of Wasmtime's.
-	- Swept: every tarball, both zips, both `.deb` and both `.rpm`. The Windows check now reads for the text only Wasmtime's license has, as the new checks do. `install.bash` and `install.ps1` install the whole tree, so nothing changes there. The macOS tarball change is only read, not run.
-	- Branch: wtlicense
-	- Commit: 2dd0931
-	- Test case: ErmYT8O to ErmYT8V, one per release: the Linux x86_64 and arm64, FreeBSD and macOS tarballs, and each `.deb` and `.rpm`. Each Linux one failed on `main`'s release and passes now. ErmYT8R runs only on a Mac and has not run.
-
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -300,6 +240,26 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Not a reason to hold the FreeBSD release, since zuid cannot cause or fix a kernel fault. Reopen if it comes back.
 	- Branch: freebsd
 
+- `pipeline-test.bash` fails on a Mac with the stock Python.
+	- ID: 2026100417561172
+	- Type: Bug
+	- Status: Queued
+	- Needs external testing: Yes. A full pipeline run on b26.
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20261004-175611
+	- Opened by: JC
+	- Target OS: macOS
+	- Test environment: b26, macOS 15.8, Python 3.9.6, the only `python3` there.
+	- Version and build: 12d2b2d
+	- Steps to reproduce [Bug]:
+		- On b26, run `cicd.bash --no-sync --no-backup --no-dogfood -q`.
+	- Incorrect behavior [Bug]: The shell stage stops in `pipeline-test.bash`, after the `--publish` cases. `test-ids.py new --at 2026-09-01T12:00:00Z` throws "Invalid isoformat string", and the next line dies on an unset `fixtureIds[2]`. Nothing past the shell stage runs.
+	- Expected behavior [Bug]: The shell stage passes, as it did on b26 before the fixture came in.
+	- Reproduced [Bug]: Yes, on b26, 20261004.
+	- Possible cause [Bug]: Python before 3.11 cannot read a trailing `Z` in `fromisoformat`. The fixture came in with 34a071b. Not yet decided whether the fix goes in the fixture or in `test-ids.py`.
+	- Progress log:
+		- 20261004: With that one fixture date written as `+00:00`, the rest of the full `--package` run passed on b26.
+
 - Update vmFreeBSD's kernel and every package, then retry the panic.
 	- ID: 2026100415162238
 	- Type: Task
@@ -313,37 +273,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Requirements  [Feature]:
 		- Update the base system and kernel with FreeBSD's own updater, and every package with `pkg upgrade`. Reboot.
 		- Rerun `cli-test.bash` against the release on the VM, logged to disk as before, to see whether the panic still shows up.
-
-- Move the Zig side to 0.17.0.
-	- ID: 2026100313583935
-	- Type: Task
-	- Status: Queued
-	- Needs external testing: on b26, install Zig 0.17.0 beside 0.16.0 as `~/.local/zig-x86_64-macos-0.17.0`, checked against the download index, and run the pipeline with `--package`. That builds the arm64 macOS slice of the universal release, which has only been cross-compiled so far.
-	- Opened: 20261003-135839
-	- Opened by: JC
-	- Prereq IDs: 2026100318410002
-	- Target OS: Any
-	- Estimated effort: Low
-	- Decision: Move to 0.17.0.
-		- The pipeline finds its own Zig: `ZIG` if set, else the `zig` on PATH if it is new enough, else `~/.local/zig-<platform>-0.17.0/zig`. Whichever it picks goes first on PATH, so the packaging script and the test scripts use it too. The shared `zig` link stays on 0.16.0 for the other projects.
-		- The C headers are translated with Zig's own `translate-c`, not the separate package, so an offline build needs nothing fetched.
-		- `DebugAllocator` stays for now. It still builds on 0.17.0.
-	- Progress log:
-		- 20261003: Zig 0.17.0 came out 2026-10-01. A trial port builds, passes all 30 Zig tests, and the C module still works from gcc. It took small changes in seven files plus three short C headers. `details.md` has the list.
-		- 20261003: The Zig fuzz item under Old format waits on this. Fuzz mode works in 0.17.0.
-		- 20261003: Other projects on the build machine still pin 0.16.0, so the two versions have to sit side by side there. b26 needs 0.17.0 too.
-		- 20261003: Question: go ahead? 0.16.0 is a settled choice, so the move needs a yes first. Answered yes, 20261003.
-		- 20261003: Done on branch `zig017`. Ported as the trial did, and 0.17.0 is installed beside 0.16.0 on the build machine.
-		- 20261003: An empty `SOURCE_DATE_EPOCH` broke the build on 0.17.0, and the existing test for it caught that. The build script can no longer clear the variable for the header step, so that step now runs as a plain command with it removed.
-		- 20261003: Question: move to `SafeAllocator`? Zig 0.17.0 deprecates `DebugAllocator` in its favor, but it is a different allocator, not a rename. It catches more, so the memory-safety section in `design.md` would need rewriting, and the leak test would need another way to count. Kept as is until then.
-		- 20261004: Answer: either way. `DebugAllocator` stays. It is unchanged in 0.17.0, and `SafeAllocator` counts leaks only by tearing itself down, which the leak test cannot use. Revisit when a Zig release removes it.
-		- 20261003: The ReleaseSafe test run fails the leaked-context test, on 0.16.0 as well. The pipeline tests in Debug, so it only matters to the fuzz item.
-		- 20261003: The b26 run failed. The Zig build hangs on macOS, so nothing past the Go stages ran there. Back to Queued until 2026100318410002 is fixed. 0.17.0 is installed on b26 now, checked against the download index.
-	- Verified: a full pipeline run (`cicd.bash --no-dogfood --no-backup`) and one with `--cross` both passed on Linux, with no test skipped. A ReleaseSafe build runs. A release package for glibc 2.28 builds. Both macOS slices cross-compile and link. A no-op rebuild takes under a tenth of a second.
-	- Swept: every `@cImport`, array `**`, upper-case optimize tag and `build_root` in `zig/`, and every Zig version mention outside the backlog. `cicd.bash` and `package.bash` are the only scripts that run `zig`, and both get the one the pipeline picked.
-	- Branch: zig017
-	- Commit: 161affa
-	- Test case: the existing suites, with no new test. `Eq9nb3o`, the empty `SOURCE_DATE_EPOCH` build, failed on the first port and passes now.
 
 - When a shcl upgrade breaks compatibility with the application config file(s).
 	- ID: 2026100313105246
@@ -370,6 +299,41 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Target OS: Any
 	- Progress log:
 		- 20261003: waits on its parent.
+
+- The macOS build hangs on Zig 0.17.0.
+	- ID: 2026100318410002
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: No. A full `cicd.bash --no-dogfood --no-backup --cross -q` passed on Linux with the fix.
+	- Needs external testing: Done on b26, 20261004.
+	- Priority|Severity [Bug]: High
+	- Opened: 20261003-184100
+	- Opened by: JC
+	- Related IDs: 2026100313583935, 2026100415475381
+	- Target OS: macOS
+	- Steps to reproduce [Bug]:
+		- On b26, run `cicd.bash` with Zig 0.17.0.
+		- Or by hand: `zig translate-c -lc <any header> | wc -c`.
+	- Incorrect behavior [Bug]: The Zig stage never ends. The three header steps sit at full CPU.
+	- Expected behavior [Bug]: The build finishes, as it does on Linux.
+	- Reproduced [Bug]: Yes, on b26, 20261003. Even a one-line header hangs when the output goes to a pipe. The same command writing to a file finishes at once.
+	- Possible cause [Bug]: Zig copies its output to stdout with `fcopyfile`, which fails on a pipe there, and Zig retries forever. The header step reads stdout through a pipe. No upstream report found.
+	- Progress log:
+		- 20261003: Untested idea: have the step write to its output file through `sh -c`, so Zig never writes to a pipe.
+		- 20261004: Reproduced again on b26: piped, a one-line header gave no output in 20 s; to a file it finished at once. `zig translate-c` has no output file option, so the step cannot just name one.
+		- 20261004: Not `sh -c`, since a native Windows build has no `sh`. A small Zig helper does the redirect on every host instead.
+		- 20261004: Found along the way: `Eq9nb3o` could not see the header step at all. The translator kept its own cache beside `build.zig`, so the test's fresh cache still got a warm translation. Fixed here, since the test pins what this step must keep.
+		- 20261004: Also found: a cold global cache fails the empty `SOURCE_DATE_EPOCH` build anyway, in Zig's own libunwind build. Same on `main`. Logged as 2026100415475381.
+	- Actual cause [Bug]: `zig translate-c` copies its cached result to stdout with `fcopyfile` on macOS. Read in Zig's source, not traced: an error that is not "unsupported" makes the copy report zero bytes, and the caller asks again forever. Linux takes another path.
+	- Actual fix [Bug]: The three header steps run `zig translate-c` through `zig/tools/to_file.zig`, which gives it a file for stdout. Still a Run step, so it still drops `SOURCE_DATE_EPOCH`. The translator now gets the build's cache directory too.
+	- Verified: on b26, a fresh-cache build finished in about 23 s, a fresh-cache build with `SOURCE_DATE_EPOCH` empty finished too, and all 30 Zig tests passed. That copy had no git history, so it had no build number to check. On Linux, the translated headers match `zig translate-c` byte for byte, the arm64 Linux and FreeBSD cross builds work, a no-op rebuild takes under a tenth of a second, and the full pipeline passes.
+	- Swept: `captureStdOut` and `addSystemCommand` in `build.zig`, and every `zig` call in the scripts. The header steps were the only place Zig wrote a file to a pipe. `cicd.bash`'s `zig fmt` check now covers `zig/tools`.
+	- Branch: machang
+	- Commit: 47c1134
+	- Test case: new `Erm4m6a` fails if `build.zig` captures a command's stdout. It fails on the old `build.zig` and passes now. A Linux build cannot hang, so the hang itself waits on the b26 run. `Eq9nb3o` now fails when the step stops dropping `SOURCE_DATE_EPOCH`; before the cache fix it passed either way.
+	- Verified: 20261004 on b26, at 12d2b2d: the full pipeline with `--package` passed in about 7 minutes, with a fresh clone and a cold Zig cache for the project. The Zig stage finished, and `Erm4m6a` and `Eq9nb3o` passed. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
+	- Acceptance signoff: Self-closed: the macOS build finishes, and its tests pass.
+	- Closed: 20261004-175611
 
 - Release builds target the build machine's CPU.
 	- ID: 2026093018112406
@@ -521,6 +485,38 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: `ErkRrmk` to `ErkRrmo` in `pipeline-test.bash`, against a scratch tree. `ErkRrml`, `ErkRrmm` and `ErkRrmo` failed on the old `test-ids.py`. `ErkRrmn` failed with the comment exemption taken out.
 	- Closed: 20261004-090044
 
+- The Linux, macOS and FreeBSD tarballs have `libwasmtime.a` without Wasmtime's license.
+	- ID: 2026100417324819
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: No. A full `cicd.bash --package --no-dogfood --no-backup -q` passed on Linux with the fix.
+	- Needs external testing: Done on b26, 20261004.
+	- Priority|Severity [Bug]: Low
+	- Opened: 20261004-173248
+	- Opened by: JC
+	- Related IDs: 2026100416052036
+	- Steps to reproduce [Bug]:
+		- List any `.tgz` from `--package`.
+	- Incorrect behavior [Bug]:
+		- `lib/libwasmtime.a` is there, and nothing in `share/` is Wasmtime's Apache-2.0 license, which has to go along with a copy of it.
+	- Expected behavior [Bug]:
+		- `share/LICENSE-wasmtime.txt`, as the Windows zips have. FreeBSD's vendored package keeps no license file yet, so that fetch needs one too.
+	- Reproduced [Bug]: 20261004, on the Linux tarballs, `.deb` and `.rpm` from `main`. The command links Wasmtime in statically, so the packages lacked it too, and they also lacked the module's Apache license and NOTICE.
+	- Actual cause [Bug]:
+		- `package.bash` copied Wasmtime's license only for the Windows zips. The FreeBSD fetch kept zstd's license and not Wasmtime's.
+	- Actual fix [Bug]:
+		- Every tarball and zip gets `share/LICENSE-wasmtime.txt`, from `LICENSE` in the vendored Wasmtime tree. Linux, macOS and Windows take it from Wasmtime's own pinned archive. FreeBSD's `libwasmtime` package keeps it as `share/licenses/libwasmtime-*/APACHE20`, which is Wasmtime's `LICENSE` word for word, and the fetch now copies it in as `LICENSE`. A FreeBSD tree vendored before this has no `LICENSE`, so it is fetched again.
+		- The `.deb` and `.rpm` also get `LICENSE-wasmtime.txt`, `LICENSE-module.txt` and `NOTICE.txt`, beside the GPL text they had.
+		- Note: the bare binaries still go out with no license file beside them, as before.
+	- Verified: the full `--package` run above. The FreeBSD fetch ran again and its `LICENSE` matches Wasmtime's own. Both macOS archives at the pinned checksums have the same `LICENSE`. Every new check failed against the release built from `main`, and the tarball check failed with the module's license in place of Wasmtime's.
+	- Swept: every tarball, both zips, both `.deb` and both `.rpm`. The Windows check now reads for the text only Wasmtime's license has, as the new checks do. `install.bash` and `install.ps1` install the whole tree, so nothing changes there. The macOS tarball change is only read, not run.
+	- Branch: wtlicense
+	- Commit: 2dd0931
+	- Test case: ErmYT8O to ErmYT8V, one per release: the Linux x86_64 and arm64, FreeBSD and macOS tarballs, and each `.deb` and `.rpm`. Each Linux one failed on `main`'s release and passes now. ErmYT8R runs only on a Mac and has not run.
+	- Verified: 20261004 on b26, at 12d2b2d: ErmYT8R passed in the full `--package` run, and the macOS tarball lists `share/LICENSE-wasmtime.txt`, which is the Apache 2.0 text. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
+	- Acceptance signoff: Self-closed: every release has the license, and its tests pass.
+	- Closed: 20261004-175611
+
 - The macOS shared library exports all of Wasmtime.
 	- ID: 2026093018112419
 	- Type: Enhancement
@@ -550,6 +546,40 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: `Eq9gPQm` runs on macOS now, and on both systems reads the allowed names from `lib/zuid.map` and checks every function `zuid.h` declares is exported. It failed on b26 with the old `build.zig` (828 stray exports) and passes with the fix. New `ErfrKRQ` checks each slice of the release dylib under `--package`: exports, install name with its versions, macOS 13.0, and the arm64 signature. Its export check failed on a release built with the old `build.zig`. Its install name check rejects the first relink's dylib, which had compatibility version 0.0.0.
 	- Acceptance signoff: Self-closed: the intent was clear, and the tests failed before the fix and pass after.
 	- Closed: 20261003-143030
+
+- Move the Zig side to 0.17.0.
+	- ID: 2026100313583935
+	- Type: Task
+	- Status: Done
+	- Needs external testing: on b26, install Zig 0.17.0 beside 0.16.0 as `~/.local/zig-x86_64-macos-0.17.0`, checked against the download index, and run the pipeline with `--package`. That builds the arm64 macOS slice of the universal release, which has only been cross-compiled so far. Done, 20261004.
+	- Opened: 20261003-135839
+	- Opened by: JC
+	- Prereq IDs: 2026100318410002
+	- Target OS: Any
+	- Estimated effort: Low
+	- Decision: Move to 0.17.0.
+		- The pipeline finds its own Zig: `ZIG` if set, else the `zig` on PATH if it is new enough, else `~/.local/zig-<platform>-0.17.0/zig`. Whichever it picks goes first on PATH, so the packaging script and the test scripts use it too. The shared `zig` link stays on 0.16.0 for the other projects.
+		- The C headers are translated with Zig's own `translate-c`, not the separate package, so an offline build needs nothing fetched.
+		- `DebugAllocator` stays for now. It still builds on 0.17.0.
+	- Progress log:
+		- 20261003: Zig 0.17.0 came out 2026-10-01. A trial port builds, passes all 30 Zig tests, and the C module still works from gcc. It took small changes in seven files plus three short C headers. `details.md` has the list.
+		- 20261003: The Zig fuzz item under Old format waits on this. Fuzz mode works in 0.17.0.
+		- 20261003: Other projects on the build machine still pin 0.16.0, so the two versions have to sit side by side there. b26 needs 0.17.0 too.
+		- 20261003: Question: go ahead? 0.16.0 is a settled choice, so the move needs a yes first. Answered yes, 20261003.
+		- 20261003: Done on branch `zig017`. Ported as the trial did, and 0.17.0 is installed beside 0.16.0 on the build machine.
+		- 20261003: An empty `SOURCE_DATE_EPOCH` broke the build on 0.17.0, and the existing test for it caught that. The build script can no longer clear the variable for the header step, so that step now runs as a plain command with it removed.
+		- 20261003: Question: move to `SafeAllocator`? Zig 0.17.0 deprecates `DebugAllocator` in its favor, but it is a different allocator, not a rename. It catches more, so the memory-safety section in `design.md` would need rewriting, and the leak test would need another way to count. Kept as is until then.
+		- 20261004: Answer: either way. `DebugAllocator` stays. It is unchanged in 0.17.0, and `SafeAllocator` counts leaks only by tearing itself down, which the leak test cannot use. Revisit when a Zig release removes it.
+		- 20261003: The ReleaseSafe test run fails the leaked-context test, on 0.16.0 as well. The pipeline tests in Debug, so it only matters to the fuzz item.
+		- 20261003: The b26 run failed. The Zig build hangs on macOS, so nothing past the Go stages ran there. Back to Queued until 2026100318410002 is fixed. 0.17.0 is installed on b26 now, checked against the download index.
+	- Verified: a full pipeline run (`cicd.bash --no-dogfood --no-backup`) and one with `--cross` both passed on Linux, with no test skipped. A ReleaseSafe build runs. A release package for glibc 2.28 builds. Both macOS slices cross-compile and link. A no-op rebuild takes under a tenth of a second.
+	- Swept: every `@cImport`, array `**`, upper-case optimize tag and `build_root` in `zig/`, and every Zig version mention outside the backlog. `cicd.bash` and `package.bash` are the only scripts that run `zig`, and both get the one the pipeline picked.
+	- Branch: zig017
+	- Commit: 161affa
+	- Test case: the existing suites, with no new test. `Eq9nb3o`, the empty `SOURCE_DATE_EPOCH` build, failed on the first port and passes now.
+	- Verified: 20261004 on b26, at 12d2b2d, with Zig 0.17.0: the full pipeline with `--package` passed, 269 ok and no failures. The only skips are Linux-only checks. It built the arm64 slice there, and `Erfhegq` passed. `lipo -info` gives x86_64 and arm64 for `zuid-darwin-universal` and for the tarball's `bin/zuid`, `lib/libzuid.a` and `libzuid.1.0.0.dylib`. The x86_64 slice ran `--version`, the default, `-n 3` and `--no-hash -f '%d %h %u %f %m %g %r'`. The arm64 slice still has not run on Apple Silicon. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
+	- Acceptance signoff: Self-closed: version move, approved 20261003, and its tests pass on Linux and macOS.
+	- Closed: 20261004-175611
 
 - Drop BSD from the installer and the docs.
 	- ID: 2026100315241091
@@ -710,18 +740,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 ### Bugs
 
 ### Features and enhancements
-
-- 🔬 Run the Zig fuzz tests in fuzz mode, once a Zig release can build one.
-	- Note: the tests are written and replay their corpus on every run. `zig build test --fuzz` fails to compile inside 0.16.0's own test runner, so nothing on this side can fix it. `details.md` has the error.
-	- Note: 20261003: the b26 run stopped before the fuzz stage, at the Zig build hang, 2026100318410002.
-	- Note: 20261003: Zig 0.17.0 runs fuzz mode, `--fuzz=<limit>` too, on a tiny test and on ours. There is no 0.16 point release with the fix. So this waits on 2026100313583935, the move to 0.17.0. One catch: a run that finds a bad input still exits 0, so the pipeline stage has to read the output. The 0.17.0 download was checked against the sha256 in Zig's download index.
-	- Done: 20261003: a full pipeline run fuzzes both Zig fuzz tests after the Zig tests, 50K iterations each. A quick run prints a skip line instead. It takes about 35 s here, and about 13 s more after a change to the Zig source.
-	- Decision: 20261003, open to change: 50K iterations, and Debug, since the leaked-context test counts contexts only there. A find fails the stage from the output, not the exit code. Its input is kept in `cicd/artifacts/fuzz/`, which nothing rotates, and printed as a string ready for the test's corpus. The limit is always attached with `=`, since a bare `--fuzz` starts a web server.
-	- Verified: a planted two-byte failure in the format test turned the stage red, with Zig's crash line, and the kept input failed the plain test run once added to the corpus. A planted panic in the C test, run through the same command, ended in the same `input saved to` line. No port was opened during a run. A full `cicd.bash --no-dogfood --no-backup -q` passes.
-	- Done: 20261004: each fuzz test prints its own line under its own ID, as the Go one does. They used to share one line under `ErgeVve`, so a find could not say whose it was. A find now fails the test that found it, and the other shows as skipped.
-	- Test case: `Eq9zVsH` and `Eq9zVsI` in the fuzz stage. `ErkRrmp` to `ErkRrmr` in `pipeline-test.bash` run the stage with a stand-in `zig`: a clean run, a find, and a broken run. All three failed on the old stage. `ErgeVve` is retired.
-	- Note: still needs a pipeline run on b26, like 2026100313583935.
-	- Opened: 20260917-131500
 
 - 🛠️ `%m` is Linux-only on the Zig side - it reads `getifaddrs` for `AF_PACKET`, and macOS wants `AF_LINK` instead. The Go module is already portable, and the help text and the C header both say so. Do it alongside the cross targets, since nothing on the Zig side cross-compiles yet either.
 	- Should work on Windows too.
@@ -989,6 +1007,21 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Closed: 20260804-224440
 
 #### Done - Features and enhancements
+
+- ✅ Run the Zig fuzz tests in fuzz mode, once a Zig release can build one.
+	- Note: the tests are written and replay their corpus on every run. `zig build test --fuzz` fails to compile inside 0.16.0's own test runner, so nothing on this side can fix it. `details.md` has the error.
+	- Note: 20261003: the b26 run stopped before the fuzz stage, at the Zig build hang, 2026100318410002.
+	- Note: 20261003: Zig 0.17.0 runs fuzz mode, `--fuzz=<limit>` too, on a tiny test and on ours. There is no 0.16 point release with the fix. So this waits on 2026100313583935, the move to 0.17.0. One catch: a run that finds a bad input still exits 0, so the pipeline stage has to read the output. The 0.17.0 download was checked against the sha256 in Zig's download index.
+	- Done: 20261003: a full pipeline run fuzzes both Zig fuzz tests after the Zig tests, 50K iterations each. A quick run prints a skip line instead. It takes about 35 s here, and about 13 s more after a change to the Zig source.
+	- Decision: 20261003, open to change: 50K iterations, and Debug, since the leaked-context test counts contexts only there. A find fails the stage from the output, not the exit code. Its input is kept in `cicd/artifacts/fuzz/`, which nothing rotates, and printed as a string ready for the test's corpus. The limit is always attached with `=`, since a bare `--fuzz` starts a web server.
+	- Verified: a planted two-byte failure in the format test turned the stage red, with Zig's crash line, and the kept input failed the plain test run once added to the corpus. A planted panic in the C test, run through the same command, ended in the same `input saved to` line. No port was opened during a run. A full `cicd.bash --no-dogfood --no-backup -q` passes.
+	- Done: 20261004: each fuzz test prints its own line under its own ID, as the Go one does. They used to share one line under `ErgeVve`, so a find could not say whose it was. A find now fails the test that found it, and the other shows as skipped.
+	- Test case: `Eq9zVsH` and `Eq9zVsI` in the fuzz stage. `ErkRrmp` to `ErkRrmr` in `pipeline-test.bash` run the stage with a stand-in `zig`: a clean run, a find, and a broken run. All three failed on the old stage. `ErgeVve` is retired.
+	- Note: still needs a pipeline run on b26, like 2026100313583935.
+	- Done: 20261004: `Eq9zVsH` and `Eq9zVsI` passed in the fuzz stage on b26, 50K iterations each.
+	- Verified: 20261004 on b26, at 12d2b2d: the full pipeline with `--package` passed. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
+	- Opened: 20260917-131500
+	- Closed: 20261004-175611
 
 - ✅ The backup archived every build cache it walked past. Here that was a 12 GB `.zig-cache` and 957 MB of Panoplia audit scratch, and no other project excluded any of it.
 	- Cause: the exclude was set from this project's cicd stage, on the reasoning that about 20 projects carry their own fork of the helper and a fix in one reaches none of the others. That left the helper's own generic list with no cache patterns at all, so every other project kept paying.
