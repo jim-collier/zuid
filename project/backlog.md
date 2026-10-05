@@ -126,6 +126,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- 20261004: On `vmFreeBSD`: the tarball's command, every component including `%m`, the 30 Zig tests, and `capi_smoke.c` with the base `cc` against both libraries all pass. `cli-test.bash` panicked the kernel once; see 2026100413383471.
 		- 20261004: On `vmFreeBSD`: `cli-test.bash` against the tarball's command passed 69 of 69, 40 times over.
 		- 20261004: `pipeline-test.bash` case ErkRrml failed about half the time, before this work too. Its fixture ID came from the clock, and the stray scan skips a word with no digit or capital past its first letter. It now uses a fixed time.
+		- 20261004: The release from 7dbdc21 passed again on `vmFreeBSD`: `cli-test.bash` 69 of 69, 40 times over, the 30 Zig tests, and `capi_smoke.c` with the base `cc` against both libraries. The VM was already up to date, at 15.1-RELEASE-p4.
 	- Decisions:
 		- FreeBSD 14 as the floor, to match the package repo.
 		- Wasmtime stays, rather than an interpreter for this one platform.
@@ -236,23 +237,10 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- 20261004: The crash dump is `/var/crash/vmcore.0` on the VM.
 		- 20261004: Before it, the tarball's command, the 30 Zig tests and the C smoke test, static and shared, all passed there.
 		- 20261004: The 40 runs above passed, 69 of 69 each, and the 24 Zig test runs passed.
+		- 20261004: The VM was already current at 15.1-RELEASE-p4, the level it panicked on, so the update found nothing. 40 more runs the same way, against the release from 7dbdc21, passed 69 of 69 each, with 24 Zig test runs passing. No panic. See 2026100415162238.
 	- Decisions:
 		- Not a reason to hold the FreeBSD release, since zuid cannot cause or fix a kernel fault. Reopen if it comes back.
 	- Branch: freebsd
-
-- Update vmFreeBSD's kernel and every package, then retry the panic.
-	- ID: 2026100415162238
-	- Type: Task
-	- Status: Queued
-	- Needs external testing: Yes, on `vmFreeBSD`.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261004-151622
-	- Opened by: JC
-	- Parent ID: 2026100413383471
-	- Target OS: FreeBSD 15.1, x86_64
-	- Requirements  [Feature]:
-		- Update the base system and kernel with FreeBSD's own updater, and every package with `pkg upgrade`. Reboot.
-		- Rerun `cli-test.bash` against the release on the VM, logged to disk as before, to see whether the panic still shows up.
 
 - When a shcl upgrade breaks compatibility with the application config file(s).
 	- ID: 2026100313105246
@@ -476,6 +464,27 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Commit: f4c69e3
 	- Test case: `ErOkWfZ`, `ErOkWfb`.
 	- Closed: 20260930-155553
+
+- Update vmFreeBSD's kernel and every package, then retry the panic.
+	- ID: 2026100415162238
+	- Type: Task
+	- Status: Done
+	- Needs external testing: Done on `vmFreeBSD`, 20261004.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261004-151622
+	- Opened by: JC
+	- Parent ID: 2026100413383471
+	- Target OS: FreeBSD 15.1, x86_64
+	- Requirements  [Feature]:
+		- Update the base system and kernel with FreeBSD's own updater, and every package with `pkg upgrade`. Reboot.
+		- Rerun `cli-test.bash` against the release on the VM, logged to disk as before, to see whether the panic still shows up.
+	- Progress log:
+		- 20261004: The VM's base system is pkgbase, not distribution sets, so the base and kernel update through `pkg` and not `freebsd-update`. After a forced catalog refresh, `pkg upgrade` found nothing to do in the base, ports or kmods repos. Base, kernel and userland were already at 15.1-RELEASE-p4, the same before and after, with pkg 2.7.5. They were installed when the VM was built, so the panic also happened on p4. With nothing installed, there was no reboot.
+		- 20261004: Retest against the release built from 7dbdc21, as the unprivileged test user, with every zuid call logged to disk: `cli-test.bash` passed 69 of 69 in 16 runs one after another and in 24 runs four at a time, with the 30 Zig tests run after each of those 24 and passing every time. `capi_smoke.c` built with the base `cc` against the shared and the static library and passed both ways. No panic and no new crash dump.
+		- 20261004: The FreeBSD tarball has `share/LICENSE-wasmtime.txt`.
+	- Test case: none. A check of the test machine, not of zuid; the runs above are the result.
+	- Acceptance signoff: Self-closed: the update check and the retest ran.
+	- Closed: 20261004-183600
 
 - `test-ids.py check` missed test IDs kept in an array.
 	- ID: 2026100409004496
