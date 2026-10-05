@@ -221,5 +221,5 @@ declare -i isSourced_t6wq5=0; [[ "${BASH_SOURCE[0]}" == "${0}" ]] || isSourced_t
 ##		  default. It reached arithmetic, which could run a command.
 ##		- 2026-10-04: Dates are read and written by printf and arithmetic, not a
 ##		  date fork per file and field. Same names and output as before.
-##		- 2026-10-04: Every expansion braced, and shellcheck holds it there. The
-##		  loop variables in gfs_rotate have real names. No change in behavior.
+##		- 2026-10-04: Every expansion braced, and shellcheck enforces it. The loop
+##		  variables in gfs_rotate have real names. No change in behavior.
