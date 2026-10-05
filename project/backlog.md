@@ -411,6 +411,27 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Acceptance signoff: Self-closed: the update check and the retest ran.
 	- Closed: 20261004-183600
 
+- The PowerShell ASCII check finds no files when `cicd.bash` is run through a symlink.
+	- ID: 2026100509465863
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: Done. `cicd.bash --quick --no-backup -q` passed run as `zuid/repo/cicd/cicd.bash`, 20261005.
+	- Priority|Severity [Bug]: Low
+	- Opened: 20261005-094658
+	- Opened by: JC
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- Run `cicd.bash` by way of the `zuid/repo` symlink to `github`.
+	- Incorrect behavior [Bug]: `ErmS0zI` fails with "found no .ps1 files, so this checked nothing."
+	- Expected behavior [Bug]: It finds `install.ps1` and `run-latest.ps1`, the same as from `github`.
+	- Reproduced [Bug]: Yes, from the 20261005-094233 run log.
+	- Actual cause [Bug]: The repo root came from a plain `pwd`, so it kept the symlink's path. `find` does not follow a symlink given as its starting point, so it listed the link and nothing under it. It was the only `find` started at the root itself.
+	- Actual fix [Bug]: The root comes from `pwd -P`.
+	- Branch: rootlink
+	- Test case: new `ErqU8vW` runs a copy of `cicd.bash` through a symlink and checks the root named by the sync refusal. It fails with the old line and passes now.
+	- Acceptance signoff: Self-closed: the check finds both files from either path.
+	- Closed: 20261005-095500
+
 - `cicd.bash` refuses to run in a git worktree.
 	- ID: 2026100318410007
 	- Type: Bug
