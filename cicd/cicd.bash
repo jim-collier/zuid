@@ -79,13 +79,9 @@ fConfig(){ :;
 	default_dogfoodDirs=("${HOME}/synced/0-0/common/exec/util/linux/bash" "${HOME}/.local/bin" "${HOME}/bin")
 
 	## Extra rar excludes for the backup, one per line, on top of the helper's generic
-	## list (.zig-cache, zig/vendor etc). 'repo' is a link to github, so without it
-	## everything goes in twice. The panoplia audit dirs are old build copies. A dir
-	## needs both forms; a wildcard one still leaves an empty entry.
-	default_rarExcludes="*/repo
-*/repo/*
-*/panoplia/working/audit-*
-*/panoplia/working/audit-*/*"
+	## list (.zig-cache, zig/vendor, the 'repo' link etc). The panoplia audit dirs are
+	## old build copies. Trailing '/' or rar matches files only.
+	default_rarExcludes="*/panoplia/working/audit-*/"
 
 	## Artifact retention, grandfather-father-son. Keep this many of each.
 	default_keepDaily=7
