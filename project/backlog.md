@@ -79,7 +79,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- ID: 2026100413383471
 	- Type: Bug
 	- Status: Can't reproduce
-	- Needs external testing: Yes, on `vmFreeBSD`.
+	- Needs external testing: No. Reopen if it comes back.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261004-133835
 	- Opened by: JC
@@ -101,6 +101,9 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Decisions:
 		- Not a reason to hold the FreeBSD release, since zuid cannot cause or fix a kernel fault. Reopen if it comes back.
 	- Branch: freebsd
+	- Test case: none. The fault is in the kernel, and 80 runs did not bring it back.
+	- Acceptance signoff: Closed as asked, 20261005.
+	- Closed: 20261005-102900
 
 - When a shcl upgrade breaks compatibility with the application config file(s).
 	- ID: 2026100313105246
