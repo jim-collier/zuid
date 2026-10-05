@@ -242,27 +242,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Not a reason to hold the FreeBSD release, since zuid cannot cause or fix a kernel fault. Reopen if it comes back.
 	- Branch: freebsd
 
-- Update vmFreeBSD's kernel and every package, then retry the panic.
-	- ID: 2026100415162238
-	- Type: Task
-	- Status: Done
-	- Needs external testing: Done on `vmFreeBSD`, 20261004.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261004-151622
-	- Opened by: JC
-	- Parent ID: 2026100413383471
-	- Target OS: FreeBSD 15.1, x86_64
-	- Requirements  [Feature]:
-		- Update the base system and kernel with FreeBSD's own updater, and every package with `pkg upgrade`. Reboot.
-		- Rerun `cli-test.bash` against the release on the VM, logged to disk as before, to see whether the panic still shows up.
-	- Progress log:
-		- 20261004: The VM's base system is pkgbase, not distribution sets, so the base and kernel update through `pkg` and not `freebsd-update`. After a forced catalog refresh, `pkg upgrade` found nothing to do in the base, ports or kmods repos. Base, kernel and userland were already at 15.1-RELEASE-p4, the same before and after, with pkg 2.7.5. They were installed when the VM was built, so the panic also happened on p4. With nothing installed, there was no reboot.
-		- 20261004: Retest against the release built from 7dbdc21, as the unprivileged test user, with every zuid call logged to disk: `cli-test.bash` passed 69 of 69 in 16 runs one after another and in 24 runs four at a time, with the 30 Zig tests run after each of those 24 and passing every time. `capi_smoke.c` built with the base `cc` against the shared and the static library and passed both ways. No panic and no new crash dump.
-		- 20261004: The FreeBSD tarball has `share/LICENSE-wasmtime.txt`.
-	- Test case: none. A check of the test machine, not of zuid; the runs above are the result.
-	- Acceptance signoff: Self-closed: the update check and the retest ran.
-	- Closed: 20261004-183600
-
 - When a shcl upgrade breaks compatibility with the application config file(s).
 	- ID: 2026100313105246
 	- Type: Feature
@@ -485,6 +464,27 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Commit: f4c69e3
 	- Test case: `ErOkWfZ`, `ErOkWfb`.
 	- Closed: 20260930-155553
+
+- Update vmFreeBSD's kernel and every package, then retry the panic.
+	- ID: 2026100415162238
+	- Type: Task
+	- Status: Done
+	- Needs external testing: Done on `vmFreeBSD`, 20261004.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261004-151622
+	- Opened by: JC
+	- Parent ID: 2026100413383471
+	- Target OS: FreeBSD 15.1, x86_64
+	- Requirements  [Feature]:
+		- Update the base system and kernel with FreeBSD's own updater, and every package with `pkg upgrade`. Reboot.
+		- Rerun `cli-test.bash` against the release on the VM, logged to disk as before, to see whether the panic still shows up.
+	- Progress log:
+		- 20261004: The VM's base system is pkgbase, not distribution sets, so the base and kernel update through `pkg` and not `freebsd-update`. After a forced catalog refresh, `pkg upgrade` found nothing to do in the base, ports or kmods repos. Base, kernel and userland were already at 15.1-RELEASE-p4, the same before and after, with pkg 2.7.5. They were installed when the VM was built, so the panic also happened on p4. With nothing installed, there was no reboot.
+		- 20261004: Retest against the release built from 7dbdc21, as the unprivileged test user, with every zuid call logged to disk: `cli-test.bash` passed 69 of 69 in 16 runs one after another and in 24 runs four at a time, with the 30 Zig tests run after each of those 24 and passing every time. `capi_smoke.c` built with the base `cc` against the shared and the static library and passed both ways. No panic and no new crash dump.
+		- 20261004: The FreeBSD tarball has `share/LICENSE-wasmtime.txt`.
+	- Test case: none. A check of the test machine, not of zuid; the runs above are the result.
+	- Acceptance signoff: Self-closed: the update check and the retest ran.
+	- Closed: 20261004-183600
 
 - `test-ids.py check` missed test IDs kept in an array.
 	- ID: 2026100409004496
