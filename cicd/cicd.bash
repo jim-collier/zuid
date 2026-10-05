@@ -79,11 +79,13 @@ fConfig(){ :;
 	default_dogfoodDirs=("${HOME}/synced/0-0/common/exec/util/linux/bash" "${HOME}/.local/bin" "${HOME}/bin")
 
 	## Extra rar excludes for the backup, one per line, on top of the helper's generic
-	## list (.zig-cache etc). Wasmtime gets refetched from the pins above, so it's
-	## ~400 MB of nothing. The reactor wasm stays, for an offline build. A wildcard dir
-	## needs both forms, and rar still keeps an empty entry for it.
-	default_rarExcludes="*/zig/vendor/wasmtime*
-*/zig/vendor/wasmtime*/*"
+	## list (.zig-cache, zig/vendor etc). 'repo' is a link to github, so without it
+	## everything goes in twice. The panoplia audit dirs are old build copies. A dir
+	## needs both forms; a wildcard one still leaves an empty entry.
+	default_rarExcludes="*/repo
+*/repo/*
+*/panoplia/working/audit-*
+*/panoplia/working/audit-*/*"
 
 	## Artifact retention, grandfather-father-son. Keep this many of each.
 	default_keepDaily=7
