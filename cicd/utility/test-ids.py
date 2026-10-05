@@ -122,7 +122,13 @@ def fScan():
 def fCmd_New(args):
 	when = datetime.datetime.now(datetime.timezone.utc)
 	if args.at:
-		when = datetime.datetime.fromisoformat(args.at)
+		## Python before 3.11 refuses a trailing Z, and stock macOS has 3.9.
+		at = args.at[:-1] + "+00:00" if args.at[-1:] in ("Z", "z") else args.at
+		try:
+			when = datetime.datetime.fromisoformat(at)
+		except ValueError:
+			print(f"test-ids.py: --at wants an ISO 8601 time, such as 2026-09-01T12:00:00Z, not '{args.at}'", file=sys.stderr)
+			return 2
 		if when.tzinfo is None:
 			when = when.astimezone()
 	ms = fMsSinceEpoch(when)
@@ -355,3 +361,4 @@ if __name__ == "__main__":
 ##	History:
 ##		- 20260930 JC: Created.
 ##		- 20261004 JC: check also flags an ID no test line names. Added fuzzers.
+##		- 20261004 JC: --at takes a trailing Z on python 3.9.
