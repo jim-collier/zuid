@@ -6,10 +6,12 @@
 //! The live side of core's Env interface: the one place the machine's own
 //! state is read. Everything goes through libc, which the library links for
 //! Wasmtime anyway, and which keeps this off the Io-bound file API - the C
-//! module has no Io instance to hand it.
+//! module has no Io instance to hand it. Windows has no libc call for most of
+//! it, so env_windows.zig asks the Win32 API there.
 //!
 //! No allocator here either. Names go into caller buffers and the MAC comes
-//! back by value.
+//! back by value. The one exception is a Windows adapter list too long for
+//! the stack.
 //!
 //! Each source is read once and kept. None of them changes in a way that
 //! should change an identifier mid-run, and the reads are not cheap: walking
@@ -19,6 +21,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const core = @import("core.zig");
+const windows = @import("env_windows.zig");
+
+const is_windows = builtin.os.tag == .windows;
 
 // lib/c/env.h, translated by build.zig.
 const c = @import("c_env");
@@ -84,7 +89,13 @@ fn vtUsername(ctx: *anyopaque, out: []u8) core.Error![]const u8 {
 }
 
 fn readUsername(out: []u8) core.Error![]const u8 {
-    if (c.getpwuid(c.getuid())) |entry| {
+    if (is_windows) {
+        const name: ?[]const u8 = windows.username(out) catch |err| switch (err) {
+            core.Error.BufferTooSmall => return err,
+            else => null,
+        };
+        if (name) |found| return found;
+    } else if (c.getpwuid(c.getuid())) |entry| {
         if (entry.*.pw_name) |name| {
             return copyOut(std.mem.span(name), out);
         }
@@ -118,6 +129,9 @@ fn readFqdn(out: []u8) core.Error![]const u8 {
     @memcpy(name_z[0..name.len], name);
     name_z[name.len] = 0;
 
+    if (is_windows and !windows.startSockets()) return name;
+    defer if (is_windows) windows.stopSockets();
+
     var hints: c.struct_addrinfo = std.mem.zeroes(c.struct_addrinfo);
     hints.ai_flags = c.AI_CANONNAME;
     var results: ?*c.struct_addrinfo = null;
@@ -136,7 +150,7 @@ fn readFqdn(out: []u8) core.Error![]const u8 {
 /// routing table on three platforms; interface order is stable enough for a
 /// value whose only job is to differ between hosts.
 ///
-/// Linux, macOS and FreeBSD.
+/// Linux, macOS, FreeBSD and Windows.
 fn vtMac(ctx: *anyopaque) core.Error![6]u8 {
     const self: *Live = @ptrCast(@alignCast(ctx));
     if (self.hardware) |cached| return cached;
@@ -146,6 +160,7 @@ fn vtMac(ctx: *anyopaque) core.Error![6]u8 {
 }
 
 fn readMac() core.Error![6]u8 {
+    if (is_windows) return windows.mac();
     if (builtin.os.tag != .linux and builtin.os.tag != .freebsd and !builtin.os.tag.isDarwin()) return core.Error.EnvUnavailable;
 
     var list: ?*c.struct_ifaddrs = null;
@@ -209,6 +224,7 @@ fn linkAddress(addr: *const c.struct_sockaddr) ?LinkAddress {
 /// 256 bytes, comfortably above the largest draw the core will ask for.
 fn vtRandomBytes(_: *anyopaque, out: []u8) core.Error!void {
     if (out.len > 256) return core.Error.BufferTooSmall;
+    if (is_windows) return windows.randomBytes(out);
     if (c.getentropy(out.ptr, out.len) != 0) return core.Error.EnvUnavailable;
 }
 
@@ -216,6 +232,7 @@ fn vtRandomBytes(_: *anyopaque, out: []u8) core.Error!void {
 /// gethostname does not survive translate-c once optimization turns
 /// _FORTIFY_SOURCE on, and it fails only in release builds.
 fn readHostname(out: []u8) core.Error![]const u8 {
+    if (is_windows) return windows.hostname(out);
     var buf: [std.posix.HOST_NAME_MAX]u8 = undefined;
     const name = std.posix.gethostname(&buf) catch return core.Error.EnvUnavailable;
     if (name.len == 0) return core.Error.EnvUnavailable;

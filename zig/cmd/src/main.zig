@@ -126,7 +126,6 @@ const help_tail =
     \\    %u  User name, hashed by default.
     \\    %f  Fully-qualified host and domain name, hashed by default.
     \\    %m  Hardware address of the lowest-numbered non-loopback interface.
-    \\        Linux only so far.
     \\    %g  A random UUID v4, as a plain number in the output base. No dashes.
     \\    %r  Random symbols from a cryptographic source.
     \\    %%  A literal '%'. Anything else in the format goes out as itself.
