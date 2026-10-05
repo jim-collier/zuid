@@ -35,6 +35,10 @@
 	libwasmtime.a beside it plus these system libraries:
 		-lzuid -lwasmtime -lws2_32 -liphlpapi -lbcrypt -ladvapi32 -luserenv
 		-lole32 -lntdll
+	On arm64 Windows, Wasmtime is a DLL. zuid.exe, zuid.dll and a program
+	linked with libzuid.a all load wasmtime.dll, so it goes beside them.
+	The line above still links libzuid.a there, since -lwasmtime finds
+	wasmtime.lib, the import library for wasmtime.dll.
 */
 
 #ifndef ZUID_H

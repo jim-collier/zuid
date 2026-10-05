@@ -30,7 +30,7 @@
 	.\install.ps1 -Release dev -Target user
 
 .NOTES
-	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. MIT licensed: https://mit-license.org/
+	Copyright (C) 2026 Jim Collier. MIT licensed: https://mit-license.org/
 	SPDX-License-Identifier: MIT
 #>
 
@@ -53,10 +53,16 @@ function Write-Status { param([string] $Message) Write-Host "[ $Message ]" }
 function Write-Detail { param([string] $Message) Write-Host $Message }
 function Stop-WithMessage { param([string] $Message) throw "$program-install: $Message" }
 
+## Windows PowerShell 5.1 has no $IsWindows, so under strict mode it stopped at
+## the first platform test with a message about an unset variable.
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+	Stop-WithMessage "this needs PowerShell 7 or newer, and this is PowerShell $($PSVersionTable.PSVersion). Install PowerShell 7 from https://aka.ms/powershell, then run this again from pwsh."
+}
+
 Write-Host ''
 
 
-#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+#-------------------------------------------------------------------------------
 ## Where things go, per platform.
 
 if ($IsWindows) {
@@ -144,7 +150,7 @@ else {
 }
 
 
-#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+#-------------------------------------------------------------------------------
 ## Uninstall is the same plan in reverse.
 
 ## Only this installer's own link. A zuid at that path the installer did not put
@@ -200,7 +206,7 @@ if ($Uninstall) {
 }
 
 
-#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+#-------------------------------------------------------------------------------
 ## Work out what to fetch.
 
 if (-not $Arch) {
@@ -253,7 +259,7 @@ $asset = "$program-$osLabel-$assetArch.$archiveExtension"
 $baseUrl = "https://github.com/$repository/releases/download/$tag"
 
 
-#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+#-------------------------------------------------------------------------------
 ## State the plan, then ask.
 
 $existing = Join-Path $installDirectory (Join-Path 'bin' $binaryName)
@@ -309,7 +315,7 @@ if (-not $Yes) {
 }
 
 
-#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+#-------------------------------------------------------------------------------
 ## Fetch, verify, install.
 
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())

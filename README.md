@@ -141,11 +141,12 @@ Preferred. `v1.0.0-alpha.1` is published for x86_64 Linux; on any other platform
 | :-- | :-- |
 | Debian, Ubuntu | `zuid_<version>_amd64.deb` |
 | Fedora, RHEL, openSUSE | `zuid-<version>.x86_64.rpm` |
+| Windows | the `.zip`, or on x86_64 the bare `.exe` |
 | Anything else | the `.tgz`, or the bare binary |
 
-The `.deb` and `.rpm` install the command. The C module - the header, the static and shared libraries, and the Wasmtime archive the static one needs - comes in the `.tgz`.
+The `.deb` and `.rpm` install the command. The C module - the header, the static and shared libraries, and the Wasmtime archive the static one needs - comes in the `.tgz`, or the `.zip` on Windows. On arm64 Windows, Wasmtime is `wasmtime.dll`, which has to sit beside `zuid.exe`, so there is no bare `.exe` for it.
 
-Windows builds are not produced yet. macOS, ARM, and FreeBSD x86_64 builds are produced but not published yet. The command embeds a WebAssembly runtime, and one is vendored per platform; the rest follow once those are in place.
+macOS, ARM, Windows, and FreeBSD x86_64 builds are produced but not published yet.
 
 ### Direct install script
 
@@ -157,7 +158,7 @@ Linux, macOS, FreeBSD, and WSL. FreeBSD needs `pkg install bash curl` first:
 bash <(curl -fsSL https://raw.githubusercontent.com/jim-collier/zuid/main/install.bash)  [--release stable|dev]  [--target user|system]  [--arch x86_64|arm64]
 ~~~
 
-Windows, Linux, and macOS, under PowerShell 7 or newer:
+Windows, Linux, and macOS, under PowerShell 7 or newer. Windows PowerShell 5.1 stops with a message saying so:
 
 ~~~powershell
 & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/jim-collier/zuid/main/install.ps1')))  [-Release dev|stable]  [-Target user|system]  [-Arch x86_64|arm64]
@@ -205,6 +206,7 @@ Optional, and each stage that wants one skips itself with a note when it is miss
 | Tool | Used for |
 | :-- | :-- |
 | nfpm | building `.deb` and `.rpm` packages |
+| zip | building the Windows `.zip` packages |
 | python3 with pillow, gifsicle | rendering the demo animation |
 | perf, inferno | profiling the command |
 

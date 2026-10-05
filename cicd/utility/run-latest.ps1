@@ -23,7 +23,7 @@
 	./run-latest.ps1 -- -f '%d%r'
 
 .NOTES
-	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. MIT licensed: https://mit-license.org/
+	Copyright (C) 2026 Jim Collier. MIT licensed: https://mit-license.org/
 	SPDX-License-Identifier: MIT
 #>
 
@@ -51,7 +51,7 @@ if (-not $ScratchDir) {
 New-Item -ItemType Directory -Path $ScratchDir -Force | Out-Null
 
 
-#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+#-------------------------------------------------------------------------------
 ## Drop aged-out copies. A file still open is skipped rather than fought over.
 
 $cutoff = (Get-Date).AddDays(-$KeepDays)
@@ -63,7 +63,7 @@ Get-ChildItem -Path $ScratchDir -File -Filter "$program-*" |
 	}
 
 
-#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+#-------------------------------------------------------------------------------
 ## Stamp a fresh copy and run it. The stamp comes from the build, not the clock,
 ## so running the same build twice reuses one copy.
 

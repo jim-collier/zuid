@@ -99,6 +99,8 @@ Among the runtimes considered, we decided on the Wasmtime C API: it is the refer
 
 Wasmtime publishes no FreeBSD build, but FreeBSD packages one. The FreeBSD release links that package's archive, pinned by checksum like the rest, with the zstd archive that build calls. It runs behind Wasmtime's own releases and its port has no maintainer, so it is the first place to look if that build breaks. Switching to an interpreter for one platform was not worth it.
 
+For arm64 Windows, Wasmtime publishes only an MSVC build. Its static archive asks for MSVC's own C runtime, which a mingw link does not have, but its DLL needs nothing past Windows itself. So that release links `wasmtime.dll` and puts it beside the command and the C module, and it is the one release whose command is not a single file.
+
 An interpreter such as wasm3 would vendor far more cleanly and is the fallback if the dependency proves painful. Generating one identifier is microseconds of work either way, so this is a build-complexity decision far more than a speed one.
 
 Two properties of that runtime shape the build:
