@@ -640,8 +640,25 @@ mkdir -p "${idsTree}/cicd/utility" "${idsTree}/zig/lib/src"
 cp "${utilityDir}/test-ids.py" "${idsTree}/cicd/utility/"
 ## A fixed time, not now. The stray scan skips a word with no digit or capital
 ## past its first letter, and an ID made now is sometimes all lower case there,
-## which let ErkRrml pass the check it is meant to fail.
-mapfile -t fixtureIds < <(python3 "${idsTree}/cicd/utility/test-ids.py" new -n 4 --at 2026-09-01T12:00:00Z)
+## which let ErkRrml pass the check it is meant to fail. Written with +00:00,
+## which every python takes, so the Z case below fails alone.
+fIdsNew(){ PYTHONDONTWRITEBYTECODE=1 python3 "${idsTree}/cicd/utility/test-ids.py" new "$@" 2>&1 ;}
+mapfile -t fixtureIds <<< "$(fIdsNew -n 4 --at 2026-09-01T12:00:00+00:00 || true)"
+
+## Python before 3.11 reads no trailing Z by itself, and stock macOS has 3.9.
+fId ErmeArM "test-ids.py new --at takes a UTC time ending in Z"
+out="$(fIdsNew -n 4 --at 2026-09-01T12:00:00Z)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == "$(printf '%s\n' "${fixtureIds[@]}")" ]] && ((${#fixtureIds[@]} == 4))
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+fId ErmeArN "test-ids.py new --at refuses a bad time in one line"
+out="$(fIdsNew --at 2026-13-01T12:00:00Z)" && rc=0 || rc=$?
+if ((rc == 2)) && [[ "${out}" == *"--at wants an ISO 8601 time"* ]] && [[ "${out}" != *Traceback* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
 
 fIdsTree(){  ## cicd.bash body, extra Zig text
 	printf '%s\n' "$1" > "${idsTree}/cicd/cicd.bash"
