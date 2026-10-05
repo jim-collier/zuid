@@ -78,12 +78,14 @@ fConfig(){ :;
 	## Where dogfooding puts the binary. First existing directory wins.
 	default_dogfoodDirs=("${HOME}/synced/0-0/common/exec/util/linux/bash" "${HOME}/.local/bin" "${HOME}/bin")
 
-	## Extra rar excludes for the backup, on top of the helper's generic list, which
-	## covers .zig-cache itself as of 20260917. Empty because nothing here needs a
-	## project-specific one; the hook stays for when something does. Single-quote any
-	## pattern inside the double quotes, so the helper's eval hands rar the glob
-	## rather than a match.
-	default_rarExcludes=""
+	## Extra rar excludes for the backup, one per line, on top of the helper's generic
+	## list (.zig-cache, zig/vendor etc). 'repo' is a link to github, so without it
+	## everything goes in twice. The panoplia audit dirs are old build copies. A dir
+	## needs both forms; a wildcard one still leaves an empty entry.
+	default_rarExcludes="*/repo
+*/repo/*
+*/panoplia/working/audit-*
+*/panoplia/working/audit-*/*"
 
 	## Artifact retention, grandfather-father-son. Keep this many of each.
 	default_keepDaily=7
@@ -2773,7 +2775,7 @@ fStage_Backup(){
 	fi
 
 	fEcho_Clean "Archive to .: $(dirname "${repoRoot}")/versions/"
-	fEcho_Clean "Excluding ..: ${rarExcludes:-(generic list in the helper only)}"
+	fEcho_Clean "Excluding ..: $(tr '\n' ' ' <<< "${rarExcludes:-(generic list in the helper only)}")"
 
 	## Quiet always: the message was asked for up front, and this run just made every
 	## check the helper would prompt about. Without a message it falls to git's editor.
