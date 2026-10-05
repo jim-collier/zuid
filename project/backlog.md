@@ -40,6 +40,46 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ## Issues
 
+- Windows x86_64 build, cross-built on Linux.
+	- ID: 2026100416052035
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Yes. `cicd.bash --package` covers it.
+	- Needs external testing: Done on vm925w, 20261004.
+	- Opened: 20261004-160520
+	- Opened by: JC
+	- Target OS: Windows 10 and later, x86_64
+	- Requirements  [Feature]:
+		- The command, `zuid.dll` with its import library, and the static library, built by Zig on the Linux build machine.
+		- Every component works there, `%m` included.
+		- The Zig tests and `capi_smoke.c` pass on a Windows test box.
+	- Progress log:
+		- 20261004: Split from the packaging and `%m` items under Old format. Built on the Linux machine, by direct answer 20261004. Both Windows boxes also have a mingw bash and git-bash, off PATH.
+		- 20261004: Wasmtime v47.0.3 publishes an x86_64 mingw C API archive. For arm64 there is only the MSVC one.
+		- 20261004: Built for `x86_64-windows-gnu` against Wasmtime's mingw archive, pinned by the digest GitHub lists for it and vendored under `--package` as `vendor/wasmtime-x86_64-windows`.
+		- 20261004: The live reads go to the Win32 API on Windows: the logon name, the DNS computer name, getaddrinfo for the FQDN, the adapter list for `%m`, and the system RNG.
+		- 20261004: `%m` takes the lowest-numbered adapter with a hardware address that is not loopback, numbered as Go numbers it. Go and Zig gave the same `%m` on vm925w. `%h` and `%f` matched too.
+		- 20261004: `%u` does not match. Go's `user.Current` gives `VM925W\wintest` on vm925w, and the Zig side gives `wintest`. Design already lets the two sides differ on live values, and it is noted there.
+		- 20261004: Question: should `%u` on Windows be the logon name alone, as now, or `DOMAIN\name`, as Go's is? Either side can change to match.
+		- 20261004: The DLL also exports four debugger hooks from Wasmtime's own objects, beside the `zuid_*` functions. Those objects mark them for export, and a DLL has no map to hide them. Nothing can displace them, since Windows binds a DLL's own calls inside it. Removing them would mean editing the pinned archive.
+		- 20261004: The `--package` check builds into scratch, not `dist/`. The packaging item can point it at the zip.
+		- 20261004: MSVC links the DLL through `zuid.lib` and runs. It cannot link `libzuid.a`, which is a mingw archive.
+		- 20261004: Answer was a question: why not just always lower-case it? Lower-casing alone does not match the two, since Go keeps the `VM925W\` prefix. Windows ignores case in account names, so both sides will give the bare name, lower-cased, on Windows.
+		- 20261004: Both sides now drop the domain and lower-case the name on Windows, through the same Windows call, `LCMapStringEx` with the invariant locale. Nothing simpler gives the same answer on both sides outside ASCII: Go's `strings.ToLower` follows Go's Unicode tables, and Zig's standard library lower-cases ASCII only.
+		- 20261004: On Windows the Zig side's fallback to the environment now reads it in UTF-16, as Go does. `getenv` there gives the ANSI code page, which could not be lower-cased the same way.
+		- 20261004: `%u` on vm925w is `wintest` from both sides, hashed `M9drNjCN` from both.
+	- Decisions:
+		- Names: `zuid.exe`, `zuid.dll`, its import library `zuid.lib`, and the static library `libzuid.a`. Zig calls both libraries `zuid.lib`, so the static one takes mingw's name, since only mingw can link it.
+		- The DLL's PDB is not installed, since the command's has the same name.
+	- Actual fix: On Windows, `env_windows.zig` and the new `username_windows.go` drop any `DOMAIN\` prefix and lower-case what is left. Other platforms keep the name as read. Injected names and the vectors are unchanged.
+	- Verified: on vm925w, the cross-built command with `--no-hash -f '%d %h %u %f %m %g %r'`, hashed, the default and `-n 3`. All 30 Zig tests from `zig build test-bin`. `capi_smoke.c` with mingw gcc 16.1 against the DLL and, with the line `zuid.h` gives, against `libzuid.a`, run from a folder with no DLL; MSVC 2022 against the DLL. `capi_interpose.c` with both against the DLL. On Linux, the full pipeline and one with `--package`, which fetched and checked the new pin.
+	- Verified: on vm925w as `wintest`, `zuid --no-hash -f '%u'` and the Go module with `NoHash` both gave `wintest`, and hashed both gave `M9drNjCN`. All 32 Zig tests from `zig build test-bin`. The Go package's tests, except `TestVectors`, which needs `testdata/` beside it. On Linux, `%u` is still `collierjr` from both sides, and the full pipeline with `--package` passed, along with the lint, profile and test ID checks.
+	- Swept: the `%m` notes in the help text, `zuid.h` and design.md. `package.bash`'s note on Windows. `wasmtimeDir` in `build.zig` and `fWasmtimeArchive` in `package.bash` both find `vendor/wasmtime-x86_64-windows`.
+	- Swept: every live read of the user name, `liveUsername` in Go and `readUsername` in Zig, with their fallbacks to the environment. `WithUsername`, `Env` and the C API's injected names do not pass through either. The `%u` notes in design.md, the help text and `zuid.h`; only design.md mentioned the domain.
+	- Branch: winbuild, then winuser
+	- Commit: 8ee3066, then 158a367
+	- Test case: ErmM9mS to ErmM9mV under `--package` on Linux: the build and what it is, the DLL's exports, and `capi_smoke.c` linking against each library. Each failed with its fault planted: no Windows headers, the Wasmtime hooks not allowed, `-liphlpapi` dropped, and the static link pointed at the import library. ElpGOHX, the live environment test, passed on vm925w. ErmqB7B and ErmqB7D, the domain dropped, on every platform. ErmqB7C and ErmqB7E, the same two names lower-cased on Windows, one of them outside ASCII; ErmqB7E also checks the live name has no domain. Each failed before the change, the Windows pair on vm925w.
+
 - Windows release packages, x86_64 and arm64.
 	- ID: 2026100416052036
 	- Type: Enhancement
@@ -100,46 +140,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Decisions:
 		- Not a reason to hold the FreeBSD release, since zuid cannot cause or fix a kernel fault. Reopen if it comes back.
 	- Branch: freebsd
-
-- Windows x86_64 build, cross-built on Linux.
-	- ID: 2026100416052035
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: Yes. `cicd.bash --package` covers it.
-	- Needs external testing: Done on vm925w, 20261004.
-	- Opened: 20261004-160520
-	- Opened by: JC
-	- Target OS: Windows 10 and later, x86_64
-	- Requirements  [Feature]:
-		- The command, `zuid.dll` with its import library, and the static library, built by Zig on the Linux build machine.
-		- Every component works there, `%m` included.
-		- The Zig tests and `capi_smoke.c` pass on a Windows test box.
-	- Progress log:
-		- 20261004: Split from the packaging and `%m` items under Old format. Built on the Linux machine, by direct answer 20261004. Both Windows boxes also have a mingw bash and git-bash, off PATH.
-		- 20261004: Wasmtime v47.0.3 publishes an x86_64 mingw C API archive. For arm64 there is only the MSVC one.
-		- 20261004: Built for `x86_64-windows-gnu` against Wasmtime's mingw archive, pinned by the digest GitHub lists for it and vendored under `--package` as `vendor/wasmtime-x86_64-windows`.
-		- 20261004: The live reads go to the Win32 API on Windows: the logon name, the DNS computer name, getaddrinfo for the FQDN, the adapter list for `%m`, and the system RNG.
-		- 20261004: `%m` takes the lowest-numbered adapter with a hardware address that is not loopback, numbered as Go numbers it. Go and Zig gave the same `%m` on vm925w. `%h` and `%f` matched too.
-		- 20261004: `%u` does not match. Go's `user.Current` gives `VM925W\wintest` on vm925w, and the Zig side gives `wintest`. Design already lets the two sides differ on live values, and it is noted there.
-		- 20261004: Question: should `%u` on Windows be the logon name alone, as now, or `DOMAIN\name`, as Go's is? Either side can change to match.
-		- 20261004: The DLL also exports four debugger hooks from Wasmtime's own objects, beside the `zuid_*` functions. Those objects mark them for export, and a DLL has no map to hide them. Nothing can displace them, since Windows binds a DLL's own calls inside it. Removing them would mean editing the pinned archive.
-		- 20261004: The `--package` check builds into scratch, not `dist/`. The packaging item can point it at the zip.
-		- 20261004: MSVC links the DLL through `zuid.lib` and runs. It cannot link `libzuid.a`, which is a mingw archive.
-		- 20261004: Answer was a question: why not just always lower-case it? Lower-casing alone does not match the two, since Go keeps the `VM925W\` prefix. Windows ignores case in account names, so both sides will give the bare name, lower-cased, on Windows.
-		- 20261004: Both sides now drop the domain and lower-case the name on Windows, through the same Windows call, `LCMapStringEx` with the invariant locale. Nothing simpler gives the same answer on both sides outside ASCII: Go's `strings.ToLower` follows Go's Unicode tables, and Zig's standard library lower-cases ASCII only.
-		- 20261004: On Windows the Zig side's fallback to the environment now reads it in UTF-16, as Go does. `getenv` there gives the ANSI code page, which could not be lower-cased the same way.
-		- 20261004: `%u` on vm925w is `wintest` from both sides, hashed `M9drNjCN` from both.
-	- Decisions:
-		- Names: `zuid.exe`, `zuid.dll`, its import library `zuid.lib`, and the static library `libzuid.a`. Zig calls both libraries `zuid.lib`, so the static one takes mingw's name, since only mingw can link it.
-		- The DLL's PDB is not installed, since the command's has the same name.
-	- Actual fix: On Windows, `env_windows.zig` and the new `username_windows.go` drop any `DOMAIN\` prefix and lower-case what is left. Other platforms keep the name as read. Injected names and the vectors are unchanged.
-	- Verified: on vm925w, the cross-built command with `--no-hash -f '%d %h %u %f %m %g %r'`, hashed, the default and `-n 3`. All 30 Zig tests from `zig build test-bin`. `capi_smoke.c` with mingw gcc 16.1 against the DLL and, with the line `zuid.h` gives, against `libzuid.a`, run from a folder with no DLL; MSVC 2022 against the DLL. `capi_interpose.c` with both against the DLL. On Linux, the full pipeline and one with `--package`, which fetched and checked the new pin.
-	- Verified: on vm925w as `wintest`, `zuid --no-hash -f '%u'` and the Go module with `NoHash` both gave `wintest`, and hashed both gave `M9drNjCN`. All 32 Zig tests from `zig build test-bin`. The Go package's tests, except `TestVectors`, which needs `testdata/` beside it. On Linux, `%u` is still `collierjr` from both sides, and the full pipeline with `--package` passed, along with the lint, profile and test ID checks.
-	- Swept: the `%m` notes in the help text, `zuid.h` and design.md. `package.bash`'s note on Windows. `wasmtimeDir` in `build.zig` and `fWasmtimeArchive` in `package.bash` both find `vendor/wasmtime-x86_64-windows`.
-	- Swept: every live read of the user name, `liveUsername` in Go and `readUsername` in Zig, with their fallbacks to the environment. `WithUsername`, `Env` and the C API's injected names do not pass through either. The `%u` notes in design.md, the help text and `zuid.h`; only design.md mentioned the domain.
-	- Branch: winbuild, then winuser
-	- Commit: 8ee3066, then 158a367
-	- Test case: ErmM9mS to ErmM9mV under `--package` on Linux: the build and what it is, the DLL's exports, and `capi_smoke.c` linking against each library. Each failed with its fault planted: no Windows headers, the Wasmtime hooks not allowed, `-liphlpapi` dropped, and the static link pointed at the import library. ElpGOHX, the live environment test, passed on vm925w. ErmqB7B and ErmqB7D, the domain dropped, on every platform. ErmqB7C and ErmqB7E, the same two names lower-cased on Windows, one of them outside ASCII; ErmqB7E also checks the live name has no domain. Each failed before the change, the Windows pair on vm925w.
 
 - When a shcl upgrade breaks compatibility with the application config file(s).
 	- ID: 2026100313105246
