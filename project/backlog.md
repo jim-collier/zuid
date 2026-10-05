@@ -45,7 +45,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Type: Enhancement
 	- Status: Waiting for testing
 	- Needs local test suite run?: Done. `cicd.bash --package --no-dogfood --no-backup -q` passed, 20261004.
-	- Needs external testing: Yes, on vm925w or b29w. The x86_64 zip and `install.ps1` passed on vm925w, 20261004. The arm64 release has had static checks only, since there is no arm64 Windows machine: `zuid.exe`, `zuid.dll` and `capi_smoke.c` still need a run on one. A system install from an elevated shell was not run either.
+	- Needs external testing: Yes, the arm64 run only. The arm64 release has had static checks only, since there is no arm64 Windows machine: `zuid.exe`, `zuid.dll` and `capi_smoke.c` still need a run on one. The x86_64 zip and `install.ps1` passed on vm925w, the user install 20261004 and the system install 20261005.
 	- Opened: 20261004-160520
 	- Opened by: JC
 	- Prereq IDs: 2026100416052035
@@ -64,6 +64,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- 20261004: `install.ps1` and `run-latest.ps1` were not ASCII, from the copyright line and the section rules. They are now, with the copyright written without the ID, and a docs check keeps every `.ps1` that way.
 		- 20261004: The Linux, macOS and FreeBSD tarballs have `libwasmtime.a` without Wasmtime's license. Logged as 2026100417324819.
 		- 20261004: x86_64 is done. Left open only for an arm64 run on real hardware, which is not yet possible here.
+		- 20261005: `install.ps1 -Target system` passed on vm925w from an elevated shell, against a local release. It installed to `C:\Program Files\zuid`, and the installed `zuid.exe` ran `--version` and generated, also as a normal user, who cannot write there. It changed neither the machine nor the user PATH, as the README says, and named the `bin` folder to add. A second run said already installed and downloaded nothing. `-Uninstall -Target system` removed the folder and left PATH as it was.
 	- Decisions:
 		- 20261004, open to change: no bare `.exe` for arm64, since it cannot run without `wasmtime.dll` beside it. The requirement asked for one per target.
 		- 20261004, open to change: arm64's import library for `wasmtime.dll` goes in as `lib/wasmtime.lib`, the name `-lwasmtime` finds with mingw's ld, lld and Zig alike. Wasmtime's own `wasmtime.dll.lib` name is found by none of them.
