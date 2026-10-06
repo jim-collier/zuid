@@ -216,7 +216,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - `ZUID_ERR_INTERNAL` is never returned, and a runtime trap comes back as `ZUID_ERR_CONVERT`.
 	- ID: 2026100520074635
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261005-200746
 	- Opened by: JC
@@ -224,8 +224,23 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Target OS: Any
 	- Incorrect behavior [Bug]: `zuid.h` says code 7 means the embedded runtime or module failed. A Wasmtime error or trap during a call maps to `ConvertFailed`, which is code 4, and the NULL context that used to return 7 now has code 14. So nothing returns 7.
 	- Expected behavior [Bug]: A runtime failure says so, or code 7 is retired in place like 3 and 11.
+	- Reproduced [Bug]: Yes. A Wasmtime error from a call with the wrong number of arguments, and the module's Go runtime exiting on an alloc it had no memory for, both came back as `ConvertFailed`, code 4. The exit's text was 512 bytes of backtrace, cut off before the cause.
+	- Actual cause [Bug]: `call()` in `host.zig` turned every Wasmtime error and trap into `ConvertFailed`, and `capi.zig` gave that code 4. The module's own internal error and a pointer past its memory did the same. Wasmtime puts the backtrace ahead of the cause in its message.
 	- Progress log:
 		- 20261005: Found while building the error table.
+		- 20261005: No request reaches a runtime failure. The module checks every pointer and length it is handed, and it keeps working after its runtime exits, so the test calls exports the wrong way on purpose.
+	- Decisions:
+		- 20261005: code 7 is made true rather than retired. Its comment in `zuid.h` already said what it is for, and still does.
+		- 20261005: the module's own error 7, `Internal`, is code 7 too. The reactor's README says it means the base registry failed to build, which is the module breaking rather than refusing a request.
+		- 20261005: a pointer the module hands back past its own memory is code 7 too, and so is a failure reading its error text. These used to be code 4 with no text at all.
+		- 20261005: `ConvertFailed` is gone, since nothing produced it after that. Code 4 is now only the library refusing the input.
+	- Actual fix [Bug]: A new core error, `RuntimeFailed`, which `capi.zig` maps to 7. The runtime's text keeps Wasmtime's cause and drops the backtrace. With no text, C says "the embedded wasm runtime or its module failed" and the command says "The embedded wasm runtime or its module failed." `errors.tsv` has the row, with `-` for Go, which has no runtime.
+		- For signoff: a C caller that got 4 for a runtime failure now gets 7, and the text for one no longer has the backtrace.
+	- Branch: trap7
+	- Commit: dd8fdcc
+	- Swept: every `ConvertFailed` in `host.zig`, `core.zig`, `capi.zig`, `messages.zig` and `errors.tsv`. `core.zig`'s own `BadInput` for a random draw past its buffer stays code 4, since it is a core limit and not the runtime. `zuid.h`'s comments for 4 and 7 still hold. `design.md`, `capi_smoke.c` and the Go side name neither code. A runtime that fails to start still makes `zuid_new` return NULL, as the header says.
+	- Test case: Ert2uRC in `host.zig`, pulled into the test binary from `tests.zig`. It failed with `call()` put back to code 4, and again with the backtrace kept. ErsxH5D, ErsxH5E and ErsxH5F hold the new row.
+	- Verified: the format check, the build, the Zig tests, the Go tests, `cli-test.bash` and the test ID check all pass.
 
 - The macOS build hangs on Zig 0.17.0.
 	- ID: 2026100318410002
