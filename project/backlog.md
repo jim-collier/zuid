@@ -198,28 +198,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Progress log:
 		- 20261005: Asked for after a design review.
 
-- The Go module checks every digit of the base on every call.
-	- ID: 2026100519343991
-	- Type: Enhancement
-	- Status: Done
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261005-193439
-	- Opened by: JC
-	- Target OS: Any
-	- Requirements  [Feature]:
-		- `checkRenderable` walks the whole alphabet in each `Generate`, which is 2048 digits in 2048tz. The Zig side keeps the answer per base. Keep it per base in Go too.
-	- Progress log:
-		- 20261005: 2.2% of the Go profile's self time, found once the profile had enough samples to show it.
-		- 20261005: Each `Generator` keeps the verdict per base, refusals included, keyed by the base the registry hands back. Every spelling of a base gets the same one.
-		- 20261005: The check alone went from about 1.1 us to 15 ns in 2048tz, and 55 ns to 15 ns in base 62. A whole `Generate` (about 2.4 us for `%d`, 18 us in 2048tz) moved less than the run-to-run noise.
-	- Verified: `go vet ./...`, `go test ./...`, and `go test -race` on TestConcurrentGenerate, TestErrorKinds and the new test. The new test fails with the cache keyed on one shared slot, both ways round: a raw-byte base passes after a good one, and a good one is refused after a raw-byte one.
-	- Swept: `Generate` is the only caller of the check. The Zig side already keeps the verdict per base.
-	- Branch: basecache
-	- Commit: 0a2223b
-	- Test case: Ersuqxd, TestBaseVerdictPerBase.
-	- Acceptance signoff: Self-closed: the intent was clear, and the test fails with the cache keyed wrong and passes with the fix.
-	- Closed: 20261005-194540
-
 - The macOS build hangs on Zig 0.17.0.
 	- ID: 2026100318410002
 	- Type: Bug
@@ -919,6 +897,28 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Verified: 20261004 on b26, at 12d2b2d: ErmYT8R passed in the full `--package` run, and the macOS tarball lists `share/LICENSE-wasmtime.txt`, which is the Apache 2.0 text. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
 	- Acceptance signoff: Self-closed: every release has the license, and its tests pass.
 	- Closed: 20261004-175611
+
+- The Go module checks every digit of the base on every call.
+	- ID: 2026100519343991
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261005-193439
+	- Opened by: JC
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- `checkRenderable` walks the whole alphabet in each `Generate`, which is 2048 digits in 2048tz. The Zig side keeps the answer per base. Keep it per base in Go too.
+	- Progress log:
+		- 20261005: 2.2% of the Go profile's self time, found once the profile had enough samples to show it.
+		- 20261005: Each `Generator` keeps the verdict per base, refusals included, keyed by the base the registry hands back. Every spelling of a base gets the same one.
+		- 20261005: The check alone went from about 1.1 us to 15 ns in 2048tz, and 55 ns to 15 ns in base 62. A whole `Generate` (about 2.4 us for `%d`, 18 us in 2048tz) moved less than the run-to-run noise.
+	- Verified: `go vet ./...`, `go test ./...`, and `go test -race` on TestConcurrentGenerate, TestErrorKinds and the new test. The new test fails with the cache keyed on one shared slot, both ways round: a raw-byte base passes after a good one, and a good one is refused after a raw-byte one.
+	- Swept: `Generate` is the only caller of the check. The Zig side already keeps the verdict per base.
+	- Branch: basecache
+	- Commit: 0a2223b
+	- Test case: Ersuqxd, TestBaseVerdictPerBase.
+	- Acceptance signoff: Self-closed: the intent was clear, and the test fails with the cache keyed wrong and passes with the fix.
+	- Closed: 20261005-194540
 
 - The macOS shared library exports all of Wasmtime.
 	- ID: 2026093018112419
