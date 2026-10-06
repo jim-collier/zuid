@@ -36,7 +36,7 @@ int main(void) {
 
 	/* Far enough to have used the runtime, not just allocated the context. */
 	char out[256];
-	if (zuid_generate(z, "%d", "62", out, sizeof out) != ZUID_OK) {
+	if (zuid_generate(z, NULL, out, sizeof out) != ZUID_OK) {
 		printf("  generate failed: %s\n", zuid_last_error(z));
 		zuid_free(z);
 		return 1;

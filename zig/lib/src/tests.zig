@@ -179,6 +179,12 @@ test "a serialized module loads back and reproduces the vectors" {
     try std.testing.expect(junk.compiled_fresh);
 }
 
+/// The C call with only a format and a base, which is most of what gets asked.
+fn gen(z: ?*capi.Zuid, format: ?[*:0]const u8, base: ?[*:0]const u8, out: ?[*]u8, out_cap: usize) c_int {
+    const req: capi.Request = .{ .format = format, .base = base };
+    return capi.zuid_generate(z, &req, out, out_cap);
+}
+
 fn runVectors(h: *host.Host) !void {
     var rows: usize = 0;
     var lines = std.mem.splitScalar(u8, vectors_tsv, '\n');
@@ -441,73 +447,71 @@ test "C surface end to end" {
     var out: [256]u8 = undefined;
 
     // Defaults: NULL format and base mean %d in base 62, at second precision.
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, null, null, &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 0), gen(z, null, null, &out, out.len));
     try std.testing.expectEqualStrings("124Bxg", std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
 
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%d", "32w", &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 0), gen(z, "%d", "32w", &out, out.len));
     try std.testing.expectEqualStrings("2r8pRr2", std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
 
-    // Precision is sticky on the context, and out-of-range is refused.
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_precision(z, 1));
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, null, null, &out, out.len));
+    // Precision comes with the call, and out-of-range is refused.
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, &.{ .precision = 1 }, &out, out.len));
     try std.testing.expectEqualStrings("0GfLcwXQ", std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
-    try std.testing.expectEqual(@as(c_int, 8), capi.zuid_set_precision(z, 2));
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_precision(z, 0));
+    try std.testing.expectEqual(@as(c_int, 8), capi.zuid_generate(z, &.{ .precision = 2 }, &out, out.len));
+    try std.testing.expect(std.mem.span(capi.zuid_last_error(z)).len > 0);
+    // Nothing carries over to the next call.
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, null, &out, out.len));
+    try std.testing.expectEqualStrings("124Bxg", std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
 
     // The components come off the live machine here, so only their widths are
     // predictable. Hashing off makes %h the host name itself.
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h%g%r", null, &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 0), gen(z, "%h%g%r", null, &out, out.len));
     try std.testing.expectEqual(@as(usize, 8 + 22 + 6), std.mem.span(@as([*:0]const u8, @ptrCast(&out))).len);
 
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_hash_chars(z, 5));
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_random_chars(z, 12));
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h%r", null, &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, &.{ .format = "%h%r", .hash_chars = 5, .random_chars = 12 }, &out, out.len));
     try std.testing.expectEqual(@as(usize, 17), std.mem.span(@as([*:0]const u8, @ptrCast(&out))).len);
-    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_set_hash_chars(z, 65));
-    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_set_random_chars(z, 65));
+    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_generate(z, &.{ .format = "%h", .hash_chars = 65 }, &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_generate(z, &.{ .format = "%r", .random_chars = 65 }, &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_generate(z, &.{ .format = "%r", .random_chars = -1 }, &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_generate(z, &.{ .format = "%h", .hash_chars = -1 }, &out, out.len));
+    // A width the format does not spend is not checked, as in Go.
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, &.{ .format = "%d", .hash_chars = -1, .random_chars = 65 }, &out, out.len));
 
-    // Zero is the way back to the per-base default, which is 8 and 6 here.
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_hash_chars(z, 0));
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_random_chars(z, 0));
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h%r", null, &out, out.len));
+    // Zero is the per-base default, which is 8 and 6 here.
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, &.{ .format = "%h%r" }, &out, out.len));
     try std.testing.expectEqual(@as(usize, 14), std.mem.span(@as([*:0]const u8, @ptrCast(&out))).len);
+
+    // Hashing off makes %h the host name itself, which no hash comes out as.
+    var hashed: [64]u8 = undefined;
+    try std.testing.expectEqual(@as(c_int, 0), gen(z, "%h", null, &hashed, hashed.len));
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, &.{ .format = "%h", .no_hash = 1 }, &out, out.len));
+    try std.testing.expect(!std.mem.eql(u8, std.mem.span(@as([*:0]const u8, @ptrCast(&hashed))), std.mem.span(@as([*:0]const u8, @ptrCast(&out)))));
 
     // Past the digest's own width the extra symbols are all left-fill, and the
     // message names the ceiling because it moves with the base.
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_hash_chars(z, 44));
-    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_generate(z, "%h", "62", &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_generate(z, &.{ .format = "%h", .base = "62", .hash_chars = 44 }, &out, out.len));
     try std.testing.expect(std.mem.indexOf(u8, std.mem.span(capi.zuid_last_error(z)), "43") != null);
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h", "16", &out, out.len));
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_hash_chars(z, 0));
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, &.{ .format = "%h", .base = "16", .hash_chars = 44 }, &out, out.len));
 
-    // The salt is sticky too, and copied: the caller's string is free to change
-    // or go away afterwards.
+    // The salt is read during the call only, so the caller's string is free to
+    // change or go away afterwards.
     var salt_buf = [_:0]u8{ 'p', 'e', 'p', 'p', 'e', 'r' };
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h", "62", &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 0), gen(z, "%h", "62", &out, out.len));
     const unsalted = try std.testing.allocator.dupe(u8, std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
     defer std.testing.allocator.free(unsalted);
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_salt(z, &salt_buf));
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h", "62", &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, &.{ .format = "%h", .salt = &salt_buf }, &out, out.len));
     const salted = try std.testing.allocator.dupe(u8, std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
     defer std.testing.allocator.free(salted);
     try std.testing.expect(!std.mem.eql(u8, unsalted, salted));
-    salt_buf[0] = 'P';
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h", "62", &out, out.len));
-    try std.testing.expectEqualStrings(salted, std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
-
-    // NULL is the way back to no salt, and a salt past the buffer is refused
-    // where it is set rather than where it would be used.
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_set_salt(z, null));
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%h", "62", &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, &.{ .format = "%h", .salt = "" }, &out, out.len));
     try std.testing.expectEqualStrings(unsalted, std.mem.span(@as([*:0]const u8, @ptrCast(&out))));
-    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_set_salt(z, repeat("s", core.max_salt_bytes + 1)));
+    try std.testing.expectEqual(@as(c_int, 9), capi.zuid_generate(z, &.{ .format = "%h", .salt = repeat("s", core.max_salt_bytes + 1) }, &out, out.len));
 
     // Error text survives into the C string.
-    try std.testing.expectEqual(@as(c_int, 1), capi.zuid_generate(z, "%d", "hexx", &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 1), gen(z, "%d", "hexx", &out, out.len));
     try std.testing.expect(std.mem.span(capi.zuid_last_error(z)).len > 0);
 
     // A buffer that cannot hold the id plus NUL is refused, not truncated.
-    try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%d", "62", &out, 6));
+    try std.testing.expectEqual(@as(c_int, 5), gen(z, "%d", "62", &out, 6));
 
     try std.testing.expectEqualStrings(core.version, std.mem.span(capi.zuid_version()));
 }
@@ -522,23 +526,23 @@ test "the C module's error codes are the ones zuid.h documents" {
     var out: [256]u8 = undefined;
 
     // 2, both ways in: an unknown component and a format ending on a bare '%'.
-    try std.testing.expectEqual(@as(c_int, 2), capi.zuid_generate(z, "%q", "62", &out, out.len));
-    try std.testing.expectEqual(@as(c_int, 2), capi.zuid_generate(z, "%d%", "62", &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 2), gen(z, "%q", "62", &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 2), gen(z, "%d%", "62", &out, out.len));
 
     // 13, the raw-byte base. Its digits are byte values, not text.
-    try std.testing.expectEqual(@as(c_int, 13), capi.zuid_generate(z, "%d", "bytes", &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 13), gen(z, "%d", "bytes", &out, out.len));
 
     // 6, a clock before the epoch, and 12, one past the padding horizon.
     capi.zuid_set_clock_ms(z, -1);
-    try std.testing.expectEqual(@as(c_int, 6), capi.zuid_generate(z, "%d", "62", &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 6), gen(z, "%d", "62", &out, out.len));
     capi.zuid_set_clock_ms(z, @intCast(core.horizon_ms * 1000));
-    try std.testing.expectEqual(@as(c_int, 12), capi.zuid_generate(z, "%d", "62", &out, out.len));
+    try std.testing.expectEqual(@as(c_int, 12), gen(z, "%d", "62", &out, out.len));
     capi.zuid_clear_clock(z);
 
     // Every one of them says something. 10 is left out: it needs a machine that
     // cannot supply a component, and nothing here can stage that.
     for ([_][*:0]const u8{ "%q", "%d%" }) |format| {
-        try std.testing.expect(capi.zuid_generate(z, format, "62", &out, out.len) != 0);
+        try std.testing.expect(gen(z, format, "62", &out, out.len) != 0);
         try std.testing.expect(std.mem.span(capi.zuid_last_error(z)).len > 0);
     }
 }
@@ -724,11 +728,11 @@ test "the C module does not report a stale error" {
     defer capi.zuid_free(z);
     var out: [64]u8 = undefined;
 
-    try std.testing.expect(capi.zuid_generate(z, "%d", "hexx", &out, out.len) != 0);
+    try std.testing.expect(gen(z, "%d", "hexx", &out, out.len) != 0);
     const stale = std.mem.span(capi.zuid_last_error(z));
     try std.testing.expect(std.mem.indexOf(u8, stale, "hexx") != null);
 
-    try std.testing.expect(capi.zuid_generate(z, "%q", "62", &out, out.len) != 0);
+    try std.testing.expect(gen(z, "%q", "62", &out, out.len) != 0);
     const fresh = std.mem.span(capi.zuid_last_error(z));
     try std.testing.expect(std.mem.indexOf(u8, fresh, "hexx") == null);
     try std.testing.expect(fresh.len > 0);
@@ -737,13 +741,15 @@ test "the C module does not report a stale error" {
 }
 
 // Every entry point takes a nullable context, so a caller who ignored a null
-// from zuid_new gets a code rather than a crash.
+// from zuid_new gets a code rather than a crash. Its own code, since 7 says the
+// runtime failed, which sends a caller looking in the wrong place.
 // test-id: Em32Nzd
 test "the C module rejects a null context" {
     var out: [64]u8 = undefined;
-    try std.testing.expectEqual(@as(c_int, 7), capi.zuid_generate(null, "%d", "62", &out, out.len));
-    try std.testing.expectEqual(@as(c_int, 7), capi.zuid_set_precision(null, 0));
-    try std.testing.expectEqual(@as(c_int, 7), capi.zuid_set_hash_chars(null, 8));
+    try std.testing.expectEqual(@as(c_int, 14), gen(null, "%d", "62", &out, out.len));
+    capi.zuid_set_clock_ms(null, 0);
+    capi.zuid_clear_clock(null);
+    capi.zuid_free(null);
     try std.testing.expectEqualStrings("", std.mem.span(capi.zuid_last_error(null)));
 }
 
@@ -765,34 +771,34 @@ test "a long identifier is bounded only by the caller's buffer" {
     }.f;
 
     // 200 UUIDs in base 62, 22 symbols each: 4400 bytes, past the old ceiling.
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, repeat("%g", 200), "62", &big, big.len));
+    try std.testing.expectEqual(@as(c_int, 0), gen(z, repeat("%g", 200), "62", &big, big.len));
     try std.testing.expectEqual(@as(usize, 200 * 22), spanOf(&big).len);
 
     // A literal that long as well, since the old buffer bounded the whole
     // rendering rather than any one component.
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, repeat("x", 5000), "62", &big, big.len));
+    try std.testing.expectEqual(@as(c_int, 0), gen(z, repeat("x", 5000), "62", &big, big.len));
     try std.testing.expectEqual(@as(usize, 5000), spanOf(&big).len);
 
     // Exactly enough room, and one byte short of it. %d in base 62 is 6
     // symbols at second precision, so 7 bytes is the least that can hold it.
     capi.zuid_set_clock_ms(z, 946684800000);
     var tight: [7]u8 = undefined;
-    try std.testing.expectEqual(@as(c_int, 0), capi.zuid_generate(z, "%d", "62", &tight, tight.len));
+    try std.testing.expectEqual(@as(c_int, 0), gen(z, "%d", "62", &tight, tight.len));
     try std.testing.expectEqualStrings("124Bxg", spanOf(&tight));
-    try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%d", "62", &tight, tight.len - 1));
+    try std.testing.expectEqual(@as(c_int, 5), gen(z, "%d", "62", &tight, tight.len - 1));
     capi.zuid_clear_clock(z);
 
     // And every way of being refused now says something.
     try std.testing.expect(std.mem.indexOf(u8, std.mem.span(capi.zuid_last_error(z)), "out_cap") != null);
-    try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%d", "62", &big, 0));
+    try std.testing.expectEqual(@as(c_int, 5), gen(z, "%d", "62", &big, 0));
     try std.testing.expect(std.mem.indexOf(u8, std.mem.span(capi.zuid_last_error(z)), "out_cap") != null);
-    try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%d", "62", null, 16));
+    try std.testing.expectEqual(@as(c_int, 5), gen(z, "%d", "62", null, 16));
     try std.testing.expect(std.mem.indexOf(u8, std.mem.span(capi.zuid_last_error(z)), "NULL") != null);
 
     // Nothing readable is left behind when a render runs out of room part way,
     // which it now does inside the caller's own buffer.
     var partial: [12]u8 = undefined;
-    try std.testing.expectEqual(@as(c_int, 5), capi.zuid_generate(z, "%g%g", "62", &partial, partial.len));
+    try std.testing.expectEqual(@as(c_int, 5), gen(z, "%g%g", "62", &partial, partial.len));
     try std.testing.expectEqual(@as(u8, 0), partial[0]);
 }
 
@@ -867,7 +873,7 @@ fn fuzzCapi(z: *capi.Zuid, smith: *std.testing.Smith) !void {
     base_buf[base_len] = 0;
 
     var out: [core.out_buf_len]u8 = undefined;
-    const code = capi.zuid_generate(z, &fmt_buf, &base_buf, &out, out.len);
+    const code = gen(z, &fmt_buf, &base_buf, &out, out.len);
 
     // What the header promises on a failure: an empty string and a reason.
     if (code != 0) {

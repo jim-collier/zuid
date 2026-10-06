@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"os"
 	"slices"
 	"strconv"
@@ -417,6 +418,57 @@ func TestFormatErrors(t *testing.T) {
 		}
 		if _, err := generator.Generate(zuid.Request{Format: "%r", RandomChars: count}); err == nil {
 			t.Errorf("random chars %d: want an error, got none", count)
+		}
+	}
+}
+
+// Each failure is one kind a caller can test for with errors.Is, the same kinds
+// the C module has codes for. Only one kind may match, and the kind is not
+// prepended to the text, so a caller printing the error sees no change.
+// test-id: Ersmdcw
+func TestErrorKinds(t *testing.T) {
+	kinds := []error{zuid.ErrUnknownBase, zuid.ErrBadFormat, zuid.ErrConvert, zuid.ErrClock,
+		zuid.ErrPrecision, zuid.ErrOption, zuid.ErrEnv, zuid.ErrHorizon, zuid.ErrBaseNotText}
+	at := zuid.WithFixedTime(time.UnixMilli(1785703406000).UTC())
+	cases := []struct {
+		name string
+		opts []zuid.Option
+		req  zuid.Request
+		want error
+	}{
+		{"unknown base", nil, zuid.Request{Base: "nonesuch"}, zuid.ErrUnknownBase},
+		{"bare percent", nil, zuid.Request{Format: "%d%"}, zuid.ErrBadFormat},
+		{"unknown component", nil, zuid.Request{Format: "%z"}, zuid.ErrBadFormat},
+		{"precision 2", nil, zuid.Request{Precision: 2}, zuid.ErrPrecision},
+		{"hash width 65", nil, zuid.Request{Format: "%h", HashChars: 65}, zuid.ErrOption},
+		{"hash past the digest", nil, zuid.Request{Format: "%h", Base: "2048tz", HashChars: 25}, zuid.ErrOption},
+		{"random width -1", nil, zuid.Request{Format: "%r", RandomChars: -1}, zuid.ErrOption},
+		{"salt too long", nil, zuid.Request{Format: "%h", Salt: strings.Repeat("s", zuid.MaxSaltBytes+1)}, zuid.ErrOption},
+		{"raw-byte base", nil, zuid.Request{Base: "bytes"}, zuid.ErrBaseNotText},
+		{"control digits", nil, zuid.Request{Base: "98keyboard"}, zuid.ErrBaseNotText},
+		{"before the epoch", []zuid.Option{zuid.WithFixedTime(time.UnixMilli(-1).UTC())}, zuid.Request{}, zuid.ErrClock},
+		{"past the horizon", []zuid.Option{zuid.WithFixedTime(time.Date(4000, 1, 1, 0, 0, 0, 0, time.UTC))}, zuid.Request{}, zuid.ErrHorizon},
+		{"random runs dry", []zuid.Option{zuid.WithRandom(strings.NewReader(""))}, zuid.Request{Format: "%r"}, zuid.ErrEnv},
+		{"short MAC", []zuid.Option{zuid.WithMAC([]byte{1, 2, 3})}, zuid.Request{Format: "%m"}, zuid.ErrEnv},
+		{"empty host name", []zuid.Option{zuid.WithHostname("")}, zuid.Request{Format: "%h"}, zuid.ErrEnv},
+	}
+	for _, tc := range cases {
+		generator, err := zuid.New(append([]zuid.Option{at, zuid.WithHostname("h"), zuid.WithUsername("u"), zuid.WithFQDN("h.example")}, tc.opts...)...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = generator.Generate(tc.req)
+		if !errors.Is(err, tc.want) {
+			t.Errorf("%s: got %v, want %v", tc.name, err, tc.want)
+			continue
+		}
+		for _, other := range kinds {
+			if other != tc.want && errors.Is(err, other) {
+				t.Errorf("%s: also matches %v", tc.name, other)
+			}
+		}
+		if strings.HasPrefix(err.Error(), tc.want.Error()+":") {
+			t.Errorf("%s: the kind changed the text: %q", tc.name, err)
 		}
 	}
 }

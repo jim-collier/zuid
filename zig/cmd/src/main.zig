@@ -89,7 +89,7 @@ const help_head =
     \\Syntax: zuid [options]
     \\
     \\A value attaches to its flag with '=' or follows it as the next argument,
-    \\so -b=32c, -b 32c, --base=32c, and --base 32c are all the same thing.
+    \\so -b=16, -b 16, --base=16, and --base 16 are all the same thing.
     \\
     \\Options:
     \\    -b, --base <name>         Output base (default 62). Curated set:
@@ -116,6 +116,9 @@ const help_tail =
     \\                              hashing guesses. Machines being compared need
     \\                              the same one, and it shows in the process
     \\                              list.
+    \\        --salt-file <path>    The same, read from a file, or from stdin for
+    \\                              '-'. Not in the process list. One trailing
+    \\                              newline is dropped.
     \\    -h, --help                This.
     \\    -v, --version             Version and build number.
     \\        --about               Version, copyright, and license.
@@ -158,11 +161,13 @@ pub fn main(init: std.process.Init) !void {
 
     var opts = zuid.core.Options{ .clock_ms = 0 };
     var count: usize = 1;
+    var salt_given = false;
+    var salt_file: ?[]const u8 = null;
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
 
-        // A value may ride along on the flag ("-b=32c") or follow it as the
+        // A value may ride along on the flag ("-b=16") or follow it as the
         // next argument. Only split a leading-dash argument, so a format
         // string containing '=' passes through untouched.
         var name: []const u8 = arg;
@@ -229,6 +234,9 @@ pub fn main(init: std.process.Init) !void {
             opts.random_chars = charCount(stderr, vals.take(name, "a symbol count"), name);
         } else if (std.mem.eql(u8, name, "--salt")) {
             opts.salt = vals.take(name, "a salt");
+            salt_given = true;
+        } else if (std.mem.eql(u8, name, "--salt-file")) {
+            salt_file = vals.take(name, "a file name");
         } else {
             return die(stderr, "Argument invalid or not expected: '{s}'. Try --help.", .{arg});
         }
@@ -238,6 +246,11 @@ pub fn main(init: std.process.Init) !void {
     // rendered an empty identifier and exited 0, so a script running
     // 'zuid -f "$FMT"' with the variable unset got nothing and no error.
     if (opts.format.len == 0) opts.format = "%d";
+
+    if (salt_file) |path| {
+        if (salt_given) return die(stderr, "--salt and --salt-file both give the salt. Want one or the other.", .{});
+        opts.salt = readSalt(io, arena, stderr, path);
+    }
 
     opts.clock_ms = zuid.clock.nowMs() orelse return die(stderr, "The system clock could not be read.", .{});
 
@@ -362,6 +375,41 @@ const ModuleCache = struct {
         }
     }
 };
+
+/// The file is read to a little past the ceiling, so an over-long secret can
+/// still be told from one that only ends in a newline.
+fn readSalt(io: std.Io, arena: std.mem.Allocator, stderr: *std.Io.Writer, path: []const u8) []const u8 {
+    const limit: std.Io.Limit = .limited(zuid.core.max_salt_bytes + 3);
+    const from_stdin = std.mem.eql(u8, path, "-");
+    const where = if (from_stdin) "on stdin" else std.fmt.allocPrint(arena, "in '{s}'", .{path}) catch die(stderr, "Out of memory.", .{});
+    const raw = blk: {
+        if (from_stdin) {
+            var stdin_fr = std.Io.File.stdin().reader(io, &.{});
+            break :blk stdin_fr.interface.allocRemaining(arena, limit) catch |err| switch (err) {
+                error.StreamTooLong => die(stderr, "The salt on stdin is too long. Want at most {d} bytes.", .{zuid.core.max_salt_bytes}),
+                else => die(stderr, "Could not read the salt from stdin: {t}.", .{stdin_fr.err orelse err}),
+            };
+        }
+        break :blk std.Io.Dir.cwd().readFileAlloc(io, path, arena, limit) catch |err| switch (err) {
+            error.StreamTooLong => die(stderr, "The salt in '{s}' is too long. Want at most {d} bytes.", .{ path, zuid.core.max_salt_bytes }),
+            error.FileNotFound => die(stderr, "Salt file '{s}' does not exist.", .{path}),
+            error.AccessDenied, error.PermissionDenied => die(stderr, "Salt file '{s}' is not readable.", .{path}),
+            error.IsDir => die(stderr, "Salt file '{s}' is a directory.", .{path}),
+            else => die(stderr, "Could not read salt file '{s}': {t}.", .{ path, err }),
+        };
+    };
+    // Whatever wrote the file most likely ended it with a newline, which is
+    // not part of the secret. Only one, so a secret can still end in one.
+    var salt = raw;
+    if (std.mem.endsWith(u8, salt, "\n")) salt = salt[0 .. salt.len - 1];
+    if (std.mem.endsWith(u8, salt, "\r")) salt = salt[0 .. salt.len - 1];
+    // Empty would mean unsalted output that whoever set it up thinks is salted.
+    if (salt.len == 0) die(stderr, "The salt {s} is empty.", .{where});
+    if (salt.len > zuid.core.max_salt_bytes) {
+        die(stderr, "The salt {s} is {d} bytes. Want at most {d}.", .{ where, salt.len, zuid.core.max_salt_bytes });
+    }
+    return salt;
+}
 
 /// Turns a generation failure into the one-line message the style guide asks
 /// for. The wasm runtime's own words win where it had any, since those are

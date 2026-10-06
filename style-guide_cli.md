@@ -40,7 +40,7 @@ There is no third code. The command does one thing, and a caller that needs to k
 
 - Every flag has a long spelling. A short one is a convenience and only exists where the flag is typed often.
 
-- A value attaches with `=` or follows as the next argument. `--base=32c` and `--base 32c` are the same thing, and so are `-b=32c` and `-b 32c`. Only an argument starting with a dash is split at its `=`, so a format string carrying one survives.
+- A value attaches with `=` or follows as the next argument. `--base=16` and `--base 16` are the same thing, and so are `-b=16` and `-b 16`. Only an argument starting with a dash is split at its `=`, so a format string carrying one survives.
 
 - A flag that takes no value refuses one rather than ignoring it. `--no-hash=1` is an error.
 

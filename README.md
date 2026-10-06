@@ -10,7 +10,7 @@
 ![Lifecycle: Alpha](https://img.shields.io/badge/Lifecycle-Alpha-orange)
 ![Support](https://img.shields.io/badge/Support-Maintained-brightgreen)
 ![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go&logoColor=white)
-![Zig](https://img.shields.io/badge/Zig-0.17%2B-F7A41D?logo=zig&logoColor=white)
+![Zig](https://img.shields.io/badge/Zig-0.17.0-F7A41D?logo=zig&logoColor=white)
 
 </div>
 <!--
@@ -56,7 +56,7 @@ Short, sortable, privacy-preserving unique identifiers - from a command line, a 
 
 </div>
 
-> **Alpha.** First prerelease is `v1.0.0-alpha.1`. Both implementations build and reproduce the shared test vectors, and every component works from the command line, the Go module, and the C module. Configuration files, emitting more than one identifier per run, and releases for platforms other than Linux are still to come. See [project/backlog.md](project/backlog.md) for where it actually stands.
+> **Alpha.** First prerelease is `v1.0.0-alpha.1`. Both implementations build and reproduce the shared test vectors, and every component works from the command line, the Go module, and the C module. Releases for platforms other than Linux are still to come. See [project/backlog.md](project/backlog.md) for where it actually stands.
 
 <!-- TOC ignore:true -->
 ## Table of contents
@@ -111,7 +111,7 @@ Every component is a fixed width, so identifiers line up in a column, sort as te
 
 - Batches in one run. `--count` prints as many as asked for, and says on stderr when the format made repeats.
 
-- Private by default. Host and user are hashed unless asked otherwise, and `--salt` puts a secret of your own in front of the hash so candidate names cannot be tried against the output.
+- Private by default. Host and user are hashed unless asked otherwise, and `--salt` or `--salt-file` puts a secret of your own in front of the hash so candidate names cannot be tried against the output.
 
 - A curated set of bases suited to identifiers, with the library's full set of seventy-odd still available.
 
@@ -223,7 +223,7 @@ Nothing has to be installed system-wide beyond those. The WebAssembly runtime an
 
 ~~~bash
 cicd/cicd.bash                      # build and test both sides
-cicd/cicd.bash --quick              # skip the cross builds, profiling, and demo
+cicd/cicd.bash --quick              # skip fuzzing, profiling, the demo and the dogfood install
 cicd/cicd.bash --only go            # one toolchain, so only that one has to exist
 cicd/cicd.bash --cross              # add the Go cross-compile checks
 cicd/cicd.bash -m "message"         # commit too, refusing on main and dev

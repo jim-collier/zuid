@@ -78,6 +78,32 @@ const (
 	MaxSaltBytes = 256
 )
 
+// Kinds of failure, for errors.Is. Every error Generate returns matches exactly
+// one, and each is one of the C module's codes under its own name, so a failure
+// is called the same thing on both sides. The error's text says the rest.
+var (
+	ErrUnknownBase = errors.New("unknown base")                         // ZUID_ERR_UNKNOWN_BASE
+	ErrBadFormat   = errors.New("bad format string")                    // ZUID_ERR_BAD_FORMAT
+	ErrConvert     = errors.New("base conversion failed")               // ZUID_ERR_CONVERT
+	ErrClock       = errors.New("clock predates the Unix epoch")        // ZUID_ERR_CLOCK
+	ErrPrecision   = errors.New("precision is not -1, 0, or 1")         // ZUID_ERR_PRECISION
+	ErrOption      = errors.New("option out of range")                  // ZUID_ERR_OPTION
+	ErrEnv         = errors.New("machine could not supply a component") // ZUID_ERR_ENV
+	ErrHorizon     = errors.New("clock is past the padding horizon")    // ZUID_ERR_HORIZON
+	ErrBaseNotText = errors.New("base does not render text")            // ZUID_ERR_BASE_NOT_TEXT
+)
+
+// kinded adds a kind to what errors.Is finds without changing the text.
+type kinded struct {
+	kind error
+	err  error
+}
+
+func (k *kinded) Error() string   { return k.err.Error() }
+func (k *kinded) Unwrap() []error { return []error{k.kind, k.err} }
+
+func kind(of, err error) error { return &kinded{kind: of, err: err} }
+
 // Bit widths of the fixed-size components, which is what their output widths
 // are derived from.
 const (
@@ -138,7 +164,7 @@ func (p Precision) msPerUnit() (int64, error) {
 	case PrecisionMilli:
 		return 1, nil
 	}
-	return 0, fmt.Errorf("precision %d: want -1 (minute), 0 (second), or 1 (millisecond)", p)
+	return 0, kind(ErrPrecision, fmt.Errorf("precision %d: want -1 (minute), 0 (second), or 1 (millisecond)", p))
 }
 
 // Request is one identifier's worth of choices. The zero value is a valid
@@ -258,7 +284,8 @@ func New(opts ...Option) (*Generator, error) {
 	return g, nil
 }
 
-// Generate renders one identifier.
+// Generate renders one identifier. A failure matches one of the Err values
+// above.
 func (g *Generator) Generate(req Request) (string, error) {
 	if req.Format == "" {
 		req.Format = "%d"
@@ -267,11 +294,11 @@ func (g *Generator) Generate(req Request) (string, error) {
 		req.Base = DefaultBase
 	}
 	if len(req.Salt) > MaxSaltBytes {
-		return "", fmt.Errorf("salt is %d bytes: want at most %d", len(req.Salt), MaxSaltBytes)
+		return "", kind(ErrOption, fmt.Errorf("salt is %d bytes: want at most %d", len(req.Salt), MaxSaltBytes))
 	}
 	base, err := g.registry.Lookup(req.Base)
 	if err != nil {
-		return "", fmt.Errorf("base %q: %w", req.Base, err)
+		return "", kind(ErrUnknownBase, fmt.Errorf("base %q: %w", req.Base, err))
 	}
 	if err := checkRenderable(base); err != nil {
 		return "", err
@@ -297,8 +324,8 @@ func (g *Generator) Generate(req Request) (string, error) {
 			return "", err
 		}
 		if ceiling := MaxHashChars(radix); req.HashChars > ceiling {
-			return "", fmt.Errorf("hash width %d: base %s carries at most %d symbols of a %d-bit digest",
-				req.HashChars, base.Name(), ceiling, digestBits)
+			return "", kind(ErrOption, fmt.Errorf("hash width %d: base %s carries at most %d symbols of a %d-bit digest",
+				req.HashChars, base.Name(), ceiling, digestBits))
 		}
 	}
 	if spendsRandom {
@@ -316,7 +343,7 @@ func (g *Generator) Generate(req Request) (string, error) {
 		}
 		i++
 		if i == len(req.Format) {
-			return "", errors.New("format ends on a bare '%'")
+			return "", kind(ErrBadFormat, errors.New("format ends on a bare '%'"))
 		}
 
 		verb := req.Format[i]
@@ -343,7 +370,7 @@ func (g *Generator) Generate(req Request) (string, error) {
 			// Decode rather than cast: a multi-byte verb would otherwise be
 			// reported as the Latin-1 reading of its first byte.
 			bad, _ := utf8.DecodeRuneInString(req.Format[i:])
-			return "", fmt.Errorf("unknown component %%%c", bad)
+			return "", kind(ErrBadFormat, fmt.Errorf("unknown component %%%c", bad))
 		}
 		if err != nil {
 			return "", fmt.Errorf("component %%%c: %w", verb, err)
@@ -374,7 +401,7 @@ func spentWidths(format string) (hash, random bool) {
 
 func checkChars(what string, count int) error {
 	if count < 1 || count > MaxComponentChars {
-		return fmt.Errorf("%s width %d: want 1 to %d", what, count, MaxComponentChars)
+		return kind(ErrOption, fmt.Errorf("%s width %d: want 1 to %d", what, count, MaxComponentChars))
 	}
 	return nil
 }
@@ -397,12 +424,12 @@ func checkRenderable(base *convertbase.Base) error {
 	}
 	for _, symbol := range zero {
 		if symbol < 0x20 || symbol == 0x7f {
-			return fmt.Errorf("base %s renders raw bytes, not text", base.Name())
+			return kind(ErrBaseNotText, fmt.Errorf("base %s renders raw bytes, not text", base.Name()))
 		}
 	}
 	for _, digit := range base.Symbols {
 		if len(digit) == 1 && (digit[0] < 0x20 || digit[0] == 0x7f) {
-			return fmt.Errorf("base %s has a control character among its digits, so an identifier could carry one", base.Name())
+			return kind(ErrBaseNotText, fmt.Errorf("base %s has a control character among its digits, so an identifier could carry one", base.Name()))
 		}
 	}
 	return nil
@@ -417,11 +444,15 @@ func (g *Generator) timeComponent(base *convertbase.Base, precision Precision) (
 	// identifier that collides with one from near the epoch.
 	at := g.now().UTC()
 	if seconds := at.Unix(); seconds < 0 || seconds > horizonMs/1000 {
-		return "", fmt.Errorf("clock reads %s, outside the epoch-to-horizon range", at.Format(time.RFC3339))
+		past := ErrClock
+		if seconds > 0 {
+			past = ErrHorizon
+		}
+		return "", kind(past, fmt.Errorf("clock reads %s, outside the epoch-to-horizon range", at.Format(time.RFC3339)))
 	}
 	ms := at.UnixMilli()
 	if ms < 0 {
-		return "", fmt.Errorf("clock predates the Unix epoch: %d ms", ms)
+		return "", kind(ErrClock, fmt.Errorf("clock predates the Unix epoch: %d ms", ms))
 	}
 	divisor, err := precision.msPerUnit()
 	if err != nil {
@@ -434,7 +465,7 @@ func (g *Generator) timeComponent(base *convertbase.Base, precision Precision) (
 	// width was derived to hold exactly this much.
 	units := ms / divisor
 	if units > horizonMs/divisor {
-		return "", fmt.Errorf("clock reads %s, past the padding horizon", at.Format(time.RFC3339))
+		return "", kind(ErrHorizon, fmt.Errorf("clock reads %s, past the padding horizon", at.Format(time.RFC3339)))
 	}
 	width, err := WidthFor(len(base.Symbols), precision)
 	if err != nil {
@@ -444,7 +475,17 @@ func (g *Generator) timeComponent(base *convertbase.Base, precision Precision) (
 	if err != nil {
 		return "", err
 	}
-	return base.Fit(converted, width)
+	return fit(base, converted, width)
+}
+
+// fit is Fit with the kind added, since every caller hands it the output of a
+// conversion.
+func fit(base *convertbase.Base, value string, width int) (string, error) {
+	fitted, err := base.Fit(value, width)
+	if err != nil {
+		return "", kind(ErrConvert, err)
+	}
+	return fitted, nil
 }
 
 // namedComponent renders host, user, or FQDN. Hashed by default: the name goes
@@ -454,10 +495,10 @@ func (g *Generator) timeComponent(base *convertbase.Base, precision Precision) (
 func (g *Generator) namedComponent(source func() (string, error), base *convertbase.Base, req Request) (string, error) {
 	name, err := source()
 	if err != nil {
-		return "", err
+		return "", kind(ErrEnv, err)
 	}
 	if name == "" {
-		return "", errors.New("the name is empty")
+		return "", kind(ErrEnv, errors.New("the name is empty"))
 	}
 	if req.NoHash {
 		return name, nil
@@ -472,17 +513,17 @@ func (g *Generator) namedComponent(source func() (string, error), base *convertb
 	// Rightmost few symbols, which is what makes a 256-bit digest short enough
 	// to sit in an identifier. Fit counts symbols rather than bytes, so the
 	// multi-byte alphabets cut in the right place.
-	return base.Fit(converted, req.HashChars)
+	return fit(base, converted, req.HashChars)
 }
 
 // macComponent renders the hardware address as the 48-bit number it is.
 func (g *Generator) macComponent(base *convertbase.Base) (string, error) {
 	address, err := g.mac()
 	if err != nil {
-		return "", err
+		return "", kind(ErrEnv, err)
 	}
 	if len(address) != macBits/8 {
-		return "", fmt.Errorf("MAC address is %d bytes, want %d", len(address), macBits/8)
+		return "", kind(ErrEnv, fmt.Errorf("MAC address is %d bytes, want %d", len(address), macBits/8))
 	}
 	converted, err := g.convertHex(address, base)
 	if err != nil {
@@ -490,7 +531,7 @@ func (g *Generator) macComponent(base *convertbase.Base) (string, error) {
 	}
 	// The width was derived from macBits and the address is exactly that wide,
 	// so this only ever left-fills.
-	return base.Fit(converted, widthForValueBits(len(base.Symbols), macBits))
+	return fit(base, converted, widthForValueBits(len(base.Symbols), macBits))
 }
 
 // uuidComponent draws a UUID v4 from the random source and renders it as the
@@ -499,7 +540,7 @@ func (g *Generator) macComponent(base *convertbase.Base) (string, error) {
 func (g *Generator) uuidComponent(base *convertbase.Base) (string, error) {
 	var uuid [uuidBits / 8]byte
 	if _, err := io.ReadFull(g.random, uuid[:]); err != nil {
-		return "", fmt.Errorf("random source: %w", err)
+		return "", kind(ErrEnv, fmt.Errorf("random source: %w", err))
 	}
 	uuid[6] = uuid[6]&0x0f | 0x40 // version 4
 	uuid[8] = uuid[8]&0x3f | 0x80 // variant 10
@@ -507,20 +548,20 @@ func (g *Generator) uuidComponent(base *convertbase.Base) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return base.Fit(converted, widthForValueBits(len(base.Symbols), uuidBits))
+	return fit(base, converted, widthForValueBits(len(base.Symbols), uuidBits))
 }
 
 // randomComponent draws enough entropy to fill every symbol it emits.
 func (g *Generator) randomComponent(base *convertbase.Base, count int) (string, error) {
 	drawn := make([]byte, randomBytesFor(len(base.Symbols), count))
 	if _, err := io.ReadFull(g.random, drawn); err != nil {
-		return "", fmt.Errorf("random source: %w", err)
+		return "", kind(ErrEnv, fmt.Errorf("random source: %w", err))
 	}
 	converted, err := g.convertHex(drawn, base)
 	if err != nil {
 		return "", err
 	}
-	return base.Fit(converted, count)
+	return fit(base, converted, count)
 }
 
 // randomBytesFor is how many bytes fill count symbols of the given radix.
@@ -541,7 +582,7 @@ func (g *Generator) convertHex(raw []byte, to *convertbase.Base) (string, error)
 func (g *Generator) convert(value string, from, to *convertbase.Base) (string, error) {
 	converted, err := convertbase.Convert(value, from, to, -1)
 	if err != nil {
-		return "", fmt.Errorf("convert %s from base %s to base %s: %w", value, from.Name(), to.Name(), err)
+		return "", kind(ErrConvert, fmt.Errorf("convert %s from base %s to base %s: %w", value, from.Name(), to.Name(), err))
 	}
 	return converted, nil
 }
@@ -555,7 +596,7 @@ func WidthFor(radix int, precision Precision) (int, error) {
 	// inside this package, but WidthFor is exported precisely so a caller can
 	// size a buffer with it.
 	if radix < 2 {
-		return 0, fmt.Errorf("radix %d: want 2 or more", radix)
+		return 0, kind(ErrOption, fmt.Errorf("radix %d: want 2 or more", radix))
 	}
 	divisor, err := precision.msPerUnit()
 	if err != nil {

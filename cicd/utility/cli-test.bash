@@ -240,6 +240,25 @@ fWantFailure EqAI7sj "a missing salt is refused"    "salt" --salt
 fWantFailure EqAI7sk "an over-long salt is refused" "Want at most 256" \
 	--format '%h' --salt "$(python3 -c 'print("s" * 257)')"
 
+## --salt-file keeps the secret out of the process list. One trailing newline is
+## what a file written by hand or by echo ends in, so it is not part of the salt.
+printf 'pepper\n' > "${work}/salt"
+printf 'pepper' > "${work}/salt-bare"
+printf '\n' > "${work}/salt-empty"
+python3 -c 'print("s" * 257)' > "${work}/salt-long"
+salted="$(fRun --format '%h' --salt pepper)"
+fWantExact ErsrUT2 "a salt file salts the same as --salt"    "${salted}" --format '%h' --salt-file "${work}/salt"
+fWantExact ErsrUT3 "with or without its trailing newline"    "${salted}" --format '%h' --salt-file "${work}/salt-bare"
+fId ErsrUT4 "'-' reads the salt from stdin"
+if [[ "$(printf 'pepper\r\n' | "${bin}" --format '%h' --salt-file - 2>/dev/null)" == "${salted}" ]]
+	then fPass
+	else fFail "stdin gave another fingerprint"
+fi
+fWantFailure ErsrUT5 "an empty salt file is refused"           "is empty" --format '%h' --salt-file "${work}/salt-empty"
+fWantFailure ErsrUT6 "an over-long salt file is refused"       "Want at most 256" --format '%h' --salt-file "${work}/salt-long"
+fWantFailure ErsrUT7 "a missing salt file is refused"          "does not exist" --salt-file "${work}/no-such-salt"
+fWantFailure ErsrUT8 "--salt and --salt-file together"         "one or the other" --salt pepper --salt-file "${work}/salt"
+
 ## --count prints that many lines and nothing else. One run reads the clock
 ## once, so a format with nothing random in it comes out the same every line -
 ## printed as-is, with a warning rather than something appended to hide it.

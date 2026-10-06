@@ -33,15 +33,20 @@ FRAME_RE  = re.compile(r"<title>(.*?)</title><rect ([^>]*?)/>", re.S)
 ##	ought to sit in the conversion arithmetic. Registry construction shows up
 ##	only if a benchmark built a generator inside its loop, which is a bug in the
 ##	benchmark rather than in the code. Order matters: first match wins.
+##
+##	A bucket in CLAIMS_SUBTREE takes everything under it, whatever the leaf is.
+##	Registry construction burns its time in strings, maps and the allocator, so
+##	by leaf name it read 0% while being a third of the samples.
 BUCKETS = [
-	("base conversion, math/big", ("math/big", ".Convert", "convertbase.Convert", "quoRem", "divLarge", "mulAddVWW")),
+	("registry construction (should be cold)", ("NewRegistry", ".Register", "Finalize", "bases.")),
 	("fit and tokenize", (".Fit", ".Tokenize", ".SymbolSlice", "symbolCount", "tokenize")),
 	("hashing and randomness", ("sha256", "crypto/rand", "sha2", "getrandom")),
-	("registry construction (should be cold)", ("NewRegistry", ".Register", "Finalize", "bases.")),
+	("base conversion, math/big", ("math/big", ".Convert", "quoRem", "divLarge", "mulAddVWW", "convertbase.")),
 	("GC + allocator (discount)", ("runtime.gc", "mallocgc", "runtime.scan", "runtime.mark", "runtime.sweep",
 	                               "memclr", "memmove", "growslice", "typedslicecopy", "runtime.span", "heap")),
 	("other runtime / test harness", ("runtime.", "testing.")),
 ]
+CLAIMS_SUBTREE = ("registry construction (should be cold)",)
 
 
 def fSkip(msg):
@@ -110,6 +115,14 @@ def fAnalyze(total, frames, top):
 	def selfW(fr):
 		return fr[3] - sum(c[3] for c in kids(fr))
 
+	def owner(fr):
+		cur = fr
+		while cur:
+			if fBucket(cur[0]) in CLAIMS_SUBTREE:
+				return fBucket(cur[0])
+			cur = parent(cur)
+		return fBucket(fr[0])
+
 	selfBy, inclBy, byName = {}, {}, {}
 	attrib = {}
 	for fr in frames:
@@ -119,7 +132,8 @@ def fAnalyze(total, frames, top):
 		s = selfW(fr)
 		selfBy[name] = selfBy.get(name, 0.0) + s
 		if s > 0:
-			attrib[fBucket(name)] = attrib.get(fBucket(name), 0.0) + s
+			label = owner(fr)
+			attrib[label] = attrib.get(label, 0.0) + s
 
 	def pct(v):
 		return f"{v / total * 100:5.1f}%"
@@ -158,7 +172,7 @@ def main():
 	here = os.path.dirname(os.path.abspath(__file__))
 	default_dir = os.path.normpath(os.path.join(here, "..", "artifacts", "profiling"))
 
-	ap = argparse.ArgumentParser(description="Summarize the newest convert-base-v2 profiler flamegraph.")
+	ap = argparse.ArgumentParser(description="Summarize the newest zuid profiler flamegraph.")
 	ap.add_argument("--dir", default=default_dir, help="profiling directory (default: %(default)s)")
 	ap.add_argument("--file", help="analyze this SVG instead of the newest in --dir")
 	ap.add_argument("--top", type=int, default=SELF_TOP, help="self-time leaders to list")
@@ -213,3 +227,4 @@ if __name__ == "__main__":
 
 ##	History:
 ##		- 20260709: Created.
+##		- 20261005: Registry construction claims its whole subtree.
