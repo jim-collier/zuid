@@ -61,6 +61,30 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Branch: fastcli
 	- Test case: EloUhj2, Eq9dPAO, Em32Nzd and the other C tests in `tests.zig` pass a request now, and so does `capi_smoke.c`. EloUhj2 failed with a negative width read as zero, and Em32Nzd with the old code.
 
+- A run of the command costs about 3.5 s of CPU and 235 MB of memory.
+	- ID: 2026100519164741
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs external testing: Done, 20261005. Windows x86_64 on vm925w and macOS on b26.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261005-191647
+	- Opened by: JC
+	- Related IDs: 2026100519164742
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- One identifier takes microseconds. A run should not cost a compile of the whole wasm module every time.
+	- Progress log:
+		- 20261005: Measured on b23, ReleaseSafe: 0.55 s, 3.45 s of CPU and 235 MB per run. Cranelift compiles the module on every core, every run, and `_initialize` is most of the wall time.
+		- 20261005: The command keeps the compiled module in the user's cache directory, and later runs load it. Wasmtime refuses one from another version or for another CPU, and then it compiles as usual. The file ends in a hash, so a damaged one is compiled over rather than run. A new build clears out older files.
+		- 20261005: A run with the module cached takes 0.34 s, 0.33 s of CPU and 47 MB. What is left is `_initialize`, which upstream's lazier registry cuts. With both, 0.02 s and 39 MB. See 2026100519164742.
+		- 20261005: Verified on vm925w: 1.8 s for the first run, 0.37 s after, with the file in `%LOCALAPPDATA%\zuid`. A byte flipped in it meant one slower run and a rewritten file. Verified on b26: the full pipeline, with the cache tests reading `~/Library/Caches/zuid`. The arm64 Windows build under Wine wrote its file too.
+	- Decisions:
+		- 20261005: the command only. The C module does not write into a caller's home directory, and a C caller makes one context and keeps it.
+		- 20261005: skipped when run as root, since under sudo HOME can be a directory another user writes.
+		- 20261005: `$XDG_CACHE_HOME/zuid`, else `~/.cache/zuid`; `~/Library/Caches/zuid` on macOS; `%LOCALAPPDATA%\zuid` on Windows. Nothing turns it off. Deleting it is safe.
+	- Branch: fastcli
+	- Test case: Ersmdcr, Ersmdcs, Ersmdct and Ersmdcu in `cli-test.bash`, and Ersmdcv in `tests.zig`. Each failed with its part of the cache broken.
+
 - `--salt` shows the secret in the process list.
 	- ID: 2026100519343984
 	- Type: Enhancement
@@ -109,6 +133,42 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: ErsxH5C in `zuid_test.go`, ErsxH5D, ErsxH5E and ErsxH5F in `tests.zig`, and Ersz07L to Ersz07U in `cli-test.bash`. Each failed with a fault planted: a Go text, an `Err` comment or a new `Err` with no row; a `codeFor` code, a dropped row or a wrong code against `zuid.h`; the old C base text; the command's horizon message taken out; a flag message reworded.
 	- Verified: the Go and Zig tests, `cli-test.bash`, the test ID check, the format check and shellcheck all pass.
 
+- Windows release packages, x86_64 and arm64.
+	- ID: 2026100416052036
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Done. `cicd.bash --package --no-dogfood --no-backup -q` passed, 20261004.
+	- Needs external testing: Yes, the arm64 run only. The arm64 release has had static checks only, since there is no arm64 Windows machine: `zuid.exe`, `zuid.dll` and `capi_smoke.c` still need a run on one. The x86_64 zip and `install.ps1` passed on vm925w, the user install 20261004 and the system install 20261005.
+	- Opened: 20261004-160520
+	- Opened by: JC
+	- Prereq IDs: 2026100416052035
+	- Target OS: Windows 10 and later, x86_64 and arm64
+	- Requirements  [Feature]:
+		- `zuid-windows-x86_64.zip` and `zuid-windows-arm64.zip` from `--package` on Linux, with their bare `.exe` files.
+		- `install.ps1` installs them.
+		- The release checks run on them, as on the other targets.
+	- Progress log:
+		- 20261004: Split from the packaging item under Old format. Windows ships as a `.zip` for `install.ps1`.
+		- 20261004: arm64 has only Wasmtime's MSVC archive. Its `wasmtime.dll` may link from a mingw build, since a DLL's C interface does not depend on the toolchain. Untested.
+		- 20261004: arm64 links `wasmtime.dll` through its import library, and the zip has the DLL in `bin/`. That DLL imports only Windows' own DLLs, with no Visual C++ runtime, so a stock Windows 10 or 11 has everything it needs. Wasmtime's static MSVC archive does not link from mingw, since it asks for MSVC's own C runtime.
+		- 20261004: `--package` on Linux now builds both zips and the bare x86_64 `.exe`. The zips are laid out like the tarballs, plus Wasmtime's license. The checks that built Windows into scratch now read the zips in `dist/`.
+		- 20261004: Packaging also stopped staging every release on one CPU in one folder. The Windows zip would have taken in the Linux files. FreeBSD only escaped it because its file names match Linux's.
+		- 20261004: `install.ps1` is meant for PowerShell 7, as the README says. Under Windows PowerShell 5.1 it used to stop with "The variable '$IsWindows' cannot be retrieved". It now says it needs PowerShell 7 and stops before doing anything.
+		- 20261004: `install.ps1` and `run-latest.ps1` were not ASCII, from the copyright line and the section rules. They are now, with the copyright written without the ID, and a docs check keeps every `.ps1` that way.
+		- 20261004: The Linux, macOS and FreeBSD tarballs have `libwasmtime.a` without Wasmtime's license. Logged as 2026100417324819.
+		- 20261004: x86_64 is done. Left open only for an arm64 run on real hardware, which is not yet possible here.
+		- 20261005: The arm64 zip ran under Wine 10.0 on vmDebARM64, an arm64 Debian VM. `zuid.exe` gave its version, every component and `--count`. `capi_smoke.c`, cross-built for aarch64-windows-gnu, passed against `zuid.dll` and against `libzuid.a`. Wine is not Windows, so a run on a real arm64 Windows machine is still the last word; left at signoff for that call.
+		- 20261005: `install.ps1 -Target system` passed on vm925w from an elevated shell, against a local release. It installed to `C:\Program Files\zuid`, and the installed `zuid.exe` ran `--version` and generated, also as a normal user, who cannot write there. It changed neither the machine nor the user PATH, as the README says, and named the `bin` folder to add. A second run said already installed and downloaded nothing. `-Uninstall -Target system` removed the folder and left PATH as it was.
+	- Decisions:
+		- 20261004, open to change: no bare `.exe` for arm64, since it cannot run without `wasmtime.dll` beside it. The requirement asked for one per target.
+		- 20261004, open to change: arm64's import library for `wasmtime.dll` goes in as `lib/wasmtime.lib`, the name `-lwasmtime` finds with mingw's ld, lld and Zig alike. Wasmtime's own `wasmtime.dll.lib` name is found by none of them.
+		- 20261004, open to change: `bin/zuid.pdb` is in both zips, as the build installs it, since Zig reads it for a stack trace.
+	- Verified: on vm925w with pwsh 7.6.6, against a local release: `install.ps1` picked the x86_64 zip, checked it and installed it to the user location, and the installed `zuid.exe` ran. A second run said it was already installed and downloaded nothing, and `-Uninstall` removed it. The README's one-line form did the same. `-Arch arm64` installed the arm64 zip with `wasmtime.dll` beside `zuid.exe`. With Program Files not writable, the default was the user location and `-Target system` was refused before any download. Under Windows PowerShell 5.1, both the `-File` and the README form stopped with the new message and installed nothing. Every script parsed first. On Linux: the full pipeline with `--package`, which fetched and checked the new pin, `installer-test.bash`, `pipeline-test.bash`, `test-ids.py check` and shellcheck.
+	- Swept: `fPublish_Downloads` already places `zuid-windows-x86_64.exe` in the Windows x86_64 cell after its zip; its table test now has one. Every `.ps1` in the repo. `build.zig` and `package.bash` pick the arm64 library the same way. The help text and comments that said Windows files come from `dist-incoming/`. The `zuid.h` link notes and design.md.
+	- Branch: winpkg
+	- Commit: 0263572
+	- Test case: ErmM9mS to ErmM9mV now read the x86_64 zip. New: ErmS0zB, no AVX in code built here, read through the PDB; ErmS0zC and ErmS0zD, every DLL loaded is Windows' own or in the zip, and every function asked of one in the zip is exported; ErmS0zE to ErmS0zH, the arm64 zip's files and machine type, `zuid.dll`'s exports, and `capi_smoke.c` linking against both libraries; ErmS0zI, every `.ps1` is ASCII. Each failed with its fault planted: a missing license, a missing or extra bare `.exe`, a stand-in `wasmtime.dll`, Wasmtime's DLL as `zuid.dll`, x86_64 libraries in the arm64 zip, an x86_64_v3 build, `ws2_32` dropped from the allowed list, and the old `install.ps1` or a byte-order mark. Erm9fTp, the download table, failed with the `.exe` ranked ahead of the zip. The Windows install run is by hand and has no ID.
+
 - `ZUID_ERR_INTERNAL` is never returned, and a runtime trap comes back as `ZUID_ERR_CONVERT`.
 	- ID: 2026100520074635
 	- Type: Bug
@@ -137,64 +197,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Swept: every `ConvertFailed` in `host.zig`, `core.zig`, `capi.zig`, `messages.zig` and `errors.tsv`. `core.zig`'s own `BadInput` for a random draw past its buffer stays code 4, since it is a core limit and not the runtime. `zuid.h`'s comments for 4 and 7 still hold. `design.md`, `capi_smoke.c` and the Go side name neither code. A runtime that fails to start still makes `zuid_new` return NULL, as the header says.
 	- Test case: Ert2uRC in `host.zig`, pulled into the test binary from `tests.zig`. It failed with `call()` put back to code 4, and again with the backtrace kept. ErsxH5D, ErsxH5E and ErsxH5F hold the new row.
 	- Verified: the format check, the build, the Zig tests, the Go tests, `cli-test.bash` and the test ID check all pass.
-
-- A run of the command costs about 3.5 s of CPU and 235 MB of memory.
-	- ID: 2026100519164741
-	- Type: Enhancement
-	- Status: Waiting for testing
-	- Needs external testing: Yes. A run on Windows and on macOS, where the cache path is only built.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261005-191647
-	- Opened by: JC
-	- Related IDs: 2026100519164742
-	- Target OS: Any
-	- Requirements  [Feature]:
-		- One identifier takes microseconds. A run should not cost a compile of the whole wasm module every time.
-	- Progress log:
-		- 20261005: Measured on b23, ReleaseSafe: 0.55 s, 3.45 s of CPU and 235 MB per run. Cranelift compiles the module on every core, every run, and `_initialize` is most of the wall time.
-		- 20261005: The command keeps the compiled module in the user's cache directory, and later runs load it. Wasmtime refuses one from another version or for another CPU, and then it compiles as usual. The file ends in a hash, so a damaged one is compiled over rather than run. A new build clears out older files.
-		- 20261005: A run with the module cached takes 0.34 s, 0.33 s of CPU and 47 MB. What is left is `_initialize`, which upstream's lazier registry cuts. With both, 0.02 s and 39 MB. See 2026100519164742.
-	- Decisions:
-		- 20261005: the command only. The C module does not write into a caller's home directory, and a C caller makes one context and keeps it.
-		- 20261005: skipped when run as root, since under sudo HOME can be a directory another user writes.
-		- 20261005: `$XDG_CACHE_HOME/zuid`, else `~/.cache/zuid`; `~/Library/Caches/zuid` on macOS; `%LOCALAPPDATA%\zuid` on Windows. Nothing turns it off. Deleting it is safe.
-	- Branch: fastcli
-	- Test case: Ersmdcr, Ersmdcs, Ersmdct and Ersmdcu in `cli-test.bash`, and Ersmdcv in `tests.zig`. Each failed with its part of the cache broken.
-
-- Windows release packages, x86_64 and arm64.
-	- ID: 2026100416052036
-	- Type: Enhancement
-	- Status: Waiting for testing
-	- Needs local test suite run?: Done. `cicd.bash --package --no-dogfood --no-backup -q` passed, 20261004.
-	- Needs external testing: Yes, the arm64 run only. The arm64 release has had static checks only, since there is no arm64 Windows machine: `zuid.exe`, `zuid.dll` and `capi_smoke.c` still need a run on one. The x86_64 zip and `install.ps1` passed on vm925w, the user install 20261004 and the system install 20261005.
-	- Opened: 20261004-160520
-	- Opened by: JC
-	- Prereq IDs: 2026100416052035
-	- Target OS: Windows 10 and later, x86_64 and arm64
-	- Requirements  [Feature]:
-		- `zuid-windows-x86_64.zip` and `zuid-windows-arm64.zip` from `--package` on Linux, with their bare `.exe` files.
-		- `install.ps1` installs them.
-		- The release checks run on them, as on the other targets.
-	- Progress log:
-		- 20261004: Split from the packaging item under Old format. Windows ships as a `.zip` for `install.ps1`.
-		- 20261004: arm64 has only Wasmtime's MSVC archive. Its `wasmtime.dll` may link from a mingw build, since a DLL's C interface does not depend on the toolchain. Untested.
-		- 20261004: arm64 links `wasmtime.dll` through its import library, and the zip has the DLL in `bin/`. That DLL imports only Windows' own DLLs, with no Visual C++ runtime, so a stock Windows 10 or 11 has everything it needs. Wasmtime's static MSVC archive does not link from mingw, since it asks for MSVC's own C runtime.
-		- 20261004: `--package` on Linux now builds both zips and the bare x86_64 `.exe`. The zips are laid out like the tarballs, plus Wasmtime's license. The checks that built Windows into scratch now read the zips in `dist/`.
-		- 20261004: Packaging also stopped staging every release on one CPU in one folder. The Windows zip would have taken in the Linux files. FreeBSD only escaped it because its file names match Linux's.
-		- 20261004: `install.ps1` is meant for PowerShell 7, as the README says. Under Windows PowerShell 5.1 it used to stop with "The variable '$IsWindows' cannot be retrieved". It now says it needs PowerShell 7 and stops before doing anything.
-		- 20261004: `install.ps1` and `run-latest.ps1` were not ASCII, from the copyright line and the section rules. They are now, with the copyright written without the ID, and a docs check keeps every `.ps1` that way.
-		- 20261004: The Linux, macOS and FreeBSD tarballs have `libwasmtime.a` without Wasmtime's license. Logged as 2026100417324819.
-		- 20261004: x86_64 is done. Left open only for an arm64 run on real hardware, which is not yet possible here.
-		- 20261005: `install.ps1 -Target system` passed on vm925w from an elevated shell, against a local release. It installed to `C:\Program Files\zuid`, and the installed `zuid.exe` ran `--version` and generated, also as a normal user, who cannot write there. It changed neither the machine nor the user PATH, as the README says, and named the `bin` folder to add. A second run said already installed and downloaded nothing. `-Uninstall -Target system` removed the folder and left PATH as it was.
-	- Decisions:
-		- 20261004, open to change: no bare `.exe` for arm64, since it cannot run without `wasmtime.dll` beside it. The requirement asked for one per target.
-		- 20261004, open to change: arm64's import library for `wasmtime.dll` goes in as `lib/wasmtime.lib`, the name `-lwasmtime` finds with mingw's ld, lld and Zig alike. Wasmtime's own `wasmtime.dll.lib` name is found by none of them.
-		- 20261004, open to change: `bin/zuid.pdb` is in both zips, as the build installs it, since Zig reads it for a stack trace.
-	- Verified: on vm925w with pwsh 7.6.6, against a local release: `install.ps1` picked the x86_64 zip, checked it and installed it to the user location, and the installed `zuid.exe` ran. A second run said it was already installed and downloaded nothing, and `-Uninstall` removed it. The README's one-line form did the same. `-Arch arm64` installed the arm64 zip with `wasmtime.dll` beside `zuid.exe`. With Program Files not writable, the default was the user location and `-Target system` was refused before any download. Under Windows PowerShell 5.1, both the `-File` and the README form stopped with the new message and installed nothing. Every script parsed first. On Linux: the full pipeline with `--package`, which fetched and checked the new pin, `installer-test.bash`, `pipeline-test.bash`, `test-ids.py check` and shellcheck.
-	- Swept: `fPublish_Downloads` already places `zuid-windows-x86_64.exe` in the Windows x86_64 cell after its zip; its table test now has one. Every `.ps1` in the repo. `build.zig` and `package.bash` pick the arm64 library the same way. The help text and comments that said Windows files come from `dist-incoming/`. The `zuid.h` link notes and design.md.
-	- Branch: winpkg
-	- Commit: 0263572
-	- Test case: ErmM9mS to ErmM9mV now read the x86_64 zip. New: ErmS0zB, no AVX in code built here, read through the PDB; ErmS0zC and ErmS0zD, every DLL loaded is Windows' own or in the zip, and every function asked of one in the zip is exported; ErmS0zE to ErmS0zH, the arm64 zip's files and machine type, `zuid.dll`'s exports, and `capi_smoke.c` linking against both libraries; ErmS0zI, every `.ps1` is ASCII. Each failed with its fault planted: a missing license, a missing or extra bare `.exe`, a stand-in `wasmtime.dll`, Wasmtime's DLL as `zuid.dll`, x86_64 libraries in the arm64 zip, an x86_64_v3 build, `ws2_32` dropped from the allowed list, and the old `install.ps1` or a byte-order mark. Erm9fTp, the download table, failed with the `.exe` ranked ahead of the zip. The Windows install run is by hand and has no ID.
 
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
@@ -1039,6 +1041,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Note: 20261003, Linux arm64 is built and checked, and waits on testing on `vmDebARM64`. See 2026100317515523.
 	- Note: 20261004, Windows is split out as 2026100416052035 and 2026100416052036.
 	- Note: 20261004, every target is built now. Windows x86_64 and arm64 zips are cross-built on Linux, and the x86_64 one passed on vm925w. Left to run: the arm64 Windows build and the arm64 macOS slice, on real arm64 machines.
+	- Note: 20261005, the arm64 Windows zip and its C module ran under Wine on vmDebARM64. See 2026100416052036. The arm64 macOS slice still has no Apple Silicon machine to run on.
 	- Opened: 20260802-025417
 
 - 🔬 Publishing. `--publish` stays rejected with a reason until there is somewhere to publish to.
@@ -1073,6 +1076,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Decision: 20261003, the same targets as packaging for other platforms.
 	- Note: 20261003, Linux arm64 is built and checked, and waits on testing on `vmDebARM64`. See 2026100317515523.
 	- Note: 20261004, Windows x86_64 and arm64 are built too. `capi_smoke.c` passed on vm925w with mingw gcc against both libraries, and with MSVC against the DLL. Same arm64 gap as packaging.
+	- Note: 20261005, `capi_smoke.c` passed under Wine on vmDebARM64 against the arm64 Windows DLL and static library.
 	- Opened: 20260801-090104
 
 ### Done
