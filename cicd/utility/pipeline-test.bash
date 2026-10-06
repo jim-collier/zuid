@@ -11,7 +11,8 @@
 ##		scratch repos pushing to a local bare remote, with gh stubbed out.
 ##		test-ids.py runs against a scratch tree, and the Zig fuzz stage's
 ##		report against a stand-in zig. So does package.bash, to see what
-##		SOURCE_DATE_EPOCH it hands on.
+##		SOURCE_DATE_EPOCH it hands on. The profile report reads a made-up
+##		flamegraph.
 ##	Syntax:
 ##		pipeline-test.bash
 ##	History: At bottom.
@@ -52,6 +53,7 @@ esac
 
 repoRoot="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cicd="${repoRoot}/cicd/cicd.bash"
+flameReport="${repoRoot}/cicd/utility/flame-report.py"
 [[ -f "${cicd}" ]] || fDie "could not find cicd.bash from ${repoRoot}"
 
 work="$(mktemp -d)"
@@ -902,6 +904,25 @@ if ((rc != 0)) && [[ -z "${fuzzBad}" ]]
 	else fFail "exited ${rc},${fuzzBad} said '${out}'"
 fi
 
+## The profile report sorted self time by the leaf's own name, and registry
+## construction spends its time in strings and the allocator, so a third of a
+## profile read as 0% registry. Here 40 of 100 samples sit under NewRegistry.
+mkdir -p "${work}/flame"
+cat > "${work}/flame/flame_20260101-000000_go.svg" <<'SVG'
+<svg total_samples="100">
+<g><title>all (100 samples, 100%)</title><rect x="0%" y="100" width="100%" height="15" fg:x="0" fg:w="100"/></g>
+<g><title>github.com/jim-collier/convert-base-v2/lib/convertbase.NewRegistry (40 samples, 40%)</title><rect x="0%" y="84" width="40%" height="15" fg:x="0" fg:w="40"/></g>
+<g><title>strings.Index (40 samples, 40%)</title><rect x="0%" y="68" width="40%" height="15" fg:x="0" fg:w="40"/></g>
+<g><title>github.com/jim-collier/zuid/go/zuid.(*Generator).Generate (60 samples, 60%)</title><rect x="40%" y="84" width="60%" height="15" fg:x="40" fg:w="60"/></g>
+</svg>
+SVG
+fId ErsspWK "the profile report counts what runs under NewRegistry as registry time"
+out="$(python3 "${flameReport}" --dir "${work}/flame" 2>&1)" || true
+if grep -q 'registry construction.*40\.0%' <<< "${out}"
+	then fPass
+	else fFail "said: $(grep 'registry' <<< "${out}" || echo nothing)"
+fi
+
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
 fLine ""
@@ -909,6 +930,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261005 JC: The profile report's registry bucket.
 ##		- 20261004 JC: SOURCE_DATE_EPOCH kept from zig.
 ##		- 20261004 JC: The download table in the release notes.
 ##		- 20261004 JC: test-ids.py and the Zig fuzz report.

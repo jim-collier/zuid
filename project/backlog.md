@@ -105,31 +105,158 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Acceptance signoff: Closed as asked, 20261005.
 	- Closed: 20261005-102900
 
-- When a shcl upgrade breaks compatibility with the application config file(s).
-	- ID: 2026100313105246
-	- Type: Feature
+- Move `convertbase` to `lib/v0.2.0` once it is tagged.
+	- ID: 2026100519164742
+	- Type: Task
 	- Status: Queued
-	- Opened: 20261003-131052
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261005-191647
+	- Opened by: JC
+	- Related IDs: 2026100519164741
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- convert-base-v2's `dev` now builds each built-in base the first time it is looked up. `NewRegistry` went from about 38 ms to 0.17 ms there. It is not in a release yet.
+		- When `lib/v0.2.0` is tagged, move `go.mod` to it. The reactor is built from the same pin, so both sides get it.
+		- Check the reactor's exports are unchanged, rerun the vectors, and measure again.
+	- Progress log:
+		- 20261005: A command built with a reactor from `dev` started in 0.25 s, or 0.02 s with the module cached, against 0.55 s and 0.34 s on `v0.1.0`. Go's `New` should drop from 57 ms the same way.
+
+- One table for error messages across the command, the C module and the Go module.
+	- ID: 2026100519343989
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261005-193439
+	- Opened by: JC
+	- Related IDs: 2026100519343980
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- The command's `dieGenerating`, the C module's `textFor` and the Go module's `fmt.Errorf` calls each word the same failures, and they drift. Message style has been fixed in 2 rounds already.
+		- One source for each kind's text, or a test that holds the three to it.
+	- Progress log:
+		- 20261005: Asked for after a design review.
+
+- The Go module checks every digit of the base on every call.
+	- ID: 2026100519343991
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261005-193439
 	- Opened by: JC
 	- Target OS: Any
 	- Requirements  [Feature]:
-		- Check if the new shcl version has breaking changes. If so:
-			- Rename the latest config file `[origname]_backup_YYYYmmDD-HHMMSS_format-v[shcl version].shcl`.
-			- Write a new config file with the same previous path and name, from scratch through shcl, using whatever settings and conversions shcl can handle.
-		- FYI future versions of shcl might do the config backup and conversion for you. So just be careful not to race, conflict, or trample what shcl might try to do. (And first, while wiring up a new version of shcl in code, see if it has a new API to do or at least assist with the conversion for you.)
+		- `checkRenderable` walks the whole alphabet in each `Generate`, which is 2048 digits in 2048tz. The Zig side keeps the answer per base. Keep it per base in Go too.
 	- Progress log:
-		- 20261003: waits on the config file item under Old format, which waits on shcl v3. shcl v3 is not cut yet.
+		- 20261005: 2.2% of the Go profile's self time, found once the profile had enough samples to show it.
 
-- Write a test as part of CICD that creates old shcl file versions for settings, and tests the automatic (non-shcl-assisted) conversion.
-	- ID: 2026100313105251
-	- Type: Task
-	- Status: Queued
-	- Opened: 20261003-131052
+- A run of the command costs about 3.5 s of CPU and 235 MB of memory.
+	- ID: 2026100519164741
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261005-191647
 	- Opened by: JC
-	- Parent ID: 2026100313105246
+	- Related IDs: 2026100519164742
 	- Target OS: Any
+	- Requirements  [Feature]:
+		- One identifier takes microseconds. A run should not cost a compile of the whole wasm module every time.
 	- Progress log:
-		- 20261003: waits on its parent.
+		- 20261005: Measured on b23, ReleaseSafe: 0.55 s, 3.45 s of CPU and 235 MB per run. Cranelift compiles the module on every core, every run, and `_initialize` is most of the wall time.
+		- 20261005: The command keeps the compiled module in the user's cache directory, and later runs load it. Wasmtime refuses one from another version or for another CPU, and then it compiles as usual. The file ends in a hash, so a damaged one is compiled over rather than run. A new build clears out older files.
+		- 20261005: A run with the module cached takes 0.34 s, 0.33 s of CPU and 47 MB. What is left is `_initialize`, which upstream's lazier registry cuts. With both, 0.02 s and 39 MB. See 2026100519164742.
+	- Decisions:
+		- 20261005: the command only. The C module does not write into a caller's home directory, and a C caller makes one context and keeps it.
+		- 20261005: skipped when run as root, since under sudo HOME can be a directory another user writes.
+		- 20261005: `$XDG_CACHE_HOME/zuid`, else `~/.cache/zuid`; `~/Library/Caches/zuid` on macOS; `%LOCALAPPDATA%\zuid` on Windows. Nothing turns it off. Deleting it is safe.
+	- Branch: fastcli
+	- Test case: Ersmdcr, Ersmdcs, Ersmdct and Ersmdcu in `cli-test.bash`, and Ersmdcv in `tests.zig`. Each failed with its part of the cache broken.
+
+- The C module keeps some choices per call and some on the context.
+	- ID: 2026100519343982
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261005-193439
+	- Opened by: JC
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- Format and base came with each call. Precision, hashing, the salt and both widths were set on the context and stayed set, so code sharing a context could change another part's output. Go takes all of them per call.
+		- Settle it before the C ABI is held to at 1.0.0.
+	- Progress log:
+		- 20261005: `zuid_generate` takes a `zuid_request` with the same fields as Go's `Request`, and NULL is every default. The 5 setters are gone. The clock stays on the context, as Go keeps it on the `Generator`.
+		- 20261005: a NULL or freed context returns the new `ZUID_ERR_CONTEXT`, 14. It used to be `ZUID_ERR_INTERNAL`, which says the runtime failed.
+		- 20261005: a width the format does not use is not checked, as in Go. The setters refused one whatever the format.
+	- Decisions:
+		- 20261005: one call taking the struct, not a second call beside the old one. Two ways to do one thing is what was being fixed.
+		- 20261005: the soname stays `libzuid.so.1`. The header now says the prereleases are not held to it. `v1.0.0-alpha.1` shipped the old call.
+	- Branch: fastcli
+	- Test case: EloUhj2, Eq9dPAO, Em32Nzd and the other C tests in `tests.zig` pass a request now, and so does `capi_smoke.c`. EloUhj2 failed with a negative width read as zero, and Em32Nzd with the old code.
+
+- The Go module's errors cannot be told apart without reading their text.
+	- ID: 2026100519343980
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261005-193439
+	- Opened by: JC
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- A Go caller can test which kind of failure it got with `errors.Is`, the same kinds the C module has codes for.
+		- The text of each error stays as it was.
+	- Progress log:
+		- 20261005: `ErrUnknownBase`, `ErrBadFormat`, `ErrConvert`, `ErrClock`, `ErrPrecision`, `ErrOption`, `ErrEnv`, `ErrHorizon` and `ErrBaseNotText`, one for each C code a Go call can meet. Every error `Generate` returns matches exactly one.
+	- Decisions:
+		- 20261005: the kind is not put in front of the text, so nothing a caller prints changes.
+	- Branch: fastcli
+	- Test case: Ersmdcw, one case per kind but `ErrConvert`, which nothing outside the library can cause. It failed with a kind swapped and with one left off.
+
+- `--salt` shows the secret in the process list.
+	- ID: 2026100519343984
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261005-193439
+	- Opened by: JC
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- A way to give the salt that other users on the machine cannot read.
+	- Progress log:
+		- 20261005: `--salt-file <path>` reads it from a file, or from stdin for `-`. One trailing newline is dropped, `\r\n` included. An empty file, a missing one, one over 256 bytes, and both flags at once are refused.
+	- Decisions:
+		- 20261005: a file, not an environment variable. A variable changes the output with nothing on the command line to show it, which is the trouble a config file had.
+		- 20261005: an empty file is refused, since it would give unsalted output to someone who thinks it is salted. `--salt ''` still means no salt.
+	- Branch: fastcli
+	- Test case: ErsrUT2 to ErsrUT8 in `cli-test.bash`. ErsrUT4, ErsrUT5 and ErsrUT8 failed with the `\r` strip, the empty check and the both-flags check taken out.
+
+- Docs out of step with the code.
+	- ID: 2026100519343993
+	- Type: Bug
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261005-193439
+	- Opened by: JC
+	- Target OS: Any
+	- Incorrect behavior [Bug]: README's Alpha note listed more than one identifier per run as still to come, its `--quick` line said it skips the cross builds, and its Zig badge said 0.17+ where the build needs 0.17.0. design.md's TOC left out one heading, its configuration section described a file that does not exist, its plan still listed packaging, its component list left out FQDN, and one sentence was there twice. Help and the CLI style guide gave `32c` as the example base, which is not curated.
+	- Expected behavior [Bug]: Docs that match the code.
+	- Actual fix [Bug]: Each one corrected. design.md also has a blank line between top-level bullets now.
+	- Branch: fastcli
+	- Test case: none. Docs.
+
+- The Go profile was a third registry construction, and its report said none.
+	- ID: 2026100519343987
+	- Type: Bug
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261005-193439
+	- Opened by: JC
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- A full `cicd.bash` run, then `flame-report.py` on its Go flamegraph.
+	- Incorrect behavior [Bug]: The 2 profiled benchmarks build a generator each, outside their loops. At `-benchtime 3000x` that was 29% of a 51-sample profile. The report sorted self time by the leaf's name, and registry time sits under `strings` and the allocator, so it read 0%.
+	- Expected behavior [Bug]: A profile of the per-identifier work with enough samples to read, and a report that counts registry time as that.
+	- Actual fix [Bug]: `-benchtime 1s`, about 1200 samples, with the registry under 1%. The registry bucket takes everything under it. `convertbase` internals such as `wordChunk` count as conversion now, not as app code.
+	- Branch: fastcli
+	- Test case: ErsspWK in `pipeline-test.bash`, a made-up flamegraph with 40% under `NewRegistry`. It failed with the bucket going by leaf names again.
 
 - The macOS build hangs on Zig 0.17.0.
 	- ID: 2026100318410002
@@ -807,6 +934,34 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Acceptance signoff: Self-closed: built as asked.
 	- Closed: 20261003-152410
 
+- When a shcl upgrade breaks compatibility with the application config file(s).
+	- ID: 2026100313105246
+	- Type: Feature
+	- Status: Moot
+	- Opened: 20261003-131052
+	- Opened by: JC
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- Check if the new shcl version has breaking changes. If so:
+			- Rename the latest config file `[origname]_backup_YYYYmmDD-HHMMSS_format-v[shcl version].shcl`.
+			- Write a new config file with the same previous path and name, from scratch through shcl, using whatever settings and conversions shcl can handle.
+		- FYI future versions of shcl might do the config backup and conversion for you. So just be careful not to race, conflict, or trample what shcl might try to do. (And first, while wiring up a new version of shcl in code, see if it has a new API to do or at least assist with the conversion for you.)
+	- Progress log:
+		- 20261003: waits on the config file item under Old format, which waits on shcl v3. shcl v3 is not cut yet.
+		- 20261005: Moot. There will be no config file, by direct answer.
+
+- Write a test as part of CICD that creates old shcl file versions for settings, and tests the automatic (non-shcl-assisted) conversion.
+	- ID: 2026100313105251
+	- Type: Task
+	- Status: Moot
+	- Opened: 20261003-131052
+	- Opened by: JC
+	- Parent ID: 2026100313105246
+	- Target OS: Any
+	- Progress log:
+		- 20261003: waits on its parent.
+		- 20261005: Moot, with its parent.
+
 ## Old format
 
 ### Bugs
@@ -844,6 +999,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Decision: 20261004, the first real run waits on the Windows build. No `--allow-partial`.
 	- Test case: `ErgqYt2` to `ErgqYtH` and `ErgqjsR` in `pipeline-test.bash`. Each was seen to fail with its check broken.
 	- Note: 20261004, the Windows zips are built on Linux now, so every target lands in `dist/` and `dist-incoming/` is only for the macOS tarball. The first real run needs the version in `core.zig` moved to `1.0.0-beta.1`, and a go-ahead, since it publishes.
+	- Decision: 20261005, at the first real publish every "open to change" decision above becomes settled and loses the tag, so they stop coming back at each review.
 	- Opened: 20260802-025417
 
 - 🛠️ Tag the Go module as `go/v<version>` at the next release, so it can be asked for by version. A module in a subdirectory needs the prefix, and the plain `v1.0.0-alpha.1` tag does not reach it - `go get ...@v1.0.0-alpha.1` answers "found, but does not contain package". Deferred because pushing a public tag is a release decision, not a code fix. `README.md` says how to pin a commit meanwhile.
@@ -851,16 +1007,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Note: 20261003, the code is in: `--publish` pushes `go/v<version>` beside `v<version>` on the same commit. The tag goes out with the first real publish, and README's line saying there is no `go/` tag yet changes then.
 	- Test case: `ErgqYtE` in `pipeline-test.bash`.
 	- Opened: 20260917-104114
-
-- 🔘 Default configuration hard-coded
-	- 🔘 Overridden by per-user config file, created the first time a default setting is changed.
-		- 🔘 Settings live under `~/.config` (YAML or TOML), resistant to errors (e.g. don't bail on the whole thing due to one bad line).
-			- Notes:
-				- This would be shcl now, not YAML or TOML.
-				- Wait for v3 to ship.
-	- 🔘 Overridden by program options at run-time.
-	- 🔘 Config file creation belongs to the command only, never to either module.
-	- Opened: 20260801-090104
 
 - 🔬 C module cross targets, cross-compiled with `zig cc`. Needs a vendored Wasmtime archive per target, the same blocker as packaging for other platforms.
 	- Note: `build.zig` takes a non-host target's Wasmtime from `vendor/wasmtime-<platform>`, as the macOS universal build does, 20261003. Another target needs its pin and a fetch.
@@ -1075,6 +1221,11 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Closed: 20260804-224440
 
 #### Done - Features and enhancements
+
+- ✅ CLI startup is ~0.5 s, nearly all of it the module's own `_initialize` building the base registry inside the wasm. Options if it starts to matter: ask upstream about lazier registry construction, or cache a precompiled module per machine. Deferred until the surface settles.
+	- Done: 20261005, both. The command caches its compiled module, and upstream has a lazy registry waiting on a release. See 2026100519164741 and 2026100519164742.
+	- Opened: 20260802-104116
+	- Closed: 20261005-191647
 
 - ✅ `%m` is Linux-only on the Zig side - it reads `getifaddrs` for `AF_PACKET`, and macOS wants `AF_LINK` instead. The Go module is already portable, and the help text and the C header both say so. Do it alongside the cross targets, since nothing on the Zig side cross-compiles yet either.
 	- Should work on Windows too.
@@ -1507,9 +1658,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ### Deferred
 
-- ✋ CLI startup is ~0.5 s, nearly all of it the module's own `_initialize` building the base registry inside the wasm. Options if it starts to matter: ask upstream about lazier registry construction, or cache a precompiled module per machine. Deferred until the surface settles.
-	- Opened: 20260802-104116
-
 - ✋ Sanitizer run on the vendored Wasmtime. The vendored artifact turned out to be a prebuilt archive, so there is nothing local to instrument; revisit only if it is ever built from source here.
 	- Fixed: `design.md` described this as a pipeline step. It now says no stage runs one, and why. (20260917)
 	- Opened: 20260802-012336
@@ -1524,6 +1672,18 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Opened: 20260917-130524
 
 ### Canceled
+
+- 🚫 Default configuration hard-coded
+	- 🔘 Overridden by per-user config file, created the first time a default setting is changed.
+		- 🔘 Settings live under `~/.config` (YAML or TOML), resistant to errors (e.g. don't bail on the whole thing due to one bad line).
+			- Notes:
+				- This would be shcl now, not YAML or TOML.
+				- Wait for v3 to ship.
+	- 🔘 Overridden by program options at run-time.
+	- 🔘 Config file creation belongs to the command only, never to either module.
+	- Decision: 20261005, no config file, by direct answer. A default that moves the base or the precision changes width and sort order, so one script would give identifiers on two machines that do not sort together. Defaults stay compiled in and options override them. The salt, the one per-deployment setting, comes from `--salt-file`.
+	- Opened: 20260801-090104
+	- Closed: 20261005-193439
 
 - 🚫 No logo. `README.md` dropped the template's `assets/logo.png` references since there is no `assets/`.
 	- Note: `assets/` exists now, but holds only the demo animation.

@@ -86,20 +86,27 @@ fn textFor(err: core.Error) []const u8 {
 // nothing.
 const live_magic: u32 = 0x7A554944;
 
+/// zuid_request from zuid.h. All zero is every default, the same as Go's zero
+/// Request, and the field order follows it.
+pub const Request = extern struct {
+    format: ?[*:0]const u8 = null,
+    base: ?[*:0]const u8 = null,
+    precision: c_int = 0,
+    no_hash: c_int = 0,
+    hash_chars: c_int = 0,
+    random_chars: c_int = 0,
+    salt: ?[*:0]const u8 = null,
+};
+
 /// Public only so the fuzz test can name the handle type. C sees it as opaque.
+/// It holds the runtime and the machine's own values, never a caller's
+/// choices: those come with each call, so two callers sharing a context
+/// cannot change each other's output.
 pub const Zuid = struct {
     magic: u32,
     wasm_host: host.Host,
     live_env: env.Live,
     fixed_clock_ms: ?i64,
-    precision: core.Precision,
-    no_hash: bool,
-    hash_chars: u32,
-    random_chars: u32,
-    // Copied rather than kept by pointer: a caller is free to free or reuse the
-    // string it passed, and the context has to outlive that.
-    salt_buf: [core.max_salt_bytes]u8,
-    salt_len: usize,
     // The host's error text plus a NUL, so zuid_last_error can hand out a C string.
     err_buf: [host.Host.err_buf_len + 1]u8,
 
@@ -112,13 +119,13 @@ pub const Zuid = struct {
     /// Spells out the ceiling for the base actually being rendered in - 64
     /// symbols in base 16, down to 24 in 2048tz. False if the base could not be
     /// read, and then the caller falls back to the fixed sentence.
-    fn setHashCeilingText(self: *Zuid, base: []const u8) bool {
+    fn setHashCeilingText(self: *Zuid, base: []const u8, hash_chars: u32) bool {
         const name = if (base.len == 0) core.default_base else base;
         const radix = self.wasm_host.converter().radix(name) catch return false;
         const written = std.fmt.bufPrint(
             self.err_buf[0 .. self.err_buf.len - 1],
             "hash width {d}: base {s} carries at most {d} symbols of a 256-bit digest",
-            .{ self.hash_chars, name, core.maxHashChars(radix) },
+            .{ hash_chars, name, core.maxHashChars(radix) },
         ) catch return false;
         self.err_buf[written.len] = 0;
         return true;
@@ -126,7 +133,7 @@ pub const Zuid = struct {
 };
 
 /// Every entry point goes through this, so a null or already-freed context is
-/// rejected rather than followed.
+/// rejected rather than followed, with ZUID_ERR_CONTEXT where there is a code.
 fn checked(z: ?*Zuid) ?*Zuid {
     const self = z orelse return null;
     if (self.magic != live_magic) return null;
@@ -142,12 +149,6 @@ pub export fn zuid_new() ?*Zuid {
     self.magic = live_magic;
     self.live_env = .{};
     self.fixed_clock_ms = null;
-    self.precision = core.Precision.default;
-    self.no_hash = false;
-    // Zero means the derived default for whatever base each call renders in.
-    self.hash_chars = 0;
-    self.random_chars = 0;
-    self.salt_len = 0;
     self.err_buf[0] = 0;
     if (counts_contexts) live_contexts += 1;
     return self;
@@ -161,8 +162,11 @@ pub export fn zuid_free(z: ?*Zuid) void {
     if (counts_contexts) live_contexts -= 1;
 }
 
-pub export fn zuid_generate(z: ?*Zuid, format: ?[*:0]const u8, base: ?[*:0]const u8, out: ?[*]u8, out_cap: usize) c_int {
-    const self = checked(z) orelse return 7;
+const err_context = 14;
+
+pub export fn zuid_generate(z: ?*Zuid, request: ?*const Request, out: ?[*]u8, out_cap: usize) c_int {
+    const self = checked(z) orelse return err_context;
+    const req: Request = if (request) |given| given.* else .{};
     // Cleared before the buffer is checked, so a rejected buffer reports its own
     // reason rather than whatever the previous call left behind.
     self.err_buf[0] = 0;
@@ -181,20 +185,24 @@ pub export fn zuid_generate(z: ?*Zuid, format: ?[*:0]const u8, base: ?[*:0]const
     }
     out_ptr[0] = 0;
 
-    const fmt: []const u8 = if (format) |format_z| std.mem.span(format_z) else "";
+    const precision = core.Precision.fromInt(req.precision) orelse {
+        self.setErrText("precision is not -1, 0, or 1");
+        return 8;
+    };
+    const fmt: []const u8 = if (req.format) |format_z| std.mem.span(format_z) else "";
     const now = self.fixed_clock_ms orelse clock.nowMs() orelse {
         self.setErrText("the system clock could not be read");
         return 10;
     };
     const opts = core.Options{
         .format = if (fmt.len == 0) "%d" else fmt,
-        .base = if (base) |base_z| std.mem.span(base_z) else "",
-        .precision = self.precision,
+        .base = if (req.base) |base_z| std.mem.span(base_z) else "",
+        .precision = precision,
         .clock_ms = now,
-        .no_hash = self.no_hash,
-        .hash_chars = self.hash_chars,
-        .random_chars = self.random_chars,
-        .salt = self.salt_buf[0..self.salt_len],
+        .no_hash = req.no_hash != 0,
+        .hash_chars = chars(req.hash_chars),
+        .random_chars = chars(req.random_chars),
+        .salt = if (req.salt) |salt_z| std.mem.span(salt_z) else "",
     };
 
     // Straight into the caller's buffer, minus the byte the NUL needs. This
@@ -211,7 +219,7 @@ pub export fn zuid_generate(z: ?*Zuid, format: ?[*:0]const u8, base: ?[*:0]const
         // The ceiling depends on the base, so "too wide" on its own leaves the
         // caller guessing what would fit. Everything else either has the
         // library's own text or a fixed sentence.
-        if (err != core.Error.HashTooWide or !self.setHashCeilingText(opts.base)) {
+        if (err != core.Error.HashTooWide or !self.setHashCeilingText(opts.base, opts.hash_chars)) {
             self.setErrText(if (reported.len > 0) reported else textFor(err));
         }
         return codeFor(err);
@@ -220,43 +228,11 @@ pub export fn zuid_generate(z: ?*Zuid, format: ?[*:0]const u8, base: ?[*:0]const
     return 0;
 }
 
-pub export fn zuid_set_precision(z: ?*Zuid, precision: c_int) c_int {
-    const self = checked(z) orelse return 7;
-    self.precision = core.Precision.fromInt(precision) orelse return 8;
-    return 0;
-}
-
-pub export fn zuid_set_hashing(z: ?*Zuid, enabled: c_int) void {
-    const self = checked(z) orelse return;
-    self.no_hash = enabled == 0;
-}
-
-pub export fn zuid_set_salt(z: ?*Zuid, salt: ?[*:0]const u8) c_int {
-    const self = checked(z) orelse return 7;
-    const text: []const u8 = if (salt) |salt_z| std.mem.span(salt_z) else "";
-    if (text.len > self.salt_buf.len) return 9;
-    @memcpy(self.salt_buf[0..text.len], text);
-    self.salt_len = text.len;
-    return 0;
-}
-
-pub export fn zuid_set_hash_chars(z: ?*Zuid, chars: c_int) c_int {
-    const self = checked(z) orelse return 7;
-    if (!inRange(chars)) return 9;
-    self.hash_chars = @intCast(chars);
-    return 0;
-}
-
-pub export fn zuid_set_random_chars(z: ?*Zuid, chars: c_int) c_int {
-    const self = checked(z) orelse return 7;
-    if (!inRange(chars)) return 9;
-    self.random_chars = @intCast(chars);
-    return 0;
-}
-
-/// Zero is the way back to the derived default, so it is not out of range.
-fn inRange(chars: c_int) bool {
-    return chars >= 0 and chars <= core.max_component_chars;
+/// A width as the core takes it. A negative one becomes one past the ceiling,
+/// so the core refuses it only when the format spends it, as Go does.
+fn chars(count: c_int) u32 {
+    if (count < 0) return core.max_component_chars + 1;
+    return @intCast(count);
 }
 
 pub export fn zuid_set_clock_ms(z: ?*Zuid, ms: c_longlong) void {

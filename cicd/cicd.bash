@@ -1592,8 +1592,10 @@ fProfile_Go(){
 	local -r cpuOut="${profileDir}/cpu_${runStamp}.pprof"
 	## Only the per-identifier benchmarks. BenchmarkNew builds the base registry,
 	## which costs more than everything else put together and would bury the
-	## work actually worth looking at.
-	go test -p "${buildJobs}" -run '^$' -bench 'BenchmarkGenerate' -benchtime 3000x \
+	## work actually worth looking at. The others build one generator each, outside
+	## the loop, so the bench time has to dwarf that: at 3000 runs it was a third
+	## of a 51-sample profile.
+	go test -p "${buildJobs}" -run '^$' -bench 'BenchmarkGenerate' -benchtime 1s \
 		-cpuprofile "${cpuOut}" -o /dev/null ./zuid >/dev/null
 	if "${converter}" --prof "${cpuOut}" --title "zuid Go module" --out "${profileDir}/flame_${runStamp}_go.svg" >/dev/null 2>&1; then
 		fEcho_Clean "Go .........: flame_${runStamp}_go.svg"

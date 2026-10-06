@@ -34,6 +34,14 @@ static void wantCode(const char *label, int got, int expected) {
 	fails++;
 }
 
+/* Most calls here name only a format and a base. */
+static int gen(zuid *z, const char *format, const char *base, char *out, size_t cap) {
+	zuid_request req = {0};
+	req.format = format;
+	req.base = base;
+	return zuid_generate(z, &req, out, cap);
+}
+
 int main(void) {
 	char out[256];
 	zuid *z = zuid_new();
@@ -44,18 +52,18 @@ int main(void) {
 
 	/* A pinned clock is what makes the time component reproducible. */
 	zuid_set_clock_ms(z, 946684800000LL);
-	wantCode("generate", zuid_generate(z, NULL, NULL, out, sizeof out), ZUID_OK);
+	wantCode("generate", zuid_generate(z, NULL, out, sizeof out), ZUID_OK);
 	want("time, defaults", out, "124Bxg");
-	wantCode("generate 32w", zuid_generate(z, "%d", "32w", out, sizeof out), ZUID_OK);
+	wantCode("generate 32w", gen(z, "%d", "32w", out, sizeof out), ZUID_OK);
 	want("time, base 32w", out, "2r8pRr2");
 
 	/* Derived widths, in base 62: hash 8, uuid 22, random 6. Every base gets
 	   the width carrying the same strength, not the same symbol count. */
-	wantCode("generate %h", zuid_generate(z, "%h", NULL, out, sizeof out), ZUID_OK);
+	wantCode("generate %h", gen(z, "%h", NULL, out, sizeof out), ZUID_OK);
 	wantLen("host, hashed", out, 8);
-	wantCode("generate %g", zuid_generate(z, "%g", NULL, out, sizeof out), ZUID_OK);
+	wantCode("generate %g", gen(z, "%g", NULL, out, sizeof out), ZUID_OK);
 	wantLen("uuid v4", out, 22);
-	wantCode("generate %r", zuid_generate(z, "%r", NULL, out, sizeof out), ZUID_OK);
+	wantCode("generate %r", gen(z, "%r", NULL, out, sizeof out), ZUID_OK);
 	wantLen("random", out, 6);
 
 	/* Bases whose digits are several bytes each. The clock is the only source
@@ -63,67 +71,80 @@ int main(void) {
 	   to work, since their widths are in symbols and strlen counts bytes. The
 	   vectors cover those two in these bases from both implementations. */
 	zuid_set_clock_ms(z, 1785585600000LL);
-	wantCode("generate 512tt", zuid_generate(z, "%d", "512tt", out, sizeof out), ZUID_OK);
+	wantCode("generate 512tt", gen(z, "%d", "512tt", out, sizeof out), ZUID_OK);
 	want("time, base 512tt", out, "Dԋჰ𐀛");
-	wantCode("generate 2048tz", zuid_generate(z, "%d", "2048tz", out, sizeof out), ZUID_OK);
+	wantCode("generate 2048tz", gen(z, "%d", "2048tz", out, sizeof out), ZUID_OK);
 	want("time, base 2048tz", out, "0主劸𐃃");
-	wantCode("truncate in 512tt", zuid_generate(z, "%h%r", "512tt", out, sizeof out), ZUID_OK);
+	wantCode("truncate in 512tt", gen(z, "%h%r", "512tt", out, sizeof out), ZUID_OK);
 
-	wantCode("set hash chars", zuid_set_hash_chars(z, 5), ZUID_OK);
-	wantCode("set random chars", zuid_set_random_chars(z, 12), ZUID_OK);
-	wantCode("generate resized", zuid_generate(z, "%h%r", NULL, out, sizeof out), ZUID_OK);
-	wantLen("resized components", out, 17);
+	{
+		zuid_request req = {0};
+		req.format = "%h%r";
+		req.hash_chars = 5;
+		req.random_chars = 12;
+		wantCode("generate resized", zuid_generate(z, &req, out, sizeof out), ZUID_OK);
+		wantLen("resized components", out, 17);
+	}
 
-	/* Zero puts both back on the base's derived default. */
-	wantCode("hash chars 0", zuid_set_hash_chars(z, 0), ZUID_OK);
-	wantCode("random chars 0", zuid_set_random_chars(z, 0), ZUID_OK);
-	wantCode("generate defaulted", zuid_generate(z, "%h%r", NULL, out, sizeof out), ZUID_OK);
+	/* Zero is the base's derived default, and nothing carried over. */
+	wantCode("generate defaulted", gen(z, "%h%r", NULL, out, sizeof out), ZUID_OK);
 	wantLen("defaulted components", out, 14);
 
-	/* The salt is sticky, and only the hashed names read it. */
+	/* Only the hashed names read the salt. */
 	{
 		char salted[256], unsalted[256], over[ZUID_MAX_SALT_BYTES + 2];
-		wantCode("generate unsalted", zuid_generate(z, "%h", "62", unsalted, sizeof unsalted), ZUID_OK);
-		wantCode("set salt", zuid_set_salt(z, "pepper"), ZUID_OK);
-		wantCode("generate salted", zuid_generate(z, "%h", "62", salted, sizeof salted), ZUID_OK);
+		zuid_request req = {0};
+		req.format = "%h";
+		wantCode("generate unsalted", zuid_generate(z, &req, unsalted, sizeof unsalted), ZUID_OK);
+		req.salt = "pepper";
+		wantCode("generate salted", zuid_generate(z, &req, salted, sizeof salted), ZUID_OK);
 		if (strcmp(salted, unsalted) == 0) {
 			printf("  salted and unsalted host both came out %s\n", salted);
 			fails++;
 		}
 		wantLen("salted host", salted, 8);
-		wantCode("clear salt", zuid_set_salt(z, NULL), ZUID_OK);
-		wantCode("generate unsalted again", zuid_generate(z, "%h", "62", out, sizeof out), ZUID_OK);
-		want("salt cleared", out, unsalted);
 		memset(over, 's', sizeof over - 1);
 		over[sizeof over - 1] = '\0';
-		wantCode("salt over cap", zuid_set_salt(z, over), ZUID_ERR_OPTION);
+		req.salt = over;
+		wantCode("salt over cap", zuid_generate(z, &req, out, sizeof out), ZUID_ERR_OPTION);
 	}
 
 	/* Every rejection path the header documents. */
-	wantCode("hash chars over cap", zuid_set_hash_chars(z, ZUID_MAX_COMPONENT_CHARS + 1), ZUID_ERR_OPTION);
-	wantCode("random chars over cap", zuid_set_random_chars(z, ZUID_MAX_COMPONENT_CHARS + 1), ZUID_ERR_OPTION);
-	/* Past what a SHA-256 fills in base 62, which is 43 symbols. */
-	wantCode("hash past the digest", zuid_set_hash_chars(z, 44), ZUID_OK);
-	wantCode("generate over-wide hash", zuid_generate(z, "%h", "62", out, sizeof out), ZUID_ERR_OPTION);
-	wantCode("hash chars back to default", zuid_set_hash_chars(z, 0), ZUID_OK);
-	wantCode("precision 2", zuid_set_precision(z, 2), ZUID_ERR_PRECISION);
-	wantCode("unknown base", zuid_generate(z, "%d", "hexx", out, sizeof out), ZUID_ERR_UNKNOWN_BASE);
+	{
+		zuid_request req = {0};
+		req.format = "%h";
+		req.hash_chars = ZUID_MAX_COMPONENT_CHARS + 1;
+		wantCode("hash chars over cap", zuid_generate(z, &req, out, sizeof out), ZUID_ERR_OPTION);
+		/* Past what a SHA-256 fills in base 62, which is 43 symbols. */
+		req.hash_chars = 44;
+		wantCode("hash past the digest", zuid_generate(z, &req, out, sizeof out), ZUID_ERR_OPTION);
+		req.format = "%r";
+		req.random_chars = ZUID_MAX_COMPONENT_CHARS + 1;
+		wantCode("random chars over cap", zuid_generate(z, &req, out, sizeof out), ZUID_ERR_OPTION);
+	}
+	{
+		zuid_request req = {0};
+		req.precision = 2;
+		wantCode("precision 2", zuid_generate(z, &req, out, sizeof out), ZUID_ERR_PRECISION);
+	}
+	wantCode("null context", gen(NULL, "%d", "62", out, sizeof out), ZUID_ERR_CONTEXT);
+	wantCode("unknown base", gen(z, "%d", "hexx", out, sizeof out), ZUID_ERR_UNKNOWN_BASE);
 	if (strlen(zuid_last_error(z)) == 0) {
 		printf("  unknown base: no error text\n");
 		fails++;
 	}
-	wantCode("short buffer", zuid_generate(z, "%d", "62", out, 6), ZUID_ERR_BUFFER);
+	wantCode("short buffer", gen(z, "%d", "62", out, 6), ZUID_ERR_BUFFER);
 
 	/* The enum is an ABI compiled callers hold, so the codes get pinned from
 	   out here too. ZUID_ERR_ENV is absent: it needs a machine that cannot
 	   supply a component. */
-	wantCode("unknown component", zuid_generate(z, "%q", "62", out, sizeof out), ZUID_ERR_BAD_FORMAT);
-	wantCode("trailing percent", zuid_generate(z, "%d%", "62", out, sizeof out), ZUID_ERR_BAD_FORMAT);
-	wantCode("raw-byte base", zuid_generate(z, "%d", "bytes", out, sizeof out), ZUID_ERR_BASE_NOT_TEXT);
+	wantCode("unknown component", gen(z, "%q", "62", out, sizeof out), ZUID_ERR_BAD_FORMAT);
+	wantCode("trailing percent", gen(z, "%d%", "62", out, sizeof out), ZUID_ERR_BAD_FORMAT);
+	wantCode("raw-byte base", gen(z, "%d", "bytes", out, sizeof out), ZUID_ERR_BASE_NOT_TEXT);
 	zuid_set_clock_ms(z, -1LL);
-	wantCode("clock before epoch", zuid_generate(z, "%d", "62", out, sizeof out), ZUID_ERR_CLOCK);
+	wantCode("clock before epoch", gen(z, "%d", "62", out, sizeof out), ZUID_ERR_CLOCK);
 	zuid_set_clock_ms(z, 32503680000000000LL);
-	wantCode("past the horizon", zuid_generate(z, "%d", "62", out, sizeof out), ZUID_ERR_HORIZON);
+	wantCode("past the horizon", gen(z, "%d", "62", out, sizeof out), ZUID_ERR_HORIZON);
 	zuid_clear_clock(z);
 
 	/* ZUID_ERR_BUFFER used to fire for a fixed 4096-byte buffer inside the
@@ -133,10 +154,10 @@ int main(void) {
 		char many[401];
 		for (size_t i = 0; i < 200; i++) { many[i * 2] = '%'; many[i * 2 + 1] = 'g'; }
 		many[400] = '\0';
-		wantCode("200 uuids", zuid_generate(z, many, "62", big, sizeof big), ZUID_OK);
+		wantCode("200 uuids", gen(z, many, "62", big, sizeof big), ZUID_OK);
 		wantLen("200 uuids", big, 200 * 22);
 
-		wantCode("short buffer text", zuid_generate(z, "%d", "62", big, 4), ZUID_ERR_BUFFER);
+		wantCode("short buffer text", gen(z, "%d", "62", big, 4), ZUID_ERR_BUFFER);
 		if (strlen(zuid_last_error(z)) == 0) {
 			printf("  short buffer: no error text\n");
 			fails++;
