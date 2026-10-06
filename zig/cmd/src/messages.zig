@@ -41,6 +41,7 @@ pub fn generating(w: *std.Io.Writer, err: anyerror, detail: []const u8, given: G
         error.OptionRange => try w.print("A symbol count is out of range. Want 1 to {d}.", .{given.max_chars}),
         error.SaltTooLong => try w.print("The salt is {d} bytes. Want at most {d}.", .{ given.salt_len, given.max_salt }),
         error.BufferTooSmall => try w.print("That format renders more than {d} bytes, which is past what this command will print.", .{given.max_out}),
+        error.RuntimeFailed => try w.writeAll("The embedded wasm runtime or its module failed."),
         else => try w.print("Generation failed: {t}.", .{err}),
     }
 }

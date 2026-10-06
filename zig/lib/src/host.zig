@@ -24,7 +24,9 @@ const c = @import("c_wasmtime");
 // versions.
 const reactor_wasm = @embedFile("convert-base-reactor.wasm");
 
-// ABI error codes, from the reactor's README. Stable by contract.
+// ABI error codes, from the reactor's README. Stable by contract. Internal is
+// the module's base registry failing to build, which is the module breaking
+// rather than refusing a request.
 const abi_err_unknown_base = 1;
 const abi_err_internal = 7;
 
@@ -434,18 +436,18 @@ pub const Host = struct {
     /// the module-owned buffer.
     fn fail(self: *Host) core.Error {
         var results: [1]c.wasmtime_val_t = undefined;
-        self.call(&self.f_last_error_code, &.{}, &results) catch return core.Error.ConvertFailed;
+        self.call(&self.f_last_error_code, &.{}, &results) catch |err| return err;
         const code = results[0].of.i32;
-        self.call(&self.f_last_error_text, &.{}, &results) catch return core.Error.ConvertFailed;
+        self.call(&self.f_last_error_text, &.{}, &results) catch |err| return err;
         const packed_str: u64 = @bitCast(results[0].of.i64);
         if (packed_str != 0) {
             var text_buf: [err_buf_len]u8 = undefined;
-            const text = self.readPackedClamped(packed_str, &text_buf) catch return core.Error.ConvertFailed;
+            const text = self.readPackedClamped(packed_str, &text_buf) catch |err| return err;
             self.setErr(text);
         }
         return switch (code) {
             abi_err_unknown_base => core.Error.UnknownBase,
-            abi_err_internal => core.Error.ConvertFailed,
+            abi_err_internal => core.Error.RuntimeFailed,
             else => core.Error.BadInput,
         };
     }
@@ -458,18 +460,18 @@ pub const Host = struct {
         if (err) |failure| {
             var msg: c.wasm_byte_vec_t = undefined;
             c.wasmtime_error_message(failure, &msg);
-            self.setErr(msg.data[0..msg.size]);
+            self.setErr(causeOf(msg.data[0..msg.size]));
             c.wasm_byte_vec_delete(&msg);
             c.wasmtime_error_delete(failure);
-            return core.Error.ConvertFailed;
+            return core.Error.RuntimeFailed;
         }
         if (trap) |trapped| {
             var msg: c.wasm_byte_vec_t = undefined;
             c.wasm_trap_message(trapped, &msg);
-            self.setErr(msg.data[0..msg.size]);
+            self.setErr(causeOf(msg.data[0..msg.size]));
             c.wasm_byte_vec_delete(&msg);
             c.wasm_trap_delete(trapped);
-            return core.Error.ConvertFailed;
+            return core.Error.RuntimeFailed;
         }
     }
 
@@ -482,7 +484,7 @@ pub const Host = struct {
         const ptr: u32 = @bitCast(results[0].of.i32);
         if (ptr == 0) return self.fail();
         const memory = self.memoryBytes();
-        if (@as(usize, ptr) + text.len > memory.len) return core.Error.ConvertFailed;
+        if (@as(usize, ptr) + text.len > memory.len) return core.Error.RuntimeFailed;
         @memcpy(memory[ptr..][0..text.len], text);
         return .{ .ptr = ptr, .len = @intCast(text.len) };
     }
@@ -509,7 +511,7 @@ pub const Host = struct {
         const len: u32 = @truncate(packed_str);
         if (len > out.len) return core.Error.BufferTooSmall;
         const memory = self.memoryBytes();
-        if (@as(usize, ptr) + len > memory.len) return core.Error.ConvertFailed;
+        if (@as(usize, ptr) + len > memory.len) return core.Error.RuntimeFailed;
         @memcpy(out[0..len], memory[ptr..][0..len]);
         return out[0..len];
     }
@@ -522,7 +524,7 @@ pub const Host = struct {
         const ptr: u32 = @truncate(packed_str >> 32);
         const len: u32 = @truncate(packed_str);
         const memory = self.memoryBytes();
-        if (@as(usize, ptr) + len > memory.len) return core.Error.ConvertFailed;
+        if (@as(usize, ptr) + len > memory.len) return core.Error.RuntimeFailed;
         const full = memory[ptr..][0..len];
         var kept = @min(@as(usize, len), out.len);
         while (kept > 0 and kept < full.len and full[kept] & 0xc0 == 0x80) kept -= 1;
@@ -533,4 +535,34 @@ pub const Host = struct {
 
 fn valU32(value: u32) c.wasmtime_val_t {
     return .{ .kind = c.WASMTIME_I32, .of = .{ .i32 = @bitCast(value) } };
+}
+
+/// Wasmtime puts the wasm backtrace ahead of the cause, and the backtrace alone
+/// can fill the error buffer. Only the cause says anything to a caller.
+fn causeOf(msg: []const u8) []const u8 {
+    const lead = "Caused by:";
+    const at = std.mem.lastIndexOf(u8, msg, lead) orelse return msg;
+    return std.mem.trim(u8, msg[at + lead.len ..], " \t\r\n");
+}
+
+// Nothing a request can ask for makes the module trap, so this calls exports
+// the wrong way on purpose. Both used to come back as code 4, conversion
+// failed, and the module exit's text was a cut-off backtrace.
+// test-id: Ert2uRC
+test "a runtime failure is code 7 and says why" {
+    const capi = @import("capi.zig");
+    var h = try Host.init(.auto);
+    defer h.deinit();
+    var results: [1]c.wasmtime_val_t = undefined;
+
+    // Wasmtime refuses the call itself.
+    try std.testing.expectError(core.Error.RuntimeFailed, h.call(&h.f_free, &.{}, &results));
+    try std.testing.expectEqual(7, capi.codeFor(core.Error.RuntimeFailed));
+    try std.testing.expect(h.lastError().len > 0);
+
+    // The module's Go runtime runs out of memory and exits.
+    h.clearErr();
+    try std.testing.expectError(core.Error.RuntimeFailed, h.call(&h.f_alloc, &.{valU32(std.math.maxInt(u32))}, &results));
+    try std.testing.expect(h.lastError().len > 0);
+    try std.testing.expect(std.mem.indexOf(u8, h.lastError(), "backtrace") == null);
 }

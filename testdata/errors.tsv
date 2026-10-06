@@ -30,15 +30,18 @@
 #                  host name or a random source that ran dry. A clock that
 #                  cannot be read is also code 10, and C and the command both
 #                  say "the system clock could not be read" for it.
+#   internal       C and the command pass the runtime's own words through
+#                  when it had any, so the phrase is only for when it had
+#                  none. Go has no wasm runtime.
 
 unknown-base	1	ZUID_ERR_UNKNOWN_BASE	ErrUnknownBase	UnknownBase	go,c,cli	unknown base
 bare-percent	2	ZUID_ERR_BAD_FORMAT	ErrBadFormat	BareFormatPercent	go,c,cli	ends on a bare '%'
 unknown-component	2	ZUID_ERR_BAD_FORMAT	ErrBadFormat	UnknownComponent	go,c,cli	unknown ... component
 reserved	3	ZUID_ERR_RESERVED	-	-	-	-
-convert	4	ZUID_ERR_CONVERT	ErrConvert	BadInput,ConvertFailed	-	-
+convert	4	ZUID_ERR_CONVERT	ErrConvert	BadInput	-	-
 buffer	5	ZUID_ERR_BUFFER	-	BufferTooSmall	-	-
 before-epoch	6	ZUID_ERR_CLOCK	ErrClock	ClockBeforeEpoch	go,c,cli	clock ... epoch
-internal	7	ZUID_ERR_INTERNAL	-	-	-	-
+internal	7	ZUID_ERR_INTERNAL	-	RuntimeFailed	c,cli	wasm runtime
 precision	8	ZUID_ERR_PRECISION	ErrPrecision	-	go,c,cli	precision ... -1 ... or 1
 width-range	9	ZUID_ERR_OPTION	ErrOption	OptionRange	go,c,cli	want 1 to 64
 hash-too-wide	9	ZUID_ERR_OPTION	ErrOption	HashTooWide	go,c	hash ... 256

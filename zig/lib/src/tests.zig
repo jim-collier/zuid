@@ -16,10 +16,11 @@ const capi = @import("capi.zig");
 
 const vectors_tsv = @embedFile("vectors.tsv");
 
-// Pulls in core.zig's and env_windows.zig's own tests. Unnamed, since it
-// checks nothing itself.
+// Pulls in core.zig's, host.zig's and env_windows.zig's own tests. Unnamed,
+// since it checks nothing itself.
 test {
     _ = core;
+    _ = host;
     _ = @import("env_windows.zig");
 }
 
