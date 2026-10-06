@@ -131,6 +131,44 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Progress log:
 		- 20261003: waits on its parent.
 
+- Move `convertbase` to `lib/v0.2.0` once it is tagged.
+	- ID: 2026100519164742
+	- Type: Task
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261005-191647
+	- Opened by: JC
+	- Related IDs: 2026100519164741
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- convert-base-v2's `dev` now builds each built-in base the first time it is looked up. `NewRegistry` went from about 38 ms to 0.17 ms there. It is not in a release yet.
+		- When `lib/v0.2.0` is tagged, move `go.mod` to it. The reactor is built from the same pin, so both sides get it.
+		- Check the reactor's exports are unchanged, rerun the vectors, and measure again.
+	- Progress log:
+		- 20261005: A command built with a reactor from `dev` started in 0.25 s, or 0.02 s with the module cached, against 0.55 s and 0.34 s on `v0.1.0`. Go's `New` should drop from 57 ms the same way.
+
+- A run of the command costs about 3.5 s of CPU and 235 MB of memory.
+	- ID: 2026100519164741
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261005-191647
+	- Opened by: JC
+	- Related IDs: 2026100519164742
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- One identifier takes microseconds. A run should not cost a compile of the whole wasm module every time.
+	- Progress log:
+		- 20261005: Measured on b23, ReleaseSafe: 0.55 s, 3.45 s of CPU and 235 MB per run. Cranelift compiles the module on every core, every run, and `_initialize` is most of the wall time.
+		- 20261005: The command keeps the compiled module in the user's cache directory, and later runs load it. Wasmtime refuses one from another version or for another CPU, and then it compiles as usual. The file ends in a hash, so a damaged one is compiled over rather than run. A new build clears out older files.
+		- 20261005: A run with the module cached takes 0.34 s, 0.33 s of CPU and 47 MB. What is left is `_initialize`, which upstream's lazier registry cuts. With both, 0.02 s and 39 MB. See 2026100519164742.
+	- Decisions:
+		- 20261005: the command only. The C module does not write into a caller's home directory, and a C caller makes one context and keeps it.
+		- 20261005: skipped when run as root, since under sudo HOME can be a directory another user writes.
+		- 20261005: `$XDG_CACHE_HOME/zuid`, else `~/.cache/zuid`; `~/Library/Caches/zuid` on macOS; `%LOCALAPPDATA%\zuid` on Windows. Nothing turns it off. Deleting it is safe.
+	- Branch: fastcli
+	- Test case: Ersmdcr, Ersmdcs, Ersmdct and Ersmdcu in `cli-test.bash`, and Ersmdcv in `tests.zig`. Each failed with its part of the cache broken.
+
 - The macOS build hangs on Zig 0.17.0.
 	- ID: 2026100318410002
 	- Type: Bug
@@ -1076,6 +1114,11 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 #### Done - Features and enhancements
 
+- ✅ CLI startup is ~0.5 s, nearly all of it the module's own `_initialize` building the base registry inside the wasm. Options if it starts to matter: ask upstream about lazier registry construction, or cache a precompiled module per machine. Deferred until the surface settles.
+	- Done: 20261005, both. The command caches its compiled module, and upstream has a lazy registry waiting on a release. See 2026100519164741 and 2026100519164742.
+	- Opened: 20260802-104116
+	- Closed: 20261005-191647
+
 - ✅ `%m` is Linux-only on the Zig side - it reads `getifaddrs` for `AF_PACKET`, and macOS wants `AF_LINK` instead. The Go module is already portable, and the help text and the C header both say so. Do it alongside the cross targets, since nothing on the Zig side cross-compiles yet either.
 	- Should work on Windows too.
 	- Done: macOS, 20260930. Windows is left.
@@ -1506,9 +1549,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Closed: 20260804-234122
 
 ### Deferred
-
-- ✋ CLI startup is ~0.5 s, nearly all of it the module's own `_initialize` building the base registry inside the wasm. Options if it starts to matter: ask upstream about lazier registry construction, or cache a precompiled module per machine. Deferred until the surface settles.
-	- Opened: 20260802-104116
 
 - ✋ Sanitizer run on the vendored Wasmtime. The vendored artifact turned out to be a prebuilt archive, so there is nothing local to instrument; revisit only if it is ever built from source here.
 	- Fixed: `design.md` described this as a pipeline step. It now says no stage runs one, and why. (20260917)

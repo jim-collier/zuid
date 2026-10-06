@@ -8,6 +8,7 @@
 //! this doubles as ongoing validation of that artifact.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const zuid = @import("zuid");
 
 const build_options = @import("build_options");
@@ -240,7 +241,9 @@ pub fn main(init: std.process.Init) !void {
 
     opts.clock_ms = zuid.clock.nowMs() orelse return die(stderr, "The system clock could not be read.", .{});
 
-    var wasm_host = zuid.host.Host.init(.auto) catch |err| {
+    const module_cache = ModuleCache.find(arena, init.environ_map);
+    const cached = if (module_cache) |mc| mc.load(io, arena) else null;
+    var wasm_host = zuid.host.Host.initCached(.auto, cached) catch |err| {
         return die(stderr, "The embedded wasm runtime failed to start: {t}.", .{err});
     };
     defer wasm_host.deinit();
@@ -280,7 +283,85 @@ pub fn main(init: std.process.Init) !void {
         ) catch {};
         stderr.flush() catch {};
     }
+
+    // Last, so the output is not kept waiting on a disk write.
+    if (module_cache) |mc| {
+        if (wasm_host.compiled_fresh) mc.save(io, &wasm_host);
+    }
 }
+
+/// The compiled wasm module, kept between runs. Compiling it is most of what a
+/// run costs, and Wasmtime spreads that over every core. Nothing here is fatal:
+/// any failure just means the next run compiles again.
+const ModuleCache = struct {
+    dir: []const u8,
+    name: []const u8,
+    file: []const u8,
+
+    const prefix = "module-";
+    const suffix = ".cwasm";
+    // Far past the 8 MB the module takes, so only a wrong file trips it.
+    const max_bytes = 64 << 20;
+
+    /// The module bytes, or null when there are none or they are not what was
+    /// saved. The file ends in a hash of the rest; a damaged module would
+    /// otherwise run as damaged machine code.
+    fn load(self: ModuleCache, io: std.Io, arena: std.mem.Allocator) ?[]const u8 {
+        const raw = std.Io.Dir.cwd().readFileAlloc(io, self.file, arena, .limited(max_bytes)) catch return null;
+        if (raw.len < 8) return null;
+        const body = raw[0 .. raw.len - 8];
+        const want = std.mem.readInt(u64, raw[raw.len - 8 ..][0..8], .little);
+        if (std.hash.Wyhash.hash(0, body) != want) return null;
+        return body;
+    }
+
+    fn find(arena: std.mem.Allocator, environ: *const std.process.Environ.Map) ?ModuleCache {
+        // Root would be loading native code from wherever HOME points, which
+        // under sudo can be a directory some other user writes.
+        if (builtin.os.tag != .windows and std.c.geteuid() == 0) return null;
+        const dir = cacheRoot(arena, environ) orelse return null;
+        const name = std.fmt.allocPrint(arena, prefix ++ "{x:0>16}" ++ suffix, .{zuid.host.Host.moduleId(.auto)}) catch return null;
+        const file = std.fs.path.join(arena, &.{ dir, name }) catch return null;
+        return .{ .dir = dir, .name = name, .file = file };
+    }
+
+    /// The usual per-user cache directory for each OS, plus "zuid".
+    fn cacheRoot(arena: std.mem.Allocator, environ: *const std.process.Environ.Map) ?[]const u8 {
+        const tail: []const u8, const base: []const u8 = switch (builtin.os.tag) {
+            .windows => .{ "zuid", environ.get("LOCALAPPDATA") orelse return null },
+            .macos => .{ "Library/Caches/zuid", environ.get("HOME") orelse return null },
+            else => if (environ.get("XDG_CACHE_HOME")) |xdg|
+                if (std.fs.path.isAbsolute(xdg)) .{ "zuid", xdg } else .{ ".cache/zuid", environ.get("HOME") orelse return null }
+            else
+                .{ ".cache/zuid", environ.get("HOME") orelse return null },
+        };
+        if (!std.fs.path.isAbsolute(base)) return null;
+        return std.fs.path.join(arena, &.{ base, tail }) catch null;
+    }
+
+    fn save(self: ModuleCache, io: std.Io, wasm_host: *zuid.host.Host) void {
+        var compiled = wasm_host.serialize() orelse return;
+        defer compiled.deinit();
+        var dir = std.Io.Dir.cwd().createDirPathOpen(io, self.dir, .{ .open_options = .{ .iterate = true } }) catch return;
+        defer dir.close(io);
+        var atomic = dir.createFileAtomic(io, self.name, .{ .replace = true }) catch return;
+        defer atomic.deinit(io);
+        var sum: [8]u8 = undefined;
+        std.mem.writeInt(u64, &sum, std.hash.Wyhash.hash(0, compiled.bytes()), .little);
+        atomic.file.writeStreamingAll(io, compiled.bytes()) catch return;
+        atomic.file.writeStreamingAll(io, &sum) catch return;
+        atomic.replace(io) catch return;
+
+        // Whatever older builds left behind. Each is several megabytes, and no
+        // build but the one that wrote it will ever load it.
+        var it = dir.iterate();
+        while (it.next(io) catch return) |entry| {
+            if (entry.kind != .file or std.mem.eql(u8, entry.name, self.name)) continue;
+            if (!std.mem.startsWith(u8, entry.name, prefix) or !std.mem.endsWith(u8, entry.name, suffix)) continue;
+            dir.deleteFile(io, entry.name) catch {};
+        }
+    }
+};
 
 /// Turns a generation failure into the one-line message the style guide asks
 /// for. The wasm runtime's own words win where it had any, since those are

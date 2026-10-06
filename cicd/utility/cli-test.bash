@@ -50,6 +50,15 @@ esac; done
 
 [[ -x "${bin}" ]] || fDie "not executable: ${bin}. Build the Zig side first."
 
+## The command keeps its compiled module under the user's cache dir. Point that
+## somewhere of our own, so a run neither reads nor leaves anything in the real
+## one.
+work="$(mktemp -d)"
+trap 'rm -rf "${work}"' EXIT
+export HOME="${work}/home" XDG_CACHE_HOME="${work}/cache"
+mkdir -p "${HOME}"
+fCacheDir(){ if [[ "$(uname -s)" == Darwin ]]; then printf '%s' "${HOME}/Library/Caches/zuid"; else printf '%s' "${XDG_CACHE_HOME}/zuid"; fi ;}
+
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Helpers. Each case names what it expects, so a failure reads without having
@@ -333,6 +342,47 @@ if [[ -z "${helpFirst}" && "${helpGaps}" == "1" && "${helpRaw}" == '\n\n' ]]
 	else fFail "first line '${helpFirst}', options through --donate: ${helpGaps}, ends '${helpRaw}'"
 fi
 
+## The compiled module is kept between runs, since compiling it is most of a
+## cold start. One file, which a later build replaces and a damaged copy never
+## gets loaded from.
+cacheDir="$(fCacheDir)"
+fRun >/dev/null || true
+fId Ersmdcr "a run leaves one compiled module"
+cached=("${cacheDir}"/module-*.cwasm)
+if [[ ${#cached[@]} == 1 && -s "${cached[0]}" ]]
+	then fPass
+	else fFail "found: ${cached[*]}"
+fi
+
+fId Ersmdcs "a damaged module is not loaded, and is rewritten"
+goodSum="$(cksum < "${cached[0]}")"
+python3 -c 'import sys; p = sys.argv[1]; b = bytearray(open(p, "rb").read()); b[len(b) // 2] ^= 0xff; open(p, "wb").write(b)' "${cached[0]}"
+damagedOut="$(fRun || true)"
+if [[ ${#damagedOut} == 6 && "$(cksum < "${cached[0]}")" == "${goodSum}" ]]
+	then fPass
+	else fFail "printed '${damagedOut}', and the file is $([[ "$(cksum < "${cached[0]}")" == "${goodSum}" ]] && echo rewritten || echo 'not rewritten')"
+fi
+
+fId Ersmdct "an older build's module is cleared out"
+touch "${cacheDir}/module-0000000000000000.cwasm"
+rm -f "${cached[0]}"
+fRun >/dev/null || true
+if [[ ! -e "${cacheDir}/module-0000000000000000.cwasm" && -s "${cached[0]}" ]]
+	then fPass
+	else fFail "left: $(ls "${cacheDir}")"
+fi
+
+## Per the XDG spec, a relative XDG_CACHE_HOME is ignored.
+if [[ "$(uname -s)" != Darwin ]]; then
+	fId Ersmdcu "a relative XDG_CACHE_HOME falls back to ~/.cache"
+	(cd "${work}" && XDG_CACHE_HOME=relative "${bin}" >/dev/null 2>&1) || true
+	relCached=("${HOME}"/.cache/zuid/module-*.cwasm)
+	if [[ -s "${relCached[0]}" && ! -e "${work}/relative" ]]
+		then fPass
+		else fFail "nothing under ${HOME}/.cache/zuid"
+	fi
+fi
+
 ## Every curated base renders a timestamp.
 fId ErOiQbh "every curated base renders"
 badBases=""
@@ -354,3 +404,4 @@ fLine ""
 ##		- 20260917 JC: Created, for the buffer ceiling and the empty format.
 ##		- 20260917 JC: --count, its refusals, and the closed-pipe case.
 ##		- 20260930 JC: Test IDs. Precision, attached values, --version, --about, --donate, help.
+##		- 20261005 JC: Module cache, and a scratch HOME so the real cache is left alone.

@@ -106,7 +106,8 @@ An interpreter such as wasm3 would vendor far more cleanly and is the fallback i
 Two properties of that runtime shape the build:
 
 - Wasmtime's `min` C API build is a fraction of the size but drops both the compiler and WASI support, so it can only run modules precompiled elsewhere. Usable later as a size optimization, not as the starting point.
-- Startup is dominated by the module's own `_initialize` - the Go runtime building its base registry inside the wasm - not by compiling the module. Wasmtime's baseline compiler, winch, compiles far faster than cranelift but runs that initialization slower by more than it saves, so the default strategy stays cranelift.
+- Startup has two costs. Compiling the module is most of the CPU, since cranelift spreads it over every core. The module's own `_initialize`, the Go runtime building its base registry inside the wasm, is most of the wall time. The command keeps the compiled module in the user's cache directory, so only the first run after an install or an upgrade compiles. The C module does not: a library should not write files into a caller's home directory, and a C caller makes one context and keeps it. Wasmtime's baseline compiler, winch, compiles far faster than cranelift but runs that initialization slower by more than it saves, so the default strategy stays cranelift.
+- Wasmtime runs a cached module as native code and cannot tell a damaged one, so the file ends in a hash of the rest and a mismatch means compiling again. A run as root skips the cache, since under sudo HOME can point at a directory another user writes.
 
 ### Which bases to offer
 

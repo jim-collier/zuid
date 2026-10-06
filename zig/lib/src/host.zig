@@ -63,8 +63,43 @@ pub const Host = struct {
     err_buf: [err_buf_len]u8,
     err_len: usize,
     base_cache: BaseCache,
+    /// False when the module came from the cache file rather than the compiler.
+    compiled_fresh: bool,
 
     pub const err_buf_len = 512;
+
+    /// Names a cache file for this module, this Wasmtime and this strategy.
+    /// Wasmtime checks its own version and the CPU, but not that the file came
+    /// from the same wasm, so the wasm goes into the name.
+    pub fn moduleId(strategy: Strategy) u64 {
+        var h = std.hash.Wyhash.init(@backingInt(strategy));
+        h.update(reactor_wasm);
+        h.update(c.WASMTIME_VERSION);
+        return h.final();
+    }
+
+    /// The compiled module, for the caller to save and hand back to
+    /// initCached next time. Owned by Wasmtime until deinit.
+    pub const Compiled = struct {
+        vec: c.wasm_byte_vec_t,
+
+        pub fn bytes(self: *const Compiled) []const u8 {
+            return self.vec.data[0..self.vec.size];
+        }
+
+        pub fn deinit(self: *Compiled) void {
+            c.wasm_byte_vec_delete(&self.vec);
+        }
+    };
+
+    pub fn serialize(self: *Host) ?Compiled {
+        var out: Compiled = undefined;
+        if (c.wasmtime_module_serialize(self.module, &out.vec)) |err| {
+            c.wasmtime_error_delete(err);
+            return null;
+        }
+        return out;
+    }
 
     /// A base's radix, zero digit and text verdict do not change, and every
     /// component asks for one of them. One slot is enough: an identifier
@@ -96,6 +131,16 @@ pub const Host = struct {
     };
 
     pub fn init(strategy: Strategy) InitError!Host {
+        return initCached(strategy, null);
+    }
+
+    /// Same as init, but tries a module this same build serialized earlier
+    /// first. Wasmtime refuses one from another version or for another CPU, and
+    /// then it compiles as usual. compiled_fresh says which happened.
+    ///
+    /// Wasmtime runs what it is given as native code and cannot tell a damaged
+    /// one, so the caller checks the bytes are the ones it saved.
+    pub fn initCached(strategy: Strategy, cached: ?[]const u8) InitError!Host {
         const config = c.wasm_config_new() orelse return InitError.RuntimeFailed;
         if (strategy == .winch) c.wasmtime_config_strategy_set(config, c.WASMTIME_STRATEGY_WINCH);
         // wasm_engine_new_with_config consumes config, even on failure.
@@ -122,9 +167,18 @@ pub const Host = struct {
         }
 
         var module: ?*c.wasmtime_module_t = null;
-        if (c.wasmtime_module_new(engine, reactor_wasm.ptr, reactor_wasm.len, &module)) |err| {
-            c.wasmtime_error_delete(err);
-            return InitError.ModuleInvalid;
+        var compiled_fresh = true;
+        if (cached) |bytes| {
+            if (c.wasmtime_module_deserialize(engine, bytes.ptr, bytes.len, &module)) |err| {
+                c.wasmtime_error_delete(err);
+                module = null;
+            } else compiled_fresh = false;
+        }
+        if (module == null) {
+            if (c.wasmtime_module_new(engine, reactor_wasm.ptr, reactor_wasm.len, &module)) |err| {
+                c.wasmtime_error_delete(err);
+                return InitError.ModuleInvalid;
+            }
         }
         errdefer c.wasmtime_module_delete(module);
 
@@ -160,6 +214,7 @@ pub const Host = struct {
             .err_buf = undefined,
             .err_len = 0,
             .base_cache = .{},
+            .compiled_fresh = compiled_fresh,
         };
 
         host.memory = (try host.memoryExport("memory")).of.memory;

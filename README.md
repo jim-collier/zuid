@@ -175,6 +175,8 @@ Where things go:
 
 A user install is the default when the system location is not writable.
 
+The first run compiles the WebAssembly module built into the command, which takes a few seconds of CPU, and keeps the result in `~/.cache/zuid/`. On macOS that is `~/Library/Caches/zuid/`, and on Windows `%LOCALAPPDATA%\zuid\`. Later runs load it instead. It is safe to delete, and a run as root does not use it.
+
 ### Do it yourself
 
 Clone the repository and run `cicd/cicd.bash`. It fetches what it needs, builds both sides, and runs the tests. The command ends up at `zig/zig-out/bin/zuid`, and a full run also copies it to the first of `~/.local/bin` or `~/bin` that exists, so what is on your path is the build that just passed. `--no-dogfood` turns that off.

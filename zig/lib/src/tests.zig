@@ -155,6 +155,30 @@ test "vectors reproduce through the wasm module, both strategies" {
     }
 }
 
+// A module loaded back from its serialized bytes has to render exactly what a
+// compiled one does, and bytes that are not a module have to fall back to the
+// compiler rather than fail.
+// test-id: Ersmdcv
+test "a serialized module loads back and reproduces the vectors" {
+    var first = try host.Host.init(.auto);
+    var compiled = first.serialize() orelse {
+        first.deinit();
+        return error.SerializeFailed;
+    };
+    defer compiled.deinit();
+    try std.testing.expect(first.compiled_fresh);
+    first.deinit();
+
+    var again = try host.Host.initCached(.auto, compiled.bytes());
+    defer again.deinit();
+    try std.testing.expect(!again.compiled_fresh);
+    try runVectors(&again);
+
+    var junk = try host.Host.initCached(.auto, "not a module");
+    defer junk.deinit();
+    try std.testing.expect(junk.compiled_fresh);
+}
+
 fn runVectors(h: *host.Host) !void {
     var rows: usize = 0;
     var lines = std.mem.splitScalar(u8, vectors_tsv, '\n');
