@@ -129,8 +129,8 @@ pub const Error = error{
     EnvUnavailable,
     /// The converter failed for a reason of its own; ask it for the text.
     ConvertFailed,
-    /// The base renders raw bytes rather than text, so it cannot carry an
-    /// identifier.
+    /// The base renders raw bytes or control characters rather than text, so
+    /// it cannot carry an identifier.
     BaseNotText,
     /// hash_chars is past what a SHA-256 fills in this base, so the extra
     /// symbols would all be left-fill. maxHashChars has the ceiling.

@@ -284,6 +284,8 @@ The two width rules read only the widths the format spends. A hash width that fi
 
 Each refusal has one name on every surface. The C module returns a code from `zuid.h`, and the Go module returns an error that `errors.Is` matches against the `Err` value of the same name, such as `ZUID_ERR_OPTION` and `ErrOption`. The text says the rest.
 
+`testdata/errors.tsv` lists every failure with its code, its `Err` value and a phrase that each surface's message for it has to contain. Each surface still words its own messages, in its own style, but tests on both sides hold them to that table, so they cannot drift apart.
+
 ### Component widths
 
 Every width is derived rather than tabulated, by one rule: the smallest number of symbols that holds the largest value the component can take. `%d` takes that value from the horizon; `%m` and `%g` take it from a bit count, 48 and 128.
@@ -347,6 +349,7 @@ zig/
 		src/
 testdata/
 	vectors.tsv         shared spec; both implementations must reproduce it
+	errors.tsv          every failure, its code, and what each surface must say
 cicd/
 	utility/            helper scripts the pipeline calls
 	artifacts/          run logs, profiles, demo renders; rotated, not committed

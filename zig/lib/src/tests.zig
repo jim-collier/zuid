@@ -893,3 +893,250 @@ test "the shared T2 address is never picked for %m" {
     pick.offer(6, en0);
     try std.testing.expectEqualSlices(u8, &en0, &pick.found.?);
 }
+
+const errors_tsv = @embedFile("errors.tsv");
+const zuid_h = @embedFile("zuid.h");
+const cli_messages = @import("cli_messages");
+
+/// One row of testdata/errors.tsv.
+const Refusal = struct {
+    label: []const u8,
+    code: c_int,
+    c_name: []const u8,
+    zig: []const u8,
+    surfaces: []const u8,
+    phrase: []const u8,
+
+    fn listed(list: []const u8, name: []const u8) bool {
+        var it = std.mem.splitScalar(u8, list, ',');
+        while (it.next()) |item| {
+            if (std.mem.eql(u8, item, name)) return true;
+        }
+        return false;
+    }
+
+    fn wordedBy(self: Refusal, surface: []const u8) bool {
+        return listed(self.surfaces, surface);
+    }
+
+    fn names(self: Refusal, err_name: []const u8) bool {
+        return listed(self.zig, err_name);
+    }
+
+    /// ' ... ' in the phrase is a gap; case is ignored.
+    fn heldBy(self: Refusal, message: []const u8) bool {
+        var at: usize = 0;
+        var parts = std.mem.splitSequence(u8, self.phrase, " ... ");
+        while (parts.next()) |part| {
+            const found = std.ascii.findIgnoreCasePos(message, at, part) orelse return false;
+            at = found + part.len;
+        }
+        return true;
+    }
+};
+
+fn readRefusals(buf: []Refusal) ![]Refusal {
+    var n: usize = 0;
+    var lines = std.mem.splitScalar(u8, errors_tsv, '\n');
+    while (lines.next()) |line| {
+        if (line.len == 0 or line[0] == '#') continue;
+        var fields = std.mem.splitScalar(u8, line, '\t');
+        var cols: [7][]const u8 = undefined;
+        for (&cols) |*col| col.* = fields.next() orelse return error.ShortRow;
+        if (fields.next() != null) return error.LongRow;
+        if (n == buf.len) return error.TooManyRows;
+        buf[n] = .{
+            .label = cols[0],
+            .code = try std.fmt.parseInt(c_int, cols[1], 10),
+            .c_name = cols[2],
+            .zig = cols[4],
+            .surfaces = cols[5],
+            .phrase = cols[6],
+        };
+        n += 1;
+    }
+    return buf[0..n];
+}
+
+fn findRefusal(rows: []const Refusal, label: []const u8) !Refusal {
+    for (rows) |row| {
+        if (std.mem.eql(u8, row.label, label)) return row;
+    }
+    std.debug.print("no row '{s}' in errors.tsv\n", .{label});
+    return error.NoSuchRow;
+}
+
+const core_error_names = @typeInfo(core.Error).error_set.error_names.?;
+
+// The table is only worth anything if it is complete: every error the core can
+// return, with the code capi.zig gives it, and every code zuid.h names.
+// test-id: ErsxH5D
+test "errors.tsv has every core error and every C code" {
+    var buf: [32]Refusal = undefined;
+    const rows = try readRefusals(&buf);
+
+    inline for (core_error_names) |name| {
+        var seen = false;
+        for (rows) |row| {
+            if (!row.names(name)) continue;
+            seen = true;
+            const code = capi.codeFor(@field(core.Error, name));
+            if (code != row.code) {
+                std.debug.print("{s}: codeFor gives {d}, errors.tsv says {d}\n", .{ name, code, row.code });
+                return error.CodeMismatch;
+            }
+        }
+        if (!seen) {
+            std.debug.print("{s} has no row in errors.tsv\n", .{name});
+            return error.MissingRow;
+        }
+    }
+    for (rows) |row| {
+        if (std.mem.eql(u8, row.zig, "-")) continue;
+        var it = std.mem.splitScalar(u8, row.zig, ',');
+        next: while (it.next()) |name| {
+            for (core_error_names) |known| {
+                if (std.mem.eql(u8, name, known)) continue :next;
+            }
+            std.debug.print("{s}: core.Error has no {s}\n", .{ row.label, name });
+            return error.UnknownError;
+        }
+    }
+
+    // Both ways between the header's enum and the table.
+    var header_codes: usize = 0;
+    var lines = std.mem.splitScalar(u8, zuid_h, '\n');
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \t");
+        if (!std.mem.startsWith(u8, trimmed, "ZUID_ERR_")) continue;
+        const eq = std.mem.indexOf(u8, trimmed, " = ") orelse continue;
+        const name = std.mem.trimEnd(u8, trimmed[0..eq], " ");
+        const rest = trimmed[eq + 3 ..];
+        const end = std.mem.indexOfNone(u8, rest, "0123456789") orelse rest.len;
+        const code = try std.fmt.parseInt(c_int, rest[0..end], 10);
+        header_codes += 1;
+        var seen = false;
+        for (rows) |row| {
+            if (!std.mem.eql(u8, row.c_name, name)) continue;
+            seen = true;
+            if (row.code != code) {
+                std.debug.print("{s}: zuid.h says {d}, errors.tsv says {d}\n", .{ name, code, row.code });
+                return error.CodeMismatch;
+            }
+        }
+        if (!seen) {
+            std.debug.print("{s} has no row in errors.tsv\n", .{name});
+            return error.MissingRow;
+        }
+    }
+    try std.testing.expect(header_codes >= 14);
+    for (rows) |row| {
+        const in_header = std.mem.indexOf(u8, zuid_h, row.c_name) != null;
+        if (!in_header) {
+            std.debug.print("{s}: zuid.h has no {s}\n", .{ row.label, row.c_name });
+            return error.UnknownCode;
+        }
+    }
+}
+
+// What a C caller gets back for each failure: the row's code, and where C
+// words it, the row's phrase in zuid_last_error.
+// test-id: ErsxH5E
+test "the C module says what errors.tsv says" {
+    var buf: [32]Refusal = undefined;
+    const rows = try readRefusals(&buf);
+    var covered: [32]bool = @splat(false);
+
+    const z = capi.zuid_new() orelse return error.InitFailed;
+    defer capi.zuid_free(z);
+    const now_ms = 946684800000;
+    const long_salt: [core.max_salt_bytes + 1:0]u8 = @splat('s');
+    const Case = struct {
+        label: []const u8,
+        req: capi.Request,
+        clock_ms: i64 = now_ms,
+        out_cap: usize = 256,
+    };
+    const cases = [_]Case{
+        .{ .label = "unknown-base", .req = .{ .base = "nonesuch" } },
+        .{ .label = "bare-percent", .req = .{ .format = "%d%" } },
+        .{ .label = "unknown-component", .req = .{ .format = "%z" } },
+        .{ .label = "buffer", .req = .{}, .out_cap = 2 },
+        .{ .label = "before-epoch", .req = .{}, .clock_ms = -1 },
+        .{ .label = "precision", .req = .{ .precision = 2 } },
+        .{ .label = "width-range", .req = .{ .format = "%r", .random_chars = 65 } },
+        .{ .label = "width-range", .req = .{ .format = "%h", .hash_chars = -1 } },
+        .{ .label = "hash-too-wide", .req = .{ .format = "%h", .base = "2048tz", .hash_chars = 25 } },
+        .{ .label = "salt-too-long", .req = .{ .format = "%h", .salt = &long_salt } },
+        .{ .label = "past-horizon", .req = .{}, .clock_ms = @as(i64, @intCast(core.horizon_ms)) + 1000 },
+        .{ .label = "raw-byte-base", .req = .{ .base = "bytes" } },
+        .{ .label = "control-char-base", .req = .{ .base = "98keyboard" } },
+    };
+    var out: [256]u8 = undefined;
+    for (cases) |case| {
+        const row = try findRefusal(rows, case.label);
+        capi.zuid_set_clock_ms(z, case.clock_ms);
+        const code = capi.zuid_generate(z, &case.req, &out, case.out_cap);
+        const said = std.mem.span(capi.zuid_last_error(z));
+        if (code != row.code) {
+            std.debug.print("{s}: code {d}, errors.tsv says {d} ({s})\n", .{ case.label, code, row.code, said });
+            return error.CodeMismatch;
+        }
+        if (row.wordedBy("c") and !row.heldBy(said)) {
+            std.debug.print("{s}: '{s}' does not say '{s}'\n", .{ case.label, said, row.phrase });
+            return error.PhraseMissing;
+        }
+        for (rows, 0..) |r, i| {
+            if (std.mem.eql(u8, r.label, case.label)) covered[i] = true;
+        }
+    }
+    try std.testing.expectEqual((try findRefusal(rows, "context")).code, capi.zuid_generate(null, null, &out, out.len));
+
+    // The fixed sentences, including the ones no call here can reach, such as
+    // a machine with no host name.
+    inline for (core_error_names) |name| {
+        const text = capi.textFor(@field(core.Error, name));
+        for (rows, 0..) |row, i| {
+            if (!row.names(name) or !row.wordedBy("c") or text.len == 0) continue;
+            if (!row.heldBy(text)) {
+                std.debug.print("{s}: '{s}' does not say '{s}'\n", .{ row.label, text, row.phrase });
+                return error.PhraseMissing;
+            }
+            covered[i] = true;
+        }
+    }
+    for (rows, 0..) |row, i| {
+        if (row.wordedBy("c") and !covered[i]) {
+            std.debug.print("{s}: C words it, but nothing here reaches it\n", .{row.label});
+            return error.Uncovered;
+        }
+    }
+}
+
+// The command's message for every core error, the ones no flag can reach
+// included. Its flag checks are held to the same phrases in cli-test.bash.
+// test-id: ErsxH5F
+test "the command says what errors.tsv says" {
+    var buf: [32]Refusal = undefined;
+    const rows = try readRefusals(&buf);
+    inline for (core_error_names) |name| {
+        var text_buf: [512]u8 = undefined;
+        var w: std.Io.Writer = .fixed(&text_buf);
+        try cli_messages.generating(&w, @field(core.Error, name), "", .{
+            .base = "nonesuch",
+            .format = "%z",
+            .salt_len = core.max_salt_bytes + 1,
+            .max_chars = core.max_component_chars,
+            .max_salt = core.max_salt_bytes,
+            .max_out = 1 << 20,
+        });
+        const said = w.buffered();
+        for (rows) |row| {
+            if (!row.names(name) or !row.wordedBy("cli")) continue;
+            if (!row.heldBy(said)) {
+                std.debug.print("{s}: '{s}' does not say '{s}'\n", .{ row.label, said, row.phrase });
+                return error.PhraseMissing;
+            }
+        }
+    }
+}

@@ -1,0 +1,51 @@
+# Every way a request can fail, and what each surface calls it. The command,
+# the C module and the Go module each word their own messages; this is what
+# keeps them saying the same thing. Tests on both sides read it.
+#
+# Tab-separated. Lines starting with '#' are comments; blank lines are ignored.
+#
+# refusal   a label, for test output
+# code      the C module's return code, from zuid.h
+# c         its name in zuid.h
+# go        the Go module's Err value that errors.Is matches, '-' for none
+# zig       the core's error names, comma-separated, '-' for none
+# surfaces  which of go, c and cli word this one themselves, comma-separated,
+#           '-' for none
+# phrase    what each of those surfaces' messages has to contain, ignoring
+#           case. ' ... ' between two parts means anything can come between
+#           them, in that order.
+#
+# Every core error and every code in zuid.h has a row. Codes 3 and 11 are
+# retired and stay that way.
+#
+# Not every surface words every failure:
+#
+#   unknown-base   C hands back the conversion library's own text, and Go
+#                  wraps it. Both still say "unknown base".
+#   convert        the library's own words, passed through everywhere
+#   buffer         C's out buffer and the command's own size cap are two
+#                  different limits, and Go has neither
+#   hash-too-wide  the command has no hash width flag
+#   env            Go names the cause it ran into instead, such as an empty
+#                  host name or a random source that ran dry. A clock that
+#                  cannot be read is also code 10, and C and the command both
+#                  say "the system clock could not be read" for it.
+
+unknown-base	1	ZUID_ERR_UNKNOWN_BASE	ErrUnknownBase	UnknownBase	go,c,cli	unknown base
+bare-percent	2	ZUID_ERR_BAD_FORMAT	ErrBadFormat	BareFormatPercent	go,c,cli	ends on a bare '%'
+unknown-component	2	ZUID_ERR_BAD_FORMAT	ErrBadFormat	UnknownComponent	go,c,cli	unknown ... component
+reserved	3	ZUID_ERR_RESERVED	-	-	-	-
+convert	4	ZUID_ERR_CONVERT	ErrConvert	BadInput,ConvertFailed	-	-
+buffer	5	ZUID_ERR_BUFFER	-	BufferTooSmall	-	-
+before-epoch	6	ZUID_ERR_CLOCK	ErrClock	ClockBeforeEpoch	go,c,cli	clock ... epoch
+internal	7	ZUID_ERR_INTERNAL	-	-	-	-
+precision	8	ZUID_ERR_PRECISION	ErrPrecision	-	go,c,cli	precision ... -1 ... or 1
+width-range	9	ZUID_ERR_OPTION	ErrOption	OptionRange	go,c,cli	want 1 to 64
+hash-too-wide	9	ZUID_ERR_OPTION	ErrOption	HashTooWide	go,c	hash ... 256
+salt-too-long	9	ZUID_ERR_OPTION	ErrOption	SaltTooLong	go,c,cli	salt
+env	10	ZUID_ERR_ENV	ErrEnv	EnvUnavailable	c,cli	could not supply that component
+base-digits	11	ZUID_ERR_BASE_DIGITS	-	-	-	-
+past-horizon	12	ZUID_ERR_HORIZON	ErrHorizon	WidthOverflow	go,c,cli	clock ... horizon
+raw-byte-base	13	ZUID_ERR_BASE_NOT_TEXT	ErrBaseNotText	BaseNotText	go,c,cli	raw bytes
+control-char-base	13	ZUID_ERR_BASE_NOT_TEXT	ErrBaseNotText	BaseNotText	go,c,cli	control character
+context	14	ZUID_ERR_CONTEXT	-	-	-	-

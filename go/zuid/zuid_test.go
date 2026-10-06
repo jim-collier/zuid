@@ -8,6 +8,9 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"slices"
 	"strconv"
@@ -422,6 +425,45 @@ func TestFormatErrors(t *testing.T) {
 	}
 }
 
+// One failure per row: which refusal in testdata/errors.tsv it is, and the kind
+// errors.Is has to find.
+type errorCase struct {
+	name    string
+	refusal string
+	opts    []zuid.Option
+	req     zuid.Request
+	want    error
+}
+
+var errorCases = []errorCase{
+	{"unknown base", "unknown-base", nil, zuid.Request{Base: "nonesuch"}, zuid.ErrUnknownBase},
+	{"bare percent", "bare-percent", nil, zuid.Request{Format: "%d%"}, zuid.ErrBadFormat},
+	{"unknown component", "unknown-component", nil, zuid.Request{Format: "%z"}, zuid.ErrBadFormat},
+	{"precision 2", "precision", nil, zuid.Request{Precision: 2}, zuid.ErrPrecision},
+	{"hash width 65", "width-range", nil, zuid.Request{Format: "%h", HashChars: 65}, zuid.ErrOption},
+	{"hash past the digest", "hash-too-wide", nil, zuid.Request{Format: "%h", Base: "2048tz", HashChars: 25}, zuid.ErrOption},
+	{"random width -1", "width-range", nil, zuid.Request{Format: "%r", RandomChars: -1}, zuid.ErrOption},
+	{"salt too long", "salt-too-long", nil, zuid.Request{Format: "%h", Salt: strings.Repeat("s", zuid.MaxSaltBytes+1)}, zuid.ErrOption},
+	{"raw-byte base", "raw-byte-base", nil, zuid.Request{Base: "bytes"}, zuid.ErrBaseNotText},
+	{"control digits", "control-char-base", nil, zuid.Request{Base: "98keyboard"}, zuid.ErrBaseNotText},
+	{"before the epoch", "before-epoch", []zuid.Option{zuid.WithFixedTime(time.UnixMilli(-1).UTC())}, zuid.Request{}, zuid.ErrClock},
+	{"past the horizon", "past-horizon", []zuid.Option{zuid.WithFixedTime(time.Date(4000, 1, 1, 0, 0, 0, 0, time.UTC))}, zuid.Request{}, zuid.ErrHorizon},
+	{"random runs dry", "env", []zuid.Option{zuid.WithRandom(strings.NewReader(""))}, zuid.Request{Format: "%r"}, zuid.ErrEnv},
+	{"short MAC", "env", []zuid.Option{zuid.WithMAC([]byte{1, 2, 3})}, zuid.Request{Format: "%m"}, zuid.ErrEnv},
+	{"empty host name", "env", []zuid.Option{zuid.WithHostname("")}, zuid.Request{Format: "%h"}, zuid.ErrEnv},
+}
+
+func (tc errorCase) run(t *testing.T) error {
+	t.Helper()
+	at := zuid.WithFixedTime(time.UnixMilli(1785703406000).UTC())
+	generator, err := zuid.New(append([]zuid.Option{at, zuid.WithHostname("h"), zuid.WithUsername("u"), zuid.WithFQDN("h.example")}, tc.opts...)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = generator.Generate(tc.req)
+	return err
+}
+
 // Each failure is one kind a caller can test for with errors.Is, the same kinds
 // the C module has codes for. Only one kind may match, and the kind is not
 // prepended to the text, so a caller printing the error sees no change.
@@ -429,35 +471,8 @@ func TestFormatErrors(t *testing.T) {
 func TestErrorKinds(t *testing.T) {
 	kinds := []error{zuid.ErrUnknownBase, zuid.ErrBadFormat, zuid.ErrConvert, zuid.ErrClock,
 		zuid.ErrPrecision, zuid.ErrOption, zuid.ErrEnv, zuid.ErrHorizon, zuid.ErrBaseNotText}
-	at := zuid.WithFixedTime(time.UnixMilli(1785703406000).UTC())
-	cases := []struct {
-		name string
-		opts []zuid.Option
-		req  zuid.Request
-		want error
-	}{
-		{"unknown base", nil, zuid.Request{Base: "nonesuch"}, zuid.ErrUnknownBase},
-		{"bare percent", nil, zuid.Request{Format: "%d%"}, zuid.ErrBadFormat},
-		{"unknown component", nil, zuid.Request{Format: "%z"}, zuid.ErrBadFormat},
-		{"precision 2", nil, zuid.Request{Precision: 2}, zuid.ErrPrecision},
-		{"hash width 65", nil, zuid.Request{Format: "%h", HashChars: 65}, zuid.ErrOption},
-		{"hash past the digest", nil, zuid.Request{Format: "%h", Base: "2048tz", HashChars: 25}, zuid.ErrOption},
-		{"random width -1", nil, zuid.Request{Format: "%r", RandomChars: -1}, zuid.ErrOption},
-		{"salt too long", nil, zuid.Request{Format: "%h", Salt: strings.Repeat("s", zuid.MaxSaltBytes+1)}, zuid.ErrOption},
-		{"raw-byte base", nil, zuid.Request{Base: "bytes"}, zuid.ErrBaseNotText},
-		{"control digits", nil, zuid.Request{Base: "98keyboard"}, zuid.ErrBaseNotText},
-		{"before the epoch", []zuid.Option{zuid.WithFixedTime(time.UnixMilli(-1).UTC())}, zuid.Request{}, zuid.ErrClock},
-		{"past the horizon", []zuid.Option{zuid.WithFixedTime(time.Date(4000, 1, 1, 0, 0, 0, 0, time.UTC))}, zuid.Request{}, zuid.ErrHorizon},
-		{"random runs dry", []zuid.Option{zuid.WithRandom(strings.NewReader(""))}, zuid.Request{Format: "%r"}, zuid.ErrEnv},
-		{"short MAC", []zuid.Option{zuid.WithMAC([]byte{1, 2, 3})}, zuid.Request{Format: "%m"}, zuid.ErrEnv},
-		{"empty host name", []zuid.Option{zuid.WithHostname("")}, zuid.Request{Format: "%h"}, zuid.ErrEnv},
-	}
-	for _, tc := range cases {
-		generator, err := zuid.New(append([]zuid.Option{at, zuid.WithHostname("h"), zuid.WithUsername("u"), zuid.WithFQDN("h.example")}, tc.opts...)...)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = generator.Generate(tc.req)
+	for _, tc := range errorCases {
+		err := tc.run(t)
 		if !errors.Is(err, tc.want) {
 			t.Errorf("%s: got %v, want %v", tc.name, err, tc.want)
 			continue
@@ -469,6 +484,147 @@ func TestErrorKinds(t *testing.T) {
 		}
 		if strings.HasPrefix(err.Error(), tc.want.Error()+":") {
 			t.Errorf("%s: the kind changed the text: %q", tc.name, err)
+		}
+	}
+}
+
+const errorTablePath = "../../testdata/errors.tsv"
+
+type refusal struct {
+	cName    string
+	goErr    string
+	surfaces []string
+	phrase   string
+}
+
+func readRefusals(t *testing.T) map[string]refusal {
+	t.Helper()
+	data, err := os.ReadFile(errorTablePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := map[string]refusal{}
+	for i, line := range strings.Split(string(data), "\n") {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) != 7 {
+			t.Fatalf("errors.tsv line %d: %d fields, want 7", i+1, len(fields))
+		}
+		if _, dup := rows[fields[0]]; dup {
+			t.Fatalf("errors.tsv line %d: %s is there twice", i+1, fields[0])
+		}
+		rows[fields[0]] = refusal{
+			cName:    fields[2],
+			goErr:    fields[3],
+			surfaces: strings.Split(fields[5], ","),
+			phrase:   fields[6],
+		}
+	}
+	return rows
+}
+
+// holdsPhrase reads ' ... ' in a phrase as a gap, and ignores case.
+func holdsPhrase(message, phrase string) bool {
+	rest := strings.ToLower(message)
+	for _, part := range strings.Split(strings.ToLower(phrase), " ... ") {
+		at := strings.Index(rest, part)
+		if at < 0 {
+			return false
+		}
+		rest = rest[at+len(part):]
+	}
+	return true
+}
+
+// The Err values as zuid.go declares them, each with the C name its comment
+// gives. Read from the source so a new one cannot miss the table.
+func declaredErrs(t *testing.T) map[string]string {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), "zuid.go", nil, parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]string{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			value := spec.(*ast.ValueSpec)
+			for _, name := range value.Names {
+				if name.IsExported() && strings.HasPrefix(name.Name, "Err") {
+					found[name.Name] = strings.TrimSpace(value.Comment.Text())
+				}
+			}
+		}
+	}
+	return found
+}
+
+// testdata/errors.tsv holds the three surfaces to one name and one phrase per
+// failure. This is the Go side: every Err is in it under its C name, and every
+// message Go words itself says the row's phrase.
+// test-id: ErsxH5C
+func TestErrorTable(t *testing.T) {
+	rows := readRefusals(t)
+	byName := map[string]error{
+		"ErrUnknownBase": zuid.ErrUnknownBase, "ErrBadFormat": zuid.ErrBadFormat, "ErrConvert": zuid.ErrConvert,
+		"ErrClock": zuid.ErrClock, "ErrPrecision": zuid.ErrPrecision, "ErrOption": zuid.ErrOption,
+		"ErrEnv": zuid.ErrEnv, "ErrHorizon": zuid.ErrHorizon, "ErrBaseNotText": zuid.ErrBaseNotText,
+	}
+	declared := declaredErrs(t)
+	for name := range declared {
+		if _, ok := byName[name]; !ok {
+			t.Errorf("zuid.go declares %s, which this test does not know", name)
+		}
+	}
+	inTable := map[string]bool{}
+	for label, row := range rows {
+		if row.goErr == "-" {
+			continue
+		}
+		inTable[row.goErr] = true
+		cName, ok := declared[row.goErr]
+		if !ok {
+			t.Errorf("%s: zuid.go has no %s", label, row.goErr)
+			continue
+		}
+		if cName != row.cName {
+			t.Errorf("%s: %s is commented %q, the table says %s", label, row.goErr, cName, row.cName)
+		}
+	}
+	for name := range declared {
+		if !inTable[name] {
+			t.Errorf("%s has no row in errors.tsv", name)
+		}
+	}
+
+	covered := map[string]bool{}
+	for _, tc := range errorCases {
+		row, ok := rows[tc.refusal]
+		if !ok {
+			t.Errorf("%s: no row %q in errors.tsv", tc.name, tc.refusal)
+			continue
+		}
+		covered[tc.refusal] = true
+		if byName[row.goErr] != tc.want {
+			t.Errorf("%s: the table says %s, the case wants %v", tc.name, row.goErr, tc.want)
+		}
+		err := tc.run(t)
+		if err == nil {
+			t.Errorf("%s: no error", tc.name)
+			continue
+		}
+		if slices.Contains(row.surfaces, "go") && !holdsPhrase(err.Error(), row.phrase) {
+			t.Errorf("%s: %q does not say %q", tc.name, err, row.phrase)
+		}
+	}
+	for label, row := range rows {
+		if slices.Contains(row.surfaces, "go") && !covered[label] {
+			t.Errorf("%s: Go words it, but no case here reaches it", label)
 		}
 	}
 }
