@@ -231,7 +231,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - Move `convertbase` to `lib/v0.2.0` once it is tagged.
 	- ID: 2026100519164742
 	- Type: Task
-	- Status: Queued
+	- Status: Stalled
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261005-191647
 	- Opened by: JC
@@ -243,6 +243,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Check the reactor's exports are unchanged, rerun the vectors, and measure again.
 	- Progress log:
 		- 20261005: A command built with a reactor from `dev` started in 0.25 s, or 0.02 s with the module cached, against 0.55 s and 0.34 s on `v0.1.0`. Go's `New` should drop from 57 ms the same way.
+		- 20261006: Stalled. convert-base-v2 is in the middle of an upgrade, so no tag until that settles, by direct answer.
 
 - The macOS build hangs on Zig 0.17.0.
 	- ID: 2026100318410002
