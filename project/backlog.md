@@ -186,7 +186,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - One table for error messages across the command, the C module and the Go module.
 	- ID: 2026100519343989
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261005-193439
 	- Opened by: JC
@@ -197,6 +197,21 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- One source for each kind's text, or a test that holds the three to it.
 	- Progress log:
 		- 20261005: Asked for after a design review.
+		- 20261005: `testdata/errors.tsv` has a row per failure, with its C code, its Go `Err`, the core errors behind it and a phrase each surface's message has to contain. The Go tests, the Zig tests and `cli-test.bash` all read it.
+		- 20261005: the command's generation messages moved to `zig/cmd/src/messages.zig`, so the Zig tests can check each one, including the ones no flag reaches.
+		- 20261005: not every surface words every failure, and the table says which. Go names the cause of an env failure instead, the command has no hash width flag, and the conversion library's own text is passed through as before.
+		- 20261005: wording that moved, for signoff. No Go text changed.
+			- C, width out of range: "a symbol count is out of range" now ends ": want 1 to 64", as Go and the command already say.
+			- C, refused base: "renders raw bytes rather than text" is now "raw bytes or control characters", as the command says. 98keyboard was told it renders raw bytes.
+			- Command, clock past the horizon: it had no message and printed "Generation failed: WidthOverflow." Now "The clock is past the padding horizon, so the timestamp no longer fits its fixed width.", as C says.
+	- Decisions:
+		- 20261005: a test against a shared phrase, not one source of text. Each surface keeps its own style, so the command's style guide and the library style both still hold.
+	- Note: `ZUID_ERR_INTERNAL` (7) is in `zuid.h`, but nothing returns it now.
+	- Branch: errtable
+	- Commit: 698dc9a
+	- Swept: every core error and every code in `zuid.h` has a row, checked both ways. So does every `Err` in `zuid.go`, under the C name its comment gives. The command's own flag checks for precision, `--rand-chars` and the salt are held to the table in `cli-test.bash`.
+	- Test case: ErsxH5C in `zuid_test.go`, ErsxH5D, ErsxH5E and ErsxH5F in `tests.zig`, and Ersz07L to Ersz07U in `cli-test.bash`. Each failed with a fault planted: a Go text, an `Err` comment or a new `Err` with no row; a `codeFor` code, a dropped row or a wrong code against `zuid.h`; the old C base text; the command's horizon message taken out; a flag message reworded.
+	- Verified: the Go and Zig tests, `cli-test.bash`, the test ID check, the format check and shellcheck all pass.
 
 - The macOS build hangs on Zig 0.17.0.
 	- ID: 2026100318410002
