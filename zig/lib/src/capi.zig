@@ -47,7 +47,7 @@ pub fn leakCount() usize {
 }
 
 // Codes from zuid.h. Kept in one switch so a new core error fails loudly here.
-fn codeFor(err: core.Error) c_int {
+pub fn codeFor(err: core.Error) c_int {
     return switch (err) {
         core.Error.UnknownBase => 1,
         core.Error.BareFormatPercent, core.Error.UnknownComponent => 2,
@@ -63,17 +63,17 @@ fn codeFor(err: core.Error) c_int {
 
 /// Explanation for the failures that never reach the conversion library, and
 /// so leave it with nothing to say. Empty means the library's own text stands.
-fn textFor(err: core.Error) []const u8 {
+pub fn textFor(err: core.Error) []const u8 {
     return switch (err) {
         core.Error.WidthOverflow => "the clock is past the padding horizon, so the timestamp no longer fits its fixed width",
         core.Error.ClockBeforeEpoch => "the clock predates the Unix epoch",
         core.Error.BareFormatPercent => "the format string ends on a bare '%'",
         core.Error.UnknownComponent => "unknown format component; known: %d %h %u %f %m %g %r, and %% for a literal",
-        core.Error.OptionRange => "a symbol count is out of range",
+        core.Error.OptionRange => std.fmt.comptimePrint("a symbol count is out of range: want 1 to {d}", .{core.max_component_chars}),
         core.Error.HashTooWide => "a hashed component cannot be wider than a SHA-256 fills in that base",
         core.Error.SaltTooLong => "the salt is longer than ZUID_MAX_SALT_BYTES",
         core.Error.EnvUnavailable => "this machine could not supply that component",
-        core.Error.BaseNotText => "that base renders raw bytes rather than text, so it cannot carry an identifier",
+        core.Error.BaseNotText => "that base renders raw bytes or control characters rather than text, so it cannot carry an identifier",
         core.Error.BufferTooSmall => "out_cap is too small for the identifier plus its terminating NUL",
         else => "",
     };

@@ -10,6 +10,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const zuid = @import("zuid");
+const messages = @import("messages.zig");
 
 const build_options = @import("build_options");
 
@@ -411,31 +412,20 @@ fn readSalt(io: std.Io, arena: std.mem.Allocator, stderr: *std.Io.Writer, path: 
     return salt;
 }
 
-/// Turns a generation failure into the one-line message the style guide asks
-/// for. The wasm runtime's own words win where it had any, since those are
-/// internal rather than about something that was typed.
+/// The wording lives in messages.zig, where the library's tests can reach it.
 fn dieGenerating(stderr: *std.Io.Writer, err: anyerror, detail: []const u8, opts: zuid.core.Options) noreturn {
-    if (err == error.UnknownBase) {
-        const hint = nearestBase(detail);
-        if (hint.len > 0) {
-            die(stderr, "Unknown base '{s}'. Did you mean '{s}'?", .{ opts.base, hint });
-        }
-        die(stderr, "Unknown base '{s}'. Want one the conversion library knows; --help lists the curated set.", .{opts.base});
-    }
-    if (detail.len > 0) {
-        die(stderr, "{s}", .{detail});
-    }
-    switch (err) {
-        error.UnknownComponent => die(stderr, "Unknown format component '%{s}'. Known: %d %h %u %f %m %g %r, and %% for a literal.", .{unknownVerb(opts.format)}),
-        error.BareFormatPercent => die(stderr, "The format string ends on a bare '%'.", .{}),
-        error.ClockBeforeEpoch => die(stderr, "The clock predates the Unix epoch.", .{}),
-        error.BaseNotText => die(stderr, "That base renders raw bytes or control characters rather than text, so it cannot carry an identifier.", .{}),
-        error.EnvUnavailable => die(stderr, "This machine could not supply that component - no name, hardware address, or random source.", .{}),
-        error.OptionRange => die(stderr, "A symbol count is out of range. Want 1 to {d}.", .{zuid.core.max_component_chars}),
-        error.SaltTooLong => die(stderr, "The salt is {d} bytes. Want at most {d}.", .{ opts.salt.len, zuid.core.max_salt_bytes }),
-        error.BufferTooSmall => die(stderr, "That format renders more than {d} bytes, which is past what this command will print.", .{max_out_len}),
-        else => die(stderr, "Generation failed: {t}.", .{err}),
-    }
+    stderr.writeAll("zuid: ") catch {};
+    messages.generating(stderr, err, detail, .{
+        .base = opts.base,
+        .format = opts.format,
+        .salt_len = opts.salt.len,
+        .max_chars = zuid.core.max_component_chars,
+        .max_salt = zuid.core.max_salt_bytes,
+        .max_out = max_out_len,
+    }) catch {};
+    stderr.writeAll("\n") catch {};
+    stderr.flush() catch {};
+    std.process.exit(1);
 }
 
 /// A reader that quit early - 'zuid -n 1000000 | head' - is how a run ends, not
@@ -446,37 +436,6 @@ fn stdoutFailed(fw: *std.Io.File.Writer, stderr: *std.Io.Writer) noreturn {
         die(stderr, "Writing to standard output failed: {t}.", .{err});
     }
     die(stderr, "Writing to standard output failed.", .{});
-}
-
-/// The near-match the conversion library suggested, or empty when it had none.
-/// Its message is `unknown base "x"; did you mean "y"?`, which reads in its
-/// style rather than this command's, so only the suggestion is kept.
-fn nearestBase(detail: []const u8) []const u8 {
-    const lead = "did you mean \"";
-    const at = std.mem.indexOf(u8, detail, lead) orelse return "";
-    const rest = detail[at + lead.len ..];
-    const end = std.mem.indexOfScalar(u8, rest, '"') orelse return "";
-    return rest[0..end];
-}
-
-/// The first verb the core would not know. It reports which error happened,
-/// not which character caused it, so the command walks the format the same way
-/// the core's loop does. A multi-byte verb prints whole rather than as the
-/// Latin-1 reading of its first byte.
-fn unknownVerb(format: []const u8) []const u8 {
-    var i: usize = 0;
-    while (i + 1 < format.len) : (i += 1) {
-        if (format[i] != '%') continue;
-        i += 1;
-        switch (format[i]) {
-            '%', 'd', 'h', 'u', 'f', 'm', 'g', 'r' => {},
-            else => {
-                const len = std.unicode.utf8ByteSequenceLength(format[i]) catch 1;
-                return format[i..@min(i + len, format.len)];
-            },
-        }
-    }
-    return "";
 }
 
 /// Where the growing below gives up. Only here so a runaway format ends in a

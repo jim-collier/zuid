@@ -123,6 +123,19 @@ pub fn build(b: *std.Build) void {
     test_mod.addAnonymousImport("vectors.tsv", .{
         .root_source_file = b.path("../testdata/vectors.tsv"),
     });
+    // The error table, and the two other places it is held to: the codes in
+    // the header and the command's own wording.
+    test_mod.addAnonymousImport("errors.tsv", .{
+        .root_source_file = b.path("../testdata/errors.tsv"),
+    });
+    test_mod.addAnonymousImport("zuid.h", .{
+        .root_source_file = b.path("lib/include/zuid.h"),
+    });
+    test_mod.addAnonymousImport("cli_messages", .{
+        .root_source_file = b.path("cmd/src/messages.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const tests = b.addTest(.{
         .root_module = test_mod,
         .use_llvm = true,

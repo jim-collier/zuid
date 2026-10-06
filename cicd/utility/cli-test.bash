@@ -143,6 +143,30 @@ fWantFailure(){  ## id, label, text the message must contain, args...
 }
 
 
+## testdata/errors.tsv gives each failure a phrase that the command, the C
+## module and the Go module all have to say. ' ... ' in it is a gap, and case
+## does not count.
+errorTable="${repoRoot}/testdata/errors.tsv"
+fWantRefusal(){  ## id, label, row in errors.tsv, args...
+	fId "$1" "$2"
+	local -r row="$3"; shift 3
+	local phrase=""
+	phrase="$(wantRow="${row}" awk -F'\t' '!/^#/ && $1 == ENVIRON["wantRow"] { print $7 }' "${errorTable}")"
+	if [[ -z "${phrase}" ]]; then fFail "errors.tsv has no row '${row}'"; return 0; fi
+	local out="" rc=0
+	out="$("${bin}" "$@" 2>&1)" || rc=$?
+	if ((rc == 0)); then fFail "exited 0, expected a refusal"; return 0; fi
+	local rest="${out,,}" left="${phrase,,}" part=""
+	while :; do
+		part="${left%% ... *}"
+		if [[ "${rest}" != *"${part}"* ]]; then fFail "said '${out}', which does not say '${phrase}'"; return 0; fi
+		rest="${rest#*"${part}"}"
+		if [[ "${left}" != *" ... "* ]]; then break; fi
+		left="${left#* ... }"
+	done
+	fPass
+}
+
 fWantContains(){  ## id, label, text the output must contain, args...
 	fId "$1" "$2"
 	local -r needle="$3"; shift 3
@@ -258,6 +282,20 @@ fWantFailure ErsrUT5 "an empty salt file is refused"           "is empty" --form
 fWantFailure ErsrUT6 "an over-long salt file is refused"       "Want at most 256" --format '%h' --salt-file "${work}/salt-long"
 fWantFailure ErsrUT7 "a missing salt file is refused"          "does not exist" --salt-file "${work}/no-such-salt"
 fWantFailure ErsrUT8 "--salt and --salt-file together"         "one or the other" --salt pepper --salt-file "${work}/salt"
+
+## The flag checks word their own refusals, so they are held to the table here.
+## The rest go through messages.zig, which the library's tests hold to it; a few
+## run end to end to show the command uses it.
+fWantRefusal Ersz07L "precision out of range, per errors.tsv"     precision --precision 2
+fWantRefusal Ersz07M "precision not a number, per errors.tsv"     precision --precision x
+fWantRefusal Ersz07N "zero --rand-chars, per errors.tsv"          width-range --rand-chars 0
+fWantRefusal Ersz07O "non-numeric --rand-chars, per errors.tsv"   width-range --rand-chars abc
+fWantRefusal Ersz07P "over-long --salt, per errors.tsv"           salt-too-long --format '%h' --salt "$(python3 -c 'print("s" * 257)')"
+fWantRefusal Ersz07Q "over-long salt file, per errors.tsv"        salt-too-long --format '%h' --salt-file "${work}/salt-long"
+fWantRefusal Ersz07R "over-long salt on stdin, per errors.tsv"    salt-too-long --format '%h' --salt-file - < "${work}/salt-long"
+fWantRefusal Ersz07S "unknown base, per errors.tsv"               unknown-base --base no-such-base-here
+fWantRefusal Ersz07T "unknown component, per errors.tsv"          unknown-component --format '%z'
+fWantRefusal Ersz07U "base with control digits, per errors.tsv"   control-char-base --base 98keyboard
 
 ## --count prints that many lines and nothing else. One run reads the clock
 ## once, so a format with nothing random in it comes out the same every line -
