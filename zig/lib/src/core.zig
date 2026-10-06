@@ -127,8 +127,9 @@ pub const Error = error{
     /// The machine could not supply a component: no host name, no user, no
     /// interface with a hardware address, no random source.
     EnvUnavailable,
-    /// The converter failed for a reason of its own; ask it for the text.
-    ConvertFailed,
+    /// The converter broke rather than refusing the request: its runtime
+    /// trapped or erred, or its module failed inside. Ask it for the text.
+    RuntimeFailed,
     /// The base renders raw bytes or control characters rather than text, so
     /// it cannot carry an identifier.
     BaseNotText,

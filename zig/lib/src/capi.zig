@@ -51,9 +51,10 @@ pub fn codeFor(err: core.Error) c_int {
     return switch (err) {
         core.Error.UnknownBase => 1,
         core.Error.BareFormatPercent, core.Error.UnknownComponent => 2,
-        core.Error.BadInput, core.Error.ConvertFailed => 4,
+        core.Error.BadInput => 4,
         core.Error.BufferTooSmall => 5,
         core.Error.ClockBeforeEpoch => 6,
+        core.Error.RuntimeFailed => 7,
         core.Error.OptionRange, core.Error.HashTooWide, core.Error.SaltTooLong => 9,
         core.Error.EnvUnavailable => 10,
         core.Error.WidthOverflow => 12,
@@ -75,6 +76,7 @@ pub fn textFor(err: core.Error) []const u8 {
         core.Error.EnvUnavailable => "this machine could not supply that component",
         core.Error.BaseNotText => "that base renders raw bytes or control characters rather than text, so it cannot carry an identifier",
         core.Error.BufferTooSmall => "out_cap is too small for the identifier plus its terminating NUL",
+        core.Error.RuntimeFailed => "the embedded wasm runtime or its module failed",
         else => "",
     };
 }
