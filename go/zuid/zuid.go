@@ -203,6 +203,10 @@ type Generator struct {
 	username func() (string, error)
 	fqdn     func() (string, error)
 	mac      func() ([]byte, error)
+
+	// One verdict per base, from checkRenderable. Keyed by the registry's own
+	// pointer, which Lookup hands back the same for every spelling of a base.
+	textVerdicts sync.Map // *convertbase.Base -> error
 }
 
 // Option configures a Generator.
@@ -300,7 +304,7 @@ func (g *Generator) Generate(req Request) (string, error) {
 	if err != nil {
 		return "", kind(ErrUnknownBase, fmt.Errorf("base %q: %w", req.Base, err))
 	}
-	if err := checkRenderable(base); err != nil {
+	if err := g.renderable(base); err != nil {
 		return "", err
 	}
 	if _, err := req.Precision.msPerUnit(); err != nil {
@@ -404,6 +408,20 @@ func checkChars(what string, count int) error {
 		return kind(ErrOption, fmt.Errorf("%s width %d: want 1 to %d", what, count, MaxComponentChars))
 	}
 	return nil
+}
+
+// renderable is checkRenderable, asked once per base. A refusal is kept as
+// well as a pass, so a bad base stays refused on every call.
+func (g *Generator) renderable(base *convertbase.Base) error {
+	if verdict, ok := g.textVerdicts.Load(base); ok {
+		if verdict == nil {
+			return nil
+		}
+		return verdict.(error)
+	}
+	err := checkRenderable(base)
+	g.textVerdicts.Store(base, err)
+	return err
 }
 
 // checkRenderable rejects a base whose digits are raw bytes rather than text.

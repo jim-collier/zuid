@@ -473,6 +473,43 @@ func TestErrorKinds(t *testing.T) {
 	}
 }
 
+// The text verdict is kept per base. A refused base stays refused on every
+// call, whichever base was asked about first, and a good one keeps passing.
+// test-id: Ersuqxd
+func TestBaseVerdictPerBase(t *testing.T) {
+	at := zuid.WithFixedTime(time.UnixMilli(1785703406000).UTC())
+	orders := [][]string{
+		{"62", "bytes", "62", "98keyboard", "2048tz", "bytes", "98keyboard", "62"},
+		{"bytes", "62", "98keyboard", "2048tz", "bytes", "62", "98keyboard"},
+		{"98keyboard", "bytes", "2048tz", "62", "98keyboard", "bytes"},
+	}
+	refused := map[string]bool{"bytes": true, "98keyboard": true}
+	for _, order := range orders {
+		generator, err := zuid.New(at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		texts := map[string]string{}
+		for i, name := range order {
+			_, err := generator.Generate(zuid.Request{Base: name})
+			if !refused[name] {
+				if err != nil {
+					t.Errorf("%v call %d, %s: %v", order, i, name, err)
+				}
+				continue
+			}
+			if !errors.Is(err, zuid.ErrBaseNotText) {
+				t.Errorf("%v call %d, %s: got %v, want ErrBaseNotText", order, i, name, err)
+				continue
+			}
+			if first, seen := texts[name]; seen && first != err.Error() {
+				t.Errorf("%v call %d, %s: text moved from %q to %q", order, i, name, first, err.Error())
+			}
+			texts[name] = err.Error()
+		}
+	}
+}
+
 // 98keyboard counts tab, newline and return among its digits, so an identifier
 // in it could carry a line break. Its zero digit is '0', which is why the
 // alphabet gets read rather than just that one symbol.
