@@ -13,8 +13,11 @@
 ##		- 20261003 JC: Zig 0.17.0, found beside an older one on PATH.
 ##		- 20261003 JC: Publishing to GitHub releases.
 ##		- 20261004 JC: Runs in a linked worktree, minus the backup.
+##		- 20261010 JC: --container.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
+## Set by --container for the run it starts inside.
+declare -i inContainer=0; [[ "${ZUID_IN_CONTAINER:-}" == "1" ]] && inContainer=1
 declare    thisVersion="0.1.0"
 declare    copyrightYear="2026"
 declare    author="Jim Collier"
@@ -88,6 +91,11 @@ fConfig(){ :;
 	default_keepWeekly=5
 	default_keepMonthly=6
 
+	## --container. The image is tagged with cicd/container/Dockerfile's git hash.
+	## Caches live in a named volume, out of the tree and its backups.
+	default_containerImage="zuid-cicd"
+	default_containerVolume="zuid-cicd-cache"
+
 }
 
 
@@ -147,6 +155,7 @@ fPrint_Help(){
 		    --publish         Publish a GitHub release of the version in
 		                      zig/lib/src/core.zig. Implies --package. See below.
 		    --allow-partial   Let --publish go ahead with some platforms missing.
+		    --container       Run the build and test stages in a container. See below.
 		    -q, --quiet       No banner and no prompting. Without -m the commit
 		                      message is generated.
 		    -h, --help        This.
@@ -188,6 +197,12 @@ fPrint_Help(){
 		downloads by OS and CPU. What was uploaded stays in dist/release/ until the
 		next --package.
 
+		--container runs preflight through package in a Debian image with every tool
+		pinned, built from cicd/container/Dockerfile the first time it is needed.
+		The sync, demo, dogfood and backup stay on this machine, since they need its
+		git keys, fonts and paths. It needs docker, or ZUID_DOCKER naming another
+		program that takes docker's arguments. x86_64 only. Not with --publish.
+
 		Exit code is 0 only if every stage that ran passed.
 	EOF_h7wq4
 	fEcho_Clean ""
@@ -227,6 +242,8 @@ fMain(){
 	local -i default_keepDaily=0
 	local -i default_keepWeekly=0
 	local -i default_keepMonthly=0
+	local    default_containerImage=""
+	local    default_containerVolume=""
 	fConfig
 	local -r minVer_Go="${default_minVer_Go}"
 	local -r minVer_Zig="${default_minVer_Zig}"
@@ -244,6 +261,8 @@ fMain(){
 	local -ri keepDaily="${default_keepDaily}"
 	local -ri keepWeekly="${default_keepWeekly}"
 	local -ri keepMonthly="${default_keepMonthly}"
+	local -r  containerImage="${default_containerImage}"
+	local -r  containerVolume="${default_containerVolume}"
 
 	## Layout. This script lives in the repo's cicd/, so the repo root is one up.
 	## Physical, since find does not descend a symlink it is handed as a start.
@@ -277,6 +296,7 @@ fMain(){
 	local -i dogfoodAsked=0
 	local -i doPublish=0
 	local -i allowPartial=0
+	local -i doContainer=0
 	fInit "${@}"
 	readonly onlyToolchain
 	readonly doCross
@@ -286,6 +306,7 @@ fMain(){
 	readonly doPackage
 	readonly doPublish
 	readonly allowPartial
+	readonly doContainer
 
 	## Set by the publish preflight, read by the publish stage.
 	local publishVersion="" publishRemote="" publishHead="" publishRepoUrl=""
@@ -315,18 +336,24 @@ fMain(){
 	## Make it so
 	##
 
-	fStartRunLog
+	## Inside a container the outer run already logs everything this prints.
+	if ((! inContainer)); then fStartRunLog; fi
 
 	## Plain 'if', not '&&' - a trailing false in a function trips the ERR trap.
 	if ((doSync));                 then fStage_Sync;      fi
-	fPreflight
-	fStage_Shell
-	if ((doGo));                   then fStage_Go;        fi
-	if ((doZig));                  then fStage_Zig;       fi
-	if ((doCross)) && ((doGo));    then fStage_Go_Cross;  fi
-	if ((! doQuick));              then fStage_Profile;   fi
-	if ((! doQuick));              then fStage_Demo;      fi
-	if ((doPackage));              then fStage_Package;   fi
+	if ((doContainer)); then
+		fStage_Container
+	else
+		fPreflight
+		fStage_Shell
+		if ((doGo));                   then fStage_Go;        fi
+		if ((doZig));                  then fStage_Zig;       fi
+		if ((doCross)) && ((doGo));    then fStage_Go_Cross;  fi
+		if ((! doQuick));              then fStage_Profile;   fi
+	fi
+	## The demo draws with this machine's fonts, so a container never renders it.
+	if ((! doQuick)) && ((! inContainer)); then fStage_Demo; fi
+	if ((doPackage)) && ((! doContainer)); then fStage_Package; fi
 	if ((doPublish));              then fStage_Publish;   fi
 	if ((doZig)) && ((doDogfood)); then fStage_Dogfood;   fi
 	if ((doBackup));               then fStage_Backup;    fi
@@ -387,6 +414,7 @@ fInit(){
 			--no-dogfood) doDogfood=0; dogfoodAsked=0 ;;
 			--publish)    doPublish=1; doPackage=1 ;;
 			--allow-partial) allowPartial=1 ;;
+			--container)  doContainer=1 ;;
 			-q|--quiet)   doQuietly=1 ;;
 
 			## ¯\_(:/)_/¯
@@ -426,6 +454,13 @@ fInit(){
 
 	if ((allowPartial)) && ((! doPublish)); then
 		fThrowError "--allow-partial only means something with --publish."  "${FUNCNAME[0]}"
+	fi
+	## Publishing needs gh and its login, which stay out of the container.
+	if ((doPublish)) && ((doContainer)); then
+		fThrowError "--publish runs on this machine, so it does not go with --container."  "${FUNCNAME[0]}"
+	fi
+	if ((doContainer)) && ((inContainer)); then
+		fThrowError "Already in the container; --container would start another."  "${FUNCNAME[0]}"
 	fi
 	## Every release asset comes out of the Zig build.
 	if ((doPublish)) && [[ "${onlyToolchain}" == "go" ]]; then
@@ -542,6 +577,60 @@ fStage_Sync(){
 		git -C "${repoRoot}" stash pop --quiet || fThrowError "Fast-forwarded, but the stashed changes conflict. Resolve them by hand."  "${FUNCNAME[0]}"
 	fi
 	fEcho_Clean "Branch .....: ${branch} fast-forwarded ${behind} commit(s)"
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Preflight through package, run inside the pinned image, then back here for
+## whatever needs this machine. The repo is mounted at the same path inside,
+## so paths in logs and caches, and a worktree's .git file, still point at
+## something.
+fStage_Container(){
+
+	fEcho_Clean
+	fEcho "Container"
+
+	local -r engine="${ZUID_DOCKER:-docker}"
+	_fMustBeInPath "${engine}"
+	local -r recipe="${repoRoot}/cicd/container/Dockerfile"
+	[[ -f "${recipe}" ]] || fThrowError "Missing the container recipe: '${recipe}'."  "${FUNCNAME[0]}"
+
+	## Tagged by the recipe's hash, so an edited recipe can't run on the old image.
+	local -r image="${containerImage}:$(git hash-object "${recipe}" | cut -c1-12)"
+	if "${engine}" image inspect "${image}" &>/dev/null; then
+		fEcho_Clean "Image ......: ${image}"
+	else
+		fEcho_Clean "Image ......: building ${image}"
+		"${engine}" build -t "${image}" "$(dirname "${recipe}")" || fThrowError "Could not build '${image}'."  "${FUNCNAME[0]}"
+		## What it replaces is a couple of GB nobody runs again.
+		local old=""
+		while IFS= read -r old; do
+			if [[ -z "${old}" ]] || [[ "${old}" == "${image}" ]]; then continue; fi
+			if "${engine}" rmi "${old}" >/dev/null 2>&1
+				then fEcho_Clean "Removed ....: ${old}"
+				else fEcho_Clean "Kept .......: ${old} (in use)"
+			fi
+		done < <("${engine}" image ls "${containerImage}" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
+	fi
+
+	local -a mounts=(-v "${repoRoot}:${repoRoot}" -v "${containerVolume}:/cache")
+	local -r gitCommon="$(git -C "${repoRoot}" rev-parse --path-format=absolute --git-common-dir)"
+	if [[ "${gitCommon}" != "${repoRoot}/"* ]]; then mounts+=(-v "${gitCommon}:${gitCommon}"); fi
+
+	local -a innerEnv=(-e ZUID_IN_CONTAINER=1 -e "USER=${USER:-builder}")
+	if [[ -n "${SOURCE_DATE_EPOCH+set}" ]]; then innerEnv+=(-e "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"); fi
+
+	local -a innerArgs=(-q --no-sync --no-backup --no-dogfood)
+	if [[ -n "${onlyToolchain}" ]]; then innerArgs+=(--only "${onlyToolchain}"); fi
+	if ((doCross));   then innerArgs+=(--cross);   fi
+	if ((doQuick));   then innerArgs+=(--quick);   fi
+	if ((doPackage)); then innerArgs+=(--package); fi
+	fEcho_Clean "Runs .......: cicd.bash ${innerArgs[*]}"
+
+	"${engine}" run --rm --init --user "$(id -u):$(id -g)" "${mounts[@]}" "${innerEnv[@]}" -w "${repoRoot}" \
+		"${image}" bash "${repoRoot}/cicd/cicd.bash" "${innerArgs[@]}" \
+		|| fThrowError "The run in the container failed; its output is above."  "${FUNCNAME[0]}"
 
 }
 
@@ -1360,11 +1449,13 @@ fStage_Zig_BuildStamp(){
 
 	fId Eq9nb3o "the build number survives an empty SOURCE_DATE_EPOCH"
 	## Its own cache, since translate-c chokes on the empty value, and a cached
-	## translation never runs it. The global cache stays warm: clang refuses the
-	## value too, in Zig's own libunwind and libc builds, which no build.zig can
-	## reach. fDropBadEpoch keeps it from them.
+	## translation never runs it. The global cache has to be warm: clang refuses
+	## the value too, in Zig's own libunwind and libc builds, which no build.zig
+	## cna reach. fDropBadEpoch keeps it from them. A new Zig or a cleared cache
+	## failed here, so a plain build goes first, in a throwaway cache.
 	(
 		cd "${zigDir}" || exit 1
+		zig build "-j${buildJobs}" --cache-dir "${stampDir}/warm" --prefix "${stampDir}/warm-out" >/dev/null || exit 1
 		SOURCE_DATE_EPOCH="" zig build "-j${buildJobs}" --cache-dir "${stampDir}/cache" --prefix "${stampDir}" || exit 1
 	) || fTestFail "the build failed with SOURCE_DATE_EPOCH empty."
 
