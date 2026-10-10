@@ -217,6 +217,8 @@ If the `zig` on PATH is older, `cicd/cicd.bash` takes the one named by `ZIG`, or
 
 Nothing has to be installed system-wide beyond those. The WebAssembly runtime and the conversion module are fetched or built into `zig/vendor/`, which is not committed.
 
+On x86_64 Linux with docker, `cicd/cicd.bash --container` needs only git and docker. It builds an image from `cicd/container/Dockerfile` the first time, about 2 GB, with every tool above at a pinned version, and runs the build and tests in it. The demo, the dogfood install and the backup still run outside it, and `--publish` does not go with it. `ZUID_DOCKER` can name another program that takes docker's arguments, such as podman, but only docker has been tried.
+
 ### Building and testing
 
 `cicd/cicd.bash` drives everything and is what to run before merging.
@@ -226,6 +228,7 @@ cicd/cicd.bash                      # build and test both sides
 cicd/cicd.bash --quick              # skip fuzzing, profiling, the demo and the dogfood install
 cicd/cicd.bash --only go            # one toolchain, so only that one has to exist
 cicd/cicd.bash --cross              # add the Go cross-compile checks
+cicd/cicd.bash --container          # build and test in the pinned image instead
 cicd/cicd.bash -m "message"         # commit too, refusing on main and dev
 ~~~
 

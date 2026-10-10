@@ -96,6 +96,14 @@ fWantRefusal ErOjF71 "--backup and --commit together are refused"     "--backup 
 fWantRefusal ErOjF73 "an unknown argument is named"                   "'--bogus'" --bogus
 fWantRefusal ErgqYt2 "--allow-partial without --publish is refused"   "only means something with --publish" --allow-partial
 fWantRefusal ErgqYt3 "--publish with --only go is refused"            "--publish needs the Zig side" --publish --only go
+fWantRefusal EsJ9SjI "--publish with --container is refused"          "does not go with --container" --publish --container
+
+fId EsJ9cHS "--container inside the container is refused"
+out="$(env -u ZUID_CICD_QUIET ZUID_IN_CONTAINER=1 bash "${cicd}" --container 2>&1 < /dev/null)" && rc=0 || rc=$?
+if ((rc != 0)) && [[ "${out}" == *"Already in the container"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out:0:120}'"
+fi
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -259,6 +267,7 @@ fInitIn(){  ## repo dir, args...
 			repoRoot="$1"; onlyToolchain=""; commitMsg=""; doQuietly=0
 			doCross=0; doQuick=0; doSync=1; doCommit=0; commitAsked=0; doPush=0; doPackage=0
 			doBackup=1; backupAsked=0; backupInWorktree=0; doDogfood=1; dogfoodAsked=0; doPublish=0; allowPartial=0
+			doContainer=0; inContainer=0
 		}
 		shift
 		local fn=""
@@ -281,6 +290,82 @@ fi
 fId Erm7vCl "--backup by name is refused in a linked worktree"
 out="$(fInitIn "${worktreeDir}" --backup)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"linked worktree"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+## The container stage, with a stand-in for docker that logs what it was asked.
+## Its image list always has an older tag beside the current one.
+cat > "${work}/engine" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${ENGINE_LOG}"
+case "$1 ${2:-}" in
+	"image inspect") [[ -f "${ENGINE_LOG}.built" ]] ;;
+	"build "*)       : > "${ENGINE_LOG}.built" ;;
+	"image ls")      printf 'zuid-cicd:0ld0ld0ld0ld\n%s\n' "${ENGINE_NEW}" ;;
+	"run "*)         exit "${ENGINE_RUN_RC:-0}" ;;
+esac
+STUB
+chmod +x "${work}/engine"
+
+fContainerIn(){  ## repo dir, engine log, run exit code
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fEcho(){ :; }
+		# shellcheck disable=2329
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2329
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2034  ## Read by the lifted fStage_Container.
+		{
+			repoRoot="$(cd "$1" && pwd -P)"; containerImage="zuid-cicd"; containerVolume="zuid-cicd-cache"
+			onlyToolchain="go"; doCross=0; doQuick=1; doPackage=1
+		}
+		local fn=""
+		for fn in _fMustBeInPath fStage_Container; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		mkdir -p "${repoRoot}/cicd/container"
+		echo "FROM scratch" > "${repoRoot}/cicd/container/Dockerfile"
+		export ZUID_DOCKER="${work}/engine" ENGINE_LOG="$2" ENGINE_RUN_RC="$3"
+		ENGINE_NEW="zuid-cicd:$(git hash-object "${repoRoot}/cicd/container/Dockerfile" | cut -c1-12)"
+		export ENGINE_NEW
+		fStage_Container
+	) 2>&1
+}
+mainReal="$(cd "${worktreeMain}" && pwd -P)"
+newTag="zuid-cicd:$(echo "FROM scratch" | git hash-object --stdin | cut -c1-12)"
+
+fId EsJ9SjE "--container builds a missing image under the recipe's hash, and drops the one it replaces"
+out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
+log="$(cat "${work}/engine-main" 2>/dev/null || true)"
+if ((rc == 0)) && grep -qxF "build -t ${newTag} ${mainReal}/cicd/container" <<< "${log}" \
+	&& grep -qxF "rmi zuid-cicd:0ld0ld0ld0ld" <<< "${log}" && ! grep -qxF "rmi ${newTag}" <<< "${log}"
+	then fPass
+	else fFail "exited ${rc}, asked: ${log//$'\n'/ | }; said '${out}'"
+fi
+
+fId EsJ9SjF "the container gets the repo at its own path, the cache volume and the inner flags, and no rebuild"
+: > "${work}/engine-main"
+out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
+log="$(cat "${work}/engine-main")"
+wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder}"
+wantRun+=" -w ${mainReal} ${newTag} bash ${mainReal}/cicd/cicd.bash -q --no-sync --no-backup --no-dogfood --only go --quick --package"
+if ((rc == 0)) && grep -qxF -- "${wantRun}" <<< "${log}" && ! grep -q '^build ' <<< "${log}"
+	then fPass
+	else fFail "exited ${rc}, asked: ${log//$'\n'/ | }"
+fi
+
+fId EsJ9SjG "a linked worktree's container gets the main checkout's git dir too"
+out="$(fContainerIn "${worktreeDir}" "${work}/engine-wt" 0)" && rc=0 || rc=$?
+if ((rc == 0)) && grep -q -- "^run .* -v ${mainReal}/.git:${mainReal}/.git " "${work}/engine-wt"
+	then fPass
+	else fFail "exited ${rc}, asked: $(grep '^run ' "${work}/engine-wt" || true)"
+fi
+
+fId EsJ9SjH "a failed run in the container fails the stage"
+out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 3)" && rc=0 || rc=$?
+if ((rc != 0)) && [[ "${out}" == *"The run in the container failed"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
@@ -930,6 +1015,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261010 JC: --container.
 ##		- 20261005 JC: The profile report's registry bucket.
 ##		- 20261004 JC: SOURCE_DATE_EPOCH kept from zig.
 ##		- 20261004 JC: The download table in the release notes.

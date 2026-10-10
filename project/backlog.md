@@ -133,6 +133,34 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: ErsxH5C in `zuid_test.go`, ErsxH5D, ErsxH5E and ErsxH5F in `tests.zig`, and Ersz07L to Ersz07U in `cli-test.bash`. Each failed with a fault planted: a Go text, an `Err` comment or a new `Err` with no row; a `codeFor` code, a dropped row or a wrong code against `zuid.h`; the old C base text; the command's horizon message taken out; a flag message reworded.
 	- Verified: the Go and Zig tests, `cli-test.bash`, the test ID check, the format check and shellcheck all pass.
 
+- Build and test in a pinned container.
+	- ID: 2026101008194270
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261010-081942
+	- Opened by: JC
+	- Related IDs: 2026101008194300, 2026101008194330
+	- Target OS: Linux
+	- Requirements  [Feature]:
+		- Toolchains on b23 clash between projects. Zig 0.16 and 0.17 share one link, and clippy and rustc are out of step.
+		- Try it in this project first, to see the image size and what a cold run costs.
+		- The other test boxes stay native, since their OS is what is being tested.
+	- Progress log:
+		- 20261010: `cicd.bash --container` runs preflight through package in a Debian trixie image built from `cicd/container/Dockerfile`. Go, Zig, nfpm, shellcheck and pwsh come from pinned tarballs with checksums.
+		- 20261010: sync, demo, dogfood, backup, commit and push stay on the host. `--publish` is refused with it.
+		- 20261010: the image is 2.2 GB on disk and 503 MB to download. Go, Zig and pwsh are 850 MB of that. Caches go in the docker volume `zuid-cicd-cache`.
+		- 20261010: on b23, with an empty cache, about 7.5 min. Warm, about 3 min, against 3.3 min on the host. With `--package --cross`, 4.5 min against 6.7 min. Load swung between 14 and 187 during these, so they are rough.
+		- 20261010: the container and the host ran the same 339 tests, with the same 5 skips.
+		- 20261010: the first run found `rpm2cpio` and `cpio` missing from the image, and a test that only passed with a warm Zig cache. See 2026101008194300.
+	- Decisions:
+		- 20261010: the recipe goes in `cicd/`, in the public repo, so it also lists what the build needs.
+		- 20261010: the caches are in a named volume rather than a folder in the project, which keeps them out of the ZFS snapshots and the backup.
+		- 20261010: the demo renders on the host, since it draws with the host's fonts.
+		- 20261010: x86_64 only for now.
+	- Branch: container
+	- Test case: EsJ9SjE to EsJ9SjI and EsJ9cHS in `pipeline-test.bash`. Each one failed with its part of the stage broken.
+
 - Windows release packages, x86_64 and arm64.
 	- ID: 2026100416052036
 	- Type: Enhancement
@@ -245,6 +273,27 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- 20261005: A command built with a reactor from `dev` started in 0.25 s, or 0.02 s with the module cached, against 0.55 s and 0.34 s on `v0.1.0`. Go's `New` should drop from 57 ms the same way.
 		- 20261006: Stalled. convert-base-v2 is in the middle of an upgrade, so no tag until that settles, by direct answer.
 
+- Release binaries keep debug info and the build machine's paths.
+	- ID: 2026101008194330
+	- Type: Bug
+	- Status: Queued
+	- Priority|Severity [Bug]: High
+	- Opened: 20261010-081943
+	- Opened by: JC
+	- Related IDs: 2026101008194270
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- `strings -a bin/zuid` from the `v1.0.0-alpha.1` Linux x86_64 tarball.
+	- Incorrect behavior [Bug]: 48 paths under the builder's home directory, from the Zig install and Zig's cache. The file is 28.4 MB and has 10 debug sections.
+	- Expected behavior [Bug]: No paths from the build machine, and the same bytes from any machine that builds the same commit.
+	- Reproduced [Bug]: Yes, 20261010, in the published alpha and in builds from b23 and the container. Stripped, the alpha binary is 18.7 MB with none of those paths.
+	- Possible cause [Bug]: Release builds keep their debug info, and nothing strips it.
+	- Progress log:
+		- 20261010: found while comparing a container build with a host build. Every release file differed.
+	- Decisions:
+		- Not made yet. Stripping loses the symbols in a panic's stack trace.
+	- Test case: none yet. A package stage check for the Zig and cache paths in each binary would catch it.
+
 - The macOS build hangs on Zig 0.17.0.
 	- ID: 2026100318410002
 	- Type: Bug
@@ -325,6 +374,28 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Commit: 91411c1
 	- Test case: `ErU3R79`, `ErU3R7A`. Both watched to fail without the skip.
 	- Closed: 20261001-135500
+
+- `Eq9nb3o` fails on a new Zig install or with Zig's cache cleared.
+	- ID: 2026101008194300
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20261010-081943
+	- Opened by: JC
+	- Related IDs: 2026100415475381, 2026101008194270
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- Run `cicd.bash` with nothing in Zig's global cache for the Zig in use, such as a newly built container image.
+	- Incorrect behavior [Bug]: `Eq9nb3o` fails. Zig's debug libunwind build gets the empty `SOURCE_DATE_EPOCH`, and clang refuses it.
+	- Expected behavior [Bug]: It passes, as it does on b23.
+	- Reproduced [Bug]: Yes, 20261010, in the container after the image was rebuilt.
+	- Actual cause [Bug]: The test counted on the debug libunwind already being in the global cache, as 2026100415475381 says. On b23 it always was. With a new Zig, nothing earlier in the run had built it.
+	- Actual fix [Bug]: The test does a plain build first, in a throwaway local cache. That fills the global cache, and the translate-c steps still run cold with the value empty. It adds about 5.5 s to a run.
+	- Verified: with a new cache volume, the old order failed and the new one passed. The next full container run passed.
+	- Branch: container
+	- Test case: `Eq9nb3o` itself. It failed in the container before the fix and passes after.
+	- Acceptance signoff: Self-closed: a change to the test only, checked from an empty cache.
+	- Closed: 20261010-082006
 
 - A build with `SOURCE_DATE_EPOCH` empty fails when Zig's global cache is cold.
 	- ID: 2026100415475381
