@@ -77,7 +77,7 @@ fi
 
 ## Every file in a tarball, zip or package gets this one time, so two machines
 ## building one commit make the same bytes. Same order as build.zig's build
-## number, and never the clock. A zip can't hold a time before 1980.
+## number, and never the clock. A zip can't store a time before 1980.
 stamp="${SOURCE_DATE_EPOCH:-}"
 if [[ -z "${stamp}" ]]; then stamp="$(git -C "${root}" log -1 --format=%ct 2>/dev/null || true)"; fi
 if [[ ! "${stamp}" =~ ^[0-9]+$ ]]; then
