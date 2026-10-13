@@ -123,8 +123,8 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - Release files still differ between two machines building one commit.
 	- ID: 2026101304122319
 	- Type: Bug
-	- Status: Queued
-	- Needs external testing: A `--package` run on b26. The macOS tarball now goes through bsdtar with a set owner and order, and through BSD `touch`. Ran 20261013, and Esa8LVS failed, see the progress log.
+	- Status: Done
+	- Needs external testing: Done. b26, 20261013, see Verified.
 	- Priority|Severity [Bug]: Avg
 	- Opened: 20261013-041223
 	- Opened by: JC
@@ -144,25 +144,33 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- build.zig dropped SOURCE_DATE_EPOCH for translate-c by giving that step its own copy of the environment, and the copy went into the step's cache key. Once the build number was worked out on every run, any change to the environment rebuilt everything, with new cache paths in the debug info and the Windows PDBs.
 		- The Windows exe and dll, and the compiler_rt object in every `libzuid.a`, come out of Zig itself. Split off as 2026101305595483 and 2026101305595488.
 		- The deb and rpm also differ when nfpm's version does. b23 has 2.43.0 and the container pins 2.47.0. With 2.47.0 on both they match.
+		- On a Mac, 3 more. Apple's `strip` rewrites `libzuid.a`'s symbol table with the clock's date and a mode from the umask. `dsymutil` writes the path it was given into the `.dSYM`'s relocation maps, and that path was in the run's temp dir. And a Mac gives symlinks a mode of their own, from the umask, so the dylib's soname links differed under umask 077.
 	- Progress log:
 		- 20261013: 2 package runs on b23, the second under umask 077, gave 10 different files of 33: every tarball, zip, deb and rpm, and the checksums.
 		- 20261013: After the fix, b23 against the container: the bare Linux x86_64, arm64 and FreeBSD binaries and the FreeBSD tarball match. The Linux tarballs differ only in `libzuid.a`'s compiler_rt object. The Windows zips differ only there and in `zuid.exe` and `zuid.dll`, 20 bytes each. The deb and rpm match with the same nfpm. Tar and zip headers match.
 		- 20261013: b23's nfpm was left at 2.43.0, since it's installed outside the project.
 		- 20261013: b23's nfpm moved to the container's 2.47.0, by direct answer, from the same release file and hash. EsbF9Jy says so when a host's nfpm isn't the pinned one.
+		- 20261013: Reproduced on b26 by packaging twice, the second under umask 077. The release file was the tarball, and in it only `libzuid.a` and the 2 dylib symlinks differed.
 	- Actual fix [Bug]:
 		- `package.bash` gives every file in a tarball, zip, deb and rpm one time: SOURCE_DATE_EPOCH, else the HEAD commit date, never the clock, and no earlier than 1980. Modes are 0755 or 0644 by whether the file runs. Tarballs are owner 0 by number with no names, sorted bytewise, and gzip keeps no name or time. Zips get the same list, with the zone pinned to UTC and no extra fields. nfpm gets the time, a fixed rpm build host and set modes on the license files.
 		- `build.zig` tells Zig not to reuse its answers unless `-Dbuild-epoch` is given. That costs about 40 ms on a build with nothing to do.
 		- `tools/to_file.zig` drops SOURCE_DATE_EPOCH for translate-c, so the step no longer keeps a copy of the environment.
+		- On a Mac, `package.bash` runs `strip` on an archive with `ZERO_AR_DATE=1`, runs `dsymutil` from the slice on a relative path, and sets symlinks to 0755.
 	- Note: 20261013, Esa8LVS failed on b26 at 2fa8524: 6 of 17 files differ under umask 077. 4 are the `.dSYM` relocation maps, `Relocations/<cpu>/*.yml`, and one is `checksums.txt`, so a release file differs too. The output named only 5.
-	- Branch: repro
-	- Commit: 0483497
+	- Branch: repro, macfix
+	- Commit: 0483497, 119c277
 	- Test case: Esa8LVS and EsaCjhS.
 		- Esa8LVS packages again after the first run, under umask 077 and, where a user namespace is allowed, as root on another host name. Every file has to match, debug info included. It failed before the fix with 10 of 33 files different, and with only the build.zig half of the fix with 23. About 24 s on b23 with a warm Zig cache.
+		- It names every file that differs now. On b26 it failed before the Mac fix naming all 6, and passes after.
 		- EsaCjhS builds again in a cache that has seen another epoch, with SOURCE_DATE_EPOCH=1700000000, and wants that build number. It failed before the fix with the old one.
 		- Neither catches a path or Zig's own output that differs between machines. The 2 split items have no check here for that reason.
 		- EsbF9Jy skips with a note when the host's nfpm isn't the one `cicd/container/Dockerfile` pins. It skipped on b23's old one, which reports its version as "dev".
 	- Swept: every `tar`, `zip` and nfpm call under `cicd/`. Only `package.bash` makes release files; `installer-test.bash` and `pipeline-test.bash` make their own fixtures. `build.zig` has no other step with its own environment. The macOS release goes through the same functions.
+		- Mac: `strip` on an archive and `dsymutil` are each called once, in `fStripSlice`. The other archives on a Mac come from Zig, which writes date 0, and `lipo`. The only symlinks are the dylib's soname links, made by `cp -P` in `fMergeSlices`. Linux symlinks have no mode to set.
 	- Verified: `cicd.bash --quick --only zig --package` passed on b23 and with `--container`, 20261013, Esa8LVS and EsaCjhS included. The comparison above is from those 2 runs, with a third host package run using nfpm 2.47.0 for the deb and rpm.
+		- `cicd.bash --quick --only zig --package` passed on b26 at 119c277, 20261013, 276 ok, Esa8LVS included. On b23, `cicd.bash --quick` passed, and so did `--quick --only zig --package`, Esa8LVS included.
+	- Acceptance signoff: Self-closed: reproduced, Esa8LVS failed before the fix and passes after on b26. The Windows and compiler_rt parts are 2026101305595483 and 2026101305595488.
+	- Closed: 20261013-130845
 
 - `libzuid.a`'s compiler_rt object can differ between 2 builds of one commit.
 	- ID: 2026101305595488
@@ -186,8 +194,8 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - Run on the last Core 2 Duo, and AMD CPUs from that era.
 	- ID: 2026101301161847
 	- Type: Enhancement
-	- Status: Queued
-	- Needs external testing: Done on emulated Penryn and Prescott. Not run on a real Core 2 Duo or Phenom II, and not on an emulated AMD chip. Windows and FreeBSD get the static scan only. The macOS scan change failed on b26, see the progress log.
+	- Status: Waiting on signoff
+	- Needs external testing: Done on emulated Penryn and Prescott, and the macOS scan on b26. Not run on a real Core 2 Duo or Phenom II, and not on an emulated AMD chip. Windows and FreeBSD get the static scan only.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261013-011618
 	- Opened by: JC
@@ -214,14 +222,19 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 			- Each run starts with a module cache made on a newer CPU. Wasmtime turns it down and compiles again.
 		- 20261013: ErbFB7B failed on b26 in 29 functions, such as zstd's `HIST_count_simple` on `pmaxud`. That is zstd inside Wasmtime's macOS archive, built for Penryn, as Rust's `x86_64-apple-darwin` target is. It doesn't ask the CPU first, so the Linux exceptions don't cover it. Every Mac that runs macOS 13 has far more than Penryn, so the scan is wrong rather than the release. Back to Queued.
 		- 20261013: the scan now finds SDE in `~/.local/opt/intel-sde` too, and the full b23 run had EsZyWyD and EsZyWyE pass with nothing set.
+		- 20261013: Of the 29, 26 are zstd functions that use SSE4.1 and nothing newer, such as `pmaxud`, `pminud`, `pmovzxbq`, `pinsrb` and `blendvps`. The other 3 are labels inside zstd's BMI2 assembly loops, `.L_4X1_loop_body` and the like, which only run when the CPU has BMI2. A Mac's debug file keeps those labels as symbols, so the scan took them for functions.
+		- 20261013: The macOS x86_64 slice is held to Penryn now, Core 2 plus SSE4.1. The labels count as part of the function they're in, as they do on Linux. Linux, FreeBSD and Windows stay at x86-64-v1.
 	- Decisions:
 		- 20261013: No run-time SHA-NI pick in Zig's SHA-256. It hashes a few names per run, so there's nothing to gain. The requirement allows faster code but doesn't ask for it, and Wasmtime's own SHA-256 already picks at run time.
 		- 20261013: Prescott stands in for Phenom II under SDE, which has no AMD chips. It lacks SSSE3 and SSE4.1 as Phenom II does, and POPCNT, which Phenom II has.
-	- Branch: oldcpu2
-	- Commit: 4bbd035, 7218b59
-	- Test case: EsZyWyD and EsZyWyE, the release under emulated Penryn and Prescott. EsXcjyV, ErbFB7B, ErlUUiR and ErmS0zB now scan for anything past x86-64-v1. Watched fail: `x86_64_v2` builds for Linux, FreeBSD and Windows failed the scan on SSE4.1 and SSSE3 code, which the AVX-only scan passed, and failed EsZyWyD on `popcnt`. A build for this CPU failed the scan in 282 functions. A Penryn build passed EsZyWyD and failed EsZyWyE on `pshufb`.
+	- Branch: oldcpu2, macfix
+	- Commit: 4bbd035, 7218b59, 119c277
+	- Test case: EsZyWyD and EsZyWyE, the release under emulated Penryn and Prescott. EsXcjyV, ErbFB7B, ErlUUiR and ErmS0zB now scan for anything past x86-64-v1.
+		- On a Mac, ErbFB7B scans the x86_64 slice for anything past Penryn. It failed on b26 at 2fa8524 in 29 functions against Core 2, and passes now. Watched fail on b26: a build for that Mac's own CPU, 279 functions, and the release without the label change, on the 3 BMI2 labels. Watched fail: `x86_64_v2` builds for Linux, FreeBSD and Windows failed the scan on SSE4.1 and SSSE3 code, which the AVX-only scan passed, and failed EsZyWyD on `popcnt`. A build for this CPU failed the scan in 282 functions. A Penryn build passed EsZyWyD and failed EsZyWyE on `pshufb`.
 	- Swept: all 4 callers of the old AVX scan in `cicd.bash`, the Windows one through its PDB. The arm64 scan has its own list. No other script calls it.
+		- The Penryn floor is passed only by ErbFB7B, for macOS. The label change is in `fDisassemble`, which the arm64 scan uses too; ELF files have no `.L` labels. The x86-64-v1 filter gives the same output as before on SSE4.1, SSSE3, POPCNT, SSE4.2 and AVX lines.
 	- Verified: `cicd.bash --package --no-dogfood --no-backup -q` passed on b23 with SDE, 20261013, at 4bbd035 and again at 7218b59, 342 ok and 5 skipped for macOS or Windows.
+		- `cicd.bash --quick --only zig --package` passed on b26 at 119c277, 20261013, ErbFB7B included. On b23, `cicd.bash --quick` passed, 306 ok, and `--quick --only zig --package` passed, 307 ok, with ErbFB7B, ErlUUiR, ErmS0zB, ErgjCkU, EsZyWyD and EsZyWyE.
 
 - Release binaries keep debug info and the build machine's paths.
 	- ID: 2026101008194330
