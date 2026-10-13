@@ -337,6 +337,27 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- Not made yet. Stripping loses the symbols in a panic's stack trace.
 	- Test case: none yet. A package stage check for the Zig and cache paths in each binary would catch it.
 
+- Run on the last Core 2 Duo, and AMD CPUs from that era.
+	- ID: 2026101301161847
+	- Type: Enhancement
+	- Status: Queued
+	- Needs external testing: Yes, on an old CPU or an emulated one.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261013-011618
+	- Opened by: JC
+	- Target OS: Linux, Windows and FreeBSD on x86_64, where this project builds them. Macs that old can't run a current macOS anyway.
+	- Requirements [Feature]:
+		- Release builds run on the last Core 2 Duo (Penryn, 2008), and on AMD Phenom II and Athlon II, if that's reasonably doable.
+			- Penryn has SSSE3 and SSE4.1 but no POPCNT. The AMD ones have POPCNT but no SSSE3. So the shared floor is plain x86-64, also called x86-64-v1.
+		- If that isn't doable, the floor is the first Core i3/i5/i7 (Nehalem, 2008), which is x86-64-v2. AMD's first chip at that level is Bulldozer, 2011.
+		- Faster code for newer CPUs is still fine, but it's picked at run time by a CPU feature test, never by the build target.
+		- Tests run the release build on an emulated Penryn and Phenom II, through Intel SDE or QEMU's `-cpu Penryn` and `-cpu phenom`.
+	- Progress log:
+		- 20261013: Release builds name a Zig target since 2026093018112406, so they get the baseline CPU, and EsXcjyV fails on AVX (2026101218531694). What's left:
+			- EsXcjyV only looks for AVX. Widen it to anything past the floor.
+			- Zig picks its SHA-256 code at compile time, so a baseline build never uses SHA-NI, even where it's there. A run-time pick needs both versions built in.
+			- Wasmtime is a prebuilt archive. Find out what CPU it needs, and what it does on one without SSE4.1.
+
 - The macOS build hangs on Zig 0.17.0.
 	- ID: 2026100318410002
 	- Type: Bug
