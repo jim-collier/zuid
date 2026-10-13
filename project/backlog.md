@@ -221,6 +221,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- 20261013: The scan now fails on anything past x86-64-v1, not just AVX, at all 4 places it ran: the dogfood build, and the Linux, FreeBSD and Windows releases. Penryn has no POPCNT and Phenom II no SSSE3, so both are refused, and so are LZCNT, BMI, AES-NI, SHA and the rest.
 			- TZCNT is let through. LLVM writes BSF that way on a baseline build, where the answer is the same.
 			- zstd's BMI2 copies of a few functions are skipped like Wasmtime's Rust, since zstd checks the CPU before it calls them.
+			- The macOS x86_64 slice is held to Core 2 instead, Zig's baseline there, which has SSSE3. Held to x86-64-v1 it would fail on b26. Not run on a Mac yet.
 		- 20261013: Cranelift has run wasm SIMD on plain SSE2 since Wasmtime 11, so 47.0.3 and FreeBSD's 49.0.1 need nothing past the floor, and the engine config stays as it is.
 		- 20261013: New checks run the Linux release under Intel's SDE as a Penryn and as a Prescott, the nearest it has to Phenom II, which also lacks SSSE3 and SSE4.1. Each takes about 6 s. They skip when there's no `sde64`, or `ZUID_SDE` to name one.
 			- SDE stops on an instruction the chip lacks, in compiled wasm code too. It doesn't catch LZCNT, which the scan does.

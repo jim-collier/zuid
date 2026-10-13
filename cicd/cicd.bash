@@ -1865,7 +1865,9 @@ fStage_Package(){
 		fTestPass
 	fi
 
-	fId ErbFB7B "the release uses nothing past x86-64-v1 in code built here"
+	local floorName="x86-64-v1" floorKind=""
+	if [[ "${osLabel}" == "darwin" ]]; then floorName="Core 2"; floorKind="core2"; fi
+	fId ErbFB7B "the release uses nothing past ${floorName} in code built here"
 	if ((! haveObjdump)); then
 		fTestSkip "no objdump"
 	elif [[ "${osLabel}" == "linux" && "$(uname -m)" != "x86_64" && "$(objdump --help 2>/dev/null || true)" != *elf64-x86-64* ]]; then
@@ -1880,9 +1882,9 @@ fStage_Package(){
 		fi
 		[[ -f "${scanSymbols}" ]] || fTestFail "there is no ${scanSymbols}, which names the functions built here."
 		local floorScan=""
-		floorScan="$(fX86FloorScan "${scanTarget}" "${scanSymbols}")"
+		floorScan="$(fX86FloorScan "${scanTarget}" "${scanSymbols}" "${floorKind}")"
 		if [[ "${floorScan%% *}" != "0" ]]; then
-			fTestFail "${floorScan%% *} functions use instructions past x86-64-v1, such as ${floorScan#* }. package.bash has to name a target."
+			fTestFail "${floorScan%% *} functions use instructions past ${floorName}, such as ${floorScan#* }. package.bash has to name a target."
 		fi
 		fTestPass
 	fi
@@ -2028,8 +2030,8 @@ fStage_Package_OldCpu(){  ## x86_64 release, scratch dir
 ## with _ZN, or _R for the newer mangling. zstd, which comes with Wasmtime or
 ## FreeBSD's package, asks too (ZSTD_cpuid) and has a BMI2 twin of a few hot
 ## functions, so those twins are left out as well.
-fX86FloorScan(){  ## x86_64 binary, [file its symbols went to, if it was stripped]
-	fDisassemble objdump "$1" "${2:-}" | fPastX86Floor | awk '
+fX86FloorScan(){  ## x86_64 binary, [file its symbols went to, if it was stripped], [floor, as for fPastX86Floor]
+	fDisassemble objdump "$1" "${2:-}" | fPastX86Floor "${3:-}" | awk '
 		/^[0-9a-f]+ <.*>:$/ {
 			fn = $2; gsub(/^<|>:$/, "", fn)
 			asks = (fn ~ /^_?_(ZN|R[0-9]*[BCIMNXY])/ || fn ~ /_bmi2(\.[a-z]+\.[0-9]+)*$/ || fn ~ /^_?HUF_decompress4X[12]_usingDTable_internal_fast/)
@@ -2049,20 +2051,22 @@ fX86FloorScan(){  ## x86_64 binary, [file its symbols went to, if it was strippe
 ## no POPCNT, Phenom II the reverse, so neither is allowed. LZCNT runs as BSR
 ## on a CPU without it, a wrong answer with no fault, which an emulator misses
 ## too. TZCNT is let through: LLVM writes BSF that way on purpose, where BSF
-## gives the same answer.
-fPastX86Floor(){
-	awk '
+## gives the same answer. A Mac's floor is Core 2 instead, which is Zig's
+## baseline there and Apple's, so SSE3, SSSE3, CX16 and LAHF are allowed.
+fPastX86Floor(){  ## [core2]
+	awk -v floor="${1:-}" '
 		BEGIN {
-			past = "^(" \
+			core2 = "^(" \
 				"fisttp[a-z]*|lddqu|movddup|movs[hl]dup|(addsub|hadd|hsub)p[sd]|monitor[a-z]*|mwait[a-z]*|" \
-				"pabs[bwd]|palignr|ph(add|sub)(w|d|sw)|pmaddubsw|pmulhrsw|pshufb|psign[bwd]|" \
+				"pabs[bwd]|palignr|ph(add|sub)(w|d|sw)|pmaddubsw|pmulhrsw|pshufb|psign[bwd]|cmpxchg16b|lahf|sahf)$"
+			past = "^(" \
 				"blendv?p[sd]|pblend(vb|w)|dpp[sd]|extractps|insertps|movntdqa|mpsadbw|packusdw|pcmpeqq|" \
 				"pextr[bdq]|pinsr[bdq]|phminposuw|pm(ax|in)(sb|sd|ud|uw)|pmov[sz]x(bw|bd|bq|wd|wq|dq)|pmuldq|pmulld|ptest|round[ps][sd]|" \
 				"pcmp[ei]str[im]|pcmpgtq|crc32[bwlq]?|extrq|insertq|movnts[sd]|" \
 				"popcnt[wlq]?|lzcnt[wlq]?|andn[lq]?|bextr[lq]?|blsi[lq]?|blsmsk[lq]?|blsr[lq]?|" \
 				"bzhi[lq]?|mulx[lq]?|pdep[lq]?|pext[lq]?|rorx[lq]?|sarx[lq]?|shlx[lq]?|shrx[lq]?|adcx[lq]?|adox[lq]?|movbe[wlq]?|" \
 				"aes[a-z0-9]*|pclmul[a-z]*|sha(1|256|512)[a-z0-9]*|gf2p8[a-z0-9]*|rdrand[wlq]?|rdseed[wlq]?|rdtscp|rdpid|" \
-				"cmpxchg16b|lahf|sahf|prefetchw(t1)?|prefetch|clflushopt|clwb|xgetbv|xsave[a-z0-9]*|xrstor[a-z0-9]*|" \
+				"prefetchw(t1)?|prefetch|clflushopt|clwb|xgetbv|xsave[a-z0-9]*|xrstor[a-z0-9]*|" \
 				"[rw]r[fg]sbase[lq]?|k(add|and|andn|mov|not|or|ortest|shiftl|shiftr|test|unpck|xnor|xor)[bwdq]?|" \
 				"v[a-z0-9]*)$"
 			virt = "^(verr|verw|vm(call|clear|func|launch|load|mcall|ptrld|ptrst|read|resume|run|save|write|xoff|xon)[lq]?)$"
@@ -2074,7 +2078,7 @@ fPastX86Floor(){
 			i = 1
 			while (i < n && word[i] ~ /^(lock|rep[a-z]*|notrack|bnd|data16|addr32|cs|ds|es|fs|gs|ss|rex[.A-Za-z]*|xacquire|xrelease|\{[a-z]+\})$/) i++
 			op = word[i]
-			if ((op ~ past && op !~ virt) || text ~ /%[xyz]mm(1[6-9]|2[0-9]|3[01])|%[yz]mm|%k[0-7]/ || (op ~ /^pextrw/ && text ~ /\(/)) print $1, op
+			if ((op ~ past && op !~ virt) || (floor != "core2" && op ~ core2) || text ~ /%[xyz]mm(1[6-9]|2[0-9]|3[01])|%[yz]mm|%k[0-7]/ || (op ~ /^pextrw/ && text ~ /\(/)) print $1, op
 		}
 	'
 }
