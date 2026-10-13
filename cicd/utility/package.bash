@@ -75,6 +75,24 @@ if [[ -n "${SOURCE_DATE_EPOCH+set}" ]] && [[ ! "${SOURCE_DATE_EPOCH}" =~ ^[0-9]+
 	unset SOURCE_DATE_EPOCH
 fi
 
+## Every file in a tarball, zip or package gets this one time, so two machines
+## building one commit make the same bytes. Same order as build.zig's build
+## number, and never the clock. A zip can't hold a time before 1980.
+stamp="${SOURCE_DATE_EPOCH:-}"
+if [[ -z "${stamp}" ]]; then stamp="$(git -C "${root}" log -1 --format=%ct 2>/dev/null || true)"; fi
+if [[ ! "${stamp}" =~ ^[0-9]+$ ]]; then
+	fWarn "no SOURCE_DATE_EPOCH and no commit date; archive times are 1980-01-01"
+	stamp=0
+fi
+stamp=$((10#${stamp}))
+((stamp >= 315532800)) || stamp=315532800
+## touch and nfpm both read this form.
+if date --version >/dev/null 2>&1; then
+	stampIso="$(date -u -d "@${stamp}" +%Y-%m-%dT%H:%M:%SZ)"
+else
+	stampIso="$(date -u -r "${stamp}" +%Y-%m-%dT%H:%M:%SZ)"
+fi
+
 ## A relative --out is resolved against the caller's directory.
 [[ "${OUT}" = /* ]] || OUT="${PWD}/${OUT}"
 
@@ -358,6 +376,40 @@ fMergeSlices(){  ## stage, subdir, slice...
 	done
 }
 
+## An archive keeps each file's time, owner, mode and place in the list, which
+## would otherwise come from the clock, the user, the umask and the directory
+## order. Modes keep only whether a file runs.
+fSettleTree(){  ## dir
+	local -r dir="$1"
+	find "${dir}" -type d -exec chmod 0755 {} +
+	find "${dir}" -type f -perm -u+x -exec chmod 0755 {} +
+	find "${dir}" -type f ! -perm -u+x -exec chmod 0644 {} +
+	find "${dir}" -exec touch -h -d "${stampIso}" {} +
+}
+
+## Byte order, the same under any locale or filesystem.
+fTreeList(){  ## parent dir, tree name
+	( cd "$1" && find "$2" | LC_ALL=C sort )
+}
+
+## GNU tar on Linux, bsdtar on a Mac. Owner 0 by number, with no names.
+tarFlags=(--uid 0 --gid 0 --numeric-owner --no-mac-metadata --no-xattrs)
+if [[ "$(tar --version 2>/dev/null || true)" == *"GNU tar"* ]]; then
+	tarFlags=(--owner=0 --group=0 --numeric-owner)
+fi
+
+fTarball(){  ## tree, output
+	local -r parent="$(dirname "$1")" tree="$(basename "$1")"
+	fTreeList "${parent}" "${tree}" | tar -C "${parent}" -cf - --no-recursion "${tarFlags[@]}" -T - | gzip -n > "$2"
+}
+
+## Zip keeps local time, so the zone is pinned too. -X drops the owner and the
+## extra time fields.
+fZip(){  ## tree, output
+	local -r parent="$(dirname "$1")" tree="$(basename "$1")"
+	fTreeList "${parent}" "${tree}" | ( cd "${parent}" && TZ=UTC0 zip -q -X -@ "$2" )
+}
+
 ## One release: the tarball, the bare binary and, on Linux, the packages.
 ## Windows gets a zip, and its bare binary only where it runs alone.
 fRelease(){  ## os label, arch label, slice...
@@ -383,15 +435,16 @@ fRelease(){  ## os label, arch label, slice...
 	if [[ -f "${stage}/lib/libzstd.a" ]]; then
 		cp "${root}/zig/vendor/wasmtime-x86_64-freebsd/LICENSE-zstd" "${stage}/share/LICENSE-zstd.txt"
 	fi
+	fSettleTree "${stage}"
 
 	if [[ "${osLabel}" == "windows" ]]; then
-		( cd "$(dirname "${stage}")" && zip -q -r -X "${OUT}/${PKG}-${osLabel}-${label}.zip" "$(basename "${stage}")" )
+		fZip "${stage}" "${OUT}/${PKG}-${osLabel}-${label}.zip"
 		## arm64 needs wasmtime.dll beside it, so it is not one file there.
 		if [[ ! -f "${stage}/bin/wasmtime.dll" ]]; then
 			cp "${stage}/bin/${exe}" "${OUT}/${PKG}-${osLabel}-${label}.exe"
 		fi
 	else
-		tar -C "$(dirname "${stage}")" -czf "${OUT}/${PKG}-${osLabel}-${label}.tgz" "$(basename "${stage}")"
+		fTarball "${stage}" "${OUT}/${PKG}-${osLabel}-${label}.tgz"
 		cp "${stage}/bin/${exe}" "${OUT}/${PKG}-${osLabel}-${label}"
 	fi
 	fEcho "built ${osLabel}/${label}"
@@ -432,6 +485,9 @@ fLinuxPackages(){  ## stage, label
 		license: GPL-2.0-or-later AND Apache-2.0
 		section: utils
 		priority: optional
+		mtime: "${stampIso}"
+		rpm:
+		  buildhost: reproducible
 		contents:
 		  - src: ${stage}/bin/${EXE}
 		    dst: /usr/bin/${EXE}
@@ -440,9 +496,13 @@ fLinuxPackages(){  ## stage, label
 		  - src: ${root}/zig/cmd/LICENSE.txt
 		    dst: /usr/share/doc/${PKG}/copyright
 		    packager: deb
+		    file_info:
+		      mode: 0644
 		  - src: ${root}/zig/cmd/LICENSE.txt
 		    dst: /usr/share/licenses/${PKG}/LICENSE.txt
 		    packager: rpm
+		    file_info:
+		      mode: 0644
 	EOF
 	## The command links the module and Wasmtime in, so their licenses go too.
 	local file=""
@@ -451,9 +511,13 @@ fLinuxPackages(){  ## stage, label
 			  - src: ${stage}/share/${file}
 			    dst: /usr/share/doc/${PKG}/${file}
 			    packager: deb
+			    file_info:
+			      mode: 0644
 			  - src: ${stage}/share/${file}
 			    dst: /usr/share/licenses/${PKG}/${file}
 			    packager: rpm
+			    file_info:
+			      mode: 0644
 		EOF
 	done
 	local fmt=""

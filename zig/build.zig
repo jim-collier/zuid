@@ -237,6 +237,12 @@ fn exportedSymbols(b: *std.Build) []const u8 {
 fn buildEpoch(b: *std.Build) i64 {
     if (b.option(i64, "build-epoch", "Unix seconds to stamp the build number from (default: the HEAD commit date)")) |secs| return secs;
 
+    // 0.17 keeps this function's answer between runs, and watches neither the
+    // environment nor git. A new commit or SOURCE_DATE_EPOCH was ignored until
+    // build.zig itself changed, so two machines on one commit built different
+    // numbers. A -D option is part of what it watches.
+    b.graph.poisonCache();
+
     // An empty SOURCE_DATE_EPOCH is what a tarball script exports when its own
     // lookup came back empty, so it means "no answer" rather than "epoch zero".
     // Taking it literally dropped the build number from a build that had a
