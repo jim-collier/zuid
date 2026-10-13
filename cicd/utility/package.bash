@@ -570,6 +570,7 @@ fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "
 
 
 ##	History:
+##		- 20261013 JC: Archives and packages get one time, owner 0, set modes and a sorted list.
 ##		- 20261013 JC: Strip release binaries; their debug info and PDBs go to debug/.
 ##		- 20261004 JC: Wasmtime's license in every release, and the module's and Wasmtime's in the deb and rpm.
 ##		- 20261004 JC: Windows x86_64 and arm64 zips, cross-built on Linux.
