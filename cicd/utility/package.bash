@@ -10,6 +10,9 @@
 ##		    - the bare CLI binary (grab-and-run)
 ##		    - .deb and .rpm, via nfpm
 ##		    - checksums.txt over everything
+##		- Every binary built here is stripped. Its debug info goes to debug/
+##		  in the output directory, which is not a release file, so a panic
+##		  address can still be looked up later.
 ##		- Only what the host system can make: Linux or macOS. The Go module
 ##		  cross-compiles fine, but it is a module - there is no binary to
 ##		  release.
@@ -171,8 +174,9 @@ fEcho "packaging ${PKG} ${VERSION} -> ${OUT}"
 ## same commit. Re-archive on basenames, deterministically, so neither shows.
 ##
 ## GNU ar cannot address the members Zig writes - it lists them and then reports
-## "no entry" for the same name - so this needs llvm-ar. Cosmetic either way, so
-## a box without it gets a warning rather than a failure.
+## "no entry" for the same name - so this needs llvm-ar. A box without it gets a
+## warning here, and the package stage's path check then fails.
+## Zig's Mach-O archives use basenames already.
 llvmAr=""
 for candidate in llvm-ar llvm-ar-19 llvm-ar-18 llvm-ar-17 llvm-ar-16; do
 	if command -v "${candidate}" >/dev/null 2>&1; then llvmAr="${candidate}"; break; fi
@@ -231,6 +235,73 @@ if [[ "${hostOs}" == "linux" ]] && ((! haveZip)); then
 	zigTargets=("${zigTargets[@]/*-windows-*/}")
 fi
 
+## Debug info has the paths of this machine's Zig, its caches and the checkout,
+## and differs between two machines building one commit. llvm-objcopy reads
+## ELF and Windows files alike. A Mac has Apple's own tools for Mach-O.
+objcopy=""
+if ((mergeSlices)); then
+	for tool in strip dsymutil codesign; do
+		command -v "${tool}" >/dev/null 2>&1 || fDie "${tool} not found. It comes with Xcode's command line tools."
+	done
+else
+	for candidate in llvm-objcopy llvm-objcopy-21 llvm-objcopy-20 llvm-objcopy-19 llvm-objcopy-18 llvm-objcopy-17 llvm-objcopy-16; do
+		if command -v "${candidate}" >/dev/null 2>&1; then objcopy="${candidate}"; break; fi
+	done
+	[[ -n "${objcopy}" ]] || fDie "llvm-objcopy not found. Release binaries are stripped with it; it comes with LLVM."
+fi
+
+## Strips a slice in place, keeping what it took out under the debug dir, laid
+## out like the release. A program or shared library keeps its symbols and
+## DWARF in <name>.debug, or <name>.dSYM on a Mac. A static library keeps its
+## symbols, since linking needs them, and its unstripped copy goes to debug/.
+## Windows PDBs move there whole: the command's from bin/, and the DLL's from
+## lib/, where build.zig puts it, since both are zuid.pdb.
+## Wasmtime's and zstd's files are left as their projects ship them.
+fStripSlice(){  ## slice, debug dir, zig target
+	local -r slice="$1" debugDir="$2" zigTarget="$3"
+	local file="" name="" sub=""
+	mkdir -p "${debugDir}/bin" "${debugDir}/lib"
+	for file in "${slice}"/bin/* "${slice}"/lib/*; do
+		[[ -f "${file}" && ! -L "${file}" ]] || continue
+		name="${file##*/}"
+		sub="$(basename "$(dirname "${file}")")"
+		case "${name}" in
+			*wasmtime* | libzstd.a | zuid.lib) continue ;;
+			*.pdb) mv "${file}" "${debugDir}/${sub}/"; continue ;;
+		esac
+		if ((mergeSlices)); then
+			case "${name}" in
+				*.a) cp "${file}" "${debugDir}/${sub}/"; strip -S "${file}" ;;
+				*)
+					dsymutil "${file}" -o "${debugDir}/${sub}/${name}.dSYM"
+					strip -S -x "${file}"
+					## Stripping voids the ad-hoc signature an arm64 Mac needs to
+					## load anything at all.
+					if [[ "${zigTarget}" == aarch64-* ]]; then codesign --force --sign - "${file}"; fi
+					;;
+			esac
+		else
+			case "${name}" in
+				*.a) cp "${file}" "${debugDir}/${sub}/"; "${objcopy}" --strip-debug "${file}" ;;
+				*)
+					"${objcopy}" --only-keep-debug "${file}" "${debugDir}/${sub}/${name}.debug"
+					"${objcopy}" --strip-all "${file}"
+					;;
+			esac
+		fi
+	done
+}
+
+## Each release's debug dir. A Mac strips each slice before lipo merges them, so
+## its debug info is kept per CPU.
+fDebugDir(){  ## zig target
+	if ((mergeSlices)); then
+		echo "${work}/debug/${PKG}-darwin-universal/$(fArchLabel "$1")"
+	else
+		echo "${work}/debug/${PKG}-$(fOsLabel "$1")-$(fArchLabel "$1")"
+	fi
+}
+
 ## Every slice is built before anything is staged, so a build that fails leaves
 ## the last good run's artifacts alone.
 slices=()
@@ -257,11 +328,13 @@ for zigTarget in "${zigTargets[@]}"; do
 		cp "$(dirname "${wasmtimeArchive}")/libzstd.a" "${slice}/lib/"
 	fi
 	fNormalizeArchive "${slice}/lib/libzuid.a"
+	fStripSlice "${slice}" "$(fDebugDir "${zigTarget}")" "${zigTarget}"
 	slices+=("${slice}")
 done
 
 ## The build worked, so there is something to publish. Safe to clear now.
 fClaimOutDir
+mv "${work}/debug" "${OUT}/debug"
 
 ## Two or more slices are merged file by file. Symlinks come from the first, and
 ## everything else is one file holding every slice. -P, because the shared
@@ -429,10 +502,11 @@ command -v sha256sum >/dev/null 2>&1 || sha256=(shasum -a 256)
 	| xargs "${sha256[@]}" > "${work}/checksums.txt" )
 mv "${work}/checksums.txt" "${OUT}/checksums.txt"
 
-fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "${outMarker}" | wc -l | tr -d ' ') artifacts in ${OUT}"
+fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "${outMarker}" | wc -l | tr -d ' ') artifacts in ${OUT}, debug info in ${OUT}/debug"
 
 
 ##	History:
+##		- 20261013 JC: Strip release binaries; their debug info and PDBs go to debug/.
 ##		- 20261004 JC: Wasmtime's license in every release, and the module's and Wasmtime's in the deb and rpm.
 ##		- 20261004 JC: Windows x86_64 and arm64 zips, cross-built on Linux.
 ##		- 20261004 JC: FreeBSD x86_64, cross-built on Linux from FreeBSD's own Wasmtime package.

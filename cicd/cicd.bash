@@ -1867,13 +1867,16 @@ fStage_Package(){
 	elif [[ "${osLabel}" == "linux" && "$(uname -m)" != "x86_64" && "$(objdump --help 2>/dev/null || true)" != *elf64-x86-64* ]]; then
 		fTestSkip "no objdump that reads x86_64"
 	else
-		local avxTarget="${release}"
+		## The release is stripped, so the names come from its debug info.
+		local avxTarget="${release}" avxSymbols="${repoRoot}/dist/debug/zuid-${osLabel}-${archLabel}/bin/zuid.debug"
 		if [[ "${osLabel}" == "darwin" ]]; then
 			avxTarget="${thinDir}/zuid-x86_64"
+			avxSymbols="${repoRoot}/dist/debug/zuid-darwin-universal/x86_64/bin/zuid.dSYM/Contents/Resources/DWARF/zuid"
 			lipo -thin x86_64 "${release}" -output "${avxTarget}" || fTestFail "could not take the x86_64 slice out of ${release}."
 		fi
+		[[ -f "${avxSymbols}" ]] || fTestFail "there is no ${avxSymbols}, which names the functions built here."
 		local avxScan=""
-		avxScan="$(fAvxScan "${avxTarget}")"
+		avxScan="$(fAvxScan "${avxTarget}" "${avxSymbols}")"
 		if [[ "${avxScan%% *}" != "0" ]]; then
 			fTestFail "${avxScan%% *} functions use AVX, such as ${avxScan#* }. package.bash has to name a target."
 		fi
@@ -1904,6 +1907,7 @@ fStage_Package(){
 	fStage_Package_FreeBSD "${thinDir}"
 	fStage_Package_Windows "${thinDir}"
 	fStage_Package_Licenses "${thinDir}"
+	fStage_Package_Stripped "${thinDir}"
 
 	local -r macFloor="13.0"
 	fId ErbFB7D "the release asks for macOS ${macFloor}"
@@ -1961,13 +1965,30 @@ fStage_Package(){
 ## Prints how many functions use AVX, then up to three of their names.
 ## Wasmtime's Rust asks the CPU before it uses AVX, so it is left out. Its names
 ## start with _ZN, or _R for the newer mangling.
-fAvxScan(){  ## x86_64 binary
-	objdump -d --no-show-raw-insn "$1" | awk '
+fAvxScan(){  ## x86_64 binary, [file its symbols went to, if it was stripped]
+	fDisassemble objdump "$1" "${2:-}" | awk '
 		/^[0-9a-f]+ <.*>:$/ { fn = $2; gsub(/^<|>:$/, "", fn); rust = (fn ~ /^_?_(ZN|R[0-9]*[BCIMNXY])/); next }
 		rust || (fn in seen) { next }
 		/:[[:space:]]+v[a-z]/ || /%[yz]mm/ { seen[fn] = 1; if (++count <= 3) names = names " " fn }
 		END { print count + 0 names }
 	'
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## objdump -d, with function names. A stripped release gets them from the file
+## its symbols went to, through nm, in the same form objdump gives them, so a
+## scan reads either the same way. Addresses are padded to sort as text.
+fDisassemble(){  ## objdump, program, [file its symbols went to]
+	local -r objdump="$1" program="$2" symbols="${3:-}"
+	if [[ -z "${symbols}" ]]; then
+		"${objdump}" -d --no-show-raw-insn "${program}"
+		return 0
+	fi
+	{
+		nm -n "${symbols}" | awk 'NF >= 3 && $2 ~ /^[tTwW]$/ { a = $1; name = $0; sub(/^[^ ]+ [^ ]+ /, "", name); while (length(a) < 16) a = "0" a; print a, 0, a " <" name ">:" }'
+		"${objdump}" -d --no-show-raw-insn "${program}" | awk '/^[[:space:]]*[0-9a-f]+:/ { a = $1; sub(/:$/, "", a); while (length(a) < 16) a = "0" a; print a, 1, $0 }'
+	} | LC_ALL=C sort -t ' ' -k1,1 -k2,2 | cut -d ' ' -f 3-
 }
 
 
@@ -1989,13 +2010,13 @@ fPeHeader(){  ## file
 ## fAvxScan for a Windows program, whose function names are only in its PDB.
 ## Code built here is what the PDB lists; Wasmtime's Rust and mingw's C have
 ## no CodeView, so they are left out the same way.
-fAvxScan_Pe(){  ## readobj, pdbutil, x86_64 program with its .pdb beside it
-	local -r readobj="$1" pdbutil="$2" program="$3"
+fAvxScan_Pe(){  ## readobj, pdbutil, x86_64 program, its .pdb
+	local -r readobj="$1" pdbutil="$2" program="$3" pdb="$4"
 	local imageBase="" firstSection=""
 	imageBase="$("${readobj}" --file-headers "${program}" | awk '$1 == "ImageBase:" { print $2; exit }')"
 	firstSection="$("${readobj}" --sections "${program}" | awk '$1 == "VirtualAddress:" { print $2; exit }')"
 	{
-		"${pdbutil}" dump --symbols "${program%.*}.pdb" | awk -v base="${imageBase}" -v section="${firstSection}" '
+		"${pdbutil}" dump --symbols "${pdb}" | awk -v base="${imageBase}" -v section="${firstSection}" '
 			function hex(text,   i, n) { text = tolower(text); sub(/^0x/, "", text); n = 0; for (i = 1; i <= length(text); i++) n = n * 16 + index("0123456789abcdef", substr(text, i, 1)) - 1; return n }
 			/ S_[GL]PROC32 / { name = $0; sub(/^[^`]*`/, "", name); sub(/`[^`]*$/, "", name); next }
 			name != "" && / addr = 0001:/ { split($0, parts, / addr = 0001:/); printf "F %.0f %d %s\n", hex(base) + hex(section) + (parts[2] + 0), $NF, name; name = "" }
@@ -2201,14 +2222,16 @@ fStage_Package_Windows(){  ## scratch dir
 		fTestSkip "no llvm-readobj and llvm-pdbutil"
 	else
 		winRoot="$(find "${scratchDir}/windows-x86_64" -mindepth 1 -maxdepth 1 -type d -print -quit 2>/dev/null || true)"
-		[[ -n "${winRoot}" && -f "${winRoot}/bin/zuid.pdb" ]] || fTestFail "the x86_64 zip has no bin/zuid.pdb, which names the functions built here."
+		local -r winPdb="${repoRoot}/dist/debug/zuid-windows-x86_64/bin/zuid.pdb"
+		[[ -n "${winRoot}" ]] || fTestFail "there is no x86_64 zip, or nothing in it."
+		[[ -f "${winPdb}" ]] || fTestFail "there is no ${winPdb}, which names the functions built here."
 		local winAvx=""
-		winAvx="$(fAvxScan_Pe "${winReadobj}" "${winPdbutil}" "${winRoot}/bin/zuid.exe")"
+		winAvx="$(fAvxScan_Pe "${winReadobj}" "${winPdbutil}" "${winRoot}/bin/zuid.exe" "${winPdb}")"
 		if [[ "${winAvx%% *}" != "0" ]]; then
 			fTestFail "${winAvx%% *} functions use AVX, such as ${winAvx#* }. package.bash has to name a target."
 		fi
 		## A PDB that names nothing would pass the scan above.
-		[[ "$("${winPdbutil}" dump --symbols "${winRoot}/bin/zuid.pdb" | grep -c ' S_[GL]PROC32 ' || true)" -gt 100 ]] \
+		[[ "$("${winPdbutil}" dump --symbols "${winPdb}" | grep -c ' S_[GL]PROC32 ' || true)" -gt 100 ]] \
 			|| fTestFail "zuid.pdb names next to no functions, so the scan saw nothing."
 		fTestPass
 	fi
@@ -2272,9 +2295,11 @@ fStage_Package_FreeBSD(){  ## scratch dir
 	elif ((! haveObjdump)); then
 		fTestSkip "no objdump"
 	else
+		local -r bsdSymbols="${repoRoot}/dist/debug/zuid-freebsd-x86_64/bin/zuid.debug"
 		[[ -f "${bsdRelease}" ]] || fTestFail "there is no ${bsdRelease}."
+		[[ -f "${bsdSymbols}" ]] || fTestFail "there is no ${bsdSymbols}, which names the functions built here."
 		local bsdAvx=""
-		bsdAvx="$(fAvxScan "${bsdRelease}")"
+		bsdAvx="$(fAvxScan "${bsdRelease}" "${bsdSymbols}")"
 		if [[ "${bsdAvx%% *}" != "0" ]]; then
 			fTestFail "${bsdAvx%% *} functions use AVX, such as ${bsdAvx#* }. package.bash has to name a target."
 		fi
@@ -2329,6 +2354,176 @@ fStage_Package_FreeBSD(){  ## scratch dir
 		fTestPass
 	done
 
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Debug info names the Zig install, its caches, the checkout and the home
+## directory of whoever built it, and made every release file differ between
+## two machines building one commit. So release binaries go out stripped, and
+## their debug info goes to dist/debug/, which is never uploaded. Wasmtime's
+## and zstd's archives are shipped as their projects publish them, so only the
+## path rule holds for those.
+fStage_Package_Stripped(){  ## scratch dir
+
+	local -r scratchDir="$1"
+	local -r distDir="${repoRoot}/dist"
+	local -r unpackDir="${scratchDir}/stripped"
+
+	local lister="" candidate=""
+	for candidate in llvm-objdump llvm-objdump-21 llvm-objdump-20 llvm-objdump-19 llvm-objdump-18 llvm-objdump-17 llvm-objdump-16 objdump; do
+		if command -v "${candidate}" >/dev/null 2>&1; then lister="${candidate}"; break; fi
+	done
+
+	local zigEnv="" zigLib="" zigCache=""
+	zigEnv="$(zig env 2>/dev/null || true)"
+	zigLib="$(sed -n 's/^ *\.lib_dir = "\(.*\)",$/\1/p' <<< "${zigEnv}")"
+	zigCache="$(sed -n 's/^ *\.global_cache_dir = "\(.*\)",$/\1/p' <<< "${zigEnv}")"
+	local -a grepArgs=(-e "${repoRoot}" -e ".zig-cache/")
+	if [[ -n "${zigLib}" ]];                    then grepArgs+=(-e "$(dirname "${zigLib}")"); fi
+	if [[ -n "${zigCache}" ]];                  then grepArgs+=(-e "${zigCache}");            fi
+	if [[ -n "${HOME:-}" && "${HOME}" != "/" ]]; then grepArgs+=(-e "${HOME}");                fi
+
+	fId EsZni4i "no file in the release has this machine's paths, and no binary built here has debug info"
+	if [[ -z "${lister}" ]]; then
+		fTestSkip "no objdump"
+		return 0
+	fi
+	mkdir -p "${unpackDir}"
+	local -a problems=()
+	local asset="" assetName="" unpacked="" file="" name="" found="" sections=""
+	local -i ours=0 assets=0
+	while IFS= read -r asset; do
+		assetName="$(basename "${asset}")"
+		unpacked="${unpackDir}/${assetName}"
+		mkdir -p "${unpacked}"
+		case "${assetName}" in
+			*.tgz) tar -xzf "${asset}" -C "${unpacked}" ;;
+			*.zip) unzip -q "${asset}" -d "${unpacked}" ;;
+			*.deb)
+				if ! command -v dpkg-deb >/dev/null 2>&1; then continue; fi
+				dpkg-deb -x "${asset}" "${unpacked}"
+				;;
+			*.rpm)
+				if ! command -v rpm2cpio >/dev/null 2>&1 || ! command -v cpio >/dev/null 2>&1; then continue; fi
+				( cd "${unpacked}" && rpm2cpio "${asset}" | cpio -idm --quiet )
+				;;
+			*) cp "${asset}" "${unpacked}/" ;;
+		esac
+		assets=$((assets + 1))
+		ours=0
+		while IFS= read -r file; do
+			name="${file#"${unpacked}"/}"
+			if [[ "${name}" == *.pdb ]]; then problems+=("${assetName}: ${name} is debug info"); fi
+			found="$(LC_ALL=C grep -aoF -m 1 "${grepArgs[@]}" "${file}" || true)"
+			if [[ -n "${found}" ]]; then problems+=("${assetName}: ${name} has ${found%%$'\n'*}"); fi
+			fIsBinary "${file}" || continue
+			case "${file##*/}" in libwasmtime.a|libzstd.a|wasmtime.dll|wasmtime.lib) continue ;; esac
+			ours=$((ours + 1))
+			if ! sections="$("${lister}" -h "${file}" 2>/dev/null)"; then
+				problems+=("${assetName}: ${lister} cannot read ${name}")
+				continue
+			fi
+			sections="$(awk '$1 ~ /^[0-9]+$/ && $2 ~ /^(\.z?debug|__debug|__DWARF)/ { print $2 }' <<< "${sections}" | sort -u | tr '\n' ' ')"
+			if [[ -n "${sections}" ]]; then problems+=("${assetName}: ${name} has ${sections% }"); fi
+		done < <(find "${unpacked}" -type f | sort)
+		if ((ours == 0)); then problems+=("${assetName} has no binary built here to check"); fi
+	done < <(find "${distDir}" -maxdepth 1 -type f ! -name '.*' ! -name checksums.txt | sort)
+	if ((assets == 0)); then problems+=("there is nothing in dist/"); fi
+	if ((${#problems[@]})); then
+		fTestFail "${#problems[@]} problems, such as: $(printf '%s; ' "${problems[@]:0:4}")"
+	fi
+	fTestPass
+
+	## Each one's debug info has to be in dist/debug/, and has to be that
+	## build's, or an address from a crash cannot be looked up. A Mac keeps it
+	## per CPU, since each slice is stripped before they are merged.
+	local readobj="" pdbutil="" version=""
+	for version in "" -21 -20 -19 -18 -17 -16; do
+		if [[ -z "${readobj}" ]] && command -v "llvm-readobj${version}" >/dev/null 2>&1; then readobj="llvm-readobj${version}"; fi
+		if [[ -z "${pdbutil}" ]] && command -v "llvm-pdbutil${version}" >/dev/null 2>&1; then pdbutil="llvm-pdbutil${version}"; fi
+	done
+	fId EsZni4j "each binary built here has its own debug info in dist/debug/"
+	problems=()
+	local release="" debugRoot="" debugFile="" sub="" arch="" want="" got=""
+	local -a debugRoots=()
+	local -i checked=0
+	while IFS= read -r asset; do
+		assetName="$(basename "${asset}")"
+		release="${assetName%.*}"
+		debugRoot="${distDir}/debug/${release}"
+		[[ -d "${debugRoot}" ]] || { problems+=("there is no dist/debug/${release}/"); continue; }
+		debugRoots=("${debugRoot}")
+		if [[ "${release}" == *-darwin-universal ]]; then debugRoots=("${debugRoot}/x86_64" "${debugRoot}/arm64"); fi
+		while IFS= read -r file; do
+			name="${file##*/}"
+			sub="$(basename "$(dirname "${file}")")"
+			fIsBinary "${file}" || continue
+			case "${name}" in libwasmtime.a|libzstd.a|wasmtime.dll|wasmtime.lib|zuid.lib) continue ;; esac
+			for debugRoot in "${debugRoots[@]}"; do
+				checked=$((checked + 1))
+				arch="${debugRoot##*/}"
+				case "${name}" in
+					*.a)
+						debugFile="${debugRoot}/${sub}/${name}"
+						if [[ ! -f "${debugFile}" ]] || [[ "$("${lister}" -h "${debugFile}" 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^(\.z?debug|__debug|__DWARF)/' | wc -l)" -eq 0 ]]; then
+							problems+=("${release}: no ${sub}/${name} with debug info beside it")
+						fi
+						;;
+					*.exe|*.dll)
+						## build.zig puts the DLL's PDB in lib/, since the command's is
+						## zuid.pdb too.
+						debugFile="${debugRoot}/bin/${name%.*}.pdb"
+						if [[ "${name}" == *.dll ]]; then debugFile="${debugRoot}/lib/${name%.*}.pdb"; fi
+						if [[ ! -f "${debugFile}" ]]; then
+							problems+=("${release}: no PDB for ${sub}/${name}")
+						elif [[ -n "${readobj}" && -n "${pdbutil}" ]]; then
+							want="$("${readobj}" --coff-debug-directory "${file}" | awk '$1 == "PDBGUID:" { print $2; exit }')"
+							got="$("${pdbutil}" dump --summary "${debugFile}" | awk '$1 == "GUID:" { print $2; exit }')"
+							if [[ -z "${want}" || "${want}" != "${got}" ]]; then problems+=("${release}: ${sub}/${name} wants PDB ${want:-none}, and ${debugFile##*/} is ${got:-unreadable}"); fi
+						fi
+						;;
+					*)
+						if [[ "${release}" == *-darwin-universal ]]; then
+							debugFile="${debugRoot}/${sub}/${name}.dSYM"
+							want="$(dwarfdump --uuid --arch="${arch}" "${file}" 2>/dev/null | awk '$1 == "UUID:" { print $2; exit }' || true)"
+							got="$(dwarfdump --uuid "${debugFile}" 2>/dev/null | awk '$1 == "UUID:" { print $2; exit }' || true)"
+						else
+							## The stripped file keeps its section table, so the
+							## code's address and size have to agree.
+							debugFile="${debugRoot}/${sub}/${name}.debug"
+							want="$("${lister}" -h "${file}" 2>/dev/null | awk '$2 == ".text" { print $3, $4; exit }' || true)"
+							got="$("${lister}" -h "${debugFile}" 2>/dev/null | awk '$2 == ".text" { print $3, $4; exit }' || true)"
+							if [[ "$("${lister}" -h "${debugFile}" 2>/dev/null | awk '$2 == ".debug_info"' | wc -l)" -eq 0 ]]; then got="no debug info"; fi
+							if [[ "$(nm "${debugFile}" 2>/dev/null | awk '$2 ~ /^[tT]$/' | wc -l)" -lt 100 ]]; then got="next to no function names"; fi
+						fi
+						if [[ ! -e "${debugFile}" ]]; then
+							problems+=("${release}: no ${debugFile#"${distDir}/"}")
+						elif [[ -z "${want}" || "${want}" != "${got}" ]]; then
+							problems+=("${release}: ${debugFile#"${distDir}/"} is not for ${sub}/${name}: ${want:-nothing} against ${got:-nothing}")
+						fi
+						;;
+				esac
+			done
+		done < <(find "${unpackDir}/${assetName}" -mindepth 3 -maxdepth 3 -type f \( -path '*/bin/*' -o -path '*/lib/*' \) | sort)
+	done < <(find "${distDir}" -maxdepth 1 -type f \( -name '*.tgz' -o -name '*.zip' \) | sort)
+	if ((checked == 0)); then problems+=("found no binary built here in a tarball or zip"); fi
+	if ((${#problems[@]})); then
+		fTestFail "${#problems[@]} problems, such as: $(printf '%s; ' "${problems[@]:0:4}")"
+	fi
+	fTestPass
+
+}
+
+
+## ELF, PE, Mach-O, universal Mach-O, or an ar archive.
+fIsBinary(){  ## file
+	local magic=""
+	magic="$(od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n' || true)"
+	case "${magic}" in
+		7f454c46|4d5a*|cffaedfe|cefaedfe|cafebabe|213c6172) return 0 ;;
+	esac
+	return 1
 }
 
 
@@ -2472,9 +2667,11 @@ fStage_Package_Arm64(){  ## scratch dir, glibc floor
 	elif [[ -z "${armObjdump}" ]]; then
 		fTestSkip "no objdump that reads arm64"
 	else
+		local -r armSymbols="${repoRoot}/dist/debug/zuid-linux-arm64/bin/zuid.debug"
 		[[ -f "${armRelease}" ]] || fTestFail "there is no ${armRelease}."
+		[[ -f "${armSymbols}" ]] || fTestFail "there is no ${armSymbols}, which names the functions built here."
 		local armScan=""
-		armScan="$("${armObjdump}" -d --no-show-raw-insn "${armRelease}" | awk '
+		armScan="$(fDisassemble "${armObjdump}" "${armRelease}" "${armSymbols}" | awk '
 			/^[0-9a-f]+ <.*>:$/ { fn = $2; gsub(/^<|>:$/, "", fn); skip = (fn ~ /^_?_(ZN|R[0-9]*[BCIMNXY])/ || fn ~ /^__aarch64_/); next }
 			skip || (fn in seen) || NF < 2 { next }
 			$2 ~ /^(cas|ld(add|clr|eor|set|[su]max|[su]min)|st(add|clr|eor|set|[su]max|[su]min)|swp|crc32|[su]dot|usdot|sudot|sqrdml|ldap|stlur|aes|sha1|sha256|sha512|sm3|sm4|eor3|bcax|rax1|xar|fjcvtzs|fcmla|fcadd|frint(32|64)|reta[ab]|bra[ab]|blra[ab]|ldra[ab]|eret[ab]|pac[id][ab]$|aut[id][ab]$|pacga|xpac[id]$|irg|stg|st2g|stzg|ldg|cfinv|rmif|setf|axflag|xaflag|ld64b|st64b|wfet|wfit|bf(cvt|dot|mmla|mlal)|[su]mmla|usmmla)/ || $0 ~ /[[:space:]][zp][0-9]+(\.[bhsdq])?[,[:space:]]/ {
