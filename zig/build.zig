@@ -273,14 +273,9 @@ fn buildEpoch(b: *std.Build) i64 {
     return std.fmt.parseInt(i64, std.mem.trim(u8, out, " \r\n"), 10) catch 0;
 }
 
-/// compiler_rt for the static library, as an object of its own. With
-/// bundle_compiler_rt Zig builds it on whatever worker thread is free, and that
-/// thread's number goes into its __anon_N symbol names, so 2 cold builds of one
-/// commit gave 2 libzuid.a files. A root module is analyzed on the main thread.
-/// The settings copy Zig 0.17.0's buildOutputFromZig in src/Compilation.zig,
-/// and a release build's object matches Zig's own but for those names. A Debug
-/// one lacks the valgrind hint in __clear_cache. EscFGGR checks the names.
-/// Revisit if Zig fixes ziglang/zig#24116 on GitHub.
+/// compiler_rt as a root object of its own, so its __anon_N names don't get a
+/// worker thread's number. See backlog 2026101305595488. Settings are copied
+/// from Zig 0.17.0's buildOutputFromZig; recheck them on a Zig upgrade.
 fn compilerRt(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.Optimize) *std.Build.Step.Compile {
     const crt = b.addObject(.{
         .name = "compiler_rt",
