@@ -1515,6 +1515,22 @@ fStage_Zig_BuildStamp(){
 	fi
 	fTestPass
 
+	## The translate-c steps hash to_file's bytes, and where they put the headers
+	## is in every file's debug info. Both caches above are new, so each built
+	## its own to_file. __anon_ names carry the compiler's thread numbers, and a
+	## builder with 1 CPU gets other ones, so a match here alone isn't enough.
+	fId EscLn6s "tools/to_file comes out the same in 2 new caches"
+	local -a toFiles=()
+	mapfile -t toFiles < <(find "${stampDir}/warm/o" "${stampDir}/cache/o" -type f \( -name to_file -o -name to_file.exe \) 2>/dev/null || true)
+	if ((${#toFiles[@]} != 2)); then
+		fTestFail "found ${#toFiles[@]} to_file builds in 2 new caches, not 2."
+	elif ! cmp -s "${toFiles[0]}" "${toFiles[1]}"; then
+		fTestFail "to_file differs between 2 new caches, so the translated headers and every debug path move. build.zig should build it with LLVM, stripped."
+	elif LC_ALL=C grep -aqF __anon_ "${toFiles[0]}"; then
+		fTestFail "to_file keeps __anon_ names, which change with the compiler's thread count. build.zig should strip it."
+	fi
+	fTestPass
+
 	## Zig 0.17 reuses build.zig's answers from the last run unless told not to,
 	## and it doesn't watch the environment or git. So the same cache again, with
 	## only the epoch changed. bz4zn is 1700000000 in minutes since 2000.

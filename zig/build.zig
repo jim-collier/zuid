@@ -336,12 +336,19 @@ const Headers = struct {
 };
 
 fn translateHeaders(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.Optimize, wasmtime: []const u8) Headers {
+    // The translate-c steps hash to_file's bytes, and their output paths end
+    // up in every file's debug info. The self-hosted backend's symbols and
+    // debug info, and the LLVM ones at -j1, carry the compiler's thread
+    // numbers, so those bytes changed between cold builds. LLVM and stripped
+    // they don't. Backlog 2026101313551112.
     const to_file = b.addExecutable(.{
         .name = "to_file",
         .root_module = b.createModule(.{
             .root_source_file = b.path("tools/to_file.zig"),
             .target = b.graph.host,
+            .strip = true,
         }),
+        .use_llvm = true,
     });
     const wasmtime_h = translateHeader(b, to_file, target, optimize, "lib/c/wasmtime.h", wasmtime);
     // The translation cache sees only the files it is handed. Wasmtime's own
