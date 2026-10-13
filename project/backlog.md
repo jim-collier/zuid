@@ -226,7 +226,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- After: both leave nothing, and so do a forced `fThrowError` and a failed command. `pipeline-test.bash` passes 60 of 60 with TMPDIR set and unset. The quick run passes.
 		- Swept: `fFuzzIn` is the only `$( )` or subshell call in `pipeline-test.bash` that runs a stage with a `mktemp -d`. `cli-test.bash` and `installer-test.bash` lift no stages. All 7 `mktemp -d` in `cicd.bash` add to `_scratchDirs` right away, and `fThrowError` and `fTestFail` both exit through the cleanup trap. No `$( )` helper in `cicd.bash` makes a temp folder.
 	- Branch: tmpleak
-	- Commit: cfc2014
+	- Commit: cfc2014, c2046c0
 	- Test case: EscPGS5 (fuzz cases leave nothing in TMPDIR) and EscPGS6 (cleanup takes `tmp.*` in TMPDIR and nothing else). Both failed before the fix and pass after.
 	- Acceptance signoff: Waiting. Cleanup now removes folders it used to keep, outside `/tmp`.
 
