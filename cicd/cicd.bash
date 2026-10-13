@@ -90,7 +90,7 @@ fConfig(){ :;
 	fi
 
 	## Extra rar excludes for the backup, one per line, on top of the helper's generic
-	## list (.zig-cache, zig/vendor, the 'repo' link etc). The panoplia audit dirs are
+	## list (.zig-cache, zig/vendor, links back in etc). The panoplia audit dirs are
 	## old build copies. Trailing '/' or rar matches files only.
 	default_rarExcludes="*/panoplia/working/audit-*/"
 
@@ -186,7 +186,7 @@ fPrint_Help(){
 		It says so and moves on when none of them do.
 
 		Every run - quick or full, any branch - then archives the whole project:
-		github/, private/, the lot, into ../versions/, and publishes it, committing
+		repo/, private/, the lot, into ../versions/, and publishes it, committing
 		and pushing through the helper in cicd/utility/. Build caches and other
 		regenerable trees are left out, so the archive is a fraction of what is on
 		disk. --no-backup turns it off; so does --commit or --push, which take over
@@ -274,7 +274,7 @@ fMain(){
 
 	## Layout. This script lives in the repo's cicd/, so the repo root is one up.
 	## Physical, since find does not descend a symlink it is handed as a start.
-	## Run as zuid/repo/cicd/cicd.bash, the PowerShell check found nothing.
+	## Run through a symlinked path, the PowerShell check found nothing.
 	local -r repoRoot="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 	[[ -n "${repoRoot}" ]] || fThrowError "Could not resolve the repo root."  "${FUNCNAME[0]}"
 	local -r goDir="${repoRoot}/go"
@@ -2872,7 +2872,7 @@ fStage_Dogfood(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## Archives the whole project - github/, private/, the lot - to ../versions/, then
+## Archives the whole project - repo/, private/, the lot - to ../versions/, then
 ## commits and pushes, all through the vendored helper. Its git half is why
 ## --commit and --push are refused alongside it.
 fStage_Backup(){
