@@ -108,8 +108,8 @@ pub fn build(b: *std.Build) void {
         shared_lib.install_name = b.fmt("@rpath/libzuid.{d}.dylib", .{abi_version.major});
     }
     shared_lib.installHeader(b.path("lib/include/zuid.h"), "zuid.h");
-    // The command's PDB has the same name, and Zig reads it for a stack trace.
-    const install_shared = b.addInstallArtifact(shared_lib, .{ .pdb_dir = if (is_windows) .disabled else .default });
+    // The command's PDB beside it has the same name, so the DLL's goes in lib/.
+    const install_shared = b.addInstallArtifact(shared_lib, .{ .pdb_dir = if (is_windows) .{ .override = .lib } else .default });
     b.getInstallStep().dependOn(&install_shared.step);
     if (target.result.os.tag == .macos) relinkDylib(b, target, shared_lib, static_lib, wasmtime, install_shared);
 

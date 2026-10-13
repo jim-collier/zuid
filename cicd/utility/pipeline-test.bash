@@ -431,6 +431,10 @@ fPublishRepo(){  ## name, version
 	printf 'freebsd\n' > "${dir}/repo/dist/zuid-freebsd-x86_64"
 	printf 'stale\n'  > "${dir}/repo/dist/checksums.txt"
 	: > "${dir}/repo/dist/.zuid-package-dir"
+	## What package.bash stripped out, which stays here.
+	mkdir -p "${dir}/repo/dist/debug/zuid-linux-x86_64/bin"
+	printf 'debug\n' > "${dir}/repo/dist/debug/zuid-linux-x86_64/bin/zuid.debug"
+	printf 'pdb\n'   > "${dir}/repo/dist/debug/zuid.pdb"
 	fTarball "${dir}/repo/dist-incoming/zuid-darwin-universal.tgz" "${version}"
 	printf 'universal\n' > "${dir}/repo/dist-incoming/zuid-darwin-universal"
 	printf 'zip x86_64\n' > "${dir}/repo/dist-incoming/zuid-windows-x86_64.zip"
@@ -627,6 +631,17 @@ done
 if [[ -z "${tildeBad}" ]]
 	then fPass
 	else fFail "${tildeBad}"
+fi
+
+fId EsZni4k "nothing under dist/debug/ is uploaded or listed in checksums.txt"
+debugBad=""
+for arg in "${betaUploads[@]}"; do
+	case "${arg}" in */debug/*|*.debug|*.pdb) debugBad+=" uploaded $(basename "${arg}");" ;; esac
+done
+if [[ -z "${sumsFile}" ]] || grep -qE '(debug/|\.debug$|\.pdb$)' "${sumsFile}"; then debugBad+=" checksums.txt is missing or lists debug info;"; fi
+if [[ -z "${debugBad}" ]]
+	then fPass
+	else fFail "${debugBad}"
 fi
 
 fId ErgqjsR "the release notes are the changelog's section for the version"
