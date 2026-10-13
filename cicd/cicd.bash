@@ -185,6 +185,10 @@ fPrint_Help(){
 		${dogfoodDirs[*]}
 		It says so and moves on when none of them do.
 
+		--package also runs the Linux x86_64 release under Intel's SDE, emulating a
+		Core 2 Duo and a Pentium 4, when it finds one: ZUID_SDE if set, else sde64
+		on PATH, else ~/.local/opt/intel-sde/sde64. Without it those 2 checks skip.
+
 		Every run - quick or full, any branch - then archives the whole project:
 		repo/, private/, the lot, into ../versions/, and publishes it, committing
 		and pushing through the helper in cicd/utility/. Build caches and other
@@ -1296,16 +1300,16 @@ fStage_Zig(){
 	local -a shipTarget=()
 	if [[ "$(uname -s)" == "Linux" ]]; then shipTarget=("-Dtarget=$(uname -m)-linux-gnu.2.28"); fi
 	zig build "-j${buildJobs}" -Doptimize=ReleaseSafe "${shipTarget[@]}"
-	fId EsXcjyV "the command dogfood installs uses no AVX in code built here"
+	fId EsXcjyV "the command dogfood installs uses nothing past x86-64-v1 in code built here"
 	if [[ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]]; then
 		fTestSkip "only a Linux x86_64 build goes to the synced dir"
 	elif ! command -v objdump >/dev/null 2>&1; then
 		fTestSkip "no objdump"
 	else
-		local dogfoodAvx=""
-		dogfoodAvx="$(fAvxScan "${zigDir}/zig-out/bin/zuid")"
-		if [[ "${dogfoodAvx%% *}" != "0" ]]; then
-			fTestFail "${dogfoodAvx%% *} functions use AVX, such as ${dogfoodAvx#* }. The Zig stage has to name a target."
+		local dogfoodScan=""
+		dogfoodScan="$(fX86FloorScan "${zigDir}/zig-out/bin/zuid")"
+		if [[ "${dogfoodScan%% *}" != "0" ]]; then
+			fTestFail "${dogfoodScan%% *} functions use instructions past x86-64-v1, such as ${dogfoodScan#* }. The Zig stage has to name a target."
 		fi
 		fTestPass
 	fi
@@ -1830,7 +1834,7 @@ fStage_Package(){
 	local -i haveObjdump=0
 	if command -v objdump >/dev/null 2>&1; then haveObjdump=1; fi
 
-	## The macOS checks read one slice at a time. The AVX scan means nothing on
+	## The macOS checks read one slice at a time. The x86_64 scan means nothing on
 	## arm64, and the minimum macOS has to hold for both.
 	local thinDir=""
 	thinDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
@@ -1861,24 +1865,26 @@ fStage_Package(){
 		fTestPass
 	fi
 
-	fId ErbFB7B "the release uses no AVX in code built here"
+	local floorName="x86-64-v1" floorKind=""
+	if [[ "${osLabel}" == "darwin" ]]; then floorName="Core 2"; floorKind="core2"; fi
+	fId ErbFB7B "the release uses nothing past ${floorName} in code built here"
 	if ((! haveObjdump)); then
 		fTestSkip "no objdump"
 	elif [[ "${osLabel}" == "linux" && "$(uname -m)" != "x86_64" && "$(objdump --help 2>/dev/null || true)" != *elf64-x86-64* ]]; then
 		fTestSkip "no objdump that reads x86_64"
 	else
 		## The release is stripped, so the names come from its debug info.
-		local avxTarget="${release}" avxSymbols="${repoRoot}/dist/debug/zuid-${osLabel}-${archLabel}/bin/zuid.debug"
+		local scanTarget="${release}" scanSymbols="${repoRoot}/dist/debug/zuid-${osLabel}-${archLabel}/bin/zuid.debug"
 		if [[ "${osLabel}" == "darwin" ]]; then
-			avxTarget="${thinDir}/zuid-x86_64"
-			avxSymbols="${repoRoot}/dist/debug/zuid-darwin-universal/x86_64/bin/zuid.dSYM/Contents/Resources/DWARF/zuid"
-			lipo -thin x86_64 "${release}" -output "${avxTarget}" || fTestFail "could not take the x86_64 slice out of ${release}."
+			scanTarget="${thinDir}/zuid-x86_64"
+			scanSymbols="${repoRoot}/dist/debug/zuid-darwin-universal/x86_64/bin/zuid.dSYM/Contents/Resources/DWARF/zuid"
+			lipo -thin x86_64 "${release}" -output "${scanTarget}" || fTestFail "could not take the x86_64 slice out of ${release}."
 		fi
-		[[ -f "${avxSymbols}" ]] || fTestFail "there is no ${avxSymbols}, which names the functions built here."
-		local avxScan=""
-		avxScan="$(fAvxScan "${avxTarget}" "${avxSymbols}")"
-		if [[ "${avxScan%% *}" != "0" ]]; then
-			fTestFail "${avxScan%% *} functions use AVX, such as ${avxScan#* }. package.bash has to name a target."
+		[[ -f "${scanSymbols}" ]] || fTestFail "there is no ${scanSymbols}, which names the functions built here."
+		local floorScan=""
+		floorScan="$(fX86FloorScan "${scanTarget}" "${scanSymbols}" "${floorKind}")"
+		if [[ "${floorScan%% *}" != "0" ]]; then
+			fTestFail "${floorScan%% *} functions use instructions past ${floorName}, such as ${floorScan#* }. package.bash has to name a target."
 		fi
 		fTestPass
 	fi
@@ -1903,6 +1909,7 @@ fStage_Package(){
 		fTestPass
 	fi
 
+	fStage_Package_OldCpu "${release}" "${thinDir}"
 	fStage_Package_Arm64 "${thinDir}" "${glibcFloor}"
 	fStage_Package_FreeBSD "${thinDir}"
 	fStage_Package_Windows "${thinDir}"
@@ -1962,15 +1969,118 @@ fStage_Package(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## Prints how many functions use AVX, then up to three of their names.
-## Wasmtime's Rust asks the CPU before it uses AVX, so it is left out. Its names
-## start with _ZN, or _R for the newer mangling.
-fAvxScan(){  ## x86_64 binary, [file its symbols went to, if it was stripped]
-	fDisassemble objdump "$1" "${2:-}" | awk '
-		/^[0-9a-f]+ <.*>:$/ { fn = $2; gsub(/^<|>:$/, "", fn); rust = (fn ~ /^_?_(ZN|R[0-9]*[BCIMNXY])/); next }
-		rust || (fn in seen) { next }
-		/:[[:space:]]+v[a-z]/ || /%[yz]mm/ { seen[fn] = 1; if (++count <= 3) names = names " " fn }
+## Runs the Linux x86_64 release under Intel's SDE as the oldest CPUs it has to
+## run on. SDE stops at the first instruction the chip lacks, in the code
+## Wasmtime compiles too, and the CPU it reports is the chip's. Penryn is the
+## last Core 2 Duo, with no POPCNT. SDE has no AMD chip, so Prescott stands in
+## for Phenom II: no SSSE3 or SSE4.1. Each run starts from a module cache made
+## on this CPU, which Wasmtime has to turn down and compile again.
+fStage_Package_OldCpu(){  ## x86_64 release, scratch dir
+
+	local -r release="$1" scratchDir="$2"
+	## Never the bare 'sde', which is an unrelated tool on some boxes.
+	local sde="${ZUID_SDE:-}"
+	if [[ -z "${sde}" ]]; then sde="$(command -v sde64 2>/dev/null || true)"; fi
+	if [[ -z "${sde}" && -x "${HOME}/.local/opt/intel-sde/sde64" ]]; then sde="${HOME}/.local/opt/intel-sde/sde64"; fi
+	local -r seedHome="${scratchDir}/oldcpu-seed" runFormat="%d-%h-%u-%f-%g-%r"
+
+	local chip="" chipName="" chipHome="" sdeErrors=""
+	local -i seeded=0 lineCount=0
+	for chip in pnr p4p; do
+		case "${chip}" in
+			pnr) chipName="Core 2 Duo (Penryn)" ;;
+			p4p) chipName="Pentium 4 (Prescott)" ;;
+		esac
+		fId "${chip}" pnr=EsZyWyD p4p=EsZyWyE "the Linux x86_64 release runs on an emulated ${chipName}"
+		if [[ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]]; then
+			fTestSkip "Linux x86_64 only"
+			continue
+		fi
+		if [[ -z "${sde}" || ! -x "${sde}" ]]; then
+			fTestSkip "no sde64 in ZUID_SDE, on PATH or in ~/.local/opt/intel-sde"
+			continue
+		fi
+		[[ -f "${release}" ]] || fTestFail "there is no ${release}."
+		if ((! seeded)); then
+			mkdir -p "${seedHome}"
+			HOME="${seedHome}" XDG_CACHE_HOME="${seedHome}/cache" "${release}" -f "${runFormat}" >/dev/null \
+				|| fTestFail "the release failed on this CPU, before any emulation."
+			seeded=1
+		fi
+		chipHome="${scratchDir}/oldcpu-${chip}"
+		mkdir -p "${chipHome}"
+		cp -R "${seedHome}/cache" "${chipHome}/"
+		if ! HOME="${chipHome}" XDG_CACHE_HOME="${chipHome}/cache" "${sde}" "-${chip}" -- "${release}" -f "${runFormat}" -n 2 \
+			>"${chipHome}/out" 2>"${chipHome}/err"; then
+			fTestFail "it exited non-zero under ${sde} -${chip}: $(head -c 400 "${chipHome}/err")"
+		fi
+		sdeErrors="$(grep -c 'SDE-ERROR' "${chipHome}/err" || true)"
+		[[ "${sdeErrors}" == "0" ]] || fTestFail "SDE reported: $(head -c 400 "${chipHome}/err")"
+		lineCount="$(grep -c . "${chipHome}/out" || true)"
+		((lineCount == 2)) || fTestFail "it printed ${lineCount} identifiers, expected 2."
+		fTestPass
+	done
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Prints how many functions use an instruction past plain x86-64, then up to
+## three of their names, each with one such instruction. Wasmtime's Rust asks
+## the CPU before it uses anything newer, so it is left out. Its names start
+## with _ZN, or _R for the newer mangling. zstd, which comes with Wasmtime or
+## FreeBSD's package, asks too (ZSTD_cpuid) and has a BMI2 twin of a few hot
+## functions, so those twins are left out as well.
+fX86FloorScan(){  ## x86_64 binary, [file its symbols went to, if it was stripped], [floor, as for fPastX86Floor]
+	fDisassemble objdump "$1" "${2:-}" | fPastX86Floor "${3:-}" | awk '
+		/^[0-9a-f]+ <.*>:$/ {
+			fn = $2; gsub(/^<|>:$/, "", fn)
+			asks = (fn ~ /^_?_(ZN|R[0-9]*[BCIMNXY])/ || fn ~ /_bmi2(\.[a-z]+\.[0-9]+)*$/ || fn ~ /^_?HUF_decompress4X[12]_usingDTable_internal_fast/)
+			next
+		}
+		asks || (fn in seen) { next }
+		{ seen[fn] = 1; if (++count <= 3) names = names " " fn " (" $2 ")" }
 		END { print count + 0 names }
+	'
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Filters objdump -d output down to its function headers and each instruction
+## that plain x86-64 (x86-64-v1: SSE2, CMOV, CX8) lacks, as "address: mnemonic".
+## The floor is the last Core 2 Duo and AMD's Phenom II. Penryn has SSE4.1 but
+## no POPCNT, Phenom II the reverse, so neither is allowed. LZCNT runs as BSR
+## on a CPU without it, a wrong answer with no fault, which an emulator misses
+## too. TZCNT is let through: LLVM writes BSF that way on purpose, where BSF
+## gives the same answer. A Mac's floor is Core 2 instead, which is Zig's
+## baseline there and Apple's, so SSE3, SSSE3, CX16 and LAHF are allowed.
+fPastX86Floor(){  ## [core2]
+	awk -v floor="${1:-}" '
+		BEGIN {
+			core2 = "^(" \
+				"fisttp[a-z]*|lddqu|movddup|movs[hl]dup|(addsub|hadd|hsub)p[sd]|monitor[a-z]*|mwait[a-z]*|" \
+				"pabs[bwd]|palignr|ph(add|sub)(w|d|sw)|pmaddubsw|pmulhrsw|pshufb|psign[bwd]|cmpxchg16b|lahf|sahf)$"
+			past = "^(" \
+				"blendv?p[sd]|pblend(vb|w)|dpp[sd]|extractps|insertps|movntdqa|mpsadbw|packusdw|pcmpeqq|" \
+				"pextr[bdq]|pinsr[bdq]|phminposuw|pm(ax|in)(sb|sd|ud|uw)|pmov[sz]x(bw|bd|bq|wd|wq|dq)|pmuldq|pmulld|ptest|round[ps][sd]|" \
+				"pcmp[ei]str[im]|pcmpgtq|crc32[bwlq]?|extrq|insertq|movnts[sd]|" \
+				"popcnt[wlq]?|lzcnt[wlq]?|andn[lq]?|bextr[lq]?|blsi[lq]?|blsmsk[lq]?|blsr[lq]?|" \
+				"bzhi[lq]?|mulx[lq]?|pdep[lq]?|pext[lq]?|rorx[lq]?|sarx[lq]?|shlx[lq]?|shrx[lq]?|adcx[lq]?|adox[lq]?|movbe[wlq]?|" \
+				"aes[a-z0-9]*|pclmul[a-z]*|sha(1|256|512)[a-z0-9]*|gf2p8[a-z0-9]*|rdrand[wlq]?|rdseed[wlq]?|rdtscp|rdpid|" \
+				"prefetchw(t1)?|prefetch|clflushopt|clwb|xgetbv|xsave[a-z0-9]*|xrstor[a-z0-9]*|" \
+				"[rw]r[fg]sbase[lq]?|k(add|and|andn|mov|not|or|ortest|shiftl|shiftr|test|unpck|xnor|xor)[bwdq]?|" \
+				"v[a-z0-9]*)$"
+			virt = "^(verr|verw|vm(call|clear|func|launch|load|mcall|ptrld|ptrst|read|resume|run|save|write|xoff|xon)[lq]?)$"
+		}
+		/^[0-9a-f]+ <.*>:$/ { print; next }
+		/^[[:space:]]*[0-9a-f]+:[[:space:]]/ {
+			text = $0; sub(/^[[:space:]]*[0-9a-f]+:[[:space:]]*/, "", text); sub(/[[:space:]]*#.*$/, "", text)
+			n = split(text, word, /[[:space:]]+/)
+			i = 1
+			while (i < n && word[i] ~ /^(lock|rep[a-z]*|notrack|bnd|data16|addr32|cs|ds|es|fs|gs|ss|rex[.A-Za-z]*|xacquire|xrelease|\{[a-z]+\})$/) i++
+			op = word[i]
+			if ((op ~ past && op !~ virt) || (floor != "core2" && op ~ core2) || text ~ /%[xyz]mm(1[6-9]|2[0-9]|3[01])|%[yz]mm|%k[0-7]/ || (op ~ /^pextrw/ && text ~ /\(/)) print $1, op
+		}
 	'
 }
 
@@ -2007,10 +2117,10 @@ fPeHeader(){  ## file
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## fAvxScan for a Windows program, whose function names are only in its PDB.
-## Code built here is what the PDB lists; Wasmtime's Rust and mingw's C have
-## no CodeView, so they are left out the same way.
-fAvxScan_Pe(){  ## readobj, pdbutil, x86_64 program, its .pdb
+## fX86FloorScan for a Windows program, whose function names are only in its
+## PDB. Code built here is what the PDB lists; Wasmtime's Rust and mingw's C
+## have no CodeView, so they are left out the same way.
+fX86FloorScan_Pe(){  ## readobj, pdbutil, x86_64 program, its .pdb
 	local -r readobj="$1" pdbutil="$2" program="$3" pdb="$4"
 	local imageBase="" firstSection=""
 	imageBase="$("${readobj}" --file-headers "${program}" | awk '$1 == "ImageBase:" { print $2; exit }')"
@@ -2021,13 +2131,13 @@ fAvxScan_Pe(){  ## readobj, pdbutil, x86_64 program, its .pdb
 			/ S_[GL]PROC32 / { name = $0; sub(/^[^`]*`/, "", name); sub(/`[^`]*$/, "", name); next }
 			name != "" && / addr = 0001:/ { split($0, parts, / addr = 0001:/); printf "F %.0f %d %s\n", hex(base) + hex(section) + (parts[2] + 0), $NF, name; name = "" }
 		'
-		objdump -d --no-show-raw-insn "${program}" | awk '
+		objdump -d --no-show-raw-insn "${program}" | fPastX86Floor | awk '
 			function hex(text,   i, n) { text = tolower(text); n = 0; for (i = 1; i <= length(text); i++) n = n * 16 + index("0123456789abcdef", substr(text, i, 1)) - 1; return n }
-			/:[[:space:]]+v[a-z]/ || /%[yz]mm/ { address = $1; sub(/:$/, "", address); printf "A %.0f\n", hex(address) }
+			/^[[:space:]]*[0-9a-f]+: / { address = $1; sub(/:$/, "", address); printf "A %.0f %s\n", hex(address), $2 }
 		'
 	} | LC_ALL=C sort -k2,2n -k1,1r | awk '
 		$1 == "F" { end = $2 + $3; fn = $4; next }
-		$2 < end && !(fn in seen) { seen[fn] = 1; if (++count <= 3) names = names " " fn }
+		$2 < end && !(fn in seen) { seen[fn] = 1; if (++count <= 3) names = names " " fn " (" $3 ")" }
 		END { print count + 0 names }
 	'
 }
@@ -2211,7 +2321,7 @@ fStage_Package_Windows(){  ## scratch dir
 		done
 	done
 
-	fId ErmS0zB "the Windows x86_64 release uses no AVX in code built here"
+	fId ErmS0zB "the Windows x86_64 release uses nothing past x86-64-v1 in code built here"
 	if ((! isLinux)); then
 		fTestSkip "Linux only"
 	elif ((! haveZip)); then
@@ -2225,10 +2335,10 @@ fStage_Package_Windows(){  ## scratch dir
 		local -r winPdb="${repoRoot}/dist/debug/zuid-windows-x86_64/bin/zuid.pdb"
 		[[ -n "${winRoot}" ]] || fTestFail "there is no x86_64 zip, or nothing in it."
 		[[ -f "${winPdb}" ]] || fTestFail "there is no ${winPdb}, which names the functions built here."
-		local winAvx=""
-		winAvx="$(fAvxScan_Pe "${winReadobj}" "${winPdbutil}" "${winRoot}/bin/zuid.exe" "${winPdb}")"
-		if [[ "${winAvx%% *}" != "0" ]]; then
-			fTestFail "${winAvx%% *} functions use AVX, such as ${winAvx#* }. package.bash has to name a target."
+		local winScan=""
+		winScan="$(fX86FloorScan_Pe "${winReadobj}" "${winPdbutil}" "${winRoot}/bin/zuid.exe" "${winPdb}")"
+		if [[ "${winScan%% *}" != "0" ]]; then
+			fTestFail "${winScan%% *} functions use instructions past x86-64-v1, such as ${winScan#* }. package.bash has to name a target."
 		fi
 		## A PDB that names nothing would pass the scan above.
 		[[ "$("${winPdbutil}" dump --symbols "${winPdb}" | grep -c ' S_[GL]PROC32 ' || true)" -gt 100 ]] \
@@ -2289,7 +2399,7 @@ fStage_Package_FreeBSD(){  ## scratch dir
 		fTestPass
 	fi
 
-	fId ErlUUiR "the FreeBSD release uses no AVX in code built here"
+	fId ErlUUiR "the FreeBSD release uses nothing past x86-64-v1 in code built here"
 	if ((! isLinux)); then
 		fTestSkip "Linux only"
 	elif ((! haveObjdump)); then
@@ -2298,10 +2408,10 @@ fStage_Package_FreeBSD(){  ## scratch dir
 		local -r bsdSymbols="${repoRoot}/dist/debug/zuid-freebsd-x86_64/bin/zuid.debug"
 		[[ -f "${bsdRelease}" ]] || fTestFail "there is no ${bsdRelease}."
 		[[ -f "${bsdSymbols}" ]] || fTestFail "there is no ${bsdSymbols}, which names the functions built here."
-		local bsdAvx=""
-		bsdAvx="$(fAvxScan "${bsdRelease}" "${bsdSymbols}")"
-		if [[ "${bsdAvx%% *}" != "0" ]]; then
-			fTestFail "${bsdAvx%% *} functions use AVX, such as ${bsdAvx#* }. package.bash has to name a target."
+		local bsdScan=""
+		bsdScan="$(fX86FloorScan "${bsdRelease}" "${bsdSymbols}")"
+		if [[ "${bsdScan%% *}" != "0" ]]; then
+			fTestFail "${bsdScan%% *} functions use instructions past x86-64-v1, such as ${bsdScan#* }. package.bash has to name a target."
 		fi
 		fTestPass
 	fi
@@ -2648,7 +2758,7 @@ fStage_Package_Arm64(){  ## scratch dir, glibc floor
 		fTestPass
 	fi
 
-	## The arm64 twin of the AVX check. Zig's baseline for arm64 Linux is plain
+	## The arm64 twin of the x86_64 check. Zig's baseline for arm64 Linux is plain
 	## armv8-a, so code built here must use nothing a later extension added. The
 	## pointer-authentication instructions that sit in the hint space are allowed,
 	## since an older CPU runs them as no-ops. Rust and C++ are left out for the
