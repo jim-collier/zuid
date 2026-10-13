@@ -171,6 +171,47 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Swept: every asset in `dist/`, the bare binaries, tarballs, zips, `.deb` and `.rpm`, with the shared and static libraries. The scans that read names: ErbFB7B, ErlUUiR, ErgjCkU and ErmS0zB read the debug files now. EsXcjyV reads the unstripped dogfood build and is unchanged. `--publish` and the checksums in `package.bash` read only the top of `dist/`.
 	- Verified: `cicd.bash --package` passed on b23 and with `--container`, 20261013. The Linux x86_64 command is 18.8 MB, down from 28.9 MB. Through the debug file, the AVX scan found the same 235 functions as on the unstripped build, for a build for this CPU. The arm64 scan found the same 56 on a cortex_a76 build.
 
+- Release files still differ between two machines building one commit.
+	- ID: 2026101304122319
+	- Type: Bug
+	- Status: Waiting for testing
+	- Needs external testing: A `--package` run on b26. The macOS tarball now goes through bsdtar with a set owner and order, and through BSD `touch`. None of that has run there, and neither has Esa8LVS.
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20261013-041223
+	- Opened by: JC
+	- Related IDs: 2026101008194330, 2026101305595483, 2026101305595488
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- Run `cicd.bash --package`, keep `dist/`, run `cicd.bash --container --package`, and compare the two.
+	- Incorrect behavior [Bug]: The bare Linux and FreeBSD binaries match, and these differ:
+		- The Windows `zuid.exe` and `zuid.dll`, in 20 bytes: the time stamp and the PDB's ID. The linker makes both from a hash, which takes in the PDB, and the PDB has the build machine's paths.
+		- `libzuid.a`, in its compiler_rt object. Anonymous symbols and sections are numbered differently, such as `__anon_603986435` against `__anon_905974935`.
+		- The tarballs, zips and packages, in file times, owners and modes.
+	- Expected behavior [Bug]: The same bytes from any machine that builds the same commit.
+	- Reproduced [Bug]: Yes, 20261013, b23 against the container, on branch `strip`.
+	- Actual cause [Bug]:
+		- Confirmed. Each file in a tarball or zip took its time from when it was copied, its owner from whoever built it, its mode from the umask, and its place from the directory order. nfpm stamped the deb and rpm with the clock, and the rpm with the build host.
+		- The build number could be stale. Zig 0.17 reuses what build.zig worked out last time until build.zig or a `-D` option changes, and it doesn't watch the environment or git. So a new commit or SOURCE_DATE_EPOCH went unseen. The b23 release built from `main` had the strip merge's build number, 38 minutes older than its HEAD.
+		- build.zig dropped SOURCE_DATE_EPOCH for translate-c by giving that step its own copy of the environment, and the copy went into the step's cache key. Once the build number was worked out on every run, any change to the environment rebuilt everything, with new cache paths in the debug info and the Windows PDBs.
+		- The Windows exe and dll, and the compiler_rt object in every `libzuid.a`, come out of Zig itself. Split off as 2026101305595483 and 2026101305595488.
+		- The deb and rpm also differ when nfpm's version does. b23 has 2.43.0 and the container pins 2.47.0. With 2.47.0 on both they match.
+	- Progress log:
+		- 20261013: 2 package runs on b23, the second under umask 077, gave 10 different files of 33: every tarball, zip, deb and rpm, and the checksums.
+		- 20261013: After the fix, b23 against the container: the bare Linux x86_64, arm64 and FreeBSD binaries and the FreeBSD tarball match. The Linux tarballs differ only in `libzuid.a`'s compiler_rt object. The Windows zips differ only there and in `zuid.exe` and `zuid.dll`, 20 bytes each. The deb and rpm match with the same nfpm. Tar and zip headers match.
+		- 20261013: b23's nfpm was left at 2.43.0, since it's installed outside the project.
+	- Actual fix [Bug]:
+		- `package.bash` gives every file in a tarball, zip, deb and rpm one time: SOURCE_DATE_EPOCH, else the HEAD commit date, never the clock, and no earlier than 1980. Modes are 0755 or 0644 by whether the file runs. Tarballs are owner 0 by number with no names, sorted bytewise, and gzip keeps no name or time. Zips get the same list, with the zone pinned to UTC and no extra fields. nfpm gets the time, a fixed rpm build host and set modes on the license files.
+		- `build.zig` tells Zig not to reuse its answers unless `-Dbuild-epoch` is given. That costs about 40 ms on a build with nothing to do.
+		- `tools/to_file.zig` drops SOURCE_DATE_EPOCH for translate-c, so the step no longer keeps a copy of the environment.
+	- Branch: repro
+	- Commit: 0483497
+	- Test case: Esa8LVS and EsaCjhS.
+		- Esa8LVS packages again after the first run, under umask 077 and, where a user namespace is allowed, as root on another host name. Every file has to match, debug info included. It failed before the fix with 10 of 33 files different, and with only the build.zig half of the fix with 23. About 24 s on b23 with a warm Zig cache.
+		- EsaCjhS builds again in a cache that has seen another epoch, with SOURCE_DATE_EPOCH=1700000000, and wants that build number. It failed before the fix with the old one.
+		- Neither catches a path or Zig's own output that differs between machines. The 2 split items have no check here for that reason.
+	- Swept: every `tar`, `zip` and nfpm call under `cicd/`. Only `package.bash` makes release files; `installer-test.bash` and `pipeline-test.bash` make their own fixtures. `build.zig` has no other step with its own environment. The macOS release goes through the same functions.
+	- Verified: `cicd.bash --quick --only zig --package` passed on b23 and with `--container`, 20261013, Esa8LVS and EsaCjhS included. The comparison above is from those 2 runs, with a third host package run using nfpm 2.47.0 for the deb and rpm.
+
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -217,47 +258,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Progress log:
 		- 20261005: A command built with a reactor from `dev` started in 0.25 s, or 0.02 s with the module cached, against 0.55 s and 0.34 s on `v0.1.0`. Go's `New` should drop from 57 ms the same way.
 		- 20261006: Stalled. convert-base-v2 is in the middle of an upgrade, so no tag until that settles, by direct answer.
-
-- Release files still differ between two machines building one commit.
-	- ID: 2026101304122319
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs external testing: A `--package` run on b26. The macOS tarball now goes through bsdtar with a set owner and order, and through BSD `touch`. None of that has run there, and neither has Esa8LVS.
-	- Priority|Severity [Bug]: Avg
-	- Opened: 20261013-041223
-	- Opened by: JC
-	- Related IDs: 2026101008194330, 2026101305595483, 2026101305595488
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- Run `cicd.bash --package`, keep `dist/`, run `cicd.bash --container --package`, and compare the two.
-	- Incorrect behavior [Bug]: The bare Linux and FreeBSD binaries match, and these differ:
-		- The Windows `zuid.exe` and `zuid.dll`, in 20 bytes: the time stamp and the PDB's ID. The linker makes both from a hash, which takes in the PDB, and the PDB has the build machine's paths.
-		- `libzuid.a`, in its compiler_rt object. Anonymous symbols and sections are numbered differently, such as `__anon_603986435` against `__anon_905974935`.
-		- The tarballs, zips and packages, in file times, owners and modes.
-	- Expected behavior [Bug]: The same bytes from any machine that builds the same commit.
-	- Reproduced [Bug]: Yes, 20261013, b23 against the container, on branch `strip`.
-	- Actual cause [Bug]:
-		- Confirmed. Each file in a tarball or zip took its time from when it was copied, its owner from whoever built it, its mode from the umask, and its place from the directory order. nfpm stamped the deb and rpm with the clock, and the rpm with the build host.
-		- The build number could be stale. Zig 0.17 reuses what build.zig worked out last time until build.zig or a `-D` option changes, and it doesn't watch the environment or git. So a new commit or SOURCE_DATE_EPOCH went unseen. The b23 release built from `main` had the strip merge's build number, 38 minutes older than its HEAD.
-		- build.zig dropped SOURCE_DATE_EPOCH for translate-c by giving that step its own copy of the environment, and the copy went into the step's cache key. Once the build number was worked out on every run, any change to the environment rebuilt everything, with new cache paths in the debug info and the Windows PDBs.
-		- The Windows exe and dll, and the compiler_rt object in every `libzuid.a`, come out of Zig itself. Split off as 2026101305595483 and 2026101305595488.
-		- The deb and rpm also differ when nfpm's version does. b23 has 2.43.0 and the container pins 2.47.0. With 2.47.0 on both they match.
-	- Progress log:
-		- 20261013: 2 package runs on b23, the second under umask 077, gave 10 different files of 33: every tarball, zip, deb and rpm, and the checksums.
-		- 20261013: After the fix, b23 against the container: the bare Linux x86_64, arm64 and FreeBSD binaries and the FreeBSD tarball match. The Linux tarballs differ only in `libzuid.a`'s compiler_rt object. The Windows zips differ only there and in `zuid.exe` and `zuid.dll`, 20 bytes each. The deb and rpm match with the same nfpm. Tar and zip headers match.
-		- 20261013: b23's nfpm was left at 2.43.0, since it's installed outside the project.
-	- Actual fix [Bug]:
-		- `package.bash` gives every file in a tarball, zip, deb and rpm one time: SOURCE_DATE_EPOCH, else the HEAD commit date, never the clock, and no earlier than 1980. Modes are 0755 or 0644 by whether the file runs. Tarballs are owner 0 by number with no names, sorted bytewise, and gzip keeps no name or time. Zips get the same list, with the zone pinned to UTC and no extra fields. nfpm gets the time, a fixed rpm build host and set modes on the license files.
-		- `build.zig` tells Zig not to reuse its answers unless `-Dbuild-epoch` is given. That costs about 40 ms on a build with nothing to do.
-		- `tools/to_file.zig` drops SOURCE_DATE_EPOCH for translate-c, so the step no longer keeps a copy of the environment.
-	- Branch: repro
-	- Commit: 0483497
-	- Test case: Esa8LVS and EsaCjhS.
-		- Esa8LVS packages again after the first run, under umask 077 and, where a user namespace is allowed, as root on another host name. Every file has to match, debug info included. It failed before the fix with 10 of 33 files different, and with only the build.zig half of the fix with 23. About 24 s on b23 with a warm Zig cache.
-		- EsaCjhS builds again in a cache that has seen another epoch, with SOURCE_DATE_EPOCH=1700000000, and wants that build number. It failed before the fix with the old one.
-		- Neither catches a path or Zig's own output that differs between machines. The 2 split items have no check here for that reason.
-	- Swept: every `tar`, `zip` and nfpm call under `cicd/`. Only `package.bash` makes release files; `installer-test.bash` and `pipeline-test.bash` make their own fixtures. `build.zig` has no other step with its own environment. The macOS release goes through the same functions.
-	- Verified: `cicd.bash --quick --only zig --package` passed on b23 and with `--container`, 20261013, Esa8LVS and EsaCjhS included. The comparison above is from those 2 runs, with a third host package run using nfpm 2.47.0 for the deb and rpm.
 
 - The Windows exe and dll differ between machines building one commit.
 	- ID: 2026101305595483
