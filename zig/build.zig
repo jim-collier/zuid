@@ -71,7 +71,8 @@ pub fn build(b: *std.Build) void {
         .use_llvm = true,
     });
     // A C consumer links with its own toolchain, which has no Zig compiler-rt.
-    static_lib.bundle_compiler_rt = true;
+    // Not bundle_compiler_rt, see compilerRt.
+    static_lib.root_module.addObject(compilerRt(b, target, optimize));
     static_lib.installHeader(b.path("lib/include/zuid.h"), "zuid.h");
     // Zig calls a Windows static library zuid.lib, the name the DLL's import
     // library takes. It is a mingw archive, needing the mingw Wasmtime beside
@@ -270,6 +271,37 @@ fn buildEpoch(b: *std.Build) i64 {
     var code: u8 = 0;
     const out = b.runAllowFail(&.{ "git", "-C", b.root.toString(b.allocator) catch @panic("OOM"), "log", "-1", "--format=%ct" }, &code, .ignore) catch return 0;
     return std.fmt.parseInt(i64, std.mem.trim(u8, out, " \r\n"), 10) catch 0;
+}
+
+/// compiler_rt for the static library, as an object of its own. With
+/// bundle_compiler_rt Zig builds it on whatever worker thread is free, and that
+/// thread's number goes into its __anon_N symbol names, so 2 cold builds of one
+/// commit gave 2 libzuid.a files. A root module is analyzed on the main thread.
+/// The settings copy Zig 0.17.0's buildOutputFromZig in src/Compilation.zig,
+/// and a release build's object matches Zig's own but for those names. A Debug
+/// one lacks the valgrind hint in __clear_cache. EscFGGR checks the names.
+/// Revisit if Zig fixes ziglang/zig#24116 on GitHub.
+fn compilerRt(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.Optimize) *std.Build.Step.Compile {
+    const crt = b.addObject(.{
+        .name = "compiler_rt",
+        .root_module = b.createModule(.{
+            .root_source_file = std.Build.LazyPath.zig_lib.path(b, "compiler_rt.zig"),
+            .target = target,
+            .optimize = switch (optimize) {
+                .debug, .safe => .fast,
+                else => optimize,
+            },
+            .link_libc = true,
+            .stack_check = false,
+            .stack_protector = false,
+            .no_builtin = true,
+            .error_tracing = false,
+        }),
+        .use_llvm = true,
+    });
+    crt.link_function_sections = true;
+    crt.link_data_sections = true;
+    return crt;
 }
 
 /// Where the target's Wasmtime C API is vendored. vendor/wasmtime is the build

@@ -1313,6 +1313,26 @@ fStage_Zig(){
 		fi
 		fTestPass
 	fi
+	## Zig numbers a value interned off the main thread with the thread's number
+	## in the top bits, and a worker thread is whichever was free. Below 2^20 is
+	## the main thread on any machine with up to 4096 threads.
+	fId EscFGGR "libzuid.a's __anon_N names carry no compiler thread number"
+	if ! command -v nm >/dev/null 2>&1; then
+		fTestSkip "no nm"
+	else
+		local anonScan="" anonCount="" anonBad="" anonExample=""
+		anonScan="$(nm "${zigDir}/zig-out/lib/libzuid.a" 2>/dev/null | awk '
+			match($NF, /__anon_[0-9]+$/) { n++; v = substr($NF, RSTART + 7) + 0; if (v >= 1048576) { bad++; ex = $NF } }
+			END { printf "%d %d %s", n, bad, ex }' || true)"
+		read -r anonCount anonBad anonExample <<< "${anonScan}"
+		if [[ "${anonCount}" == "0" ]]; then
+			fTestSkip "no __anon_N names in libzuid.a, so Zig names them some other way now"
+		elif [[ "${anonBad}" != "0" ]]; then
+			fTestFail "${anonBad} of ${anonCount} names were made off the main thread, such as ${anonExample}, so 2 cold builds can differ. See compilerRt in build.zig."
+		else
+			fTestPass
+		fi
+	fi
 	## Run by hand rather than through 'zig build test', whose runner reports
 	## only a count. Its stderr is not a terminal here, so it names every test.
 	if [[ -n "$(command -v python3 2>/dev/null || true)" ]]; then
