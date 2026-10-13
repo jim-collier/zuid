@@ -66,11 +66,14 @@ fConfig(){ :;
 	## own package, plus the zstd package that build calls. The FreeBSD 14 repo,
 	## so the release runs on 14 and later. A repo drops a package's file when it
 	## moves on to a new build, and the fetch then 404s: repin from the repo's
-	## packagesite. Linux vendors these under --package, which releases FreeBSD.
+	## packagesite. A rebuild of the same version is a new file too, with a new
+	## hash. The packagesite's sum is pkg's own checksum, not the file's sha256,
+	## so take the hash from the download. Linux vendors these under --package,
+	## which releases FreeBSD.
 	default_freebsdRepo="https://pkg.freebsd.org/FreeBSD:14:amd64/quarterly"
 	default_freebsdPkgs=(
-		"libwasmtime-45.0.0_1=6ccbb278a884e666b44be96f82ec6a27a1abc81a7497211af1b69eee8b649bc3"
-		"zstd-1.5.7_2=c6f339787fa2883ea4d0d5f3b8d100f8bf7a43e55b7c671824eb0f6a22d9371a"
+		"libwasmtime-49.0.1=95ee2302088ccbb697428bf03e90e79d2636e3da2869be1ceebafa2534f40d74"
+		"zstd-1.5.7_2=ff165cf61fcbe6a225636f51b083898a06ce2ca8bb9fcb2e956acced617c4c26"
 	)
 
 	## The reactor wasm module is built from this package, which go.mod pins to
@@ -78,8 +81,13 @@ fConfig(){ :;
 	## of the conversion library.
 	default_reactorPackage="github.com/jim-collier/convert-base-v2/lib/reactor"
 
-	## Where dogfooding puts the binary. First existing directory wins.
-	default_dogfoodDirs=("${HOME}/synced/0-0/common/exec/util/linux/bash" "${HOME}/.local/bin" "${HOME}/bin")
+	## Where dogfooding puts the binary. First existing directory wins. Every Linux
+	## x86_64 box runs zuid from the synced dir, and it syncs to the Mac and the
+	## arm64 VM too, so only a Linux x86_64 build goes there.
+	default_dogfoodDirs=("${HOME}/.local/bin" "${HOME}/bin")
+	if [[ "$(uname -s)-$(uname -m)" == "Linux-x86_64" ]]; then
+		default_dogfoodDirs=("${HOME}/synced/0-0/common/exec/util/linux/bash" "${default_dogfoodDirs[@]}")
+	fi
 
 	## Extra rar excludes for the backup, one per line, on top of the helper's generic
 	## list (.zig-cache, zig/vendor, the 'repo' link etc). The panoplia audit dirs are
@@ -1282,7 +1290,25 @@ fStage_Zig(){
 
 	## ReleaseSafe is what would ship; the vectors replay through it too.
 	## zig wants the count attached to the flag, not as a separate word.
-	zig build "-j${buildJobs}" -Doptimize=ReleaseSafe
+	## On Linux the command is built for package.bash's target, not this CPU,
+	## since dogfood copies it into a dir other machines run from. One built
+	## for the build machine's CPU died on the first hash on a CPU without SHA-NI.
+	local -a shipTarget=()
+	if [[ "$(uname -s)" == "Linux" ]]; then shipTarget=("-Dtarget=$(uname -m)-linux-gnu.2.28"); fi
+	zig build "-j${buildJobs}" -Doptimize=ReleaseSafe "${shipTarget[@]}"
+	fId EsXcjyV "the command dogfood installs uses no AVX in code built here"
+	if [[ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]]; then
+		fTestSkip "only a Linux x86_64 build goes to the synced dir"
+	elif ! command -v objdump >/dev/null 2>&1; then
+		fTestSkip "no objdump"
+	else
+		local dogfoodAvx=""
+		dogfoodAvx="$(fAvxScan "${zigDir}/zig-out/bin/zuid")"
+		if [[ "${dogfoodAvx%% *}" != "0" ]]; then
+			fTestFail "${dogfoodAvx%% *} functions use AVX, such as ${dogfoodAvx#* }. The Zig stage has to name a target."
+		fi
+		fTestPass
+	fi
 	## Run by hand rather than through 'zig build test', whose runner reports
 	## only a count. Its stderr is not a terminal here, so it names every test.
 	if [[ -n "$(command -v python3 2>/dev/null || true)" ]]; then

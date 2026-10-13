@@ -40,6 +40,49 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ## Issues
 
+- The dogfood install puts a build for the build machine's CPU in the synced dir.
+	- ID: 2026101218531694
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Priority|Severity [Bug]: High
+	- Opened: 20261012-185316
+	- Opened by: JC
+	- Related IDs: 2026093018112406
+	- Target OS: Linux
+	- Steps to reproduce [Bug]:
+		- Run a full `cicd.bash` on a newer x86_64 box. Run `zuid -f %u` from the synced dir on one without SHA-NI, such as an i7-6600U.
+	- Incorrect behavior [Bug]: Illegal instruction, in Zig's SHA-256, on the first hash. Anything with no hashing in it still works.
+	- Expected behavior [Bug]: Whatever the synced dir holds runs on every x86_64 box that reads it.
+	- Reproduced [Bug]: Yes, on b28l. `v1.0.0-alpha.1` does the same, since it came before 2026093018112406.
+	- Actual cause [Bug]:
+		- 2026093018112406 named a target in `package.bash` only. The Zig stage's own build, which dogfood copies, still targets the host CPU.
+		- The synced dir is first in the dogfood list on any OS, and it syncs to the Mac and the arm64 VM too.
+	- Actual fix [Bug]: On Linux the Zig stage builds the command for `package.bash`'s target. Only a Linux x86_64 run puts it in the synced dir; others start at `~/.local/bin`.
+	- Branch: dogfoodcpu
+	- Test case: EsXcjyV, the AVX scan on the build dogfood copies. Failed on a build for the host: 235 functions used AVX.
+
+- FreeBSD packaging fails: the pinned Wasmtime package is gone from the repo.
+	- ID: 2026101218572197
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20261012-185721
+	- Opened by: JC
+	- Related IDs: 2026100413383571
+	- Target OS: FreeBSD
+	- Steps to reproduce [Bug]:
+		- `cicd.bash --package` on Linux.
+	- Incorrect behavior [Bug]: `libwasmtime-45.0.0_1` 404s from the FreeBSD 14 quarterly repo, and the Zig stage stops.
+	- Expected behavior [Bug]: The FreeBSD release builds.
+	- Reproduced [Bug]: Yes, 20261012.
+	- Actual cause [Bug]:
+		- The repo moved on to libwasmtime 49.0.1. zstd is still 1.5.7_2, but a rebuild, with a new hash.
+	- Actual fix [Bug]: Repinned both. The repo's catalog sum is no longer the file's sha256, so the hashes are taken from the downloads, and the comment above the pins says so.
+	- Decisions:
+		- The FreeBSD release now builds against Wasmtime 49, the other platforms against 47.0.3.
+	- Branch: dogfoodcpu
+	- Test case: The FreeBSD checks under `--package`, ErlUUiQ to ErlUUiU. Not run on FreeBSD itself.
+
 - The C module keeps some choices per call and some on the context.
 	- ID: 2026100519343982
 	- Type: Enhancement
