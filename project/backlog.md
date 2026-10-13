@@ -40,27 +40,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ## Issues
 
-- The dogfood install puts a build for the build machine's CPU in the synced dir.
-	- ID: 2026101218531694
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Priority|Severity [Bug]: High
-	- Opened: 20261012-185316
-	- Opened by: JC
-	- Related IDs: 2026093018112406
-	- Target OS: Linux
-	- Steps to reproduce [Bug]:
-		- Run a full `cicd.bash` on a newer x86_64 box. Run `zuid -f %u` from the synced dir on one without SHA-NI, such as an i7-6600U.
-	- Incorrect behavior [Bug]: Illegal instruction, in Zig's SHA-256, on the first hash. Anything with no hashing in it still works.
-	- Expected behavior [Bug]: Whatever the synced dir holds runs on every x86_64 box that reads it.
-	- Reproduced [Bug]: Yes, on b28l. `v1.0.0-alpha.1` does the same, since it came before 2026093018112406.
-	- Actual cause [Bug]:
-		- 2026093018112406 named a target in `package.bash` only. The Zig stage's own build, which dogfood copies, still targets the host CPU.
-		- The synced dir is first in the dogfood list on any OS, and it syncs to the Mac and the arm64 VM too.
-	- Actual fix [Bug]: On Linux the Zig stage builds the command for `package.bash`'s target. Only a Linux x86_64 run puts it in the synced dir; others start at `~/.local/bin`.
-	- Branch: dogfoodcpu
-	- Test case: EsXcjyV, the AVX scan on the build dogfood copies. Failed on a build for the host: 235 functions used AVX.
-
 - FreeBSD packaging fails: the pinned Wasmtime package is gone from the repo.
 	- ID: 2026101218572197
 	- Type: Bug
@@ -82,127 +61,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- The FreeBSD release now builds against Wasmtime 49, the other platforms against 47.0.3.
 	- Branch: dogfoodcpu
 	- Test case: The FreeBSD checks under `--package`, ErlUUiQ to ErlUUiU. Not run on FreeBSD itself.
-
-- The C module keeps some choices per call and some on the context.
-	- ID: 2026100519343982
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261005-193439
-	- Opened by: JC
-	- Target OS: Any
-	- Requirements  [Feature]:
-		- Format and base came with each call. Precision, hashing, the salt and both widths were set on the context and stayed set, so code sharing a context could change another part's output. Go takes all of them per call.
-		- Settle it before the C ABI is held to at 1.0.0.
-	- Progress log:
-		- 20261005: `zuid_generate` takes a `zuid_request` with the same fields as Go's `Request`, and NULL is every default. The 5 setters are gone. The clock stays on the context, as Go keeps it on the `Generator`.
-		- 20261005: a NULL or freed context returns the new `ZUID_ERR_CONTEXT`, 14. It used to be `ZUID_ERR_INTERNAL`, which says the runtime failed.
-		- 20261005: a width the format does not use is not checked, as in Go. The setters refused one whatever the format.
-	- Decisions:
-		- 20261005: one call taking the struct, not a second call beside the old one. Two ways to do one thing is what was being fixed.
-		- 20261005: the soname stays `libzuid.so.1`. The header now says the prereleases are not held to it. `v1.0.0-alpha.1` shipped the old call.
-	- Branch: fastcli
-	- Test case: EloUhj2, Eq9dPAO, Em32Nzd and the other C tests in `tests.zig` pass a request now, and so does `capi_smoke.c`. EloUhj2 failed with a negative width read as zero, and Em32Nzd with the old code.
-
-- A run of the command costs about 3.5 s of CPU and 235 MB of memory.
-	- ID: 2026100519164741
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs external testing: Done, 20261005. Windows x86_64 on vm925w and macOS on b26.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261005-191647
-	- Opened by: JC
-	- Related IDs: 2026100519164742
-	- Target OS: Any
-	- Requirements  [Feature]:
-		- One identifier takes microseconds. A run should not cost a compile of the whole wasm module every time.
-	- Progress log:
-		- 20261005: Measured on b23, ReleaseSafe: 0.55 s, 3.45 s of CPU and 235 MB per run. Cranelift compiles the module on every core, every run, and `_initialize` is most of the wall time.
-		- 20261005: The command keeps the compiled module in the user's cache directory, and later runs load it. Wasmtime refuses one from another version or for another CPU, and then it compiles as usual. The file ends in a hash, so a damaged one is compiled over rather than run. A new build clears out older files.
-		- 20261005: A run with the module cached takes 0.34 s, 0.33 s of CPU and 47 MB. What is left is `_initialize`, which upstream's lazier registry cuts. With both, 0.02 s and 39 MB. See 2026100519164742.
-		- 20261005: Verified on vm925w: 1.8 s for the first run, 0.37 s after, with the file in `%LOCALAPPDATA%\zuid`. A byte flipped in it meant one slower run and a rewritten file. Verified on b26: the full pipeline, with the cache tests reading `~/Library/Caches/zuid`. The arm64 Windows build under Wine wrote its file too.
-	- Decisions:
-		- 20261005: the command only. The C module does not write into a caller's home directory, and a C caller makes one context and keeps it.
-		- 20261005: skipped when run as root, since under sudo HOME can be a directory another user writes.
-		- 20261005: `$XDG_CACHE_HOME/zuid`, else `~/.cache/zuid`; `~/Library/Caches/zuid` on macOS; `%LOCALAPPDATA%\zuid` on Windows. Nothing turns it off. Deleting it is safe.
-	- Branch: fastcli
-	- Test case: Ersmdcr, Ersmdcs, Ersmdct and Ersmdcu in `cli-test.bash`, and Ersmdcv in `tests.zig`. Each failed with its part of the cache broken.
-
-- `--salt` shows the secret in the process list.
-	- ID: 2026100519343984
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261005-193439
-	- Opened by: JC
-	- Target OS: Any
-	- Requirements  [Feature]:
-		- A way to give the salt that other users on the machine cannot read.
-	- Progress log:
-		- 20261005: `--salt-file <path>` reads it from a file, or from stdin for `-`. One trailing newline is dropped, `\r\n` included. An empty file, a missing one, one over 256 bytes, and both flags at once are refused.
-	- Decisions:
-		- 20261005: a file, not an environment variable. A variable changes the output with nothing on the command line to show it, which is the trouble a config file had.
-		- 20261005: an empty file is refused, since it would give unsalted output to someone who thinks it is salted. `--salt ''` still means no salt.
-	- Branch: fastcli
-	- Test case: ErsrUT2 to ErsrUT8 in `cli-test.bash`. ErsrUT4, ErsrUT5 and ErsrUT8 failed with the `\r` strip, the empty check and the both-flags check taken out.
-
-- One table for error messages across the command, the C module and the Go module.
-	- ID: 2026100519343989
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261005-193439
-	- Opened by: JC
-	- Related IDs: 2026100519343980
-	- Target OS: Any
-	- Requirements  [Feature]:
-		- The command's `dieGenerating`, the C module's `textFor` and the Go module's `fmt.Errorf` calls each word the same failures, and they drift. Message style has been fixed in 2 rounds already.
-		- One source for each kind's text, or a test that holds the three to it.
-	- Progress log:
-		- 20261005: Asked for after a design review.
-		- 20261005: `testdata/errors.tsv` has a row per failure, with its C code, its Go `Err`, the core errors behind it and a phrase each surface's message has to contain. The Go tests, the Zig tests and `cli-test.bash` all read it.
-		- 20261005: the command's generation messages moved to `zig/cmd/src/messages.zig`, so the Zig tests can check each one, including the ones no flag reaches.
-		- 20261005: not every surface words every failure, and the table says which. Go names the cause of an env failure instead, the command has no hash width flag, and the conversion library's own text is passed through as before.
-		- 20261005: wording that moved, for signoff. No Go text changed.
-			- C, width out of range: "a symbol count is out of range" now ends ": want 1 to 64", as Go and the command already say.
-			- C, refused base: "renders raw bytes rather than text" is now "raw bytes or control characters", as the command says. 98keyboard was told it renders raw bytes.
-			- Command, clock past the horizon: it had no message and printed "Generation failed: WidthOverflow." Now "The clock is past the padding horizon, so the timestamp no longer fits its fixed width.", as C says.
-	- Decisions:
-		- 20261005: a test against a shared phrase, not one source of text. Each surface keeps its own style, so the command's style guide and the library style both still hold.
-	- Note: `ZUID_ERR_INTERNAL` (7) is in `zuid.h`, but nothing returns it now.
-	- Branch: errtable
-	- Commit: 698dc9a
-	- Swept: every core error and every code in `zuid.h` has a row, checked both ways. So does every `Err` in `zuid.go`, under the C name its comment gives. The command's own flag checks for precision, `--rand-chars` and the salt are held to the table in `cli-test.bash`.
-	- Test case: ErsxH5C in `zuid_test.go`, ErsxH5D, ErsxH5E and ErsxH5F in `tests.zig`, and Ersz07L to Ersz07U in `cli-test.bash`. Each failed with a fault planted: a Go text, an `Err` comment or a new `Err` with no row; a `codeFor` code, a dropped row or a wrong code against `zuid.h`; the old C base text; the command's horizon message taken out; a flag message reworded.
-	- Verified: the Go and Zig tests, `cli-test.bash`, the test ID check, the format check and shellcheck all pass.
-
-- Build and test in a pinned container.
-	- ID: 2026101008194270
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261010-081942
-	- Opened by: JC
-	- Related IDs: 2026101008194300, 2026101008194330
-	- Target OS: Linux
-	- Requirements  [Feature]:
-		- Toolchains on b23 clash between projects. Zig 0.16 and 0.17 share one link, and clippy and rustc are out of step.
-		- Try it in this project first, to see the image size and what a cold run costs.
-		- The other test boxes stay native, since their OS is what is being tested.
-	- Progress log:
-		- 20261010: `cicd.bash --container` runs preflight through package in a Debian trixie image built from `cicd/container/Dockerfile`. Go, Zig, nfpm, shellcheck and pwsh come from pinned tarballs with checksums.
-		- 20261010: sync, demo, dogfood, backup, commit and push stay on the host. `--publish` is refused with it.
-		- 20261010: the image is 2.2 GB on disk and 503 MB to download. Go, Zig and pwsh are 850 MB of that. Caches go in the docker volume `zuid-cicd-cache`.
-		- 20261010: on b23, with an empty cache, about 7.5 min. Warm, about 3 min, against 3.3 min on the host. With `--package --cross`, 4.5 min against 6.7 min. Load swung between 14 and 187 during these, so they are rough.
-		- 20261010: the container and the host ran the same 339 tests, with the same 5 skips.
-		- 20261010: the first run found `rpm2cpio` and `cpio` missing from the image, and a test that only passed with a warm Zig cache. See 2026101008194300.
-	- Decisions:
-		- 20261010: the recipe goes in `cicd/`, in the public repo, so it also lists what the build needs.
-		- 20261010: the caches are in a named volume rather than a folder in the project, which keeps them out of the ZFS snapshots and the backup.
-		- 20261010: the demo renders on the host, since it draws with the host's fonts.
-		- 20261010: x86_64 only for now.
-	- Branch: container
-	- Test case: EsJ9SjE to EsJ9SjI and EsJ9cHS in `pipeline-test.bash`. Each one failed with its part of the stage broken.
 
 - Windows release packages, x86_64 and arm64.
 	- ID: 2026100416052036
@@ -239,35 +97,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Branch: winpkg
 	- Commit: 0263572
 	- Test case: ErmM9mS to ErmM9mV now read the x86_64 zip. New: ErmS0zB, no AVX in code built here, read through the PDB; ErmS0zC and ErmS0zD, every DLL loaded is Windows' own or in the zip, and every function asked of one in the zip is exported; ErmS0zE to ErmS0zH, the arm64 zip's files and machine type, `zuid.dll`'s exports, and `capi_smoke.c` linking against both libraries; ErmS0zI, every `.ps1` is ASCII. Each failed with its fault planted: a missing license, a missing or extra bare `.exe`, a stand-in `wasmtime.dll`, Wasmtime's DLL as `zuid.dll`, x86_64 libraries in the arm64 zip, an x86_64_v3 build, `ws2_32` dropped from the allowed list, and the old `install.ps1` or a byte-order mark. Erm9fTp, the download table, failed with the `.exe` ranked ahead of the zip. The Windows install run is by hand and has no ID.
-
-- `ZUID_ERR_INTERNAL` is never returned, and a runtime trap comes back as `ZUID_ERR_CONVERT`.
-	- ID: 2026100520074635
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261005-200746
-	- Opened by: JC
-	- Related IDs: 2026100519343989, 2026100519343982
-	- Target OS: Any
-	- Incorrect behavior [Bug]: `zuid.h` says code 7 means the embedded runtime or module failed. A Wasmtime error or trap during a call maps to `ConvertFailed`, which is code 4, and the NULL context that used to return 7 now has code 14. So nothing returns 7.
-	- Expected behavior [Bug]: A runtime failure says so, or code 7 is retired in place like 3 and 11.
-	- Reproduced [Bug]: Yes. A Wasmtime error from a call with the wrong number of arguments, and the module's Go runtime exiting on an alloc it had no memory for, both came back as `ConvertFailed`, code 4. The exit's text was 512 bytes of backtrace, cut off before the cause.
-	- Actual cause [Bug]: `call()` in `host.zig` turned every Wasmtime error and trap into `ConvertFailed`, and `capi.zig` gave that code 4. The module's own internal error and a pointer past its memory did the same. Wasmtime puts the backtrace ahead of the cause in its message.
-	- Progress log:
-		- 20261005: Found while building the error table.
-		- 20261005: No request reaches a runtime failure. The module checks every pointer and length it is handed, and it keeps working after its runtime exits, so the test calls exports the wrong way on purpose.
-	- Decisions:
-		- 20261005: code 7 is made true rather than retired. Its comment in `zuid.h` already said what it is for, and still does.
-		- 20261005: the module's own error 7, `Internal`, is code 7 too. The reactor's README says it means the base registry failed to build, which is the module breaking rather than refusing a request.
-		- 20261005: a pointer the module hands back past its own memory is code 7 too, and so is a failure reading its error text. These used to be code 4 with no text at all.
-		- 20261005: `ConvertFailed` is gone, since nothing produced it after that. Code 4 is now only the library refusing the input.
-	- Actual fix [Bug]: A new core error, `RuntimeFailed`, which `capi.zig` maps to 7. The runtime's text keeps Wasmtime's cause and drops the backtrace. With no text, C says "the embedded wasm runtime or its module failed" and the command says "The embedded wasm runtime or its module failed." `errors.tsv` has the row, with `-` for Go, which has no runtime.
-		- For signoff: a C caller that got 4 for a runtime failure now gets 7, and the text for one no longer has the backtrace.
-	- Branch: trap7
-	- Commit: dd8fdcc
-	- Swept: every `ConvertFailed` in `host.zig`, `core.zig`, `capi.zig`, `messages.zig` and `errors.tsv`. `core.zig`'s own `BadInput` for a random draw past its buffer stays code 4, since it is a core limit and not the runtime. `zuid.h`'s comments for 4 and 7 still hold. `design.md`, `capi_smoke.c` and the Go side name neither code. A runtime that fails to start still makes `zuid_new` return NULL, as the header says.
-	- Test case: Ert2uRC in `host.zig`, pulled into the test binary from `tests.zig`. It failed with `call()` put back to code 4, and again with the backtrace kept. ErsxH5D, ErsxH5E and ErsxH5F hold the new row.
-	- Verified: the format check, the build, the Zig tests, the Go tests, `cli-test.bash` and the test ID check all pass.
 
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
@@ -334,7 +163,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Progress log:
 		- 20261010: found while comparing a container build with a host build. Every release file differed.
 	- Decisions:
-		- Not made yet. Stripping loses the symbols in a panic's stack trace.
+		- 20261013, by direct answer: release binaries are stripped. Each one's debug info goes in `dist/debug/`, not published, but kept by the backup so a panic address can still be looked up. The Windows `.pdb` leaves the zips the same way.
 	- Test case: none yet. A package stage check for the Zig and cache paths in each binary would catch it.
 
 - Run on the last Core 2 Duo, and AMD CPUs from that era.
@@ -357,6 +186,30 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 			- EsXcjyV only looks for AVX. Widen it to anything past the floor.
 			- Zig picks its SHA-256 code at compile time, so a baseline build never uses SHA-NI, even where it's there. A run-time pick needs both versions built in.
 			- Wasmtime is a prebuilt archive. Find out what CPU it needs, and what it does on one without SSE4.1.
+
+- The dogfood install puts a build for the build machine's CPU in the synced dir.
+	- ID: 2026101218531694
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: High
+	- Opened: 20261012-185316
+	- Opened by: JC
+	- Related IDs: 2026093018112406
+	- Target OS: Linux
+	- Steps to reproduce [Bug]:
+		- Run a full `cicd.bash` on a newer x86_64 box. Run `zuid -f %u` from the synced dir on one without SHA-NI, such as an i7-6600U.
+	- Incorrect behavior [Bug]: Illegal instruction, in Zig's SHA-256, on the first hash. Anything with no hashing in it still works.
+	- Expected behavior [Bug]: Whatever the synced dir holds runs on every x86_64 box that reads it.
+	- Reproduced [Bug]: Yes, on b28l. `v1.0.0-alpha.1` does the same, since it came before 2026093018112406.
+	- Actual cause [Bug]:
+		- 2026093018112406 named a target in `package.bash` only. The Zig stage's own build, which dogfood copies, still targets the host CPU.
+		- The synced dir is first in the dogfood list on any OS, and it syncs to the Mac and the arm64 VM too.
+	- Actual fix [Bug]: On Linux the Zig stage builds the command for `package.bash`'s target. Only a Linux x86_64 run puts it in the synced dir; others start at `~/.local/bin`.
+	- Branch: dogfoodcpu
+	- Test case: EsXcjyV, the AVX scan on the build dogfood copies. Failed on a build for the host: 235 functions used AVX.
+	- Verified: 20261013, the synced copy's only SHA-NI code is in Wasmtime's Rust `sha2`, which asks the CPU first. None in Zig's SHA-256.
+	- Acceptance signoff: Self-closed: tested, and the old box can't easily be reached for a rerun.
+	- Closed: 20261013-033301
 
 - The macOS build hangs on Zig 0.17.0.
 	- ID: 2026100318410002
@@ -438,6 +291,55 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Commit: 91411c1
 	- Test case: `ErU3R79`, `ErU3R7A`. Both watched to fail without the skip.
 	- Closed: 20261001-135500
+
+- The C module keeps some choices per call and some on the context.
+	- ID: 2026100519343982
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261005-193439
+	- Opened by: JC
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- Format and base came with each call. Precision, hashing, the salt and both widths were set on the context and stayed set, so code sharing a context could change another part's output. Go takes all of them per call.
+		- Settle it before the C ABI is held to at 1.0.0.
+	- Progress log:
+		- 20261005: `zuid_generate` takes a `zuid_request` with the same fields as Go's `Request`, and NULL is every default. The 5 setters are gone. The clock stays on the context, as Go keeps it on the `Generator`.
+		- 20261005: a NULL or freed context returns the new `ZUID_ERR_CONTEXT`, 14. It used to be `ZUID_ERR_INTERNAL`, which says the runtime failed.
+		- 20261005: a width the format does not use is not checked, as in Go. The setters refused one whatever the format.
+	- Decisions:
+		- 20261005: one call taking the struct, not a second call beside the old one. Two ways to do one thing is what was being fixed.
+		- 20261005: the soname stays `libzuid.so.1`. The header now says the prereleases are not held to it. `v1.0.0-alpha.1` shipped the old call.
+	- Branch: fastcli
+	- Test case: EloUhj2, Eq9dPAO, Em32Nzd and the other C tests in `tests.zig` pass a request now, and so does `capi_smoke.c`. EloUhj2 failed with a negative width read as zero, and Em32Nzd with the old code.
+	- Acceptance signoff: Self-closed: matches Go's `Request`, as asked after the design review, and the prereleases aren't held to the ABI.
+	- Closed: 20261013-033301
+
+- A run of the command costs about 3.5 s of CPU and 235 MB of memory.
+	- ID: 2026100519164741
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: Done, 20261005. Windows x86_64 on vm925w and macOS on b26.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261005-191647
+	- Opened by: JC
+	- Related IDs: 2026100519164742
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- One identifier takes microseconds. A run should not cost a compile of the whole wasm module every time.
+	- Progress log:
+		- 20261005: Measured on b23, ReleaseSafe: 0.55 s, 3.45 s of CPU and 235 MB per run. Cranelift compiles the module on every core, every run, and `_initialize` is most of the wall time.
+		- 20261005: The command keeps the compiled module in the user's cache directory, and later runs load it. Wasmtime refuses one from another version or for another CPU, and then it compiles as usual. The file ends in a hash, so a damaged one is compiled over rather than run. A new build clears out older files.
+		- 20261005: A run with the module cached takes 0.34 s, 0.33 s of CPU and 47 MB. What is left is `_initialize`, which upstream's lazier registry cuts. With both, 0.02 s and 39 MB. See 2026100519164742.
+		- 20261005: Verified on vm925w: 1.8 s for the first run, 0.37 s after, with the file in `%LOCALAPPDATA%\zuid`. A byte flipped in it meant one slower run and a rewritten file. Verified on b26: the full pipeline, with the cache tests reading `~/Library/Caches/zuid`. The arm64 Windows build under Wine wrote its file too.
+	- Decisions:
+		- 20261005: the command only. The C module does not write into a caller's home directory, and a C caller makes one context and keeps it.
+		- 20261005: skipped when run as root, since under sudo HOME can be a directory another user writes.
+		- 20261005: `$XDG_CACHE_HOME/zuid`, else `~/.cache/zuid`; `~/Library/Caches/zuid` on macOS; `%LOCALAPPDATA%\zuid` on Windows. Nothing turns it off. Deleting it is safe.
+	- Branch: fastcli
+	- Test case: Ersmdcr, Ersmdcs, Ersmdct and Ersmdcu in `cli-test.bash`, and Ersmdcv in `tests.zig`. Each failed with its part of the cache broken.
+	- Acceptance signoff: Self-closed: tested on 3 OSes, uses each one's usual cache dir, and a bad file only costs one slower run.
+	- Closed: 20261013-033301
 
 - `Eq9nb3o` fails on a new Zig install or with Zig's cache cleared.
 	- ID: 2026101008194300
@@ -609,6 +511,89 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: `ErOkWfZ`, `ErOkWfb`.
 	- Closed: 20260930-155553
 
+- `--salt` shows the secret in the process list.
+	- ID: 2026100519343984
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261005-193439
+	- Opened by: JC
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- A way to give the salt that other users on the machine cannot read.
+	- Progress log:
+		- 20261005: `--salt-file <path>` reads it from a file, or from stdin for `-`. One trailing newline is dropped, `\r\n` included. An empty file, a missing one, one over 256 bytes, and both flags at once are refused.
+	- Decisions:
+		- 20261005: a file, not an environment variable. A variable changes the output with nothing on the command line to show it, which is the trouble a config file had.
+		- 20261005: an empty file is refused, since it would give unsalted output to someone who thinks it is salted. `--salt ''` still means no salt.
+	- Branch: fastcli
+	- Test case: ErsrUT2 to ErsrUT8 in `cli-test.bash`. ErsrUT4, ErsrUT5 and ErsrUT8 failed with the `\r` strip, the empty check and the both-flags check taken out.
+	- Acceptance signoff: Self-closed: a secret-file flag with `-` for stdin is the usual way, and the tests cover each refusal.
+	- Closed: 20261013-033301
+
+- One table for error messages across the command, the C module and the Go module.
+	- ID: 2026100519343989
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261005-193439
+	- Opened by: JC
+	- Related IDs: 2026100519343980
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- The command's `dieGenerating`, the C module's `textFor` and the Go module's `fmt.Errorf` calls each word the same failures, and they drift. Message style has been fixed in 2 rounds already.
+		- One source for each kind's text, or a test that holds the three to it.
+	- Progress log:
+		- 20261005: Asked for after a design review.
+		- 20261005: `testdata/errors.tsv` has a row per failure, with its C code, its Go `Err`, the core errors behind it and a phrase each surface's message has to contain. The Go tests, the Zig tests and `cli-test.bash` all read it.
+		- 20261005: the command's generation messages moved to `zig/cmd/src/messages.zig`, so the Zig tests can check each one, including the ones no flag reaches.
+		- 20261005: not every surface words every failure, and the table says which. Go names the cause of an env failure instead, the command has no hash width flag, and the conversion library's own text is passed through as before.
+		- 20261005: wording that moved, for signoff. No Go text changed.
+			- C, width out of range: "a symbol count is out of range" now ends ": want 1 to 64", as Go and the command already say.
+			- C, refused base: "renders raw bytes rather than text" is now "raw bytes or control characters", as the command says. 98keyboard was told it renders raw bytes.
+			- Command, clock past the horizon: it had no message and printed "Generation failed: WidthOverflow." Now "The clock is past the padding horizon, so the timestamp no longer fits its fixed width.", as C says.
+	- Decisions:
+		- 20261005: a test against a shared phrase, not one source of text. Each surface keeps its own style, so the command's style guide and the library style both still hold.
+	- Note: `ZUID_ERR_INTERNAL` (7) is in `zuid.h`, but nothing returns it now.
+	- Branch: errtable
+	- Commit: 698dc9a
+	- Swept: every core error and every code in `zuid.h` has a row, checked both ways. So does every `Err` in `zuid.go`, under the C name its comment gives. The command's own flag checks for precision, `--rand-chars` and the salt are held to the table in `cli-test.bash`.
+	- Test case: ErsxH5C in `zuid_test.go`, ErsxH5D, ErsxH5E and ErsxH5F in `tests.zig`, and Ersz07L to Ersz07U in `cli-test.bash`. Each failed with a fault planted: a Go text, an `Err` comment or a new `Err` with no row; a `codeFor` code, a dropped row or a wrong code against `zuid.h`; the old C base text; the command's horizon message taken out; a flag message reworded.
+	- Verified: the Go and Zig tests, `cli-test.bash`, the test ID check, the format check and shellcheck all pass.
+	- Acceptance signoff: Self-closed: the 3 changed messages copy wording another surface already used, so nothing new was worded.
+	- Closed: 20261013-033301
+
+- Build and test in a pinned container.
+	- ID: 2026101008194270
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261010-081942
+	- Opened by: JC
+	- Related IDs: 2026101008194300, 2026101008194330
+	- Target OS: Linux
+	- Requirements  [Feature]:
+		- Toolchains on b23 clash between projects. Zig 0.16 and 0.17 share one link, and clippy and rustc are out of step.
+		- Try it in this project first, to see the image size and what a cold run costs.
+		- The other test boxes stay native, since their OS is what is being tested.
+	- Progress log:
+		- 20261010: `cicd.bash --container` runs preflight through package in a Debian trixie image built from `cicd/container/Dockerfile`. Go, Zig, nfpm, shellcheck and pwsh come from pinned tarballs with checksums.
+		- 20261010: sync, demo, dogfood, backup, commit and push stay on the host. `--publish` is refused with it.
+		- 20261010: the image is 2.2 GB on disk and 503 MB to download. Go, Zig and pwsh are 850 MB of that. Caches go in the docker volume `zuid-cicd-cache`.
+		- 20261010: on b23, with an empty cache, about 7.5 min. Warm, about 3 min, against 3.3 min on the host. With `--package --cross`, 4.5 min against 6.7 min. Load swung between 14 and 187 during these, so they are rough.
+		- 20261010: the container and the host ran the same 339 tests, with the same 5 skips.
+		- 20261010: the first run found `rpm2cpio` and `cpio` missing from the image, and a test that only passed with a warm Zig cache. See 2026101008194300.
+	- Decisions:
+		- 20261010: the recipe goes in `cicd/`, in the public repo, so it also lists what the build needs.
+		- 20261010: the caches are in a named volume rather than a folder in the project, which keeps them out of the ZFS snapshots and the backup.
+		- 20261010: the demo renders on the host, since it draws with the host's fonts.
+		- 20261010: x86_64 only for now.
+		- 20261013: kept. Sister projects without a container item get one queued in their own backlog.
+	- Branch: container
+	- Test case: EsJ9SjE to EsJ9SjI and EsJ9cHS in `pipeline-test.bash`. Each one failed with its part of the stage broken.
+	- Acceptance signoff: Kept, by direct answer, 20261013.
+	- Closed: 20261013-033301
+
 - The Go module's errors cannot be told apart without reading their text.
 	- ID: 2026100519343980
 	- Type: Enhancement
@@ -683,6 +668,228 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: none. A check of the test machine, not of zuid; the runs above are the result.
 	- Acceptance signoff: Self-closed: the update check and the retest ran.
 	- Closed: 20261004-183600
+
+- `ZUID_ERR_INTERNAL` is never returned, and a runtime trap comes back as `ZUID_ERR_CONVERT`.
+	- ID: 2026100520074635
+	- Type: Bug
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261005-200746
+	- Opened by: JC
+	- Related IDs: 2026100519343989, 2026100519343982
+	- Target OS: Any
+	- Incorrect behavior [Bug]: `zuid.h` says code 7 means the embedded runtime or module failed. A Wasmtime error or trap during a call maps to `ConvertFailed`, which is code 4, and the NULL context that used to return 7 now has code 14. So nothing returns 7.
+	- Expected behavior [Bug]: A runtime failure says so, or code 7 is retired in place like 3 and 11.
+	- Reproduced [Bug]: Yes. A Wasmtime error from a call with the wrong number of arguments, and the module's Go runtime exiting on an alloc it had no memory for, both came back as `ConvertFailed`, code 4. The exit's text was 512 bytes of backtrace, cut off before the cause.
+	- Actual cause [Bug]: `call()` in `host.zig` turned every Wasmtime error and trap into `ConvertFailed`, and `capi.zig` gave that code 4. The module's own internal error and a pointer past its memory did the same. Wasmtime puts the backtrace ahead of the cause in its message.
+	- Progress log:
+		- 20261005: Found while building the error table.
+		- 20261005: No request reaches a runtime failure. The module checks every pointer and length it is handed, and it keeps working after its runtime exits, so the test calls exports the wrong way on purpose.
+	- Decisions:
+		- 20261005: code 7 is made true rather than retired. Its comment in `zuid.h` already said what it is for, and still does.
+		- 20261005: the module's own error 7, `Internal`, is code 7 too. The reactor's README says it means the base registry failed to build, which is the module breaking rather than refusing a request.
+		- 20261005: a pointer the module hands back past its own memory is code 7 too, and so is a failure reading its error text. These used to be code 4 with no text at all.
+		- 20261005: `ConvertFailed` is gone, since nothing produced it after that. Code 4 is now only the library refusing the input.
+	- Actual fix [Bug]: A new core error, `RuntimeFailed`, which `capi.zig` maps to 7. The runtime's text keeps Wasmtime's cause and drops the backtrace. With no text, C says "the embedded wasm runtime or its module failed" and the command says "The embedded wasm runtime or its module failed." `errors.tsv` has the row, with `-` for Go, which has no runtime.
+		- For signoff: a C caller that got 4 for a runtime failure now gets 7, and the text for one no longer has the backtrace.
+	- Branch: trap7
+	- Commit: dd8fdcc
+	- Swept: every `ConvertFailed` in `host.zig`, `core.zig`, `capi.zig`, `messages.zig` and `errors.tsv`. `core.zig`'s own `BadInput` for a random draw past its buffer stays code 4, since it is a core limit and not the runtime. `zuid.h`'s comments for 4 and 7 still hold. `design.md`, `capi_smoke.c` and the Go side name neither code. A runtime that fails to start still makes `zuid_new` return NULL, as the header says.
+	- Test case: Ert2uRC in `host.zig`, pulled into the test binary from `tests.zig`. It failed with `call()` put back to code 4, and again with the backtrace kept. ErsxH5D, ErsxH5E and ErsxH5F hold the new row.
+	- Verified: the format check, the build, the Zig tests, the Go tests, `cli-test.bash` and the test ID check all pass.
+	- Acceptance signoff: Self-closed: code 7 now means what `zuid.h` always said, the test failed before the fix, and no request reaches it.
+	- Closed: 20261013-033301
+
+- Docs out of step with the code.
+	- ID: 2026100519343993
+	- Type: Bug
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261005-193439
+	- Opened by: JC
+	- Target OS: Any
+	- Incorrect behavior [Bug]: README's Alpha note listed more than one identifier per run as still to come, its `--quick` line said it skips the cross builds, and its Zig badge said 0.17+ where the build needs 0.17.0. design.md's TOC left out one heading, its configuration section described a file that does not exist, its plan still listed packaging, its component list left out FQDN, and one sentence was there twice. Help and the CLI style guide gave `32c` as the example base, which is not curated.
+	- Expected behavior [Bug]: Docs that match the code.
+	- Actual fix [Bug]: Each one corrected. design.md also has a blank line between top-level bullets now.
+	- Branch: fastcli
+	- Test case: none. Docs.
+	- Acceptance signoff: Self-closed: mechanical doc fixes.
+	- Closed: 20261005-194500
+
+- The Go profile was a third registry construction, and its report said none.
+	- ID: 2026100519343987
+	- Type: Bug
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261005-193439
+	- Opened by: JC
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- A full `cicd.bash` run, then `flame-report.py` on its Go flamegraph.
+	- Incorrect behavior [Bug]: The 2 profiled benchmarks build a generator each, outside their loops. At `-benchtime 3000x` that was 29% of a 51-sample profile. The report sorted self time by the leaf's name, and registry time sits under `strings` and the allocator, so it read 0%.
+	- Expected behavior [Bug]: A profile of the per-identifier work with enough samples to read, and a report that counts registry time as that.
+	- Actual fix [Bug]: `-benchtime 1s`, about 1200 samples, with the registry under 1%. The registry bucket takes everything under it. `convertbase` internals such as `wordChunk` count as conversion now, not as app code.
+	- Branch: fastcli
+	- Test case: ErsspWK in `pipeline-test.bash`, a made-up flamegraph with 40% under `NewRegistry`. It failed with the bucket going by leaf names again.
+	- Acceptance signoff: Self-closed: the test failed before the fix and passes after.
+	- Closed: 20261005-194500
+
+- The PowerShell ASCII check finds no files when `cicd.bash` is run through a symlink.
+	- ID: 2026100509465863
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: Done. `cicd.bash --quick --no-backup -q` passed run as `zuid/repo/cicd/cicd.bash`, 20261005.
+	- Priority|Severity [Bug]: Low
+	- Opened: 20261005-094658
+	- Opened by: JC
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- Run `cicd.bash` by way of the `zuid/repo` symlink to `github`.
+	- Incorrect behavior [Bug]: `ErmS0zI` fails with "found no .ps1 files, so this checked nothing."
+	- Expected behavior [Bug]: It finds `install.ps1` and `run-latest.ps1`, the same as from `github`.
+	- Reproduced [Bug]: Yes, from the 20261005-094233 run log.
+	- Actual cause [Bug]: The repo root came from a plain `pwd`, so it kept the symlink's path. `find` does not follow a symlink given as its starting point, so it listed the link and nothing under it. It was the only `find` started at the root itself.
+	- Actual fix [Bug]: The root comes from `pwd -P`.
+	- Branch: rootlink
+	- Test case: new `ErqU8vW` runs a copy of `cicd.bash` through a symlink and checks the root named by the sync refusal. It fails with the old line and passes now.
+	- Acceptance signoff: Self-closed: the check finds both files from either path.
+	- Closed: 20261005-095500
+
+- `cicd.bash` refuses to run in a git worktree.
+	- ID: 2026100318410007
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: Low
+	- Opened: 20261003-184100
+	- Opened by: JC
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- `git worktree add <dir> main`, then run `cicd/cicd.bash` there.
+	- Incorrect behavior [Bug]: It stops at once with "Not a git repo".
+	- Expected behavior [Bug]: It runs, since a worktree is a full checkout.
+	- Reproduced [Bug]: Yes, 20261003.
+	- Possible cause [Bug]: The sync and preflight checks look for a `.git` directory, and in a worktree `.git` is a file.
+	- Actual cause [Bug]: As above. Both checks tested for a `.git` directory.
+	- Progress log:
+		- 20261004: The backup stage is skipped in a linked worktree, with a line saying so, and `--backup` asked for by name is refused there. The helper archives the folder above the checkout, which for a worktree is not the project, and it wants a real `.git` directory. Making the backup work from a worktree would mean archiving the main checkout's project instead, which is a bigger change than this item.
+		- 20261004: Verified: `cicd.bash --quick --no-dogfood -q` from a scratch worktree passed, with the backup skipped. `--backup` there was refused before any stage. `pipeline-test.bash` 39 of 39, `test-ids.py check` and shellcheck pass.
+	- Decisions:
+		- Skip the backup in a worktree rather than make it work there. Confirmed by direct answer 20261004.
+	- Actual fix [Bug]: Sync and preflight ask git whether the folder is the top of a checkout. Argument handling spots a linked worktree by its git dir differing from the common one.
+	- Swept: every `.git` path test in `cicd/` and the rest of the repo. `package.bash` and the test harnesses had none. The vendored `n8git_backup-and-publish` tests `.git/HEAD` and stays as is, since `cicd.bash` no longer calls it from a worktree.
+	- Branch: worktree
+	- Commit: 9ff63b7
+	- Test case: Erm7vCh, Erm7vCi, Erm7vCk and Erm7vCl in `pipeline-test.bash`, which all failed before the fix. Erm7vCj checks a folder that is not a checkout's top is still refused.
+	- Acceptance signoff: Self-closed: it runs in a worktree, and skipping the backup there was confirmed.
+	- Closed: 20261004-184405
+
+- `test-ids.py check` missed test IDs kept in an array.
+	- ID: 2026100409004496
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: Low
+	- Opened: 20261004-090044
+	- Opened by: JC
+	- Related IDs: 2026100317515523
+	- Steps to reproduce [Bug]:
+		- Keep a check's ID in a bash array instead of on its `fId` line, as the two arm64 link checks did.
+		- Run `cicd/utility/test-ids.py check`.
+	- Incorrect behavior [Bug]: It passes without reading those IDs, so a duplicate or a malformed one would go through.
+	- Expected behavior [Bug]: Every ID in the pipeline is checked, or the check fails.
+	- Reproduced [Bug]: 20261004, on `ErgjCkW` and `ErgjCkX` in `cicd.bash`.
+	- Actual cause [Bug]:
+		- The check only reads IDs at the start of an `fId` or `fWant*` line, and the array put them somewhere else.
+	- Actual fix [Bug]:
+		- The arm64 link checks use `fId`'s keyed form, like the cross targets.
+		- The check also fails on a word that looks like an ID but that no test line names, and on a `// test-id:` mark that is not above a test. A comment is let through, so a retired test can stay in one.
+	- Branch: idgaps
+	- Test case: `ErkRrmk` to `ErkRrmo` in `pipeline-test.bash`, against a scratch tree. `ErkRrml`, `ErkRrmm` and `ErkRrmo` failed on the old `test-ids.py`. `ErkRrmn` failed with the comment exemption taken out.
+	- Closed: 20261004-090044
+
+- The Linux, macOS and FreeBSD tarballs have `libwasmtime.a` without Wasmtime's license.
+	- ID: 2026100417324819
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: No. A full `cicd.bash --package --no-dogfood --no-backup -q` passed on Linux with the fix.
+	- Needs external testing: Done on b26, 20261004.
+	- Priority|Severity [Bug]: Low
+	- Opened: 20261004-173248
+	- Opened by: JC
+	- Related IDs: 2026100416052036
+	- Steps to reproduce [Bug]:
+		- List any `.tgz` from `--package`.
+	- Incorrect behavior [Bug]:
+		- `lib/libwasmtime.a` is there, and nothing in `share/` is Wasmtime's Apache-2.0 license, which has to go along with a copy of it.
+	- Expected behavior [Bug]:
+		- `share/LICENSE-wasmtime.txt`, as the Windows zips have. FreeBSD's vendored package keeps no license file yet, so that fetch needs one too.
+	- Reproduced [Bug]: 20261004, on the Linux tarballs, `.deb` and `.rpm` from `main`. The command links Wasmtime in statically, so the packages lacked it too, and they also lacked the module's Apache license and NOTICE.
+	- Actual cause [Bug]:
+		- `package.bash` copied Wasmtime's license only for the Windows zips. The FreeBSD fetch kept zstd's license and not Wasmtime's.
+	- Actual fix [Bug]:
+		- Every tarball and zip gets `share/LICENSE-wasmtime.txt`, from `LICENSE` in the vendored Wasmtime tree. Linux, macOS and Windows take it from Wasmtime's own pinned archive. FreeBSD's `libwasmtime` package keeps it as `share/licenses/libwasmtime-*/APACHE20`, which is Wasmtime's `LICENSE` word for word, and the fetch now copies it in as `LICENSE`. A FreeBSD tree vendored before this has no `LICENSE`, so it is fetched again.
+		- The `.deb` and `.rpm` also get `LICENSE-wasmtime.txt`, `LICENSE-module.txt` and `NOTICE.txt`, beside the GPL text they had.
+		- The module license and NOTICE stay in the packages, by direct answer 20261004.
+		- Note: the bare binaries still go out with no license file beside them, as before.
+	- Verified: the full `--package` run above. The FreeBSD fetch ran again and its `LICENSE` matches Wasmtime's own. Both macOS archives at the pinned checksums have the same `LICENSE`. Every new check failed against the release built from `main`, and the tarball check failed with the module's license in place of Wasmtime's.
+	- Swept: every tarball, both zips, both `.deb` and both `.rpm`. The Windows check now reads for the text only Wasmtime's license has, as the new checks do. `install.bash` and `install.ps1` install the whole tree, so nothing changes there. The macOS tarball change is only read, not run.
+	- Branch: wtlicense
+	- Commit: 2dd0931
+	- Test case: ErmYT8O to ErmYT8V, one per release: the Linux x86_64 and arm64, FreeBSD and macOS tarballs, and each `.deb` and `.rpm`. Each Linux one failed on `main`'s release and passes now. ErmYT8R runs only on a Mac and has not run.
+	- Verified: 20261004 on b26, at 12d2b2d: ErmYT8R passed in the full `--package` run, and the macOS tarball lists `share/LICENSE-wasmtime.txt`, which is the Apache 2.0 text. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
+	- Acceptance signoff: Self-closed: every release has the license, and its tests pass.
+	- Closed: 20261004-175611
+
+- The Go module checks every digit of the base on every call.
+	- ID: 2026100519343991
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261005-193439
+	- Opened by: JC
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- `checkRenderable` walks the whole alphabet in each `Generate`, which is 2048 digits in 2048tz. The Zig side keeps the answer per base. Keep it per base in Go too.
+	- Progress log:
+		- 20261005: 2.2% of the Go profile's self time, found once the profile had enough samples to show it.
+		- 20261005: Each `Generator` keeps the verdict per base, refusals included, keyed by the base the registry hands back. Every spelling of a base gets the same one.
+		- 20261005: The check alone went from about 1.1 us to 15 ns in 2048tz, and 55 ns to 15 ns in base 62. A whole `Generate` (about 2.4 us for `%d`, 18 us in 2048tz) moved less than the run-to-run noise.
+	- Verified: `go vet ./...`, `go test ./...`, and `go test -race` on TestConcurrentGenerate, TestErrorKinds and the new test. The new test fails with the cache keyed on one shared slot, both ways round: a raw-byte base passes after a good one, and a good one is refused after a raw-byte one.
+	- Swept: `Generate` is the only caller of the check. The Zig side already keeps the verdict per base.
+	- Branch: basecache
+	- Commit: 0a2223b
+	- Test case: Ersuqxd, TestBaseVerdictPerBase.
+	- Acceptance signoff: Self-closed: the intent was clear, and the test fails with the cache keyed wrong and passes with the fix.
+	- Closed: 20261005-194540
+
+- The macOS shared library exports all of Wasmtime.
+	- ID: 2026093018112419
+	- Type: Enhancement
+	- Status: Done
+	- Priority|Severity [Bug]: Low
+	- Opened: 20260930-181124
+	- Opened by: JC
+	- Target OS: macOS
+	- Requirements  [Feature]:
+		- Only `zuid_*` exported, as on Linux.
+	- Progress log:
+		- 20261003: not tried. The Mac test host was unreachable.
+		- 20261003: Done in `build.zig`, so the tests, `capi_smoke.c` and each slice in `package.bash` all get the same dylib. On a Mac it links the dylib again with Apple's linker, from `libzuid.a` plus Wasmtime, and installs it over Zig's copy. The symlinks stay as Zig made them.
+		- 20261003: The export list is made from `lib/zuid.map` at build time, so there is no second copy to drift.
+		- 20261003: Apple's linker signs the arm64 slice itself, so no `codesign` step. It defaults the compatibility version to 0.0.0, so the relink passes Zig's 1.0.0.
+		- 20261003: With no Xcode command line tools, or when building for macOS off a Mac, the build warns and keeps Zig's dylib.
+	- Decisions:
+		- Zig's Mach-O linker ignores `lib/zuid.map` and has no exported symbols list. A relink with Apple's `ld -exported_symbols_list` would do it.
+		- Low, because two-level namespace keeps the library's own calls bound to itself. `Eq9gPQn` passes on macOS.
+	- Verified:
+		- On b26, the full pipeline with `--package` passes. `Eq9gPQm` runs there now; the only skip left is the Linux-only glibc check.
+		- The release dylib's two slices export 12 symbols each, all `zuid_*`. Each keeps `@rpath/libzuid.1.dylib` and macOS 13.0, and the arm64 slice is ad-hoc signed. `capi_smoke.c` runs against the release dylib.
+		- The full Linux pipeline passes. The Linux build is unchanged.
+	- Swept: every place the dylib is built on a Mac goes through `zig build`: the Zig stage, the C module stage and both slices in `package.bash`. Nothing else links it.
+	- Branch: macexports
+	- Commit: f3f5558, e011230, 9fd8271
+	- Test case: `Eq9gPQm` runs on macOS now, and on both systems reads the allowed names from `lib/zuid.map` and checks every function `zuid.h` declares is exported. It failed on b26 with the old `build.zig` (828 stray exports) and passes with the fix. New `ErfrKRQ` checks each slice of the release dylib under `--package`: exports, install name with its versions, macOS 13.0, and the arm64 signature. Its export check failed on a release built with the old `build.zig`. Its install name check rejects the first relink's dylib, which had compatibility version 0.0.0.
+	- Acceptance signoff: Self-closed: the intent was clear, and the tests failed before the fix and pass after.
+	- Closed: 20261003-143030
 
 - Windows x86_64 build, cross-built on Linux.
 	- ID: 2026100416052035
@@ -940,197 +1147,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: none. It is a machine, not code.
 	- Acceptance signoff: Self-closed: built as asked.
 	- Closed: 20261003-152410
-
-- Docs out of step with the code.
-	- ID: 2026100519343993
-	- Type: Bug
-	- Status: Done
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261005-193439
-	- Opened by: JC
-	- Target OS: Any
-	- Incorrect behavior [Bug]: README's Alpha note listed more than one identifier per run as still to come, its `--quick` line said it skips the cross builds, and its Zig badge said 0.17+ where the build needs 0.17.0. design.md's TOC left out one heading, its configuration section described a file that does not exist, its plan still listed packaging, its component list left out FQDN, and one sentence was there twice. Help and the CLI style guide gave `32c` as the example base, which is not curated.
-	- Expected behavior [Bug]: Docs that match the code.
-	- Actual fix [Bug]: Each one corrected. design.md also has a blank line between top-level bullets now.
-	- Branch: fastcli
-	- Test case: none. Docs.
-	- Acceptance signoff: Self-closed: mechanical doc fixes.
-	- Closed: 20261005-194500
-
-- The Go profile was a third registry construction, and its report said none.
-	- ID: 2026100519343987
-	- Type: Bug
-	- Status: Done
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261005-193439
-	- Opened by: JC
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- A full `cicd.bash` run, then `flame-report.py` on its Go flamegraph.
-	- Incorrect behavior [Bug]: The 2 profiled benchmarks build a generator each, outside their loops. At `-benchtime 3000x` that was 29% of a 51-sample profile. The report sorted self time by the leaf's name, and registry time sits under `strings` and the allocator, so it read 0%.
-	- Expected behavior [Bug]: A profile of the per-identifier work with enough samples to read, and a report that counts registry time as that.
-	- Actual fix [Bug]: `-benchtime 1s`, about 1200 samples, with the registry under 1%. The registry bucket takes everything under it. `convertbase` internals such as `wordChunk` count as conversion now, not as app code.
-	- Branch: fastcli
-	- Test case: ErsspWK in `pipeline-test.bash`, a made-up flamegraph with 40% under `NewRegistry`. It failed with the bucket going by leaf names again.
-	- Acceptance signoff: Self-closed: the test failed before the fix and passes after.
-	- Closed: 20261005-194500
-
-- The PowerShell ASCII check finds no files when `cicd.bash` is run through a symlink.
-	- ID: 2026100509465863
-	- Type: Bug
-	- Status: Done
-	- Needs local test suite run?: Done. `cicd.bash --quick --no-backup -q` passed run as `zuid/repo/cicd/cicd.bash`, 20261005.
-	- Priority|Severity [Bug]: Low
-	- Opened: 20261005-094658
-	- Opened by: JC
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- Run `cicd.bash` by way of the `zuid/repo` symlink to `github`.
-	- Incorrect behavior [Bug]: `ErmS0zI` fails with "found no .ps1 files, so this checked nothing."
-	- Expected behavior [Bug]: It finds `install.ps1` and `run-latest.ps1`, the same as from `github`.
-	- Reproduced [Bug]: Yes, from the 20261005-094233 run log.
-	- Actual cause [Bug]: The repo root came from a plain `pwd`, so it kept the symlink's path. `find` does not follow a symlink given as its starting point, so it listed the link and nothing under it. It was the only `find` started at the root itself.
-	- Actual fix [Bug]: The root comes from `pwd -P`.
-	- Branch: rootlink
-	- Test case: new `ErqU8vW` runs a copy of `cicd.bash` through a symlink and checks the root named by the sync refusal. It fails with the old line and passes now.
-	- Acceptance signoff: Self-closed: the check finds both files from either path.
-	- Closed: 20261005-095500
-
-- `cicd.bash` refuses to run in a git worktree.
-	- ID: 2026100318410007
-	- Type: Bug
-	- Status: Done
-	- Priority|Severity [Bug]: Low
-	- Opened: 20261003-184100
-	- Opened by: JC
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- `git worktree add <dir> main`, then run `cicd/cicd.bash` there.
-	- Incorrect behavior [Bug]: It stops at once with "Not a git repo".
-	- Expected behavior [Bug]: It runs, since a worktree is a full checkout.
-	- Reproduced [Bug]: Yes, 20261003.
-	- Possible cause [Bug]: The sync and preflight checks look for a `.git` directory, and in a worktree `.git` is a file.
-	- Actual cause [Bug]: As above. Both checks tested for a `.git` directory.
-	- Progress log:
-		- 20261004: The backup stage is skipped in a linked worktree, with a line saying so, and `--backup` asked for by name is refused there. The helper archives the folder above the checkout, which for a worktree is not the project, and it wants a real `.git` directory. Making the backup work from a worktree would mean archiving the main checkout's project instead, which is a bigger change than this item.
-		- 20261004: Verified: `cicd.bash --quick --no-dogfood -q` from a scratch worktree passed, with the backup skipped. `--backup` there was refused before any stage. `pipeline-test.bash` 39 of 39, `test-ids.py check` and shellcheck pass.
-	- Decisions:
-		- Skip the backup in a worktree rather than make it work there. Confirmed by direct answer 20261004.
-	- Actual fix [Bug]: Sync and preflight ask git whether the folder is the top of a checkout. Argument handling spots a linked worktree by its git dir differing from the common one.
-	- Swept: every `.git` path test in `cicd/` and the rest of the repo. `package.bash` and the test harnesses had none. The vendored `n8git_backup-and-publish` tests `.git/HEAD` and stays as is, since `cicd.bash` no longer calls it from a worktree.
-	- Branch: worktree
-	- Commit: 9ff63b7
-	- Test case: Erm7vCh, Erm7vCi, Erm7vCk and Erm7vCl in `pipeline-test.bash`, which all failed before the fix. Erm7vCj checks a folder that is not a checkout's top is still refused.
-	- Acceptance signoff: Self-closed: it runs in a worktree, and skipping the backup there was confirmed.
-	- Closed: 20261004-184405
-
-- `test-ids.py check` missed test IDs kept in an array.
-	- ID: 2026100409004496
-	- Type: Bug
-	- Status: Done
-	- Priority|Severity [Bug]: Low
-	- Opened: 20261004-090044
-	- Opened by: JC
-	- Related IDs: 2026100317515523
-	- Steps to reproduce [Bug]:
-		- Keep a check's ID in a bash array instead of on its `fId` line, as the two arm64 link checks did.
-		- Run `cicd/utility/test-ids.py check`.
-	- Incorrect behavior [Bug]: It passes without reading those IDs, so a duplicate or a malformed one would go through.
-	- Expected behavior [Bug]: Every ID in the pipeline is checked, or the check fails.
-	- Reproduced [Bug]: 20261004, on `ErgjCkW` and `ErgjCkX` in `cicd.bash`.
-	- Actual cause [Bug]:
-		- The check only reads IDs at the start of an `fId` or `fWant*` line, and the array put them somewhere else.
-	- Actual fix [Bug]:
-		- The arm64 link checks use `fId`'s keyed form, like the cross targets.
-		- The check also fails on a word that looks like an ID but that no test line names, and on a `// test-id:` mark that is not above a test. A comment is let through, so a retired test can stay in one.
-	- Branch: idgaps
-	- Test case: `ErkRrmk` to `ErkRrmo` in `pipeline-test.bash`, against a scratch tree. `ErkRrml`, `ErkRrmm` and `ErkRrmo` failed on the old `test-ids.py`. `ErkRrmn` failed with the comment exemption taken out.
-	- Closed: 20261004-090044
-
-- The Linux, macOS and FreeBSD tarballs have `libwasmtime.a` without Wasmtime's license.
-	- ID: 2026100417324819
-	- Type: Bug
-	- Status: Done
-	- Needs local test suite run?: No. A full `cicd.bash --package --no-dogfood --no-backup -q` passed on Linux with the fix.
-	- Needs external testing: Done on b26, 20261004.
-	- Priority|Severity [Bug]: Low
-	- Opened: 20261004-173248
-	- Opened by: JC
-	- Related IDs: 2026100416052036
-	- Steps to reproduce [Bug]:
-		- List any `.tgz` from `--package`.
-	- Incorrect behavior [Bug]:
-		- `lib/libwasmtime.a` is there, and nothing in `share/` is Wasmtime's Apache-2.0 license, which has to go along with a copy of it.
-	- Expected behavior [Bug]:
-		- `share/LICENSE-wasmtime.txt`, as the Windows zips have. FreeBSD's vendored package keeps no license file yet, so that fetch needs one too.
-	- Reproduced [Bug]: 20261004, on the Linux tarballs, `.deb` and `.rpm` from `main`. The command links Wasmtime in statically, so the packages lacked it too, and they also lacked the module's Apache license and NOTICE.
-	- Actual cause [Bug]:
-		- `package.bash` copied Wasmtime's license only for the Windows zips. The FreeBSD fetch kept zstd's license and not Wasmtime's.
-	- Actual fix [Bug]:
-		- Every tarball and zip gets `share/LICENSE-wasmtime.txt`, from `LICENSE` in the vendored Wasmtime tree. Linux, macOS and Windows take it from Wasmtime's own pinned archive. FreeBSD's `libwasmtime` package keeps it as `share/licenses/libwasmtime-*/APACHE20`, which is Wasmtime's `LICENSE` word for word, and the fetch now copies it in as `LICENSE`. A FreeBSD tree vendored before this has no `LICENSE`, so it is fetched again.
-		- The `.deb` and `.rpm` also get `LICENSE-wasmtime.txt`, `LICENSE-module.txt` and `NOTICE.txt`, beside the GPL text they had.
-		- The module license and NOTICE stay in the packages, by direct answer 20261004.
-		- Note: the bare binaries still go out with no license file beside them, as before.
-	- Verified: the full `--package` run above. The FreeBSD fetch ran again and its `LICENSE` matches Wasmtime's own. Both macOS archives at the pinned checksums have the same `LICENSE`. Every new check failed against the release built from `main`, and the tarball check failed with the module's license in place of Wasmtime's.
-	- Swept: every tarball, both zips, both `.deb` and both `.rpm`. The Windows check now reads for the text only Wasmtime's license has, as the new checks do. `install.bash` and `install.ps1` install the whole tree, so nothing changes there. The macOS tarball change is only read, not run.
-	- Branch: wtlicense
-	- Commit: 2dd0931
-	- Test case: ErmYT8O to ErmYT8V, one per release: the Linux x86_64 and arm64, FreeBSD and macOS tarballs, and each `.deb` and `.rpm`. Each Linux one failed on `main`'s release and passes now. ErmYT8R runs only on a Mac and has not run.
-	- Verified: 20261004 on b26, at 12d2b2d: ErmYT8R passed in the full `--package` run, and the macOS tarball lists `share/LICENSE-wasmtime.txt`, which is the Apache 2.0 text. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
-	- Acceptance signoff: Self-closed: every release has the license, and its tests pass.
-	- Closed: 20261004-175611
-
-- The Go module checks every digit of the base on every call.
-	- ID: 2026100519343991
-	- Type: Enhancement
-	- Status: Done
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261005-193439
-	- Opened by: JC
-	- Target OS: Any
-	- Requirements  [Feature]:
-		- `checkRenderable` walks the whole alphabet in each `Generate`, which is 2048 digits in 2048tz. The Zig side keeps the answer per base. Keep it per base in Go too.
-	- Progress log:
-		- 20261005: 2.2% of the Go profile's self time, found once the profile had enough samples to show it.
-		- 20261005: Each `Generator` keeps the verdict per base, refusals included, keyed by the base the registry hands back. Every spelling of a base gets the same one.
-		- 20261005: The check alone went from about 1.1 us to 15 ns in 2048tz, and 55 ns to 15 ns in base 62. A whole `Generate` (about 2.4 us for `%d`, 18 us in 2048tz) moved less than the run-to-run noise.
-	- Verified: `go vet ./...`, `go test ./...`, and `go test -race` on TestConcurrentGenerate, TestErrorKinds and the new test. The new test fails with the cache keyed on one shared slot, both ways round: a raw-byte base passes after a good one, and a good one is refused after a raw-byte one.
-	- Swept: `Generate` is the only caller of the check. The Zig side already keeps the verdict per base.
-	- Branch: basecache
-	- Commit: 0a2223b
-	- Test case: Ersuqxd, TestBaseVerdictPerBase.
-	- Acceptance signoff: Self-closed: the intent was clear, and the test fails with the cache keyed wrong and passes with the fix.
-	- Closed: 20261005-194540
-
-- The macOS shared library exports all of Wasmtime.
-	- ID: 2026093018112419
-	- Type: Enhancement
-	- Status: Done
-	- Priority|Severity [Bug]: Low
-	- Opened: 20260930-181124
-	- Opened by: JC
-	- Target OS: macOS
-	- Requirements  [Feature]:
-		- Only `zuid_*` exported, as on Linux.
-	- Progress log:
-		- 20261003: not tried. The Mac test host was unreachable.
-		- 20261003: Done in `build.zig`, so the tests, `capi_smoke.c` and each slice in `package.bash` all get the same dylib. On a Mac it links the dylib again with Apple's linker, from `libzuid.a` plus Wasmtime, and installs it over Zig's copy. The symlinks stay as Zig made them.
-		- 20261003: The export list is made from `lib/zuid.map` at build time, so there is no second copy to drift.
-		- 20261003: Apple's linker signs the arm64 slice itself, so no `codesign` step. It defaults the compatibility version to 0.0.0, so the relink passes Zig's 1.0.0.
-		- 20261003: With no Xcode command line tools, or when building for macOS off a Mac, the build warns and keeps Zig's dylib.
-	- Decisions:
-		- Zig's Mach-O linker ignores `lib/zuid.map` and has no exported symbols list. A relink with Apple's `ld -exported_symbols_list` would do it.
-		- Low, because two-level namespace keeps the library's own calls bound to itself. `Eq9gPQn` passes on macOS.
-	- Verified:
-		- On b26, the full pipeline with `--package` passes. `Eq9gPQm` runs there now; the only skip left is the Linux-only glibc check.
-		- The release dylib's two slices export 12 symbols each, all `zuid_*`. Each keeps `@rpath/libzuid.1.dylib` and macOS 13.0, and the arm64 slice is ad-hoc signed. `capi_smoke.c` runs against the release dylib.
-		- The full Linux pipeline passes. The Linux build is unchanged.
-	- Swept: every place the dylib is built on a Mac goes through `zig build`: the Zig stage, the C module stage and both slices in `package.bash`. Nothing else links it.
-	- Branch: macexports
-	- Commit: f3f5558, e011230, 9fd8271
-	- Test case: `Eq9gPQm` runs on macOS now, and on both systems reads the allowed names from `lib/zuid.map` and checks every function `zuid.h` declares is exported. It failed on b26 with the old `build.zig` (828 stray exports) and passes with the fix. New `ErfrKRQ` checks each slice of the release dylib under `--package`: exports, install name with its versions, macOS 13.0, and the arm64 signature. Its export check failed on a release built with the old `build.zig`. Its install name check rejects the first relink's dylib, which had compatibility version 0.0.0.
-	- Acceptance signoff: Self-closed: the intent was clear, and the tests failed before the fix and pass after.
-	- Closed: 20261003-143030
 
 - When a shcl upgrade breaks compatibility with the application config file(s).
 	- ID: 2026100313105246
