@@ -202,7 +202,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- ID: 2026101301161847
 	- Type: Enhancement
 	- Status: Waiting on signoff
-	- Needs external testing: Done on emulated Penryn and Prescott. Not run on a real Core 2 Duo or Phenom II, and not on an emulated AMD chip. Windows and FreeBSD get the static scan only.
+	- Needs external testing: Done on emulated Penryn and Prescott. Not run on a real Core 2 Duo or Phenom II, and not on an emulated AMD chip. Windows and FreeBSD get the static scan only. The macOS scan change needs a `--package` run on b26.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261013-011618
 	- Opened by: JC
@@ -230,10 +230,10 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- 20261013: No run-time SHA-NI pick in Zig's SHA-256. It hashes a few names per run, so there's nothing to gain. The requirement allows faster code but doesn't ask for it, and Wasmtime's own SHA-256 already picks at run time.
 		- 20261013: Prescott stands in for Phenom II under SDE, which has no AMD chips. It lacks SSSE3 and SSE4.1 as Phenom II does, and POPCNT, which Phenom II has.
 	- Branch: oldcpu2
-	- Commit: 4bbd035
+	- Commit: 4bbd035, 7218b59
 	- Test case: EsZyWyD and EsZyWyE, the release under emulated Penryn and Prescott. EsXcjyV, ErbFB7B, ErlUUiR and ErmS0zB now scan for anything past x86-64-v1. Watched fail: `x86_64_v2` builds for Linux, FreeBSD and Windows failed the scan on SSE4.1 and SSSE3 code, which the AVX-only scan passed, and failed EsZyWyD on `popcnt`. A build for this CPU failed the scan in 282 functions. A Penryn build passed EsZyWyD and failed EsZyWyE on `pshufb`.
 	- Swept: all 4 callers of the old AVX scan in `cicd.bash`, the Windows one through its PDB. The arm64 scan has its own list. No other script calls it.
-	- Verified: `cicd.bash --package --no-dogfood --no-backup -q` passed on b23 with SDE, 20261013, 342 ok and 5 skipped for macOS or Windows.
+	- Verified: `cicd.bash --package --no-dogfood --no-backup -q` passed on b23 with SDE, 20261013, at 4bbd035 and again at 7218b59, 342 ok and 5 skipped for macOS or Windows.
 
 - The dogfood install puts a build for the build machine's CPU in the synced dir.
 	- ID: 2026101218531694
