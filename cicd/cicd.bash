@@ -1495,6 +1495,20 @@ fStage_Zig_BuildStamp(){
 	fi
 	fTestPass
 
+	## Zig 0.17 reuses build.zig's answers from the last run unless told not to,
+	## and it doesn't watch the environment or git. So the same cache again, with
+	## only the epoch changed. bz4zn is 1700000000 in minutes since 2000.
+	fId EsaCjhS "the build number follows a new SOURCE_DATE_EPOCH in a cache that has seen another"
+	(
+		cd "${zigDir}" || exit 1
+		SOURCE_DATE_EPOCH=1700000000 zig build "-j${buildJobs}" --cache-dir "${stampDir}/cache" --prefix "${stampDir}/again" || exit 1
+	) || fTestFail "the build failed with SOURCE_DATE_EPOCH=1700000000."
+	local -r restamped="$("${stampDir}/again/bin/zuid" --version 2>&1 || true)"
+	if [[ "${restamped}" != *"(build bz4zn)"* ]]; then
+		fTestFail "--version said '${restamped}', so the build kept an old epoch."
+	fi
+	fTestPass
+
 	rm -rf "${stampDir}"
 
 }
@@ -1915,6 +1929,7 @@ fStage_Package(){
 	fStage_Package_Windows "${thinDir}"
 	fStage_Package_Licenses "${thinDir}"
 	fStage_Package_Stripped "${thinDir}"
+	fStage_Package_Again "${thinDir}" "${packageVersion}"
 
 	local -r macFloor="13.0"
 	fId ErbFB7D "the release asks for macOS ${macFloor}"
@@ -2620,6 +2635,50 @@ fStage_Package_Stripped(){  ## scratch dir
 	if ((checked == 0)); then problems+=("found no binary built here in a tarball or zip"); fi
 	if ((${#problems[@]})); then
 		fTestFail "${#problems[@]} problems, such as: $(printf '%s; ' "${problems[@]:0:4}")"
+	fi
+	fTestPass
+
+}
+
+
+## Two machines building one commit have to make the same release. A second
+## run stands in for the second machine: later, under another umask, and where
+## a user namespace is allowed, as root on another host name. The Zig cache is
+## warm by now, so this mostly times the stripping and archiving. Paths and
+## Zig's own output aren't covered, since this box has only one of each.
+fStage_Package_Again(){  ## scratch dir, version
+
+	local -r scratchDir="$1" version="$2"
+	local -r distDir="${repoRoot}/dist" againDir="${scratchDir}/again"
+	local -r packager="${utilityDir}/package.bash"
+
+	fId Esa8LVS "packaging again, later and under another umask, user and host name where allowed, gives the same bytes"
+	local how="umask 077"
+	local -a runner=(bash -c 'umask 077 && exec "$@"' again)
+	if unshare -r -u true 2>/dev/null; then
+		how="umask 077, as root on host zuid-again"
+		runner=(unshare -r -u bash -c 'hostname zuid-again && umask 077 && exec "$@"' again)
+	fi
+	if ! "${runner[@]}" "${packager}" --out "${againDir}" --version "v${version}" >"${scratchDir}/again.log" 2>&1; then
+		fTestFail "the second run failed (${how}): $(tail -c 400 "${scratchDir}/again.log")"
+	fi
+	local -a problems=()
+	local name=""
+	local -i compared=0
+	while IFS= read -r name; do
+		compared=$((compared + 1))
+		if [[ ! -f "${againDir}/${name}" ]]; then
+			problems+=("${name} is missing")
+		elif ! cmp -s "${distDir}/${name}" "${againDir}/${name}"; then
+			problems+=("${name} differs")
+		fi
+	done < <(cd "${distDir}" && find . -type f ! -name '.zuid-package-dir' | sed 's|^\./||' | LC_ALL=C sort)
+	if ((compared == 0)); then problems+=("there is nothing in dist/"); fi
+	if [[ "$(cd "${againDir}" && find . -type f | wc -l)" != "$(cd "${distDir}" && find . -type f | wc -l)" ]]; then
+		problems+=("the two runs made a different number of files")
+	fi
+	if ((${#problems[@]})); then
+		fTestFail "${#problems[@]} of ${compared} files differ (${how}), such as: $(printf '%s; ' "${problems[@]:0:5}")"
 	fi
 	fTestPass
 
