@@ -1316,7 +1316,7 @@ fStage_Zig(){
 	## Zig numbers a value interned off the main thread with the thread's number
 	## in the top bits, and a worker thread is whichever was free. Below 2^20 is
 	## the main thread on any machine with up to 4096 threads.
-	fId EscFGGR "libzuid.a's __anon_N names carry no compiler thread number"
+	fId EscFGGR "libzuid.a's __anon_N names have no compiler thread number"
 	if ! command -v nm >/dev/null 2>&1; then
 		fTestSkip "no nm"
 	else
