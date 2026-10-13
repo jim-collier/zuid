@@ -92,11 +92,46 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- 20261004, open to change: no bare `.exe` for arm64, since it cannot run without `wasmtime.dll` beside it. The requirement asked for one per target.
 		- 20261004, open to change: arm64's import library for `wasmtime.dll` goes in as `lib/wasmtime.lib`, the name `-lwasmtime` finds with mingw's ld, lld and Zig alike. Wasmtime's own `wasmtime.dll.lib` name is found by none of them.
 		- 20261004, open to change: `bin/zuid.pdb` is in both zips, as the build installs it, since Zig reads it for a stack trace.
+			- Superseded 20261013 by 2026101008194330: the PDBs go in `dist/debug/`, not the zips.
 	- Verified: on vm925w with pwsh 7.6.6, against a local release: `install.ps1` picked the x86_64 zip, checked it and installed it to the user location, and the installed `zuid.exe` ran. A second run said it was already installed and downloaded nothing, and `-Uninstall` removed it. The README's one-line form did the same. `-Arch arm64` installed the arm64 zip with `wasmtime.dll` beside `zuid.exe`. With Program Files not writable, the default was the user location and `-Target system` was refused before any download. Under Windows PowerShell 5.1, both the `-File` and the README form stopped with the new message and installed nothing. Every script parsed first. On Linux: the full pipeline with `--package`, which fetched and checked the new pin, `installer-test.bash`, `pipeline-test.bash`, `test-ids.py check` and shellcheck.
 	- Swept: `fPublish_Downloads` already places `zuid-windows-x86_64.exe` in the Windows x86_64 cell after its zip; its table test now has one. Every `.ps1` in the repo. `build.zig` and `package.bash` pick the arm64 library the same way. The help text and comments that said Windows files come from `dist-incoming/`. The `zuid.h` link notes and design.md.
 	- Branch: winpkg
 	- Commit: 0263572
 	- Test case: ErmM9mS to ErmM9mV now read the x86_64 zip. New: ErmS0zB, no AVX in code built here, read through the PDB; ErmS0zC and ErmS0zD, every DLL loaded is Windows' own or in the zip, and every function asked of one in the zip is exported; ErmS0zE to ErmS0zH, the arm64 zip's files and machine type, `zuid.dll`'s exports, and `capi_smoke.c` linking against both libraries; ErmS0zI, every `.ps1` is ASCII. Each failed with its fault planted: a missing license, a missing or extra bare `.exe`, a stand-in `wasmtime.dll`, Wasmtime's DLL as `zuid.dll`, x86_64 libraries in the arm64 zip, an x86_64_v3 build, `ws2_32` dropped from the allowed list, and the old `install.ps1` or a byte-order mark. Erm9fTp, the download table, failed with the `.exe` ranked ahead of the zip. The Windows install run is by hand and has no ID.
+
+- Release binaries keep debug info and the build machine's paths.
+	- ID: 2026101008194330
+	- Type: Bug
+	- Status: Waiting for testing
+	- Needs external testing: A `--package` run on b26. There each slice is stripped with `strip`, keeps a `.dSYM` per CPU, and the arm64 slices are signed again. None of that has run yet, and neither have EsZni4i, EsZni4j and ErbFB7B through the `.dSYM`.
+	- Priority|Severity [Bug]: High
+	- Opened: 20261010-081943
+	- Opened by: JC
+	- Related IDs: 2026101008194270
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- `strings -a bin/zuid` from the `v1.0.0-alpha.1` Linux x86_64 tarball.
+	- Incorrect behavior [Bug]: 48 paths under the builder's home directory, from the Zig install and Zig's cache. The file is 28.4 MB and has 10 debug sections.
+	- Expected behavior [Bug]: No paths from the build machine, and the same bytes from any machine that builds the same commit.
+	- Reproduced [Bug]: Yes, 20261010, in the published alpha and in builds from b23 and the container. Stripped, the alpha binary is 18.7 MB with none of those paths.
+	- Possible cause [Bug]: Release builds keep their debug info, and nothing strips it.
+	- Actual cause [Bug]:
+		- Confirmed. Nothing stripped the release builds, so each kept its DWARF, with the paths of the Zig install, its caches, the checkout and the home dir. The static libraries had the same. The Windows zips had the PDB too.
+	- Progress log:
+		- 20261010: found while comparing a container build with a host build. Every release file differed.
+		- 20261013: Reproduced on b23 by the new check, 43 problems, the same paths and debug sections in every binary of every asset.
+		- 20261013: Stripped, the bare Linux and FreeBSD binaries come out the same from b23 and the container. Other files still differ for reasons outside debug info, logged as 2026101304122319.
+	- Decisions:
+		- 20261013, by direct answer: release binaries are stripped. Each one's debug info goes in `dist/debug/`, not published, but kept by the backup so a panic address can still be looked up. The Windows `.pdb` leaves the zips the same way.
+	- Actual fix [Bug]: `package.bash` strips every binary built here. On Linux that's `llvm-objcopy`, for both ELF and Windows files. On a Mac it's `strip`, with `dsymutil` first. A program or shared library keeps its symbols and DWARF in `dist/debug/<release>/`, as `<name>.debug` or `<name>.dSYM`. A static library keeps its symbols, and its unstripped copy goes there. Both Windows PDBs move there, the DLL's included, which was dropped before. The AVX and armv8-a scans take function names from the debug file.
+	- Branch: strip
+	- Commit: 60169a5
+	- Test case: EsZni4i, EsZni4j and EsZni4k.
+		- EsZni4i fails on any file in the release with this machine's paths, any binary built here with debug sections, and any PDB. It failed on the tree before the fix, with 43 problems.
+		- EsZni4j checks each binary has its own debug info in `dist/debug/`. It failed with another release's `.debug` file, the command's PDB in place of the DLL's, and an archive copy missing.
+		- EsZni4k checks nothing under `dist/debug/` is uploaded or hashed by `--publish`. It and ErgqYtF failed with the publish stage reading all of `dist/`.
+	- Swept: every asset in `dist/`, the bare binaries, tarballs, zips, `.deb` and `.rpm`, with the shared and static libraries. The scans that read names: ErbFB7B, ErlUUiR, ErgjCkU and ErmS0zB read the debug files now. EsXcjyV reads the unstripped dogfood build and is unchanged. `--publish` and the checksums in `package.bash` read only the top of `dist/`.
+	- Verified: `cicd.bash --package` passed on b23 and with `--container`, 20261013. The Linux x86_64 command is 18.8 MB, down from 28.9 MB. Through the debug file, the AVX scan found the same 235 functions as on the unstripped build, for a build for this CPU. The arm64 scan found the same 56 on a cortex_a76 build.
 
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
@@ -144,40 +179,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Progress log:
 		- 20261005: A command built with a reactor from `dev` started in 0.25 s, or 0.02 s with the module cached, against 0.55 s and 0.34 s on `v0.1.0`. Go's `New` should drop from 57 ms the same way.
 		- 20261006: Stalled. convert-base-v2 is in the middle of an upgrade, so no tag until that settles, by direct answer.
-
-- Release binaries keep debug info and the build machine's paths.
-	- ID: 2026101008194330
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs external testing: A `--package` run on b26. There each slice is stripped with `strip`, keeps a `.dSYM` per CPU, and the arm64 slices are signed again. None of that has run yet, and neither have EsZni4i, EsZni4j and ErbFB7B through the `.dSYM`.
-	- Priority|Severity [Bug]: High
-	- Opened: 20261010-081943
-	- Opened by: JC
-	- Related IDs: 2026101008194270
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- `strings -a bin/zuid` from the `v1.0.0-alpha.1` Linux x86_64 tarball.
-	- Incorrect behavior [Bug]: 48 paths under the builder's home directory, from the Zig install and Zig's cache. The file is 28.4 MB and has 10 debug sections.
-	- Expected behavior [Bug]: No paths from the build machine, and the same bytes from any machine that builds the same commit.
-	- Reproduced [Bug]: Yes, 20261010, in the published alpha and in builds from b23 and the container. Stripped, the alpha binary is 18.7 MB with none of those paths.
-	- Possible cause [Bug]: Release builds keep their debug info, and nothing strips it.
-	- Actual cause [Bug]:
-		- Confirmed. Nothing stripped the release builds, so each kept its DWARF, with the paths of the Zig install, its caches, the checkout and the home dir. The static libraries had the same. The Windows zips had the PDB too.
-	- Progress log:
-		- 20261010: found while comparing a container build with a host build. Every release file differed.
-		- 20261013: Reproduced on b23 by the new check, 43 problems, the same paths and debug sections in every binary of every asset.
-		- 20261013: Stripped, the bare Linux and FreeBSD binaries come out the same from b23 and the container. Other files still differ for reasons outside debug info, logged as 2026101304122319.
-	- Decisions:
-		- 20261013, by direct answer: release binaries are stripped. Each one's debug info goes in `dist/debug/`, not published, but kept by the backup so a panic address can still be looked up. The Windows `.pdb` leaves the zips the same way.
-	- Actual fix [Bug]: `package.bash` strips every binary built here. On Linux that's `llvm-objcopy`, for both ELF and Windows files. On a Mac it's `strip`, with `dsymutil` first. A program or shared library keeps its symbols and DWARF in `dist/debug/<release>/`, as `<name>.debug` or `<name>.dSYM`. A static library keeps its symbols, and its unstripped copy goes there. Both Windows PDBs move there, the DLL's included, which was dropped before. The AVX and armv8-a scans take function names from the debug file.
-	- Branch: strip
-	- Commit: 60169a5
-	- Test case: EsZni4i, EsZni4j and EsZni4k.
-		- EsZni4i fails on any file in the release with this machine's paths, any binary built here with debug sections, and any PDB. It failed on the tree before the fix, with 43 problems.
-		- EsZni4j checks each binary has its own debug info in `dist/debug/`. It failed with another release's `.debug` file, the command's PDB in place of the DLL's, and an archive copy missing.
-		- EsZni4k checks nothing under `dist/debug/` is uploaded or hashed by `--publish`. It and ErgqYtF failed with the publish stage reading all of `dist/`.
-	- Swept: every asset in `dist/`, the bare binaries, tarballs, zips, `.deb` and `.rpm`, with the shared and static libraries. The scans that read names: ErbFB7B, ErlUUiR, ErgjCkU and ErmS0zB read the debug files now. EsXcjyV reads the unstripped dogfood build and is unchanged. `--publish` and the checksums in `package.bash` read only the top of `dist/`.
-	- Verified: `cicd.bash --package` passed on b23 and with `--container`, 20261013. The Linux x86_64 command is 18.8 MB, down from 28.9 MB. Through the debug file, the AVX scan found the same 235 functions as on the unstripped build, for a build for this CPU. The arm64 scan found the same 56 on a cortex_a76 build.
 
 - Release files still differ between two machines building one commit.
 	- ID: 2026101304122319
