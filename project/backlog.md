@@ -200,21 +200,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- 20261013: Split from 2026100416052036 and the old packaging and C module items. Both builds pass their static checks, and the Windows one passed under Wine on vmDebARM64.
 		- 20261013: Stalled. There is no arm64 Windows machine or Apple Silicon Mac here. A Windows ARM64 guest under emulation on b23 is too slow for more than a launch check.
 
-- `pipeline-test.bash` leaves 2 temp folders behind on every run.
-	- ID: 2026101314215041
-	- Type: Bug
-	- Status: Queued
-	- Priority|Severity [Bug]: Low
-	- Opened: 20261013-142150
-	- Opened by: JC
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- Run `pipeline-test.bash`, then look in the temp folder for new `tmp.*` folders holding only a `fuzz.log`.
-	- Incorrect behavior [Bug]: 2 are left per run, from the fuzz find and broken fuzz cases. The find's log names a test that "terminated with signal ABRT", so a leftover reads like a real crash. 46 had built up by 20261013.
-	- Expected behavior [Bug]: A test run leaves nothing behind.
-	- Reproduced [Bug]: Yes, 20261013, on b23. The logs match the stand-in zig's output, not a real fuzz run.
-	- Possible cause [Bug]: `fFuzzIn` runs `fStage_Zig_Fuzz` inside `$( )`. The stage adds its log folder to `_scratchDirs` in that subshell, and the parent's cleanup never sees it. A failed `cicd.bash` check may also leave its stamp folder, seen while working 2026101313551112.
-
 - Release binaries keep debug info and the build machine's paths.
 	- ID: 2026101008194330
 	- Type: Bug
@@ -861,6 +846,37 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: none. A check of the test machine, not of zuid; the runs above are the result.
 	- Acceptance signoff: Self-closed: the update check and the retest ran.
 	- Closed: 20261004-183600
+
+- `pipeline-test.bash` leaves 2 temp folders behind on every run.
+	- ID: 2026101314215041
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: Low
+	- Opened: 20261013-142150
+	- Opened by: JC
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- Run `pipeline-test.bash`, then look in the temp folder for new `tmp.*` folders holding only a `fuzz.log`.
+	- Incorrect behavior [Bug]: 2 are left per run, from the fuzz find and broken fuzz cases. The find's log names a test that "terminated with signal ABRT", so a leftover reads like a real crash. 46 had built up by 20261013.
+	- Expected behavior [Bug]: A test run leaves nothing behind.
+	- Reproduced [Bug]: Yes, 20261013, on b23. The logs match the stand-in zig's output, not a real fuzz run.
+	- Possible cause [Bug]: `fFuzzIn` runs `fStage_Zig_Fuzz` inside `$( )`. The stage adds its log folder to `_scratchDirs` in that subshell, and the parent's cleanup never sees it. A failed `cicd.bash` check may also leave its stamp folder, seen while working 2026101313551112.
+	- Actual cause [Bug]:
+		- The fuzz cases run the stage in a subshell with no cleanup of their own. The find and broken cases exit there, so their log folder stays. A clean run removes its own.
+		- `cicd.bash` only cleaned scratch folders under `/tmp`. With TMPDIR set elsewhere, as here and on macOS, every run kept the Zig link folder, and a failed check kept its stamp, package or smoke folder too. 30 or so of those are in the temp dir from 20261013.
+	- Actual fix [Bug]:
+		- The fuzz cases run the script's own cleanup when their subshell exits, with TMPDIR pointed inside the harness's work folder.
+		- Cleanup takes any `tmp.*` folder directly in TMPDIR or `/tmp`, and nothing else. No links, and no folder that `mktemp -d` did not name.
+		- 46 leftover fuzz folders were removed from the temp dir. The other `cicd.bash` leftovers were left alone.
+	- Verified:
+		- Before: `pipeline-test.bash` left 2 `fuzz.log` folders, and `cicd.bash --quick --no-backup` left 3, the third a `zig` link folder. A forced `fThrowError` in `cicd.bash` left its folder.
+		- After: both leave nothing, and so do a forced `fThrowError` and a failed command. `pipeline-test.bash` passes 60 of 60 with TMPDIR set and unset. The quick run passes.
+		- Swept: `fFuzzIn` is the only `$( )` or subshell call in `pipeline-test.bash` that runs a stage with a `mktemp -d`. `cli-test.bash` and `installer-test.bash` lift no stages. All 7 `mktemp -d` in `cicd.bash` add to `_scratchDirs` right away, and `fThrowError` and `fTestFail` both exit through the cleanup trap. No `$( )` helper in `cicd.bash` makes a temp folder.
+	- Branch: tmpleak
+	- Commit: cfc2014, c2046c0
+	- Test case: EscPGS5 (fuzz cases leave nothing in TMPDIR) and EscPGS6 (cleanup takes `tmp.*` in TMPDIR and nothing else). Both failed before the fix and pass after.
+	- Acceptance signoff: Self-closed 20261013. Cleanup still takes only the folders the run made itself and listed, and the tests failed before the fix.
+	- Closed: 20261013-143229
 
 - `ZUID_ERR_INTERNAL` is never returned, and a runtime trap comes back as `ZUID_ERR_CONVERT`.
 	- ID: 2026100520074635

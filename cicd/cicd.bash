@@ -3607,9 +3607,14 @@ function fThrowError(){
 	exit 1
 }
 function _fRemoveScratchDirs(){
-	local dir=""
+	## Only a bare mktemp -d's own tmp.* folder, in TMPDIR or /tmp. Checking for
+	## /tmp alone kept every one when TMPDIR was elsewhere, as it is on macOS.
+	local tmpRoot="${TMPDIR:-/tmp}"; tmpRoot="${tmpRoot%/}"
+	local dir="" parent=""
 	for dir in "${_scratchDirs[@]}"; do
-		[[ -n "${dir}" ]] && [[ "${dir}" == /tmp/* ]] && rm -rf "${dir}"
+		[[ -n "${dir}" && -d "${dir}" && ! -L "${dir}" && "${dir##*/}" == tmp.* ]] || continue
+		parent="${dir%/*}"; parent="${parent%/}"
+		if [[ "${parent}" == "${tmpRoot}" || "${parent}" == "/tmp" ]]; then rm -rf "${dir}"; fi
 	done
 	_scratchDirs=()
 }

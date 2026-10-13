@@ -111,7 +111,7 @@ fi
 ## renamed fails here rather than being skipped.
 
 fLoad(){  ## function name
-	local -r body="$(sed -n "/^$1(){/,/^}/p" "${cicd}")"
+	local -r body="$(sed -n "/^\(function \)\{0,1\}$1(){/,/^}/p" "${cicd}")"
 	[[ -n "${body}" ]] || return 1
 	eval "${body}"
 }
@@ -929,6 +929,8 @@ case "${FAKE_FUZZ}" in
 esac
 EOF
 chmod +x "${fuzzBin}/zig"
+fuzzTmp="${work}/fuzz-tmp"
+mkdir -p "${fuzzTmp}"
 
 fFuzzIn(){  ## mode, name of the test that finds
 	local -r dir="${work}/fuzz-$1"
@@ -947,7 +949,7 @@ fFuzzIn(){  ## mode, name of the test that finds
 		# shellcheck disable=2329
 		fTestFail(){ printf '  FAIL ..: %s %s\n%s\n' "${testId}" "${testName}" "$*"; exit 1; }
 		local fn=""
-		for fn in fId fStage_Zig_Fuzz; do
+		for fn in fId fStage_Zig_Fuzz _fRemoveScratchDirs; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		# shellcheck disable=2034  ## Read by the lifted functions.
@@ -955,7 +957,11 @@ fFuzzIn(){  ## mode, name of the test that finds
 			doQuick=0; zigDir="${dir}/zig"; buildJobs=1
 			_scratchDirs=(); artifactDir="${dir}/artifacts"; runStamp="pipeline-test"
 		}
-		export FAKE_FUZZ="$1" FAKE_FUZZ_TEST="${2:-}" PATH="${fuzzBin}:${PATH}"
+		## The script's own exit cleanup. A failed case leaves through exit 1,
+		## and its log folder went with it into the real temp dir.
+		trap _fRemoveScratchDirs EXIT
+		# shellcheck disable=2030  ## Only the subshell is meant to see it.
+		export FAKE_FUZZ="$1" FAKE_FUZZ_TEST="${2:-}" PATH="${fuzzBin}:${PATH}" TMPDIR="${fuzzTmp}"
 		fStage_Zig_Fuzz
 	) 2>&1
 }
@@ -1004,6 +1010,43 @@ if ((rc != 0)) && [[ -z "${fuzzBad}" ]]
 	else fFail "exited ${rc},${fuzzBad} said '${out}'"
 fi
 
+## Each case above left its fuzz.log folder in the temp dir, 2 a run, since
+## nothing cleaned up after the subshell.
+fId EscPGS5 "the fuzz stage leaves nothing in TMPDIR, passed or failed"
+fuzzLeft="$(find "${fuzzTmp}" -mindepth 1 -maxdepth 1 2>&1 | tr '\n' ' ' || true)"
+if [[ -z "${fuzzLeft}" ]]
+	then fPass
+	else fFail "left ${fuzzLeft}"
+fi
+
+## Cleanup used to remove only what sat under /tmp, so with TMPDIR elsewhere
+## every scratch folder stayed. It still takes nothing mktemp -d did not make.
+fId EscPGS6 "scratch cleanup removes tmp.* folders in TMPDIR and nothing else"
+cleanTmp="${work}/clean-tmp"
+mkdir -p "${cleanTmp}/tmp.mine" "${cleanTmp}/keep" "${work}/clean-other/tmp.elsewhere" "${work}/clean-target"
+ln -s "${work}/clean-target" "${cleanTmp}/tmp.link"
+cleanBad=""
+if ! out="$(
+	fLoad _fRemoveScratchDirs || { echo "no _fRemoveScratchDirs in cicd.bash"; exit 2; }
+	# shellcheck disable=2031  ## Its own TMPDIR, with the trailing slash macOS gives.
+	export TMPDIR="${cleanTmp}/"
+	_scratchDirs=("${cleanTmp}/tmp.mine" "${cleanTmp}/keep" "${work}/clean-other/tmp.elsewhere" "${cleanTmp}/tmp.link" "")
+	_fRemoveScratchDirs
+	printf 'left=%s\n' "${#_scratchDirs[@]}"
+)"; then
+	cleanBad=" ${out};"
+else
+	[[ ! -e "${cleanTmp}/tmp.mine" ]]                || cleanBad+=" kept tmp.mine;"
+	[[ -d "${cleanTmp}/keep" ]]                      || cleanBad+=" removed keep;"
+	[[ -d "${work}/clean-other/tmp.elsewhere" ]]     || cleanBad+=" removed a tmp.* outside TMPDIR;"
+	[[ -L "${cleanTmp}/tmp.link" && -d "${work}/clean-target" ]] || cleanBad+=" followed or removed a link;"
+	[[ "${out}" == "left=0" ]]                       || cleanBad+=" the list was not emptied: ${out};"
+fi
+if [[ -z "${cleanBad}" ]]
+	then fPass
+	else fFail "${cleanBad}"
+fi
+
 ## The profile report sorted self time by the leaf's own name, and registry
 ## construction spends its time in strings and the allocator, so a third of a
 ## profile read as 0% registry. Here 40 of 100 samples sit under NewRegistry.
@@ -1030,6 +1073,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261013 JC: Fuzz cases clean up their temp folders.
 ##		- 20261010 JC: --container.
 ##		- 20261005 JC: The profile report's registry bucket.
 ##		- 20261004 JC: SOURCE_DATE_EPOCH kept from zig.
