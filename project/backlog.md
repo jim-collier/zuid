@@ -164,7 +164,9 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - Debug info differs between 2 cold builds of one commit.
 	- ID: 2026101313551112
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: Yes. 2 cold `cicd.bash --package` runs at one path, then compare `dist/debug/` for every target.
+	- Needs external testing: Yes. `cicd.bash --quick --only zig` on b26, for EscLn6s on a macOS `to_file`.
 	- Priority|Severity [Bug]: Avg
 	- Opened: 20261013-135511
 	- Opened by: JC
@@ -176,6 +178,27 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Expected behavior [Bug]: The same bytes from any machine that builds the same commit.
 	- Reproduced [Bug]: Yes, 20261013, on b23, while working 2026101305595488.
 	- Possible cause [Bug]: `tools/to_file.zig` is built in Debug, and its bytes differ from one cold build to the next. The translate-c steps hash those bytes, so the translated headers land under new cache paths, and those paths end up in the DWARF.
+	- Actual cause [Bug]:
+		- Confirmed. Same class as 2026101305595488. `to_file` was built by Zig's own x86_64 backend, which compiles functions on many threads. Its code came out the same every time, but its symbol names and debug info did not: `__anon_N` names carry the compiler's thread number, and the debug info is written in the order the threads finish.
+		- A translate-c step hashes the program it runs, so each cold build put the translated headers in a new `o/<hash>` folder. Those folders are in the debug info of the command, `libzuid.so` and `libzuid.a`.
+	- Progress log:
+		- 20261013: 3 cold builds of `to_file` alone gave 3 different files. `.text` and the data matched; `.strtab`, `.debug_info`, `.debug_str` and `.debug_line` did not.
+		- 20261013: Ruled out stripping alone. Zig's own backend keeps a symbol table with the `__anon_N` names, and 6 cold builds at `-j1` to `-j16` gave 6 files.
+		- 20261013: Ruled out LLVM alone. Cold builds matched at the default thread count, but `-j1` gave other `__anon_N` numbers, so a builder with 1 CPU would differ.
+		- 20261013: LLVM and stripped matched at `-j1`, `-j2` and the default. The Mac builds, cross-built from here, have no `__anon_N` names either. A cold build of it takes about 3 s either way.
+		- 20261013: No upstream issue found for the thread order in Zig's own backend. Closest are the ones on 2026101305595488.
+	- Actual fix [Bug]:
+		- `build.zig` builds `to_file` with LLVM, stripped. Nothing reads its debug info.
+	- Branch: tofile
+	- Commit: 12cd4a6
+	- Test case: EscLn6s.
+		- The Zig stage already builds into 2 new caches for Eq9nb3o, so each builds its own `to_file`. The check fails when the 2 differ, or when `to_file` has `__anon_` names, which a 1-CPU builder would number differently.
+		- It failed both ways before the fix: the old `build.zig` gave 2 different files, and LLVM without strip kept the names. It passes after.
+		- A full cold build compare takes about 5 minutes for one target, too slow for the pipeline. See Verified.
+	- Swept: the only other Run steps are the test run, whose output nothing reads, and the macOS relink, a system command whose hash takes its arguments and inputs, not the program's bytes. compiler_rt is 2026101305595488.
+	- Verified:
+		- 2 cold release builds for `x86_64-linux-gnu.2.28` at one path, each with its own empty caches. Before the fix, the command, `libzuid.so` and `libzuid.a` differed, and only in the translated header folders. With those folder names swapped back, the command and `libzuid.so` matched byte for byte. After the fix all 3 matched, debug info included.
+		- `cicd.bash --quick --only zig` passed with the fix, 272 ok and 3 skips, EscLn6s and EscFGGR included.
 
 - Release binaries keep debug info and the build machine's paths.
 	- ID: 2026101008194330
