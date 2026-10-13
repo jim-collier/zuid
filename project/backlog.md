@@ -40,86 +40,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ## Issues
 
-- `libzuid.a`'s compiler_rt object can differ between 2 builds of one commit.
-	- ID: 2026101305595488
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: Yes. `cicd.bash --package`, then `cicd.bash --container --package`, and compare `libzuid.a` in the Linux tarballs and the Windows zips.
-	- Needs external testing: Yes. `cicd.bash --quick --only zig --package` on b26, for EscFGGR and Esa8LVS on the macOS slices.
-	- Priority|Severity [Bug]: Avg
-	- Opened: 20261013-055954
-	- Opened by: JC
-	- Parent ID: 2026101304122319
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- Build a static library with `-fcompiler-rt` a few times, each with its own empty global cache, and compare the symbol names in `compiler_rt.o`.
-	- Incorrect behavior [Bug]: Names such as `__anon_1006637151` against `__anon_10187`, and the sections named after them, so the size and every offset after them move.
-	- Expected behavior [Bug]: The same bytes from any machine that builds the same commit.
-	- Reproduced [Bug]: Yes, 20261013, with Zig 0.17.0 on b23. 9 cold builds with 8 to 32 threads gave 2 sets of names, and runs with the same flags disagreed, with ASLR on or off. 2 builds with `-j1` matched.
-	- Possible cause [Bug]: The number is an index into the compiler's intern pool, and its top bits are the thread that added the value, so it depends on which thread got there first. No upstream issue found for that. Closest: ziglang/zig#36946, link inputs queued in a different order between runs, and #36334, debug info that changes with ASLR. #24116 asks for these names not to depend on the compiler's insides.
-	- Actual cause [Bug]:
-		- Confirmed. With `bundle_compiler_rt`, Zig builds a static library's compiler_rt as a second compile inside the first, on whatever worker thread is free. A value interned there has that thread's number in the top bits of its index, and the LLVM backend names it `__anon_<index>`. The main thread's number is 0.
-		- Built as the root of its own compile step, compiler_rt is analyzed on the main thread, and its names come out the same on every run.
-	- Progress log:
-		- 20261013: Ruled out: `zig build -j` limits steps only and doesn't reach the compiler, and build.zig has no switch for the compiler's threads. Renaming the symbols after the build is a hack. It shows only with a cold cache, so a second build on one machine doesn't catch it.
-		- 20261013: zuid's own object matched between b23 and the container. Only compiler_rt differed.
-		- 20261013: Reproduced with a one-line library: 5 cold builds gave 5 sets of names, and 3 with `zig build-lib -j1` matched.
-		- 20261013: Ruled out more switches. `zig build-lib -j<N>` exists, but the build system's compile step never passes it, and the compiler reads no environment variable for its thread count. Pinning the whole build to one CPU would slow every step. Building an object instead of a library puts compiler_rt in zuid's own compile, which is Zig's way for objects, but then compiler_rt gets zuid's optimize mode and safety checks, so its code changes.
-		- 20261013: No upstream issue covers the thread number in these names. Codeberg has nothing closer than #36946 and #36334, above.
-		- 20261013: Cold builds on b23 for the Linux release target took about 160 s on `main` and 146 to 163 s with the fix, with the machine busy. The new step takes about 3 s cold, beside the other steps.
-	- Actual fix [Bug]:
-		- `build.zig` builds compiler_rt as its own object step, with the settings Zig uses for its own copy, and adds it to the static library in place of `bundle_compiler_rt`.
-	- Branch: crtrt
-	- Commit: 57160c2
-	- Test case: EscFGGR.
-		- It fails when any `__anon_N` in the built `libzuid.a` is 2^20 or more, which takes a worker thread's number. It failed before the fix with 17 of 392 names, and passes after. It skips when there are no such names, in case Zig names them another way later.
-		- It can't see a difference that only 2 cold builds show. See Verified.
-	- Swept: only `libzuid.a` keeps compiler_rt as an object. The command, `libzuid.so` and the Windows DLL link Zig's own compiler_rt, and the names are gone after the link: stripped, each matched across 5 cold builds. The Windows, arm64 Linux and FreeBSD static libraries build with the new object, and none has a thread number in its names. The archive has only compiler_rt and zuid's own object.
-	- Verified:
-		- `cicd.bash --quick --only zig` passed on b23 with the fix, 271 ok, EscFGGR and the static library smoke tests included. Without the fix EscFGGR failed.
-		- 3 cold builds with the fix gave the same `compiler_rt.o` bytes. 2 on `main` gave 2 different ones.
-		- A release build's `compiler_rt.o` has the same code, sections, relocations and symbols as Zig's own, apart from the names, for Linux x86_64 and arm64, FreeBSD, Windows x86_64 and arm64, and macOS x86_64 and arm64. A Debug build's `__clear_cache` lacks Zig's valgrind hint on Linux, FreeBSD and Windows x86_64.
-	- Note: 20261013, the debug info in every file built here still differs between 2 cold builds. `tools/to_file.zig` is built in Debug and its bytes differ from one cold build to the next. The translate-c steps hash those bytes, so the translated headers land under new cache paths, and the paths are in the DWARF. Stripped files match. Filed as 2026101313551112.
-
-- Debug info differs between 2 cold builds of one commit.
-	- ID: 2026101313551112
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: Yes. 2 cold `cicd.bash --package` runs at one path, then compare `dist/debug/` for every target.
-	- Needs external testing: Yes. `cicd.bash --quick --only zig` on b26, for EscLn6s on a macOS `to_file`.
-	- Priority|Severity [Bug]: Avg
-	- Opened: 20261013-135511
-	- Opened by: JC
-	- Related IDs: 2026101304122319, 2026101305595488
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- Build the release twice, each with its own empty global cache, and compare the files in `dist/debug/`.
-	- Incorrect behavior [Bug]: The debug info differs. The stripped files match.
-	- Expected behavior [Bug]: The same bytes from any machine that builds the same commit.
-	- Reproduced [Bug]: Yes, 20261013, on b23, while working 2026101305595488.
-	- Possible cause [Bug]: `tools/to_file.zig` is built in Debug, and its bytes differ from one cold build to the next. The translate-c steps hash those bytes, so the translated headers land under new cache paths, and those paths end up in the DWARF.
-	- Actual cause [Bug]:
-		- Confirmed. Same class as 2026101305595488. `to_file` was built by Zig's own x86_64 backend, which compiles functions on many threads. Its code came out the same every time, but its symbol names and debug info did not: `__anon_N` names carry the compiler's thread number, and the debug info is written in the order the threads finish.
-		- A translate-c step hashes the program it runs, so each cold build put the translated headers in a new `o/<hash>` folder. Those folders are in the debug info of the command, `libzuid.so` and `libzuid.a`.
-	- Progress log:
-		- 20261013: 3 cold builds of `to_file` alone gave 3 different files. `.text` and the data matched; `.strtab`, `.debug_info`, `.debug_str` and `.debug_line` did not.
-		- 20261013: Ruled out stripping alone. Zig's own backend keeps a symbol table with the `__anon_N` names, and 6 cold builds at `-j1` to `-j16` gave 6 files.
-		- 20261013: Ruled out LLVM alone. Cold builds matched at the default thread count, but `-j1` gave other `__anon_N` numbers, so a builder with 1 CPU would differ.
-		- 20261013: LLVM and stripped matched at `-j1`, `-j2` and the default. The Mac builds, cross-built from here, have no `__anon_N` names either. A cold build of it takes about 3 s either way.
-		- 20261013: No upstream issue found for the thread order in Zig's own backend. Closest are the ones on 2026101305595488.
-	- Actual fix [Bug]:
-		- `build.zig` builds `to_file` with LLVM, stripped. Nothing reads its debug info.
-	- Branch: tofile
-	- Commit: 12cd4a6
-	- Test case: EscLn6s.
-		- The Zig stage already builds into 2 new caches for Eq9nb3o, so each builds its own `to_file`. The check fails when the 2 differ, or when `to_file` has `__anon_` names, which a 1-CPU builder would number differently.
-		- It failed both ways before the fix: the old `build.zig` gave 2 different files, and LLVM without strip kept the names. It passes after.
-		- A full cold build compare takes about 5 minutes for one target, too slow for the pipeline. See Verified.
-	- Swept: the only other Run steps are the test run, whose output nothing reads, and the macOS relink, a system command whose hash takes its arguments and inputs, not the program's bytes. compiler_rt is 2026101305595488.
-	- Verified:
-		- 2 cold release builds for `x86_64-linux-gnu.2.28` at one path, each with its own empty caches. Before the fix, the command, `libzuid.so` and `libzuid.a` differed, and only in the translated header folders. With those folder names swapped back, the command and `libzuid.so` matched byte for byte. After the fix all 3 matched, debug info included.
-		- `cicd.bash --quick --only zig` passed with the fix, 272 ok and 3 skips, EscLn6s and EscFGGR included.
-
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -185,6 +105,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Progress log:
 		- 20261013: Stalled on ziglang/zig#31001, a path map for debug info.
 		- 20261013: Ruled out: lld's `/pdbsourcepath` rewrites relative paths only. A build with no PDB matches, but 2026101008194330 keeps the PDB in `dist/debug/` so a crash can be looked up. Patching the ID after the link is a hack.
+		- 20261013: Paths aren't the only cause. 2 cold builds at one path still gave 2 PDBs. Zig builds its mingw C runtime from temp files with random names, such as `tmp/679bb39054fc1352-crt2.obj`, and clang puts each command line in the PDB. 88 such names per PDB. No upstream issue found for that.
 
 - Run the arm64 Windows release and the arm64 macOS slice on real arm64 machines.
 	- ID: 2026101312344407
@@ -394,6 +315,94 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: Ersmdcr, Ersmdcs, Ersmdct and Ersmdcu in `cli-test.bash`, and Ersmdcv in `tests.zig`. Each failed with its part of the cache broken.
 	- Acceptance signoff: Self-closed: tested on 3 OSes, uses each one's usual cache dir, and a bad file only costs one slower run.
 	- Closed: 20261013-033301
+
+- `libzuid.a`'s compiler_rt object can differ between 2 builds of one commit.
+	- ID: 2026101305595488
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: Done, 20261013. See Verified.
+	- Needs external testing: Done on b26, 20261013.
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20261013-055954
+	- Opened by: JC
+	- Parent ID: 2026101304122319
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- Build a static library with `-fcompiler-rt` a few times, each with its own empty global cache, and compare the symbol names in `compiler_rt.o`.
+	- Incorrect behavior [Bug]: Names such as `__anon_1006637151` against `__anon_10187`, and the sections named after them, so the size and every offset after them move.
+	- Expected behavior [Bug]: The same bytes from any machine that builds the same commit.
+	- Reproduced [Bug]: Yes, 20261013, with Zig 0.17.0 on b23. 9 cold builds with 8 to 32 threads gave 2 sets of names, and runs with the same flags disagreed, with ASLR on or off. 2 builds with `-j1` matched.
+	- Possible cause [Bug]: The number is an index into the compiler's intern pool, and its top bits are the thread that added the value, so it depends on which thread got there first. No upstream issue found for that. Closest: ziglang/zig#36946, link inputs queued in a different order between runs, and #36334, debug info that changes with ASLR. #24116 asks for these names not to depend on the compiler's insides.
+	- Actual cause [Bug]:
+		- Confirmed. With `bundle_compiler_rt`, Zig builds a static library's compiler_rt as a second compile inside the first, on whatever worker thread is free. A value interned there has that thread's number in the top bits of its index, and the LLVM backend names it `__anon_<index>`. The main thread's number is 0.
+		- Built as the root of its own compile step, compiler_rt is analyzed on the main thread, and its names come out the same on every run.
+	- Progress log:
+		- 20261013: Ruled out: `zig build -j` limits steps only and doesn't reach the compiler, and build.zig has no switch for the compiler's threads. Renaming the symbols after the build is a hack. It shows only with a cold cache, so a second build on one machine doesn't catch it.
+		- 20261013: zuid's own object matched between b23 and the container. Only compiler_rt differed.
+		- 20261013: Reproduced with a one-line library: 5 cold builds gave 5 sets of names, and 3 with `zig build-lib -j1` matched.
+		- 20261013: Ruled out more switches. `zig build-lib -j<N>` exists, but the build system's compile step never passes it, and the compiler reads no environment variable for its thread count. Pinning the whole build to one CPU would slow every step. Building an object instead of a library puts compiler_rt in zuid's own compile, which is Zig's way for objects, but then compiler_rt gets zuid's optimize mode and safety checks, so its code changes.
+		- 20261013: No upstream issue covers the thread number in these names. Codeberg has nothing closer than #36946 and #36334, above.
+		- 20261013: Cold builds on b23 for the Linux release target took about 160 s on `main` and 146 to 163 s with the fix, with the machine busy. The new step takes about 3 s cold, beside the other steps.
+	- Actual fix [Bug]:
+		- `build.zig` builds compiler_rt as its own object step, with the settings Zig uses for its own copy, and adds it to the static library in place of `bundle_compiler_rt`.
+	- Branch: crtrt
+	- Commit: 57160c2
+	- Test case: EscFGGR.
+		- It fails when any `__anon_N` in the built `libzuid.a` is 2^20 or more, which takes a worker thread's number. It failed before the fix with 17 of 392 names, and passes after. It skips when there are no such names, in case Zig names them another way later.
+		- It can't see a difference that only 2 cold builds show. See Verified.
+	- Swept: only `libzuid.a` keeps compiler_rt as an object. The command, `libzuid.so` and the Windows DLL link Zig's own compiler_rt, and the names are gone after the link: stripped, each matched across 5 cold builds. The Windows, arm64 Linux and FreeBSD static libraries build with the new object, and none has a thread number in its names. The archive has only compiler_rt and zuid's own object.
+	- Verified:
+		- `cicd.bash --quick --only zig` passed on b23 with the fix, 271 ok, EscFGGR and the static library smoke tests included. Without the fix EscFGGR failed.
+		- 3 cold builds with the fix gave the same `compiler_rt.o` bytes. 2 on `main` gave 2 different ones.
+		- A release build's `compiler_rt.o` has the same code, sections, relocations and symbols as Zig's own, apart from the names, for Linux x86_64 and arm64, FreeBSD, Windows x86_64 and arm64, and macOS x86_64 and arm64. A Debug build's `__clear_cache` lacks Zig's valgrind hint on Linux, FreeBSD and Windows x86_64.
+		- 20261013: 2 cold `cicd.bash --package` runs on b23, the first a full run, gave the same `libzuid.a` for all 5 targets. A `--container --package` run gave the same 5 again. Every release file matched between b23 and the container apart from the Windows exe and dll, which are 2026101305595483.
+		- 20261013: `cicd.bash --quick --package` passed on b26, EscFGGR and Esa8LVS included.
+	- Acceptance signoff: Self-closed 20261013. The fix does what the item asked, and its test failed before it and passes after.
+	- Closed: 20261013-151453
+	- Note: 20261013, the debug info in every file built here still differs between 2 cold builds. `tools/to_file.zig` is built in Debug and its bytes differ from one cold build to the next. The translate-c steps hash those bytes, so the translated headers land under new cache paths, and the paths are in the DWARF. Stripped files match. Filed as 2026101313551112.
+
+- Debug info differs between 2 cold builds of one commit.
+	- ID: 2026101313551112
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: Done, 20261013. See Verified.
+	- Needs external testing: Done on b26, 20261013.
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20261013-135511
+	- Opened by: JC
+	- Related IDs: 2026101304122319, 2026101305595488
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- Build the release twice, each with its own empty global cache, and compare the files in `dist/debug/`.
+	- Incorrect behavior [Bug]: The debug info differs. The stripped files match.
+	- Expected behavior [Bug]: The same bytes from any machine that builds the same commit.
+	- Reproduced [Bug]: Yes, 20261013, on b23, while working 2026101305595488.
+	- Possible cause [Bug]: `tools/to_file.zig` is built in Debug, and its bytes differ from one cold build to the next. The translate-c steps hash those bytes, so the translated headers land under new cache paths, and those paths end up in the DWARF.
+	- Actual cause [Bug]:
+		- Confirmed. Same class as 2026101305595488. `to_file` was built by Zig's own x86_64 backend, which compiles functions on many threads. Its code came out the same every time, but its symbol names and debug info did not: `__anon_N` names carry the compiler's thread number, and the debug info is written in the order the threads finish.
+		- A translate-c step hashes the program it runs, so each cold build put the translated headers in a new `o/<hash>` folder. Those folders are in the debug info of the command, `libzuid.so` and `libzuid.a`.
+	- Progress log:
+		- 20261013: 3 cold builds of `to_file` alone gave 3 different files. `.text` and the data matched; `.strtab`, `.debug_info`, `.debug_str` and `.debug_line` did not.
+		- 20261013: Ruled out stripping alone. Zig's own backend keeps a symbol table with the `__anon_N` names, and 6 cold builds at `-j1` to `-j16` gave 6 files.
+		- 20261013: Ruled out LLVM alone. Cold builds matched at the default thread count, but `-j1` gave other `__anon_N` numbers, so a builder with 1 CPU would differ.
+		- 20261013: LLVM and stripped matched at `-j1`, `-j2` and the default. The Mac builds, cross-built from here, have no `__anon_N` names either. A cold build of it takes about 3 s either way.
+		- 20261013: No upstream issue found for the thread order in Zig's own backend. Closest are the ones on 2026101305595488.
+	- Actual fix [Bug]:
+		- `build.zig` builds `to_file` with LLVM, stripped. Nothing reads its debug info.
+	- Branch: tofile
+	- Commit: 12cd4a6
+	- Test case: EscLn6s.
+		- The Zig stage already builds into 2 new caches for Eq9nb3o, so each builds its own `to_file`. The check fails when the 2 differ, or when `to_file` has `__anon_` names, which a 1-CPU builder would number differently.
+		- It failed both ways before the fix: the old `build.zig` gave 2 different files, and LLVM without strip kept the names. It passes after.
+		- A full cold build compare takes about 5 minutes for one target, too slow for the pipeline. See Verified.
+	- Swept: the only other Run steps are the test run, whose output nothing reads, and the macOS relink, a system command whose hash takes its arguments and inputs, not the program's bytes. compiler_rt is 2026101305595488.
+	- Verified:
+		- 2 cold release builds for `x86_64-linux-gnu.2.28` at one path, each with its own empty caches. Before the fix, the command, `libzuid.so` and `libzuid.a` differed, and only in the translated header folders. With those folder names swapped back, the command and `libzuid.so` matched byte for byte. After the fix all 3 matched, debug info included.
+		- `cicd.bash --quick --only zig` passed with the fix, 272 ok and 3 skips, EscLn6s and EscFGGR included.
+		- 20261013: 2 cold `cicd.bash --package` runs on b23 with the same cache paths, each starting empty. Every file in `dist/debug/` matched for Linux, FreeBSD and both Windows `libzuid.a` files. Only the Windows PDBs differed, which is 2026101305595483. With 2 different cache paths the translated header folders differ too, as expected, since their hash takes the path of `to_file`.
+		- 20261013: `cicd.bash --quick --package` passed on b26, EscLn6s included.
+	- Acceptance signoff: Self-closed 20261013. The cause was found and fixed, and the check failed before the fix.
+	- Closed: 20261013-151453
 
 - Release files still differ between two machines building one commit.
 	- ID: 2026101304122319
