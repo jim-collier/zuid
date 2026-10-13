@@ -1013,7 +1013,7 @@ fi
 ## Each case above left its fuzz.log folder in the temp dir, 2 a run, since
 ## nothing cleaned up after the subshell.
 fId EscPGS5 "the fuzz stage leaves nothing in TMPDIR, passed or failed"
-fuzzLeft="$(find "${fuzzTmp}" -mindepth 1 -maxdepth 1 -printf '%f ' 2>&1 || true)"
+fuzzLeft="$(find "${fuzzTmp}" -mindepth 1 -maxdepth 1 2>&1 | tr '\n' ' ' || true)"
 if [[ -z "${fuzzLeft}" ]]
 	then fPass
 	else fFail "left ${fuzzLeft}"
