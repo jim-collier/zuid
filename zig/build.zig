@@ -260,7 +260,7 @@ fn buildEpoch(b: *std.Build) i64 {
         }
         // translate-c reads it too, and refuses anything but a number. A warm
         // cache hid that. Zig 0.17 runs the steps in another process, which
-        // this does not reach, so translateHeader drops it for its own. Clang
+        // this does not reach, so tools/to_file.zig drops it for its own. Clang
         // refuses it the same way when Zig builds its own libunwind and libc
         // into a cold global cache, and nothing here reaches that, so the
         // scripts in cicd/ drop it before running zig.
@@ -328,10 +328,11 @@ fn translateHeaders(b: *std.Build, target: std.Build.ResolvedTarget, optimize: s
 }
 
 /// Zig's own translate-c, run as a command rather than through
-/// b.addTranslateC, since only a command step can keep SOURCE_DATE_EPOCH away
-/// from it (see buildEpoch). Not the translate-c package either, which would
-/// need a fetch, so an offline build still works. It writes through to_file,
-/// not captureStdOut, since on macOS it hangs when its stdout is a pipe.
+/// b.addTranslateC, since only a command can keep SOURCE_DATE_EPOCH away from
+/// it (see buildEpoch). Not the translate-c package either, which would need a
+/// fetch, so an offline build still works. It runs through to_file, which
+/// drops that, and gives it a file rather than captureStdOut's pipe, which
+/// hangs it on macOS.
 fn translateHeader(
     b: *std.Build,
     to_file: *std.Build.Step.Compile,
@@ -354,7 +355,6 @@ fn translateHeader(
     run.addArg(b.fmt("-O{t}", .{optimize}));
     if (wasmtime) |dir| run.addPrefixedDirectoryArg("-I", b.path(b.fmt("{s}/include", .{dir})));
     run.addFileArg(b.path(header));
-    run.removeEnvironmentVariable("SOURCE_DATE_EPOCH");
     // to_file has no progress to report, and would only hand the pipe on.
     run.disable_zig_progress = true;
     return .{ .run = run, .module = b.createModule(.{
