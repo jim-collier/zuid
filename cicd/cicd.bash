@@ -2590,7 +2590,8 @@ fStage_Package_Stripped(){  ## scratch dir
 				arch="${debugRoot##*/}"
 				case "${name}" in
 					*.a)
-						debugFile="${debugRoot}/${sub}/${name}"
+						debugFile="${debugRoot}/${sub}/${name}.debug"
+						if [[ "${release}" == *-darwin-universal ]]; then debugFile="${debugRoot}/${sub}/${name}"; fi
 						if [[ ! -f "${debugFile}" ]] || [[ "$("${lister}" -h "${debugFile}" 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^(\.z?debug|__debug|__DWARF)/' | wc -l)" -eq 0 ]]; then
 							problems+=("${release}: no ${sub}/${name} with debug info beside it")
 						fi
@@ -2638,6 +2639,36 @@ fStage_Package_Stripped(){  ## scratch dir
 	fi
 	fTestPass
 
+	## The backup archives dist/ on every run, so an ELF .debug file keeps only
+	## DWARF, packed. A whole unstripped libzuid.a went there until 20261013.
+	fId EsbEsag "each ELF file in dist/debug/ has its DWARF packed and none of its code"
+	problems=()
+	checked=0
+	local readelf=""
+	for version in "" -21 -20 -19 -18 -17 -16; do
+		if [[ -z "${readelf}" ]] && command -v "llvm-readelf${version}" >/dev/null 2>&1; then readelf="llvm-readelf${version}"; fi
+	done
+	if [[ -z "${readelf}" ]]; then fTestSkip "no llvm-readelf"; return 0; fi
+	local sections=""
+	while IFS= read -r file; do
+		## Windows .debug files are COFF, which llvm-objcopy won't pack.
+		"${readelf}" -h "${file}" 2>/dev/null | grep -q 'ELF Header' || continue
+		checked=$((checked + 1))
+		## Name, type, then flags in the 7th column once the [ N] is gone.
+		sections="$("${readelf}" -S -W "${file}" 2>/dev/null | sed -n 's/^ *\[ *[0-9]*\] *//p' || true)"
+		if awk '$1 ~ /^\.text/ && $2 == "PROGBITS" { hit = 1 } END { exit !hit }' <<< "${sections}"; then
+			problems+=("${file#"${distDir}/"} has code in it")
+		fi
+		if ! awk '$1 == ".debug_info" { n++; if ($7 !~ /C/) bad = 1 } END { exit !(n && !bad) }' <<< "${sections}"; then
+			problems+=("${file#"${distDir}/"} has an unpacked or no .debug_info")
+		fi
+	done < <(find "${distDir}/debug" -type f \( -name '*.debug' -o -name '*.a' \) ! -path '*.dSYM/*' | sort)
+	if ((checked == 0)); then fTestSkip "no ELF debug files, as on a Mac"; return 0; fi
+	if ((${#problems[@]})); then
+		fTestFail "${#problems[@]} problems, such as: $(printf '%s; ' "${problems[@]:0:4}")"
+	fi
+	fTestPass
+
 }
 
 
@@ -2680,6 +2711,18 @@ fStage_Package_Again(){  ## scratch dir, version
 	if ((${#problems[@]})); then
 		fTestFail "${#problems[@]} of ${compared} files differ (${how}), such as: $(printf '%s; ' "${problems[@]:0:5}")"
 	fi
+	fTestPass
+
+	## nfpm's version is in every .deb and .rpm it writes, so a host on another
+	## one makes packages that differ from the container's. Not fatal: a clone
+	## elsewhere may have any nfpm at all.
+	fId EsbF9Jy "the host's nfpm is the one the container pins"
+	local pinned="" have=""
+	pinned="$(sed -n 's/^ARG NFPM_VER=//p' "${repoRoot}/cicd/container/Dockerfile" || true)"
+	if ! command -v nfpm >/dev/null 2>&1; then fTestSkip "no nfpm"; return 0; fi
+	have="$(nfpm --version 2>/dev/null | awk '$1 == "GitVersion:" { sub(/^v/, "", $2); print $2; exit }' || true)"
+	if [[ -z "${pinned}" ]]; then fTestFail "no ARG NFPM_VER in cicd/container/Dockerfile"; fi
+	if [[ "${have}" != "${pinned}" ]]; then fTestSkip "nfpm ${have:-of unknown version} here, and the container pins ${pinned}, so its .deb and .rpm differ"; return 0; fi
 	fTestPass
 
 }

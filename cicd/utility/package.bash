@@ -271,7 +271,9 @@ fi
 ## Strips a slice in place, keeping what it took out under the debug dir, laid
 ## out like the release. A program or shared library keeps its symbols and
 ## DWARF in <name>.debug, or <name>.dSYM on a Mac. A static library keeps its
-## symbols, since linking needs them, and its unstripped copy goes to debug/.
+## symbols, since linking needs them, and only its DWARF goes to debug/, zlib
+## packed, which gdb reads as is. Apple's tools can't split an archive, so a
+## Mac keeps the whole unstripped copy.
 ## Windows PDBs move there whole: the command's from bin/, and the DLL's from
 ## lib/, where build.zig puts it, since both are zuid.pdb.
 ## Wasmtime's and zstd's files are left as their projects ship them.
@@ -300,9 +302,12 @@ fStripSlice(){  ## slice, debug dir, zig target
 			esac
 		else
 			case "${name}" in
-				*.a) cp "${file}" "${debugDir}/${sub}/"; "${objcopy}" --strip-debug "${file}" ;;
+				*.a)
+					"${objcopy}" --only-keep-debug --compress-debug-sections=zlib "${file}" "${debugDir}/${sub}/${name}.debug"
+					"${objcopy}" --strip-debug "${file}"
+					;;
 				*)
-					"${objcopy}" --only-keep-debug "${file}" "${debugDir}/${sub}/${name}.debug"
+					"${objcopy}" --only-keep-debug --compress-debug-sections=zlib "${file}" "${debugDir}/${sub}/${name}.debug"
 					"${objcopy}" --strip-all "${file}"
 					;;
 			esac
@@ -570,6 +575,7 @@ fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "
 
 
 ##	History:
+##		- 20261013 JC: debug/ gets only the static lib's DWARF, zlib packed.
 ##		- 20261013 JC: Archives and packages get one time, owner 0, set modes and a sorted list.
 ##		- 20261013 JC: Strip release binaries; their debug info and PDBs go to debug/.
 ##		- 20261004 JC: Wasmtime's license in every release, and the module's and Wasmtime's in the deb and rpm.
