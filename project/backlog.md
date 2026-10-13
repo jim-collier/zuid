@@ -148,7 +148,8 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - Release binaries keep debug info and the build machine's paths.
 	- ID: 2026101008194330
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs external testing: A `--package` run on b26. There each slice is stripped with `strip`, keeps a `.dSYM` per CPU, and the arm64 slices are signed again. None of that has run yet, and neither have EsZni4i, EsZni4j and ErbFB7B through the `.dSYM`.
 	- Priority|Severity [Bug]: High
 	- Opened: 20261010-081943
 	- Opened by: JC
@@ -160,11 +161,41 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Expected behavior [Bug]: No paths from the build machine, and the same bytes from any machine that builds the same commit.
 	- Reproduced [Bug]: Yes, 20261010, in the published alpha and in builds from b23 and the container. Stripped, the alpha binary is 18.7 MB with none of those paths.
 	- Possible cause [Bug]: Release builds keep their debug info, and nothing strips it.
+	- Actual cause [Bug]:
+		- Confirmed. Nothing stripped the release builds, so each kept its DWARF, with the paths of the Zig install, its caches, the checkout and the home dir. The static libraries had the same. The Windows zips had the PDB too.
 	- Progress log:
 		- 20261010: found while comparing a container build with a host build. Every release file differed.
+		- 20261013: Reproduced on b23 by the new check, 43 problems, the same paths and debug sections in every binary of every asset.
+		- 20261013: Stripped, the bare Linux and FreeBSD binaries come out the same from b23 and the container. Other files still differ for reasons outside debug info, logged as 2026101304122319.
 	- Decisions:
 		- 20261013, by direct answer: release binaries are stripped. Each one's debug info goes in `dist/debug/`, not published, but kept by the backup so a panic address can still be looked up. The Windows `.pdb` leaves the zips the same way.
-	- Test case: none yet. A package stage check for the Zig and cache paths in each binary would catch it.
+	- Actual fix [Bug]: `package.bash` strips every binary built here. On Linux that's `llvm-objcopy`, for both ELF and Windows files. On a Mac it's `strip`, with `dsymutil` first. A program or shared library keeps its symbols and DWARF in `dist/debug/<release>/`, as `<name>.debug` or `<name>.dSYM`. A static library keeps its symbols, and its unstripped copy goes there. Both Windows PDBs move there, the DLL's included, which was dropped before. The AVX and armv8-a scans take function names from the debug file.
+	- Branch: strip
+	- Commit: 60169a5
+	- Test case: EsZni4i, EsZni4j and EsZni4k.
+		- EsZni4i fails on any file in the release with this machine's paths, any binary built here with debug sections, and any PDB. It failed on the tree before the fix, with 43 problems.
+		- EsZni4j checks each binary has its own debug info in `dist/debug/`. It failed with another release's `.debug` file, the command's PDB in place of the DLL's, and an archive copy missing.
+		- EsZni4k checks nothing under `dist/debug/` is uploaded or hashed by `--publish`. It and ErgqYtF failed with the publish stage reading all of `dist/`.
+	- Swept: every asset in `dist/`, the bare binaries, tarballs, zips, `.deb` and `.rpm`, with the shared and static libraries. The scans that read names: ErbFB7B, ErlUUiR, ErgjCkU and ErmS0zB read the debug files now. EsXcjyV reads the unstripped dogfood build and is unchanged. `--publish` and the checksums in `package.bash` read only the top of `dist/`.
+	- Verified: `cicd.bash --package` passed on b23 and with `--container`, 20261013. The Linux x86_64 command is 18.8 MB, down from 28.9 MB. Through the debug file, the AVX scan found the same 235 functions as on the unstripped build, for a build for this CPU. The arm64 scan found the same 56 on a cortex_a76 build.
+
+- Release files still differ between two machines building one commit.
+	- ID: 2026101304122319
+	- Type: Bug
+	- Status: Queued
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20261013-041223
+	- Opened by: JC
+	- Related IDs: 2026101008194330
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- Run `cicd.bash --package`, keep `dist/`, run `cicd.bash --container --package`, and compare the two.
+	- Incorrect behavior [Bug]: The bare Linux and FreeBSD binaries match, and these differ:
+		- The Windows `zuid.exe` and `zuid.dll`, in 20 bytes: the time stamp and the PDB's ID. The linker makes both from a hash, which takes in the PDB, and the PDB has the build machine's paths.
+		- `libzuid.a`, in its compiler_rt object. Anonymous symbols and sections are numbered differently, such as `__anon_603986435` against `__anon_905974935`.
+		- The tarballs, zips and packages, in file times, owners and modes.
+	- Expected behavior [Bug]: The same bytes from any machine that builds the same commit.
+	- Reproduced [Bug]: Yes, 20261013, b23 against the container, on branch `strip`.
 
 - Run on the last Core 2 Duo, and AMD CPUs from that era.
 	- ID: 2026101301161847
