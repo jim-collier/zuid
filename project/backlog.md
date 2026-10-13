@@ -40,66 +40,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 
 ## Issues
 
-- FreeBSD packaging fails: the pinned Wasmtime package is gone from the repo.
-	- ID: 2026101218572197
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Priority|Severity [Bug]: Avg
-	- Opened: 20261012-185721
-	- Opened by: JC
-	- Related IDs: 2026100413383571
-	- Target OS: FreeBSD
-	- Steps to reproduce [Bug]:
-		- `cicd.bash --package` on Linux.
-	- Incorrect behavior [Bug]: `libwasmtime-45.0.0_1` 404s from the FreeBSD 14 quarterly repo, and the Zig stage stops.
-	- Expected behavior [Bug]: The FreeBSD release builds.
-	- Reproduced [Bug]: Yes, 20261012.
-	- Actual cause [Bug]:
-		- The repo moved on to libwasmtime 49.0.1. zstd is still 1.5.7_2, but a rebuild, with a new hash.
-	- Actual fix [Bug]: Repinned both. The repo's catalog sum is no longer the file's sha256, so the hashes are taken from the downloads, and the comment above the pins says so.
-	- Decisions:
-		- The FreeBSD release now builds against Wasmtime 49, the other platforms against 47.0.3.
-	- Branch: dogfoodcpu
-	- Test case: The FreeBSD checks under `--package`, ErlUUiQ to ErlUUiU. Not run on FreeBSD itself.
-
-- Run on the last Core 2 Duo, and AMD CPUs from that era.
-	- ID: 2026101301161847
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs external testing: Done on emulated Penryn and Prescott. Not run on a real Core 2 Duo or Phenom II, and not on an emulated AMD chip. Windows and FreeBSD get the static scan only. The macOS scan change needs a `--package` run on b26.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261013-011618
-	- Opened by: JC
-	- Target OS: Linux, Windows and FreeBSD on x86_64, where this project builds them. Macs that old can't run a current macOS anyway.
-	- Requirements [Feature]:
-		- Release builds run on the last Core 2 Duo (Penryn, 2008), and on AMD Phenom II and Athlon II, if that's reasonably doable.
-			- Penryn has SSSE3 and SSE4.1 but no POPCNT. The AMD ones have POPCNT but no SSSE3. So the shared floor is plain x86-64, also called x86-64-v1.
-		- If that isn't doable, the floor is the first Core i3/i5/i7 (Nehalem, 2008), which is x86-64-v2. AMD's first chip at that level is Bulldozer, 2011.
-		- Faster code for newer CPUs is still fine, but it's picked at run time by a CPU feature test, never by the build target.
-		- Tests run the release build on an emulated Penryn and Phenom II, through Intel SDE or QEMU's `-cpu Penryn` and `-cpu phenom`.
-	- Progress log:
-		- 20261013: Release builds name a Zig target since 2026093018112406, so they get the baseline CPU, and EsXcjyV fails on AVX (2026101218531694). What's left:
-			- EsXcjyV only looks for AVX. Widen it to anything past the floor.
-			- Zig picks its SHA-256 code at compile time, so a baseline build never uses SHA-NI, even where it's there. A run-time pick needs both versions built in.
-			- Wasmtime is a prebuilt archive. Find out what CPU it needs, and what it does on one without SSE4.1.
-		- 20261013: The scan now fails on anything past x86-64-v1, not just AVX, at all 4 places it ran: the dogfood build, and the Linux, FreeBSD and Windows releases. Penryn has no POPCNT and Phenom II no SSSE3, so both are refused, and so are LZCNT, BMI, AES-NI, SHA and the rest.
-			- TZCNT is let through. LLVM writes BSF that way on a baseline build, where the answer is the same.
-			- zstd's BMI2 copies of a few functions are skipped like Wasmtime's Rust, since zstd checks the CPU before it calls them.
-			- The macOS x86_64 slice is held to Core 2 instead, Zig's baseline there, which has SSSE3. Held to x86-64-v1 it would fail on b26. Not run on a Mac yet.
-		- 20261013: Cranelift has run wasm SIMD on plain SSE2 since Wasmtime 11, so 47.0.3 and FreeBSD's 49.0.1 need nothing past the floor, and the engine config stays as it is.
-		- 20261013: New checks run the Linux release under Intel's SDE as a Penryn and as a Prescott, the nearest it has to Phenom II, which also lacks SSSE3 and SSE4.1. Each takes about 6 s. They skip when there's no `sde64`, or `ZUID_SDE` to name one.
-		- 20261013: they also look in `~/.local/opt/intel-sde`, where SDE was unpacked here, so a plain run on b23 doesn't skip them. Nothing was put on PATH.
-			- SDE stops on an instruction the chip lacks, in compiled wasm code too. It doesn't catch LZCNT, which the scan does.
-			- Each run starts with a module cache made on a newer CPU. Wasmtime turns it down and compiles again.
-	- Decisions:
-		- 20261013: No run-time SHA-NI pick in Zig's SHA-256. It hashes a few names per run, so there's nothing to gain. The requirement allows faster code but doesn't ask for it, and Wasmtime's own SHA-256 already picks at run time.
-		- 20261013: Prescott stands in for Phenom II under SDE, which has no AMD chips. It lacks SSSE3 and SSE4.1 as Phenom II does, and POPCNT, which Phenom II has.
-	- Branch: oldcpu2
-	- Commit: 4bbd035, 7218b59
-	- Test case: EsZyWyD and EsZyWyE, the release under emulated Penryn and Prescott. EsXcjyV, ErbFB7B, ErlUUiR and ErmS0zB now scan for anything past x86-64-v1. Watched fail: `x86_64_v2` builds for Linux, FreeBSD and Windows failed the scan on SSE4.1 and SSSE3 code, which the AVX-only scan passed, and failed EsZyWyD on `popcnt`. A build for this CPU failed the scan in 282 functions. A Penryn build passed EsZyWyD and failed EsZyWyE on `pshufb`.
-	- Swept: all 4 callers of the old AVX scan in `cicd.bash`, the Windows one through its PDB. The arm64 scan has its own list. No other script calls it.
-	- Verified: `cicd.bash --package --no-dogfood --no-backup -q` passed on b23 with SDE, 20261013, at 4bbd035 and again at 7218b59, 342 ok and 5 skipped for macOS or Windows.
-
 - Windows release packages, x86_64 and arm64.
 	- ID: 2026100416052036
 	- Type: Enhancement
@@ -141,7 +81,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- ID: 2026101008194330
 	- Type: Bug
 	- Status: Waiting for testing
-	- Needs external testing: A `--package` run on b26. There each slice is stripped with `strip`, keeps a `.dSYM` per CPU, and the arm64 slices are signed again. None of that has run yet, and neither have EsZni4i, EsZni4j and ErbFB7B through the `.dSYM`.
+	- Needs external testing: b26 done 20261013, see Verified. Left: a run of the stripped Windows x86_64 zip on vm925w, which was shut off.
 	- Priority|Severity [Bug]: High
 	- Opened: 20261010-081943
 	- Opened by: JC
@@ -170,47 +110,8 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- EsZni4k checks nothing under `dist/debug/` is uploaded or hashed by `--publish`. It and ErgqYtF failed with the publish stage reading all of `dist/`.
 	- Swept: every asset in `dist/`, the bare binaries, tarballs, zips, `.deb` and `.rpm`, with the shared and static libraries. The scans that read names: ErbFB7B, ErlUUiR, ErgjCkU and ErmS0zB read the debug files now. EsXcjyV reads the unstripped dogfood build and is unchanged. `--publish` and the checksums in `package.bash` read only the top of `dist/`.
 	- Verified: `cicd.bash --package` passed on b23 and with `--container`, 20261013. The Linux x86_64 command is 18.8 MB, down from 28.9 MB. Through the debug file, the AVX scan found the same 235 functions as on the unstripped build, for a build for this CPU. The arm64 scan found the same 56 on a cortex_a76 build.
-
-- Release files still differ between two machines building one commit.
-	- ID: 2026101304122319
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs external testing: A `--package` run on b26. The macOS tarball now goes through bsdtar with a set owner and order, and through BSD `touch`. None of that has run there, and neither has Esa8LVS.
-	- Priority|Severity [Bug]: Avg
-	- Opened: 20261013-041223
-	- Opened by: JC
-	- Related IDs: 2026101008194330, 2026101305595483, 2026101305595488
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- Run `cicd.bash --package`, keep `dist/`, run `cicd.bash --container --package`, and compare the two.
-	- Incorrect behavior [Bug]: The bare Linux and FreeBSD binaries match, and these differ:
-		- The Windows `zuid.exe` and `zuid.dll`, in 20 bytes: the time stamp and the PDB's ID. The linker makes both from a hash, which takes in the PDB, and the PDB has the build machine's paths.
-		- `libzuid.a`, in its compiler_rt object. Anonymous symbols and sections are numbered differently, such as `__anon_603986435` against `__anon_905974935`.
-		- The tarballs, zips and packages, in file times, owners and modes.
-	- Expected behavior [Bug]: The same bytes from any machine that builds the same commit.
-	- Reproduced [Bug]: Yes, 20261013, b23 against the container, on branch `strip`.
-	- Actual cause [Bug]:
-		- Confirmed. Each file in a tarball or zip took its time from when it was copied, its owner from whoever built it, its mode from the umask, and its place from the directory order. nfpm stamped the deb and rpm with the clock, and the rpm with the build host.
-		- The build number could be stale. Zig 0.17 reuses what build.zig worked out last time until build.zig or a `-D` option changes, and it doesn't watch the environment or git. So a new commit or SOURCE_DATE_EPOCH went unseen. The b23 release built from `main` had the strip merge's build number, 38 minutes older than its HEAD.
-		- build.zig dropped SOURCE_DATE_EPOCH for translate-c by giving that step its own copy of the environment, and the copy went into the step's cache key. Once the build number was worked out on every run, any change to the environment rebuilt everything, with new cache paths in the debug info and the Windows PDBs.
-		- The Windows exe and dll, and the compiler_rt object in every `libzuid.a`, come out of Zig itself. Split off as 2026101305595483 and 2026101305595488.
-		- The deb and rpm also differ when nfpm's version does. b23 has 2.43.0 and the container pins 2.47.0. With 2.47.0 on both they match.
-	- Progress log:
-		- 20261013: 2 package runs on b23, the second under umask 077, gave 10 different files of 33: every tarball, zip, deb and rpm, and the checksums.
-		- 20261013: After the fix, b23 against the container: the bare Linux x86_64, arm64 and FreeBSD binaries and the FreeBSD tarball match. The Linux tarballs differ only in `libzuid.a`'s compiler_rt object. The Windows zips differ only there and in `zuid.exe` and `zuid.dll`, 20 bytes each. The deb and rpm match with the same nfpm. Tar and zip headers match.
-		- 20261013: b23's nfpm was left at 2.43.0, since it's installed outside the project.
-	- Actual fix [Bug]:
-		- `package.bash` gives every file in a tarball, zip, deb and rpm one time: SOURCE_DATE_EPOCH, else the HEAD commit date, never the clock, and no earlier than 1980. Modes are 0755 or 0644 by whether the file runs. Tarballs are owner 0 by number with no names, sorted bytewise, and gzip keeps no name or time. Zips get the same list, with the zone pinned to UTC and no extra fields. nfpm gets the time, a fixed rpm build host and set modes on the license files.
-		- `build.zig` tells Zig not to reuse its answers unless `-Dbuild-epoch` is given. That costs about 40 ms on a build with nothing to do.
-		- `tools/to_file.zig` drops SOURCE_DATE_EPOCH for translate-c, so the step no longer keeps a copy of the environment.
-	- Branch: repro
-	- Commit: 0483497
-	- Test case: Esa8LVS and EsaCjhS.
-		- Esa8LVS packages again after the first run, under umask 077 and, where a user namespace is allowed, as root on another host name. Every file has to match, debug info included. It failed before the fix with 10 of 33 files different, and with only the build.zig half of the fix with 23. About 24 s on b23 with a warm Zig cache.
-		- EsaCjhS builds again in a cache that has seen another epoch, with SOURCE_DATE_EPOCH=1700000000, and wants that build number. It failed before the fix with the old one.
-		- Neither catches a path or Zig's own output that differs between machines. The 2 split items have no check here for that reason.
-	- Swept: every `tar`, `zip` and nfpm call under `cicd/`. Only `package.bash` makes release files; `installer-test.bash` and `pipeline-test.bash` make their own fixtures. `build.zig` has no other step with its own environment. The macOS release goes through the same functions.
-	- Verified: `cicd.bash --quick --only zig --package` passed on b23 and with `--container`, 20261013, Esa8LVS and EsaCjhS included. The comparison above is from those 2 runs, with a third host package run using nfpm 2.47.0 for the deb and rpm.
+	- Verified: 20261013, b26 `--package` at 2fa8524, with ErbFB7B and Esa8LVS skipped since both fail there for other items: EsZni4i, EsZni4j, ErfrKRQ, ErbFB7D and Erfhegq pass, and the stripped universal command runs. The full b23 run passed too.
+	- Note: `codesign -v` calls the command's x86_64 slice unsigned. An Intel Mac doesn't need one. Whether it was signed before the strip wasn't checked.
 
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
@@ -262,7 +163,7 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 - The Windows exe and dll differ between machines building one commit.
 	- ID: 2026101305595483
 	- Type: Bug
-	- Status: Queued
+	- Status: Stalled
 	- Priority|Severity [Bug]: Avg
 	- Opened: 20261013-055954
 	- Opened by: JC
@@ -275,7 +176,50 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Reproduced [Bug]: Yes, 20261013. A one-line Zig program built for x86_64-windows-gnu in 2 folders with different names gave 2 exes 20 bytes apart. With `-fstrip` they matched.
 	- Possible cause [Bug]: Zig links with `-BREPRO`, so lld makes the PDB's ID from a hash of the PDB, and the time stamp from that. The PDB has the absolute paths of the checkout, the Zig install and its cache. Zig has no way to map those paths yet. Upstream: ziglang/zig#31001 on Codeberg, debug-prefix-map support, open.
 	- Progress log:
+		- 20261013: Stalled on ziglang/zig#31001, a path map for debug info.
 		- 20261013: Ruled out: lld's `/pdbsourcepath` rewrites relative paths only. A build with no PDB matches, but 2026101008194330 keeps the PDB in `dist/debug/` so a crash can be looked up. Patching the ID after the link is a hack.
+
+- Release files still differ between two machines building one commit.
+	- ID: 2026101304122319
+	- Type: Bug
+	- Status: Queued
+	- Needs external testing: A `--package` run on b26. The macOS tarball now goes through bsdtar with a set owner and order, and through BSD `touch`. Ran 20261013, and Esa8LVS failed, see the progress log.
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20261013-041223
+	- Opened by: JC
+	- Related IDs: 2026101008194330, 2026101305595483, 2026101305595488
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- Run `cicd.bash --package`, keep `dist/`, run `cicd.bash --container --package`, and compare the two.
+	- Incorrect behavior [Bug]: The bare Linux and FreeBSD binaries match, and these differ:
+		- The Windows `zuid.exe` and `zuid.dll`, in 20 bytes: the time stamp and the PDB's ID. The linker makes both from a hash, which takes in the PDB, and the PDB has the build machine's paths.
+		- `libzuid.a`, in its compiler_rt object. Anonymous symbols and sections are numbered differently, such as `__anon_603986435` against `__anon_905974935`.
+		- The tarballs, zips and packages, in file times, owners and modes.
+	- Expected behavior [Bug]: The same bytes from any machine that builds the same commit.
+	- Reproduced [Bug]: Yes, 20261013, b23 against the container, on branch `strip`.
+	- Actual cause [Bug]:
+		- Confirmed. Each file in a tarball or zip took its time from when it was copied, its owner from whoever built it, its mode from the umask, and its place from the directory order. nfpm stamped the deb and rpm with the clock, and the rpm with the build host.
+		- The build number could be stale. Zig 0.17 reuses what build.zig worked out last time until build.zig or a `-D` option changes, and it doesn't watch the environment or git. So a new commit or SOURCE_DATE_EPOCH went unseen. The b23 release built from `main` had the strip merge's build number, 38 minutes older than its HEAD.
+		- build.zig dropped SOURCE_DATE_EPOCH for translate-c by giving that step its own copy of the environment, and the copy went into the step's cache key. Once the build number was worked out on every run, any change to the environment rebuilt everything, with new cache paths in the debug info and the Windows PDBs.
+		- The Windows exe and dll, and the compiler_rt object in every `libzuid.a`, come out of Zig itself. Split off as 2026101305595483 and 2026101305595488.
+		- The deb and rpm also differ when nfpm's version does. b23 has 2.43.0 and the container pins 2.47.0. With 2.47.0 on both they match.
+	- Progress log:
+		- 20261013: 2 package runs on b23, the second under umask 077, gave 10 different files of 33: every tarball, zip, deb and rpm, and the checksums.
+		- 20261013: After the fix, b23 against the container: the bare Linux x86_64, arm64 and FreeBSD binaries and the FreeBSD tarball match. The Linux tarballs differ only in `libzuid.a`'s compiler_rt object. The Windows zips differ only there and in `zuid.exe` and `zuid.dll`, 20 bytes each. The deb and rpm match with the same nfpm. Tar and zip headers match.
+		- 20261013: b23's nfpm was left at 2.43.0, since it's installed outside the project.
+	- Actual fix [Bug]:
+		- `package.bash` gives every file in a tarball, zip, deb and rpm one time: SOURCE_DATE_EPOCH, else the HEAD commit date, never the clock, and no earlier than 1980. Modes are 0755 or 0644 by whether the file runs. Tarballs are owner 0 by number with no names, sorted bytewise, and gzip keeps no name or time. Zips get the same list, with the zone pinned to UTC and no extra fields. nfpm gets the time, a fixed rpm build host and set modes on the license files.
+		- `build.zig` tells Zig not to reuse its answers unless `-Dbuild-epoch` is given. That costs about 40 ms on a build with nothing to do.
+		- `tools/to_file.zig` drops SOURCE_DATE_EPOCH for translate-c, so the step no longer keeps a copy of the environment.
+	- Note: 20261013, Esa8LVS failed on b26 at 2fa8524: 6 of 17 files differ under umask 077. 4 are the `.dSYM` relocation maps, `Relocations/<cpu>/*.yml`, and one is `checksums.txt`, so a release file differs too. The output named only 5.
+	- Branch: repro
+	- Commit: 0483497
+	- Test case: Esa8LVS and EsaCjhS.
+		- Esa8LVS packages again after the first run, under umask 077 and, where a user namespace is allowed, as root on another host name. Every file has to match, debug info included. It failed before the fix with 10 of 33 files different, and with only the build.zig half of the fix with 23. About 24 s on b23 with a warm Zig cache.
+		- EsaCjhS builds again in a cache that has seen another epoch, with SOURCE_DATE_EPOCH=1700000000, and wants that build number. It failed before the fix with the old one.
+		- Neither catches a path or Zig's own output that differs between machines. The 2 split items have no check here for that reason.
+	- Swept: every `tar`, `zip` and nfpm call under `cicd/`. Only `package.bash` makes release files; `installer-test.bash` and `pipeline-test.bash` make their own fixtures. `build.zig` has no other step with its own environment. The macOS release goes through the same functions.
+	- Verified: `cicd.bash --quick --only zig --package` passed on b23 and with `--container`, 20261013, Esa8LVS and EsaCjhS included. The comparison above is from those 2 runs, with a third host package run using nfpm 2.47.0 for the deb and rpm.
 
 - `libzuid.a`'s compiler_rt object can differ between 2 builds of one commit.
 	- ID: 2026101305595488
@@ -295,6 +239,46 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Progress log:
 		- 20261013: Ruled out: `zig build -j` limits steps only and doesn't reach the compiler, and build.zig has no switch for the compiler's threads. Renaming the symbols after the build is a hack. It shows only with a cold cache, so a second build on one machine doesn't catch it.
 		- 20261013: zuid's own object matched between b23 and the container. Only compiler_rt differed.
+
+- Run on the last Core 2 Duo, and AMD CPUs from that era.
+	- ID: 2026101301161847
+	- Type: Enhancement
+	- Status: Queued
+	- Needs external testing: Done on emulated Penryn and Prescott. Not run on a real Core 2 Duo or Phenom II, and not on an emulated AMD chip. Windows and FreeBSD get the static scan only. The macOS scan change failed on b26, see the progress log.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261013-011618
+	- Opened by: JC
+	- Target OS: Linux, Windows and FreeBSD on x86_64, where this project builds them. Macs that old can't run a current macOS anyway.
+	- Requirements [Feature]:
+		- Release builds run on the last Core 2 Duo (Penryn, 2008), and on AMD Phenom II and Athlon II, if that's reasonably doable.
+			- Penryn has SSSE3 and SSE4.1 but no POPCNT. The AMD ones have POPCNT but no SSSE3. So the shared floor is plain x86-64, also called x86-64-v1.
+		- If that isn't doable, the floor is the first Core i3/i5/i7 (Nehalem, 2008), which is x86-64-v2. AMD's first chip at that level is Bulldozer, 2011.
+		- Faster code for newer CPUs is still fine, but it's picked at run time by a CPU feature test, never by the build target.
+		- Tests run the release build on an emulated Penryn and Phenom II, through Intel SDE or QEMU's `-cpu Penryn` and `-cpu phenom`.
+	- Progress log:
+		- 20261013: Release builds name a Zig target since 2026093018112406, so they get the baseline CPU, and EsXcjyV fails on AVX (2026101218531694). What's left:
+			- EsXcjyV only looks for AVX. Widen it to anything past the floor.
+			- Zig picks its SHA-256 code at compile time, so a baseline build never uses SHA-NI, even where it's there. A run-time pick needs both versions built in.
+			- Wasmtime is a prebuilt archive. Find out what CPU it needs, and what it does on one without SSE4.1.
+		- 20261013: The scan now fails on anything past x86-64-v1, not just AVX, at all 4 places it ran: the dogfood build, and the Linux, FreeBSD and Windows releases. Penryn has no POPCNT and Phenom II no SSSE3, so both are refused, and so are LZCNT, BMI, AES-NI, SHA and the rest.
+			- TZCNT is let through. LLVM writes BSF that way on a baseline build, where the answer is the same.
+			- zstd's BMI2 copies of a few functions are skipped like Wasmtime's Rust, since zstd checks the CPU before it calls them.
+			- The macOS x86_64 slice is held to Core 2 instead, Zig's baseline there, which has SSSE3. Held to x86-64-v1 it would fail on b26. Not run on a Mac yet.
+		- 20261013: Cranelift has run wasm SIMD on plain SSE2 since Wasmtime 11, so 47.0.3 and FreeBSD's 49.0.1 need nothing past the floor, and the engine config stays as it is.
+		- 20261013: New checks run the Linux release under Intel's SDE as a Penryn and as a Prescott, the nearest it has to Phenom II, which also lacks SSSE3 and SSE4.1. Each takes about 6 s. They skip when there's no `sde64`, or `ZUID_SDE` to name one.
+		- 20261013: they also look in `~/.local/opt/intel-sde`, where SDE was unpacked here, so a plain run on b23 doesn't skip them. Nothing was put on PATH.
+			- SDE stops on an instruction the chip lacks, in compiled wasm code too. It doesn't catch LZCNT, which the scan does.
+			- Each run starts with a module cache made on a newer CPU. Wasmtime turns it down and compiles again.
+		- 20261013: ErbFB7B failed on b26 in 29 functions, such as zstd's `HIST_count_simple` on `pmaxud`. That is zstd inside Wasmtime's macOS archive, built for Penryn, as Rust's `x86_64-apple-darwin` target is. It doesn't ask the CPU first, so the Linux exceptions don't cover it. Every Mac that runs macOS 13 has far more than Penryn, so the scan is wrong rather than the release. Back to Queued.
+		- 20261013: the scan now finds SDE in `~/.local/opt/intel-sde` too, and the full b23 run had EsZyWyD and EsZyWyE pass with nothing set.
+	- Decisions:
+		- 20261013: No run-time SHA-NI pick in Zig's SHA-256. It hashes a few names per run, so there's nothing to gain. The requirement allows faster code but doesn't ask for it, and Wasmtime's own SHA-256 already picks at run time.
+		- 20261013: Prescott stands in for Phenom II under SDE, which has no AMD chips. It lacks SSSE3 and SSE4.1 as Phenom II does, and POPCNT, which Phenom II has.
+	- Branch: oldcpu2
+	- Commit: 4bbd035, 7218b59
+	- Test case: EsZyWyD and EsZyWyE, the release under emulated Penryn and Prescott. EsXcjyV, ErbFB7B, ErlUUiR and ErmS0zB now scan for anything past x86-64-v1. Watched fail: `x86_64_v2` builds for Linux, FreeBSD and Windows failed the scan on SSE4.1 and SSSE3 code, which the AVX-only scan passed, and failed EsZyWyD on `popcnt`. A build for this CPU failed the scan in 282 functions. A Penryn build passed EsZyWyD and failed EsZyWyE on `pshufb`.
+	- Swept: all 4 callers of the old AVX scan in `cicd.bash`, the Windows one through its PDB. The arm64 scan has its own list. No other script calls it.
+	- Verified: `cicd.bash --package --no-dogfood --no-backup -q` passed on b23 with SDE, 20261013, at 4bbd035 and again at 7218b59, 342 ok and 5 skipped for macOS or Windows.
 
 - The dogfood install puts a build for the build machine's CPU in the synced dir.
 	- ID: 2026101218531694
@@ -449,6 +433,31 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Test case: Ersmdcr, Ersmdcs, Ersmdct and Ersmdcu in `cli-test.bash`, and Ersmdcv in `tests.zig`. Each failed with its part of the cache broken.
 	- Acceptance signoff: Self-closed: tested on 3 OSes, uses each one's usual cache dir, and a bad file only costs one slower run.
 	- Closed: 20261013-033301
+
+- FreeBSD packaging fails: the pinned Wasmtime package is gone from the repo.
+	- ID: 2026101218572197
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20261012-185721
+	- Opened by: JC
+	- Related IDs: 2026100413383571
+	- Target OS: FreeBSD
+	- Steps to reproduce [Bug]:
+		- `cicd.bash --package` on Linux.
+	- Incorrect behavior [Bug]: `libwasmtime-45.0.0_1` 404s from the FreeBSD 14 quarterly repo, and the Zig stage stops.
+	- Expected behavior [Bug]: The FreeBSD release builds.
+	- Reproduced [Bug]: Yes, 20261012.
+	- Actual cause [Bug]:
+		- The repo moved on to libwasmtime 49.0.1. zstd is still 1.5.7_2, but a rebuild, with a new hash.
+	- Actual fix [Bug]: Repinned both. The repo's catalog sum is no longer the file's sha256, so the hashes are taken from the downloads, and the comment above the pins says so.
+	- Decisions:
+		- The FreeBSD release now builds against Wasmtime 49, the other platforms against 47.0.3.
+	- Branch: dogfoodcpu
+	- Test case: The FreeBSD checks under `--package`, ErlUUiQ to ErlUUiU. Not run on FreeBSD itself.
+	- Verified: 20261013, on vmFreeBSD with the release from 2fa8524: `cli-test.bash` passed 90 of 90 against the tarball's command, and `capi_smoke.c` built with the base `cc` passed against `libzuid.so` and `libzuid.a`.
+	- Acceptance signoff: Self-closed: a repin, and the release passed on FreeBSD.
+	- Closed: 20261013-062950
 
 - `Eq9nb3o` fails on a new Zig install or with Zig's cache cleared.
 	- ID: 2026101008194300
