@@ -62,6 +62,44 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 	- Branch: dogfoodcpu
 	- Test case: The FreeBSD checks under `--package`, ErlUUiQ to ErlUUiU. Not run on FreeBSD itself.
 
+- Run on the last Core 2 Duo, and AMD CPUs from that era.
+	- ID: 2026101301161847
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs external testing: Done on emulated Penryn and Prescott. Not run on a real Core 2 Duo or Phenom II, and not on an emulated AMD chip. Windows and FreeBSD get the static scan only. The macOS scan change needs a `--package` run on b26.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261013-011618
+	- Opened by: JC
+	- Target OS: Linux, Windows and FreeBSD on x86_64, where this project builds them. Macs that old can't run a current macOS anyway.
+	- Requirements [Feature]:
+		- Release builds run on the last Core 2 Duo (Penryn, 2008), and on AMD Phenom II and Athlon II, if that's reasonably doable.
+			- Penryn has SSSE3 and SSE4.1 but no POPCNT. The AMD ones have POPCNT but no SSSE3. So the shared floor is plain x86-64, also called x86-64-v1.
+		- If that isn't doable, the floor is the first Core i3/i5/i7 (Nehalem, 2008), which is x86-64-v2. AMD's first chip at that level is Bulldozer, 2011.
+		- Faster code for newer CPUs is still fine, but it's picked at run time by a CPU feature test, never by the build target.
+		- Tests run the release build on an emulated Penryn and Phenom II, through Intel SDE or QEMU's `-cpu Penryn` and `-cpu phenom`.
+	- Progress log:
+		- 20261013: Release builds name a Zig target since 2026093018112406, so they get the baseline CPU, and EsXcjyV fails on AVX (2026101218531694). What's left:
+			- EsXcjyV only looks for AVX. Widen it to anything past the floor.
+			- Zig picks its SHA-256 code at compile time, so a baseline build never uses SHA-NI, even where it's there. A run-time pick needs both versions built in.
+			- Wasmtime is a prebuilt archive. Find out what CPU it needs, and what it does on one without SSE4.1.
+		- 20261013: The scan now fails on anything past x86-64-v1, not just AVX, at all 4 places it ran: the dogfood build, and the Linux, FreeBSD and Windows releases. Penryn has no POPCNT and Phenom II no SSSE3, so both are refused, and so are LZCNT, BMI, AES-NI, SHA and the rest.
+			- TZCNT is let through. LLVM writes BSF that way on a baseline build, where the answer is the same.
+			- zstd's BMI2 copies of a few functions are skipped like Wasmtime's Rust, since zstd checks the CPU before it calls them.
+			- The macOS x86_64 slice is held to Core 2 instead, Zig's baseline there, which has SSSE3. Held to x86-64-v1 it would fail on b26. Not run on a Mac yet.
+		- 20261013: Cranelift has run wasm SIMD on plain SSE2 since Wasmtime 11, so 47.0.3 and FreeBSD's 49.0.1 need nothing past the floor, and the engine config stays as it is.
+		- 20261013: New checks run the Linux release under Intel's SDE as a Penryn and as a Prescott, the nearest it has to Phenom II, which also lacks SSSE3 and SSE4.1. Each takes about 6 s. They skip when there's no `sde64`, or `ZUID_SDE` to name one.
+		- 20261013: they also look in `~/.local/opt/intel-sde`, where SDE was unpacked here, so a plain run on b23 doesn't skip them. Nothing was put on PATH.
+			- SDE stops on an instruction the chip lacks, in compiled wasm code too. It doesn't catch LZCNT, which the scan does.
+			- Each run starts with a module cache made on a newer CPU. Wasmtime turns it down and compiles again.
+	- Decisions:
+		- 20261013: No run-time SHA-NI pick in Zig's SHA-256. It hashes a few names per run, so there's nothing to gain. The requirement allows faster code but doesn't ask for it, and Wasmtime's own SHA-256 already picks at run time.
+		- 20261013: Prescott stands in for Phenom II under SDE, which has no AMD chips. It lacks SSSE3 and SSE4.1 as Phenom II does, and POPCNT, which Phenom II has.
+	- Branch: oldcpu2
+	- Commit: 4bbd035, 7218b59
+	- Test case: EsZyWyD and EsZyWyE, the release under emulated Penryn and Prescott. EsXcjyV, ErbFB7B, ErlUUiR and ErmS0zB now scan for anything past x86-64-v1. Watched fail: `x86_64_v2` builds for Linux, FreeBSD and Windows failed the scan on SSE4.1 and SSSE3 code, which the AVX-only scan passed, and failed EsZyWyD on `popcnt`. A build for this CPU failed the scan in 282 functions. A Penryn build passed EsZyWyD and failed EsZyWyE on `pshufb`.
+	- Swept: all 4 callers of the old AVX scan in `cicd.bash`, the Windows one through its PDB. The arm64 scan has its own list. No other script calls it.
+	- Verified: `cicd.bash --package --no-dogfood --no-backup -q` passed on b23 with SDE, 20261013, at 4bbd035 and again at 7218b59, 342 ok and 5 skipped for macOS or Windows.
+
 - Windows release packages, x86_64 and arm64.
 	- ID: 2026100416052036
 	- Type: Enhancement
@@ -197,43 +235,6 @@ Notes under an item lead with what they are, such as `Cause:`, `Fixed:`, `Done:`
 		- The tarballs, zips and packages, in file times, owners and modes.
 	- Expected behavior [Bug]: The same bytes from any machine that builds the same commit.
 	- Reproduced [Bug]: Yes, 20261013, b23 against the container, on branch `strip`.
-
-- Run on the last Core 2 Duo, and AMD CPUs from that era.
-	- ID: 2026101301161847
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs external testing: Done on emulated Penryn and Prescott. Not run on a real Core 2 Duo or Phenom II, and not on an emulated AMD chip. Windows and FreeBSD get the static scan only. The macOS scan change needs a `--package` run on b26.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261013-011618
-	- Opened by: JC
-	- Target OS: Linux, Windows and FreeBSD on x86_64, where this project builds them. Macs that old can't run a current macOS anyway.
-	- Requirements [Feature]:
-		- Release builds run on the last Core 2 Duo (Penryn, 2008), and on AMD Phenom II and Athlon II, if that's reasonably doable.
-			- Penryn has SSSE3 and SSE4.1 but no POPCNT. The AMD ones have POPCNT but no SSSE3. So the shared floor is plain x86-64, also called x86-64-v1.
-		- If that isn't doable, the floor is the first Core i3/i5/i7 (Nehalem, 2008), which is x86-64-v2. AMD's first chip at that level is Bulldozer, 2011.
-		- Faster code for newer CPUs is still fine, but it's picked at run time by a CPU feature test, never by the build target.
-		- Tests run the release build on an emulated Penryn and Phenom II, through Intel SDE or QEMU's `-cpu Penryn` and `-cpu phenom`.
-	- Progress log:
-		- 20261013: Release builds name a Zig target since 2026093018112406, so they get the baseline CPU, and EsXcjyV fails on AVX (2026101218531694). What's left:
-			- EsXcjyV only looks for AVX. Widen it to anything past the floor.
-			- Zig picks its SHA-256 code at compile time, so a baseline build never uses SHA-NI, even where it's there. A run-time pick needs both versions built in.
-			- Wasmtime is a prebuilt archive. Find out what CPU it needs, and what it does on one without SSE4.1.
-		- 20261013: The scan now fails on anything past x86-64-v1, not just AVX, at all 4 places it ran: the dogfood build, and the Linux, FreeBSD and Windows releases. Penryn has no POPCNT and Phenom II no SSSE3, so both are refused, and so are LZCNT, BMI, AES-NI, SHA and the rest.
-			- TZCNT is let through. LLVM writes BSF that way on a baseline build, where the answer is the same.
-			- zstd's BMI2 copies of a few functions are skipped like Wasmtime's Rust, since zstd checks the CPU before it calls them.
-			- The macOS x86_64 slice is held to Core 2 instead, Zig's baseline there, which has SSSE3. Held to x86-64-v1 it would fail on b26. Not run on a Mac yet.
-		- 20261013: Cranelift has run wasm SIMD on plain SSE2 since Wasmtime 11, so 47.0.3 and FreeBSD's 49.0.1 need nothing past the floor, and the engine config stays as it is.
-		- 20261013: New checks run the Linux release under Intel's SDE as a Penryn and as a Prescott, the nearest it has to Phenom II, which also lacks SSSE3 and SSE4.1. Each takes about 6 s. They skip when there's no `sde64`, or `ZUID_SDE` to name one.
-			- SDE stops on an instruction the chip lacks, in compiled wasm code too. It doesn't catch LZCNT, which the scan does.
-			- Each run starts with a module cache made on a newer CPU. Wasmtime turns it down and compiles again.
-	- Decisions:
-		- 20261013: No run-time SHA-NI pick in Zig's SHA-256. It hashes a few names per run, so there's nothing to gain. The requirement allows faster code but doesn't ask for it, and Wasmtime's own SHA-256 already picks at run time.
-		- 20261013: Prescott stands in for Phenom II under SDE, which has no AMD chips. It lacks SSSE3 and SSE4.1 as Phenom II does, and POPCNT, which Phenom II has.
-	- Branch: oldcpu2
-	- Commit: 4bbd035, 7218b59
-	- Test case: EsZyWyD and EsZyWyE, the release under emulated Penryn and Prescott. EsXcjyV, ErbFB7B, ErlUUiR and ErmS0zB now scan for anything past x86-64-v1. Watched fail: `x86_64_v2` builds for Linux, FreeBSD and Windows failed the scan on SSE4.1 and SSSE3 code, which the AVX-only scan passed, and failed EsZyWyD on `popcnt`. A build for this CPU failed the scan in 282 functions. A Penryn build passed EsZyWyD and failed EsZyWyE on `pshufb`.
-	- Swept: all 4 callers of the old AVX scan in `cicd.bash`, the Windows one through its PDB. The arm64 scan has its own list. No other script calls it.
-	- Verified: `cicd.bash --package --no-dogfood --no-backup -q` passed on b23 with SDE, 20261013, at 4bbd035 and again at 7218b59, 342 ok and 5 skipped for macOS or Windows.
 
 - The dogfood install puts a build for the build machine's CPU in the synced dir.
 	- ID: 2026101218531694

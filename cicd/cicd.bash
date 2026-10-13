@@ -187,7 +187,7 @@ fPrint_Help(){
 
 		--package also runs the Linux x86_64 release under Intel's SDE, emulating a
 		Core 2 Duo and a Pentium 4, when it finds one: ZUID_SDE if set, else sde64
-		on PATH. Without it those 2 checks skip.
+		on PATH, else ~/.local/opt/intel-sde/sde64. Without it those 2 checks skip.
 
 		Every run - quick or full, any branch - then archives the whole project:
 		repo/, private/, the lot, into ../versions/, and publishes it, committing
@@ -1981,6 +1981,7 @@ fStage_Package_OldCpu(){  ## x86_64 release, scratch dir
 	## Never the bare 'sde', which is an unrelated tool on some boxes.
 	local sde="${ZUID_SDE:-}"
 	if [[ -z "${sde}" ]]; then sde="$(command -v sde64 2>/dev/null || true)"; fi
+	if [[ -z "${sde}" && -x "${HOME}/.local/opt/intel-sde/sde64" ]]; then sde="${HOME}/.local/opt/intel-sde/sde64"; fi
 	local -r seedHome="${scratchDir}/oldcpu-seed" runFormat="%d-%h-%u-%f-%g-%r"
 
 	local chip="" chipName="" chipHome="" sdeErrors=""
@@ -1996,7 +1997,7 @@ fStage_Package_OldCpu(){  ## x86_64 release, scratch dir
 			continue
 		fi
 		if [[ -z "${sde}" || ! -x "${sde}" ]]; then
-			fTestSkip "no sde64 on PATH, and ZUID_SDE does not name one"
+			fTestSkip "no sde64 in ZUID_SDE, on PATH or in ~/.local/opt/intel-sde"
 			continue
 		fi
 		[[ -f "${release}" ]] || fTestFail "there is no ${release}."
