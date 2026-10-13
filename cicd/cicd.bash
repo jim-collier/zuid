@@ -1880,7 +1880,7 @@ fStage_Package(){
 	fi
 
 	local floorName="x86-64-v1" floorKind=""
-	if [[ "${osLabel}" == "darwin" ]]; then floorName="Core 2"; floorKind="core2"; fi
+	if [[ "${osLabel}" == "darwin" ]]; then floorName="Penryn"; floorKind="penryn"; fi
 	fId ErbFB7B "the release uses nothing past ${floorName} in code built here"
 	if ((! haveObjdump)); then
 		fTestSkip "no objdump"
@@ -2067,17 +2067,20 @@ fX86FloorScan(){  ## x86_64 binary, [file its symbols went to, if it was strippe
 ## no POPCNT, Phenom II the reverse, so neither is allowed. LZCNT runs as BSR
 ## on a CPU without it, a wrong answer with no fault, which an emulator misses
 ## too. TZCNT is let through: LLVM writes BSF that way on purpose, where BSF
-## gives the same answer. A Mac's floor is Core 2 instead, which is Zig's
-## baseline there and Apple's, so SSE3, SSSE3, CX16 and LAHF are allowed.
-fPastX86Floor(){  ## [core2]
+## gives the same answer. A Mac's floor is Penryn instead, which is what
+## Rust builds Wasmtime's macOS archive for, zstd included. Zig's baseline
+## there is Core 2, and no Mac that runs macOS 13 is older than Penryn, so
+## SSE3, SSSE3, SSE4.1, CX16 and LAHF are allowed.
+fPastX86Floor(){  ## [penryn]
 	awk -v floor="${1:-}" '
 		BEGIN {
 			core2 = "^(" \
 				"fisttp[a-z]*|lddqu|movddup|movs[hl]dup|(addsub|hadd|hsub)p[sd]|monitor[a-z]*|mwait[a-z]*|" \
 				"pabs[bwd]|palignr|ph(add|sub)(w|d|sw)|pmaddubsw|pmulhrsw|pshufb|psign[bwd]|cmpxchg16b|lahf|sahf)$"
-			past = "^(" \
+			sse41 = "^(" \
 				"blendv?p[sd]|pblend(vb|w)|dpp[sd]|extractps|insertps|movntdqa|mpsadbw|packusdw|pcmpeqq|" \
-				"pextr[bdq]|pinsr[bdq]|phminposuw|pm(ax|in)(sb|sd|ud|uw)|pmov[sz]x(bw|bd|bq|wd|wq|dq)|pmuldq|pmulld|ptest|round[ps][sd]|" \
+				"pextr[bdq]|pinsr[bdq]|phminposuw|pm(ax|in)(sb|sd|ud|uw)|pmov[sz]x(bw|bd|bq|wd|wq|dq)|pmuldq|pmulld|ptest|round[ps][sd])$"
+			past = "^(" \
 				"pcmp[ei]str[im]|pcmpgtq|crc32[bwlq]?|extrq|insertq|movnts[sd]|" \
 				"popcnt[wlq]?|lzcnt[wlq]?|andn[lq]?|bextr[lq]?|blsi[lq]?|blsmsk[lq]?|blsr[lq]?|" \
 				"bzhi[lq]?|mulx[lq]?|pdep[lq]?|pext[lq]?|rorx[lq]?|sarx[lq]?|shlx[lq]?|shrx[lq]?|adcx[lq]?|adox[lq]?|movbe[wlq]?|" \
@@ -2086,6 +2089,7 @@ fPastX86Floor(){  ## [core2]
 				"[rw]r[fg]sbase[lq]?|k(add|and|andn|mov|not|or|ortest|shiftl|shiftr|test|unpck|xnor|xor)[bwdq]?|" \
 				"v[a-z0-9]*)$"
 			virt = "^(verr|verw|vm(call|clear|func|launch|load|mcall|ptrld|ptrst|read|resume|run|save|write|xoff|xon)[lq]?)$"
+			penryn = (floor == "penryn")
 		}
 		/^[0-9a-f]+ <.*>:$/ { print; next }
 		/^[[:space:]]*[0-9a-f]+:[[:space:]]/ {
@@ -2094,7 +2098,7 @@ fPastX86Floor(){  ## [core2]
 			i = 1
 			while (i < n && word[i] ~ /^(lock|rep[a-z]*|notrack|bnd|data16|addr32|cs|ds|es|fs|gs|ss|rex[.A-Za-z]*|xacquire|xrelease|\{[a-z]+\})$/) i++
 			op = word[i]
-			if ((op ~ past && op !~ virt) || (floor != "core2" && op ~ core2) || text ~ /%[xyz]mm(1[6-9]|2[0-9]|3[01])|%[yz]mm|%k[0-7]/ || (op ~ /^pextrw/ && text ~ /\(/)) print $1, op
+			if ((op ~ past && op !~ virt) || (!penryn && (op ~ core2 || op ~ sse41 || (op ~ /^pextrw/ && text ~ /\(/))) || text ~ /%[xyz]mm(1[6-9]|2[0-9]|3[01])|%[yz]mm|%k[0-7]/) print $1, op
 		}
 	'
 }
@@ -2104,6 +2108,8 @@ fPastX86Floor(){  ## [core2]
 ## objdump -d, with function names. A stripped release gets them from the file
 ## its symbols went to, through nm, in the same form objdump gives them, so a
 ## scan reads either the same way. Addresses are padded to sort as text.
+## A Mach-O dSYM keeps assembler labels such as zstd's .L_4X1_loop_body, which
+## are inside a function, so they stay with it.
 fDisassemble(){  ## objdump, program, [file its symbols went to]
 	local -r objdump="$1" program="$2" symbols="${3:-}"
 	if [[ -z "${symbols}" ]]; then
@@ -2111,7 +2117,7 @@ fDisassemble(){  ## objdump, program, [file its symbols went to]
 		return 0
 	fi
 	{
-		nm -n "${symbols}" | awk 'NF >= 3 && $2 ~ /^[tTwW]$/ { a = $1; name = $0; sub(/^[^ ]+ [^ ]+ /, "", name); while (length(a) < 16) a = "0" a; print a, 0, a " <" name ">:" }'
+		nm -n "${symbols}" | awk 'NF >= 3 && $2 ~ /^[tTwW]$/ && $3 !~ /^\.L/ { a = $1; name = $0; sub(/^[^ ]+ [^ ]+ /, "", name); while (length(a) < 16) a = "0" a; print a, 0, a " <" name ">:" }'
 		"${objdump}" -d --no-show-raw-insn "${program}" | awk '/^[[:space:]]*[0-9a-f]+:/ { a = $1; sub(/:$/, "", a); while (length(a) < 16) a = "0" a; print a, 1, $0 }'
 	} | LC_ALL=C sort -t ' ' -k1,1 -k2,2 | cut -d ' ' -f 3-
 }
@@ -2709,7 +2715,7 @@ fStage_Package_Again(){  ## scratch dir, version
 		problems+=("the two runs made a different number of files")
 	fi
 	if ((${#problems[@]})); then
-		fTestFail "${#problems[@]} of ${compared} files differ (${how}), such as: $(printf '%s; ' "${problems[@]:0:5}")"
+		fTestFail "${#problems[@]} of ${compared} files differ (${how}): $(printf '%s; ' "${problems[@]}")"
 	fi
 	fTestPass
 

@@ -291,9 +291,13 @@ fStripSlice(){  ## slice, debug dir, zig target
 		esac
 		if ((mergeSlices)); then
 			case "${name}" in
-				*.a) cp "${file}" "${debugDir}/${sub}/"; strip -S "${file}" ;;
+				## strip rewrites the archive's symbol table, stamped with the
+				## clock and the umask unless ZERO_AR_DATE is set.
+				*.a) cp "${file}" "${debugDir}/${sub}/"; ZERO_AR_DATE=1 strip -S "${file}" ;;
 				*)
-					dsymutil "${file}" -o "${debugDir}/${sub}/${name}.dSYM"
+					## The dSYM keeps the path it was given, and an absolute one
+					## has this run's temp dir in it.
+					( cd "${slice}" && dsymutil "${sub}/${name}" -o "${debugDir}/${sub}/${name}.dSYM" )
 					strip -S -x "${file}"
 					## Stripping voids the ad-hoc signature an arm64 Mac needs to
 					## load anything at all.
@@ -383,12 +387,15 @@ fMergeSlices(){  ## stage, subdir, slice...
 
 ## An archive keeps each file's time, owner, mode and place in the list, which
 ## would otherwise come from the clock, the user, the umask and the directory
-## order. Modes keep only whether a file runs.
+## order. Modes keep only whether a file runs. A Mac gives a symlink a mode of
+## its own, from the umask; Linux has none to set. Apple's chmod, since an
+## older GNU one first on PATH has no -h.
 fSettleTree(){  ## dir
 	local -r dir="$1"
 	find "${dir}" -type d -exec chmod 0755 {} +
 	find "${dir}" -type f -perm -u+x -exec chmod 0755 {} +
 	find "${dir}" -type f ! -perm -u+x -exec chmod 0644 {} +
+	if [[ "${hostOs}" == "macos" ]]; then find "${dir}" -type l -exec /bin/chmod -h 0755 {} +; fi
 	find "${dir}" -exec touch -h -d "${stampIso}" {} +
 }
 
@@ -575,6 +582,7 @@ fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "
 
 
 ##	History:
+##		- 20261013 JC: Same bytes on a Mac too: archive symbol tables, dSYM paths and symlink modes.
 ##		- 20261013 JC: debug/ gets only the static lib's DWARF, zlib packed.
 ##		- 20261013 JC: Archives and packages get one time, owner 0, set modes and a sorted list.
 ##		- 20261013 JC: Strip release binaries; their debug info and PDBs go to debug/.
