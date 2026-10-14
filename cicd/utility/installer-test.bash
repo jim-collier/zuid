@@ -94,19 +94,25 @@ done
 hasPwsh=0
 command -v pwsh >/dev/null 2>&1 && hasPwsh=1
 
-## What the installers fetch on this machine, and where a user install keeps it.
+## What the installers fetch on this machine, past the name and version, and
+## where a user install keeps it.
 case "$(uname -m)" in
 	aarch64|arm64) hostAsset="arm64.tgz" ;;
 	*)             hostAsset="x86_64.tgz" ;;
 esac
 case "$(uname -s)" in
-	Darwin) hostAsset="${PROG}-darwin-universal.tgz"; userShare="Library/Application Support/${PROG}" ;;
-	*)      hostAsset="${PROG}-linux-${hostAsset}";   userShare=".local/share/${PROG}" ;;
+	Darwin) hostAsset="darwin-universal.tgz"; userShare="Library/Application Support/${PROG}" ;;
+	*)      hostAsset="linux-${hostAsset}";   userShare=".local/share/${PROG}" ;;
 esac
 ## What an arm64 Linux host fetches, which a stand-in uname can ask for anywhere.
-armAsset="${PROG}-linux-arm64.tgz"
+armAsset="linux-arm64.tgz"
 ## Likewise a FreeBSD one.
-bsdAsset="${PROG}-freebsd-x86_64.tgz"
+bsdAsset="freebsd-x86_64.tgz"
+
+## The alpha went out before release names had the version.
+fAssetName(){  ## tag, platform part
+	if [[ "$1" == "v1.0.0-alpha.1" ]]; then printf '%s\n' "${PROG}-$2"; else printf '%s\n' "${PROG}-${1#v}-$2"; fi
+}
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -176,26 +182,26 @@ fMakeRelease(){
 	local -r outDir="${dlRoot}/${tag}"
 	local -r standIn="${stageDir}/${PROG}-${tag}/bin/${PROG}"
 	mkdir -p "${stageDir}/${PROG}-${tag}/bin" "${outDir}"
+	local name="" part=""
 
-	fWriteStandIn "${tag}" "${hostAsset}" "${standIn}"
-	tar -czf "${outDir}/${hostAsset}" -C "${stageDir}" "${PROG}-${tag}"
-	( cd "${outDir}" && sha256sum "${hostAsset}" > checksums.txt )
+	: > "${outDir}/checksums.txt"
+	for part in "${hostAsset}" "${armAsset}" "${bsdAsset}"; do
+		name="$(fAssetName "${tag}" "${part}")"
+		[[ ! -e "${outDir}/${name}" ]] || continue
+		fWriteStandIn "${tag}" "${name}" "${standIn}"
+		tar -czf "${outDir}/${name}" -C "${stageDir}" "${PROG}-${tag}"
+		( cd "${outDir}" && sha256sum "${name}" >> checksums.txt )
+	done
 	## A zip for the Windows path, so a run there has something to fetch too.
 	if command -v zip >/dev/null 2>&1; then
-		( cd "${stageDir}" && zip -qr "${outDir}/${PROG}-windows-x86_64.zip" "${PROG}-${tag}" )
-		( cd "${outDir}" && sha256sum "${PROG}-windows-x86_64.zip" >> checksums.txt )
+		name="$(fAssetName "${tag}" windows-x86_64.zip)"
+		( cd "${stageDir}" && zip -qr "${outDir}/${name}" "${PROG}-${tag}" )
+		( cd "${outDir}" && sha256sum "${name}" >> checksums.txt )
 	fi
-	if [[ "${armAsset}" != "${hostAsset}" ]]; then
-		fWriteStandIn "${tag}" "${armAsset}" "${standIn}"
-		tar -czf "${outDir}/${armAsset}" -C "${stageDir}" "${PROG}-${tag}"
-		( cd "${outDir}" && sha256sum "${armAsset}" >> checksums.txt )
-	fi
-	fWriteStandIn "${tag}" "${bsdAsset}" "${standIn}"
-	tar -czf "${outDir}/${bsdAsset}" -C "${stageDir}" "${PROG}-${tag}"
-	( cd "${outDir}" && sha256sum "${bsdAsset}" >> checksums.txt )
 }
 fMakeRelease "v2.1.0-beta.1"
 fMakeRelease "v2.0.0"
+fMakeRelease "v1.0.0-alpha.1"
 
 ## Port 0 lets the kernel pick, so parallel runs and a busy box cannot collide.
 ## Every path asked for is logged, which is how the re-run case tells a no-op
@@ -431,6 +437,43 @@ JSON
 	fi
 }
 
+## Release names have the version, except the alpha's, which went out first.
+fCase_AssetNames(){  ## label, runner
+	local -r label="$1" runner="$2"
+	local -r listing="${apiDir}/releases"
+	local home="" out="" got=""
+
+	: > "${work}/requests.log"
+	home="$(fNewHome "${label}-asset-name")"
+	out="$("${runner}" "${home}" user yes)" || true
+	fId "${label}" bash=EsiX6rC ps1=EsiX6rD "${label}: fetches the release by its versioned name"
+	if grep -q -F -- "/v2.0.0/${PROG}-2.0.0-${hostAsset}" "${work}/requests.log"
+		then fPass
+		else fFail "asked for: $(grep -E '\.(tgz|zip)$' "${work}/requests.log" | tr '\n' ' '). Output: ${out}"
+	fi
+
+	cp "${listing}" "${work}/releases.full"
+	cat > "${listing}" <<'JSON'
+[
+	{
+		"tag_name": "v1.0.0-alpha.1",
+		"draft": false,
+		"prerelease": true
+	}
+]
+JSON
+	: > "${work}/requests.log"
+	home="$(fNewHome "${label}-asset-alpha")"
+	out="$("${runner}" "${home}" user yes)" || true
+	got="$(fInstalledVersion "${home}")"
+	cp "${work}/releases.full" "${listing}"
+	fId "${label}" bash=EsiX6rE ps1=EsiX6rF "${label}: and the alpha by its old name"
+	if [[ "${got}" == "1.0.0-alpha.1" ]] && grep -q -F -- "/v1.0.0-alpha.1/${PROG}-${hostAsset}" "${work}/requests.log"
+		then fPass
+		else fFail "got ${got}, asked for: $(grep -E '\.(tgz|zip)$' "${work}/requests.log" | tr '\n' ' '). Output: ${out}"
+	fi
+}
+
 ## Both scripts check the download against the published checksums. A tarball
 ## that does not match has to stop the install, not only be reported.
 fCase_Checksum(){  ## label, runner
@@ -439,7 +482,7 @@ fCase_Checksum(){  ## label, runner
 	local home="" out="" got=""
 
 	cp "${sums}" "${work}/checksums.good"
-	sed "s/^[0-9a-f]\{64\}  ${hostAsset}$/$(printf '0%.0s' $(seq 1 64))  ${hostAsset}/" "${work}/checksums.good" > "${sums}"
+	sed "s/^[0-9a-f]\{64\}  \(.*-${hostAsset}\)$/$(printf '0%.0s' $(seq 1 64))  \1/" "${work}/checksums.good" > "${sums}"
 	if cmp -s "${sums}" "${work}/checksums.good"; then fDie "could not corrupt ${sums}; the release layout moved"; fi
 	home="$(fNewHome "${label}-checksum")"
 	out="$("${runner}" "${home}" user yes)" || true
@@ -823,7 +866,7 @@ SH
 	got="$(fInstalledVersion "${home}")"
 
 	fId ErgjCkY "bash: an aarch64 Linux machine fetches the arm64 tarball"
-	if grep -q "/${armAsset}\$" "${work}/requests.log" && ! grep -q '\.tgz$' <(grep -v "/${armAsset}\$" "${work}/requests.log")
+	if grep -q -- "-${armAsset}\$" "${work}/requests.log" && ! grep -q '\.tgz$' <(grep -v -- "-${armAsset}\$" "${work}/requests.log")
 		then fPass
 		else fFail "asked for: $(grep '\.tgz$' "${work}/requests.log" | tr '\n' ' '). Output: ${out}"
 	fi
@@ -854,7 +897,7 @@ SH
 	got="$(fInstalledVersion "${home}")"
 
 	fId ErlUUiV "bash: an amd64 FreeBSD machine fetches the FreeBSD x86_64 tarball"
-	if grep -q "/${bsdAsset}\$" "${work}/requests.log" && ! grep -q '\.tgz$' <(grep -v "/${bsdAsset}\$" "${work}/requests.log")
+	if grep -q -- "-${bsdAsset}\$" "${work}/requests.log" && ! grep -q '\.tgz$' <(grep -v -- "-${bsdAsset}\$" "${work}/requests.log")
 		then fPass
 		else fFail "asked for: $(grep '\.tgz$' "${work}/requests.log" | tr '\n' ' '). Output: ${out}"
 	fi
@@ -1104,6 +1147,7 @@ if [[ "${only}" != "ps1" ]]; then
 	fLine "install.bash"
 	fCase_ReleaseChoice "bash" "fRunBash"
 	fCase_PrereleaseOnly "bash" "fRunBash"
+	fCase_AssetNames "bash" "fRunBash"
 	fCase_Checksum "bash" "fRunBash"
 	fCase_NoAnswer "bash" "fRunBash"
 	fCase_DefaultTarget "bash" "fRunBash"
@@ -1130,6 +1174,7 @@ if [[ "${only}" != "bash" ]]; then
 	if ((! hasPwsh)); then skipWhy="pwsh not installed"; fi
 	fCase_ReleaseChoice "ps1" "fRunPs1"
 	fCase_PrereleaseOnly "ps1" "fRunPs1"
+	fCase_AssetNames "ps1" "fRunPs1"
 	fCase_Checksum "ps1" "fRunPs1"
 	fCase_NoAnswer "ps1" "fRunPs1"
 	fCase_DefaultTarget "ps1" "fRunPs1"

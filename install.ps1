@@ -56,7 +56,7 @@ $ErrorActionPreference = 'Stop'
 
 $repository = 'jim-collier/zuid'
 $program = 'zuid'
-$installerVersion = '1.2.0'
+$installerVersion = '1.3.0'
 
 ## Here and not through Get-Help, which needs the script as a file. Under irm |
 ## scriptblock there isn't one.
@@ -478,7 +478,9 @@ $kind = if ($chosen.prerelease) { 'prerelease' } else { 'stable' }
 
 ## The macOS release is one universal build, for either architecture.
 $assetArch = if ($onMac) { 'universal' } else { $Arch }
-$asset = "$program-$osLabel-$assetArch.$archiveExtension"
+$asset = "$program-$($tag -replace '^v', '')-$osLabel-$assetArch.$archiveExtension"
+## The alpha went out before release names had the version.
+if ($tag -eq 'v1.0.0-alpha.1') { $asset = "$program-$osLabel-$assetArch.$archiveExtension" }
 $baseUrl = "https://github.com/$repository/releases/download/$tag"
 
 

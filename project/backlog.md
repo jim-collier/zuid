@@ -31,19 +31,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 ## Issues
 
 
-- Release file names don't include the version.
-	- ID: 2026101410495982
-	- Type: Enhancement
-	- Status: Waiting for answers
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- Every release file has the version in its name, in one scheme settled before the first tagged release, so download links never change.
-	- Progress log:
-		- 20261014: Question: change it before beta.1? The alpha is out under the current names, and both installers ask for them, so they'd change together. The `.deb` and `.rpm` already have the version.
-		- 20261014: Answer asked for an example. Given in-session: `zuid-linux-x86_64.tgz` would become `zuid-1.0.0-beta.1-linux-x86_64.tgz`, and the installers would build that name from the tag.
-
 - README and GitHub About wording.
 	- ID: 2026101410495988
 	- Type: Task
@@ -286,6 +273,28 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Opened by: JC
 	- Requirements  [Feature]:
 		- Shorten the labels in `cli-test.bash`, `installer-test.bash`, `pipeline-test.bash`, and `cicd.bash`. The IDs stay. The Zig names were done in 2026101410495992.
+
+- Release file names don't include the version.
+	- ID: 2026101410495982
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Every release file has the version in its name, in one scheme settled before the first tagged release, so download links never change.
+	- Progress log:
+		- 20261014: Question: change it before beta.1? The alpha is out under the current names, and both installers ask for them, so they'd change together. The `.deb` and `.rpm` already have the version.
+		- 20261014: Answer asked for an example. Given in-session: `zuid-linux-x86_64.tgz` would become `zuid-1.0.0-beta.1-linux-x86_64.tgz`, and the installers would build that name from the tag.
+		- 20261014: Answer: version numbers are fine, but the installed dogfood copy is only ever one, named `zuid`.
+		- 20261014: Release files and their debug dirs are `zuid-<version>-<os>-<cpu>`. Both installers build the name from the tag, and keep the old name for `v1.0.0-alpha.1`. Dogfood still writes `zuid` and `zuid.exe`. The download table sorted a versioned bare binary as an unknown file, fixed.
+	- Decisions:
+		- 20261014: Versioned names, by direct answer. The dogfood copy keeps the plain name.
+	- Branch: relnames
+	- Commit: 89b8a8a
+	- Test case: EsiX6rC to EsiX6rF, and EshcCTw now checks nothing else lands in the synced dir. Each failed first: the old installers asked for the old names, and with the alpha case removed the alpha install failed. EshcCTw failed with a versioned copy added.
+	- Acceptance signoff: Self-closed: asked for directly, and tested.
+	- Closed: 20261014-154033
 
 - `install.ps1` stops under Windows PowerShell 5.1.
 	- ID: 2026101410495978
