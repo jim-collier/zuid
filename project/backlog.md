@@ -110,7 +110,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261014: Question: should `install.ps1` add the `bin` folder to the user or machine `PATH`, the way silkterm's does? Today it prints a hint. A machine `PATH` near 4 KB is a known trap on both test boxes.
 		- 20261014: Answer: yes. A user install goes on the user `PATH`, a system one on the machine `PATH`, through the registry so `%VAR%` entries keep expanding. Skipped with a note past 2047 or 4095 characters. Uninstall takes it off. On b29w the user `PATH` came back byte for byte after an uninstall, once a trailing `;` was kept.
 	- Branch: answers
-	- Commit:
+	- Commit: 044ef7f
 	- Test case: None in the harness, since it runs on Linux, where there is no registry. The b29w runs are the check.
 
 - Wording in code, messages, and docs.
@@ -303,7 +303,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261014: Question: port it, or keep 7 and above? Nothing records why it stops. The port is small: no `$IsWindows` on 5.1, TLS 1.2 forced, `-UseBasicParsing`, and the arch from `PROCESSOR_ARCHITECTURE`.
 		- 20261014: Answer: yes. Ported. No `$IsWindows` on 5.1, TLS 1.2 forced, `-UseBasicParsing`, the arch from `PROCESSOR_ARCHITECTURE`, and no stderr redirect that 5.1 turns into a fatal error. On b29w both versions installed, re-ran as a no-op, printed `-Help` from a scriptblock, refused with no answer, and uninstalled.
 	- Branch: answers
-	- Commit:
+	- Commit: 044ef7f
 	- Test case: EshaOju, which checks `install.ps1` against PSScriptAnalyzer's 5.1 profile and failed on the old file. It can't see a read of `$IsWindows`, so the b29w run covers that.
 	- Acceptance signoff: Self-closed: asked for directly, and passed on real 5.1.
 	- Closed: 20261014-115218
@@ -322,7 +322,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261014: Question: default to user always, or keep it? Today root or an admin gets a system install without asking for one. README says so.
 		- 20261014: Answer: yes. Both default to user, root and admins included. The README and help say so.
 	- Branch: answers
-	- Commit:
+	- Commit: 044ef7f
 	- Test case: EshaOjs, EshaOjt: no target, with a writable system location, gets a user install. Both failed before. Eq9l4yO and Eq9l4yP no longer skip as root.
 	- Acceptance signoff: Self-closed: asked for directly, and the tests failed before and pass after.
 	- Closed: 20261014-115218
@@ -341,7 +341,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261014: Question: package on full runs, or keep it opt-in? It adds a few minutes and about 72 MB of `dist/debug/` to every full run.
 		- 20261014: Answer: yes. A full run packages on Linux x86_64 and macOS. On Linux with no `llvm-objcopy` it skips with a note, so a fresh clone still passes. `--no-package` turns it off and `--quick` skips it.
 	- Branch: answers
-	- Commit:
+	- Commit: 044ef7f
 	- Test case: EshbzZU, EshbzZV, EshbzZW, EshbzZX, EshbzZY, Eshc39k, Eshc39l. With the default broken, EshbzZU and EshbzZW failed.
 	- Acceptance signoff: Self-closed: asked for directly, and the tests catch a broken default.
 	- Closed: 20261014-115218
@@ -362,7 +362,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Decisions:
 		- 20261014: No launcher, by direct answer.
 	- Branch: answers
-	- Commit:
+	- Commit: 044ef7f
 	- Test case: EshcCTw, EshcCTx. With only the first synced entry read, EshcCTw failed.
 	- Acceptance signoff: Self-closed: asked for directly, and tested.
 	- Closed: 20261014-115218
@@ -379,7 +379,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261014: `install.md` has packages, the install scripts, and building from source. `development.md` has prerequisites, building and testing, and house style. The README links both.
 	- Branch: answers
-	- Commit:
+	- Commit: 044ef7f
 	- Test case: EqA4qmP checks every link in the root docs. EqA4qmO now looks for the style guides in `development.md`, and Eq9m0j2 for the `go get` line in every root doc.
 	- Acceptance signoff: Self-closed: asked for directly.
 	- Closed: 20261014-115218
