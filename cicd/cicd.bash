@@ -14,6 +14,7 @@
 ##		- 20261003 JC: Publishing to GitHub releases.
 ##		- 20261004 JC: Runs in a linked worktree, minus the backup.
 ##		- 20261010 JC: --container.
+##		- 20261014 JC: --gate and the pre-push hook. git and gh through gitsby when it's installed.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Set by --container for the run it starts inside.
@@ -21,6 +22,18 @@ declare -i inContainer=0; [[ "${ZUID_IN_CONTAINER:-}" == "1" ]] && inContainer=1
 declare    thisVersion="0.1.0"
 declare    copyrightYear="2026"
 declare    author="Jim Collier"
+
+## gitsby picks the git host account from the repo's path. A plain clone
+## without it gets plain git and gh.
+if command -v gitsby >/dev/null 2>&1; then
+	git(){ gitsby -q raw git "$@" ;}
+fi
+fGh(){
+	if   [[ -n "${ZUID_GH:-}" ]];                then "${ZUID_GH}" "$@"
+	elif command -v gitsby >/dev/null 2>&1; then gitsby -q raw gh "$@"
+	else gh "$@"
+	fi
+}
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -149,6 +162,8 @@ fPrint_Help(){
 		                      plus the dogfood install. The backup and everything
 		                      that gates a merge still run.
 		    --no-sync         Skip the remote refresh at the start.
+		    --gate            The pre-push check: --quick, with no sync, dogfood,
+		                      backup, commit or push. See below.
 		    -m, --message     Commit message. Implies --commit.
 		    --commit          Commit if everything passed. Refuses on a protected
 		                      branch: ${protectedBranches[*]}
@@ -214,6 +229,12 @@ fPrint_Help(){
 		The sync, demo, dogfood and backup stay on this machine, since they need its
 		git keys, fonts and paths. It needs docker, or ZUID_DOCKER naming another
 		program that takes docker's arguments. x86_64 only. Not with --publish.
+
+		--gate is what cicd/utility/git-hooks/pre-push runs before a push to main,
+		on the commit being pushed, in a scratch worktree. Turn the hook on once
+		per clone with: git config core.hooksPath cicd/utility/git-hooks
+		SKIP_GATE=1 skips it. A run's own backup and push skip it, since that run
+		just passed.
 
 		Exit code is 0 only if every stage that ran passed.
 	EOF_h7wq4
@@ -309,6 +330,7 @@ fMain(){
 	local -i doPublish=0
 	local -i allowPartial=0
 	local -i doContainer=0
+	local -i doGate=0
 	fInit "${@}"
 	readonly onlyToolchain
 	readonly doCross
@@ -319,6 +341,7 @@ fMain(){
 	readonly doPublish
 	readonly allowPartial
 	readonly doContainer
+	readonly doGate
 
 	## Set by the publish preflight, read by the publish stage.
 	local publishVersion="" publishRemote="" publishHead="" publishRepoUrl=""
@@ -427,6 +450,7 @@ fInit(){
 			--publish)    doPublish=1; doPackage=1 ;;
 			--allow-partial) allowPartial=1 ;;
 			--container)  doContainer=1 ;;
+			--gate)       doGate=1 ;;
 			-q|--quiet)   doQuietly=1 ;;
 
 			## ¯\_(:/)_/¯
@@ -435,6 +459,15 @@ fInit(){
 		esac
 		shift || true
 	done
+
+	## The pre-push hook's run. Anything that writes outside the tree, or to git,
+	## would be a push inside a push.
+	if ((doGate)); then
+		if ((doCommit)) || ((doPush)) || ((backupAsked)) || ((doPackage)) || ((doContainer)) || ((dogfoodAsked)); then
+			fThrowError "--gate only builds and tests. Drop the other stage flags."  "${FUNCNAME[0]}"
+		fi
+		doQuick=1; doSync=0; doBackup=0; doDogfood=0; doQuietly=1
+	fi
 
 	## The backup helper does its own commit and push, so pairing it with either of
 	## ours would land the same work twice. Asked for together that is a mistake and
@@ -722,7 +755,8 @@ fStage_Shell(){
 		## code, and the copied helpers keep their own upstream's lint state.
 		shellcheck "${repoRoot}/cicd/cicd.bash" "${repoRoot}/install.bash" \
 			"${utilityDir}/installer-test.bash" "${utilityDir}/cli-test.bash" \
-			"${utilityDir}/pipeline-test.bash"
+			"${utilityDir}/pipeline-test.bash" "${utilityDir}/package.bash" \
+			"${utilityDir}/git-hooks/pre-push"
 		fEcho_Clean "Clean."
 	fi
 
@@ -730,7 +764,20 @@ fStage_Shell(){
 	fStage_Shell_Pipeline
 	fStage_Shell_Installers
 	fStage_Docs
+	fContentScrub
 
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The scrub lives with the private project files. A clone without them, or a
+## worktree, skips it.
+fContentScrub(){
+	local -r scrub="${repoRoot}/../private/hooks/scrub.bash"
+	[[ -x "${scrub}" ]] || return 0
+	fEcho_Clean
+	fEcho "Content scrub"
+	"${scrub}" "${repoRoot}" || fThrowError "The content scrub found something."  "${FUNCNAME[0]}"
 }
 
 
@@ -1058,7 +1105,7 @@ fStage_Go_Fuzz(){
 
 	while ((attempt < 2)); do
 		attempt=$((attempt + 1))
-		if output="$(go test -run=xxx -fuzz=FuzzGenerate -fuzztime="${fuzzTime}" ./zuid 2>&1)"; then
+		if output="$(go test -run=xxx -fuzz=FuzzGenerate -fuzztime="${fuzzTime}" -parallel="${buildJobs}" ./zuid 2>&1)"; then
 			fTestPass
 			return 0
 		fi
@@ -1597,6 +1644,8 @@ fStage_Zig_CApi(){
 		return 0
 	fi
 	fEcho_Clean "Compiler ...: ${systemCc}"
+	## The header is for C99 callers, and has to stay quiet for them.
+	local -ra cWarn=(-std=c99 -Wall -Wextra -Wpedantic -Werror)
 
 	local -r smokeSrc="${zigDir}/lib/test/capi_smoke.c"
 	local buildDir=""
@@ -1615,7 +1664,7 @@ fStage_Zig_CApi(){
 	## Shared: self-contained, so the header and -lzuid are the whole story.
 	## An rpath rather than LD_LIBRARY_PATH, which macOS does not read.
 	fId ElpGOHZ "capi_smoke.c against the shared library"
-	"${systemCc}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
+	"${systemCc}" "${cWarn[@]}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
 		-L "${libDir}" -lzuid -Wl,-rpath,"${libDir}" -o "${buildDir}/smoke-shared" || fTestFail "did not compile."
 	"${buildDir}/smoke-shared" || fTestFail "the smoke test failed."
 	fTestPass
@@ -1673,7 +1722,7 @@ fStage_Zig_CApi(){
 	local -r interposeSrc="${zigDir}/lib/test/capi_interpose.c"
 	fId Eq9gPQn "a program defining a Wasmtime name still gets a working context"
 	if [[ -f "${interposeSrc}" ]]; then
-		"${systemCc}" -I "${zigDir}/zig-out/include" "${interposeSrc}" \
+		"${systemCc}" "${cWarn[@]}" -I "${zigDir}/zig-out/include" "${interposeSrc}" \
 			-L "${libDir}" -lzuid -Wl,-rpath,"${libDir}" -o "${buildDir}/interpose" || fTestFail "did not compile."
 		"${buildDir}/interpose" || fTestFail "the library's calls were displaced."
 		fTestPass
@@ -1685,7 +1734,7 @@ fStage_Zig_CApi(){
 	## No -lunwind here on purpose - libgcc already provides __register_frame,
 	## and the header says so.
 	fId ElpGOHa "capi_smoke.c against the static library"
-	"${systemCc}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
+	"${systemCc}" "${cWarn[@]}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
 		"${zigDir}/zig-out/lib/libzuid.a" "${zigDir}/vendor/wasmtime/lib/libwasmtime.a" \
 		-lpthread -ldl -lm -o "${buildDir}/smoke-static" || fTestFail "did not link."
 	"${buildDir}/smoke-static" || fTestFail "the smoke test failed."
@@ -1706,7 +1755,7 @@ fStage_Zig_CApi(){
 	## Apple's ld has no -Bstatic. It needs none here, with only archives in lib/.
 	local -a staticOn=('-Wl,-Bstatic') staticOff=('-Wl,-Bdynamic')
 	if ((isMac)); then staticOn=(); staticOff=(); fi
-	"${systemCc}" -I "${relTree}/include" "${smokeSrc}" \
+	"${systemCc}" "${cWarn[@]}" -I "${relTree}/include" "${smokeSrc}" \
 		-L "${relTree}/lib" "${staticOn[@]}" -lzuid -lwasmtime "${staticOff[@]}" \
 		-lpthread -ldl -lm -o "${buildDir}/smoke-release" || fTestFail "did not link."
 	"${buildDir}/smoke-release" || fTestFail "the smoke test failed."
@@ -1872,7 +1921,7 @@ fStage_Package(){
 	## Linux box then publishes.
 	local packageVersion=""
 	packageVersion="$(fCoreVersion)" || fThrowError "Could not read the version from zig/lib/src/core.zig."  "${FUNCNAME[0]}"
-	"${packager}" --out "${repoRoot}/dist" --version "v${packageVersion}"
+	ZUID_JOBS="${buildJobs}" "${packager}" --out "${repoRoot}/dist" --version "v${packageVersion}"
 
 	## The release has to run on machines older than this one. These check that
 	## it did not pick up this one's CPU, glibc or macOS version. Linux makes an
@@ -2732,7 +2781,7 @@ fStage_Package_Again(){  ## scratch dir, version
 		how="umask 077, as root on host zuid-again"
 		runner=(unshare -r -u bash -c 'hostname zuid-again && umask 077 && exec "$@"' again)
 	fi
-	if ! "${runner[@]}" "${packager}" --out "${againDir}" --version "v${version}" >"${scratchDir}/again.log" 2>&1; then
+	if ! ZUID_JOBS="${buildJobs}" "${runner[@]}" "${packager}" --out "${againDir}" --version "v${version}" >"${scratchDir}/again.log" 2>&1; then
 		fTestFail "the second run failed (${how}): $(tail -c 400 "${scratchDir}/again.log")"
 	fi
 	local -a problems=()
@@ -3010,7 +3059,7 @@ fPublish_Preflight(){
 	local -r ghCmd="${ZUID_GH:-gh}"
 	_fMustBeInPath curl
 	command -v "${ghCmd}" >/dev/null 2>&1 || fThrowError "--publish creates the release with gh, which is not installed."  "${FUNCNAME[0]}"
-	"${ghCmd}" auth status >/dev/null 2>&1 || fThrowError "gh is not logged in. Run 'gh auth login' first."  "${FUNCNAME[0]}"
+	fGh auth status >/dev/null 2>&1 || fThrowError "gh is not logged in. Run 'gh auth login' first."  "${FUNCNAME[0]}"
 
 	local -r branch="$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD)"
 	if [[ "${branch}" != "${releaseBranch}" ]]; then
@@ -3049,7 +3098,7 @@ fPublish_Preflight(){
 
 	## The notes link each download by its full address. gh is asked, so it is
 	## the same repo the release goes to.
-	publishRepoUrl="$(cd "${repoRoot}" && "${ghCmd}" repo view --json url --jq .url 2>/dev/null || true)"
+	publishRepoUrl="$(cd "${repoRoot}" && fGh repo view --json url --jq .url 2>/dev/null || true)"
 	if [[ ! "${publishRepoUrl}" =~ ^https://[A-Za-z0-9./_-]+$ ]]; then
 		fThrowError "gh cannot tell which GitHub repo this is, so the notes would have no download links. Run 'gh repo set-default' first."  "${FUNCNAME[0]}"
 	fi
@@ -3068,7 +3117,6 @@ fStage_Publish(){
 	fEcho_Clean
 	fEcho "Publish"
 
-	local -r ghCmd="${ZUID_GH:-gh}"
 	local -r tag="v${publishVersion}"
 	local -r goTag="go/v${publishVersion}"
 	local -r distDir="${repoRoot}/dist"
@@ -3153,6 +3201,13 @@ fStage_Publish(){
 		notesFrom="the download table only - changelog.md has no section for ${tag}"
 	fi
 
+	## The build number, read from the release binary, so it's the one users see.
+	local buildLine=""
+	if [[ -x "${repoRoot}/dist/zuid-linux-x86_64" ]]; then
+		buildLine="$("${repoRoot}/dist/zuid-linux-x86_64" --version 2>/dev/null | sed -n '1s/^\([^ ]*\) (build \([^)]*\))$/zuid v\1 build \2/p' || true)"
+	fi
+	if [[ -n "${buildLine}" ]]; then notes="${buildLine}"$'\n\n'"${notes}"; fi
+
 	local prerelease=""
 	if [[ "${publishVersion}" == *-* ]]; then prerelease=" (prerelease)"; fi
 	fEcho_Clean "Release ....: ${tag}${prerelease}"
@@ -3182,13 +3237,13 @@ fStage_Publish(){
 	local -a ghArgs=(release create "${tag}" --verify-tag --title "${tag}" --notes "${notes}")
 	if [[ -n "${prerelease}" ]]; then ghArgs+=(--prerelease); fi
 	for asset in "${assets[@]}" checksums.txt; do ghArgs+=("${stageDir}/${asset}"); done
-	if ! (cd "${repoRoot}" && "${ghCmd}" "${ghArgs[@]}"); then
+	if ! (cd "${repoRoot}" && fGh "${ghArgs[@]}"); then
 		fThrowError "Both tags are pushed, but the release was not created. Run 'gh release create ${tag} --verify-tag' with the files in dist/release/, or delete both tags from ${publishRemote} and publish again."  "${FUNCNAME[0]}"
 	fi
 
 	## The tag shows before the assets do, for a minute or so.
 	local url=""
-	url="$(cd "${repoRoot}" && "${ghCmd}" release view "${tag}" --json assets --jq '.assets[] | select(.name == "checksums.txt") | .url' 2>/dev/null || true)"
+	url="$(cd "${repoRoot}" && fGh release view "${tag}" --json assets --jq '.assets[] | select(.name == "checksums.txt") | .url' 2>/dev/null || true)"
 	[[ -n "${url}" ]] || fThrowError "${tag} is released, but gh lists no checksums.txt on it."  "${FUNCNAME[0]}"
 	local -i tries=1
 	until curl -fsSL -o /dev/null "${url}" 2>/dev/null; do
@@ -3352,7 +3407,7 @@ fStage_Backup(){
 	## for './.git' - so it gets run from there rather than wherever cicd was called.
 	(
 		cd "${repoRoot}" || fThrowError "Could not enter '${repoRoot}'."  "${FUNCNAME[0]}"
-		GIT_BACKUP_AND_PUBLISH_RAR_EXCLUDES="${rarExcludes}" "${helper}" "${helperArgs[@]}"
+		SKIP_GATE=1 GIT_BACKUP_AND_PUBLISH_RAR_EXCLUDES="${rarExcludes}" "${helper}" "${helperArgs[@]}"
 	)
 
 }
@@ -3400,7 +3455,7 @@ fStage_Push(){
 	if [[ "${branch}" == "HEAD" ]]; then
 		fThrowError "HEAD is detached, so there is no branch to push."  "${FUNCNAME[0]}"
 	fi
-	git -C "${repoRoot}" push -u "${remote}" "${branch}"
+	SKIP_GATE=1 git -C "${repoRoot}" push -u "${remote}" "${branch}"
 
 }
 

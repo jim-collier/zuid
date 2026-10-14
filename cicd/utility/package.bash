@@ -48,6 +48,12 @@ DESC_LONG="Generates identifiers built from a timestamp and optional host, user,
 
 VERSION="$(cd "${root}" && git describe --tags --always --dirty 2>/dev/null || echo dev)"
 OUT="${root}/dist"
+## Half the cores, like cicd.bash, which passes its own count in.
+jobs="${ZUID_JOBS:-}"
+if [[ -z "${jobs}" ]]; then
+	jobs="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+	jobs=$((jobs / 2)); ((jobs > 0)) || jobs=1
+fi
 ## dist/ is this script's own directory, so it counts as ours whatever is in it.
 ## A path that came from --out does not, and has to prove itself below.
 outIsDefault=1
@@ -337,7 +343,7 @@ for zigTarget in "${zigTargets[@]}"; do
 	slice="${work}/slice-${zigTarget}"
 	wasmtimeArchive="$(fWasmtimeArchive "${zigTarget}")"
 	[[ -f "${wasmtimeArchive}" ]] || fDie "missing ${wasmtimeArchive}. Run cicd.bash --package first; it vendors Wasmtime."
-	( cd "${root}/zig" && zig build -Doptimize=ReleaseSafe -Dtarget="${zigTarget}" --prefix "${slice}" )
+	( cd "${root}/zig" && zig build "-j${jobs}" -Doptimize=ReleaseSafe -Dtarget="${zigTarget}" --prefix "${slice}" )
 	case "${zigTarget}" in
 		## The command and both libraries load wasmtime.dll, so it goes beside
 		## them. Its import library is renamed to what -lwasmtime finds, for a

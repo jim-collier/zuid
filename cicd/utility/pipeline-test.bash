@@ -97,6 +97,8 @@ fWantRefusal ErOjF73 "an unknown argument is named"                   "'--bogus'
 fWantRefusal ErgqYt2 "--allow-partial without --publish is refused"   "only means something with --publish" --allow-partial
 fWantRefusal ErgqYt3 "--publish with --only go is refused"            "--publish needs the Zig side" --publish --only go
 fWantRefusal EsJ9SjI "--publish with --container is refused"          "does not go with --container" --publish --container
+fWantRefusal EshGwj4 "--gate with --commit is refused"                "--gate only builds and tests" --gate --commit
+fWantRefusal EshGwj5 "--gate with --package is refused"               "--gate only builds and tests" --gate --package
 
 fId EsJ9cHS "--container inside the container is refused"
 out="$(env -u ZUID_CICD_QUIET ZUID_IN_CONTAINER=1 bash "${cicd}" --container 2>&1 < /dev/null)" && rc=0 || rc=$?
@@ -267,7 +269,7 @@ fInitIn(){  ## repo dir, args...
 			repoRoot="$1"; onlyToolchain=""; commitMsg=""; doQuietly=0
 			doCross=0; doQuick=0; doSync=1; doCommit=0; commitAsked=0; doPush=0; doPackage=0
 			doBackup=1; backupAsked=0; backupInWorktree=0; doDogfood=1; dogfoodAsked=0; doPublish=0; allowPartial=0
-			doContainer=0; inContainer=0
+			doContainer=0; inContainer=0; doGate=0
 		}
 		shift
 		local fn=""
@@ -275,7 +277,10 @@ fInitIn(){  ## repo dir, args...
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		fInit "$@"
-		printf 'doBackup=%s backupInWorktree=%s\n' "${doBackup}" "${backupInWorktree}"
+		if [[ "${showGate:-0}" == "1" ]]
+			then printf 'doQuick=%s doSync=%s doBackup=%s doDogfood=%s\n' "${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}"
+			else printf 'doBackup=%s backupInWorktree=%s\n' "${doBackup}" "${backupInWorktree}"
+		fi
 	) 2>&1
 }
 
@@ -290,6 +295,15 @@ fi
 fId Erm7vCl "--backup by name is refused in a linked worktree"
 out="$(fInitIn "${worktreeDir}" --backup)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"linked worktree"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+## The pre-push hook runs --gate inside a push, so it must not sync, install,
+## or push again.
+fId EshGwj6 "--gate is a quick run with no sync, dogfood, or backup"
+out="$(showGate=1 fInitIn "${worktreeMain}" --gate)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == "doQuick=1 doSync=0 doBackup=0 doDogfood=0" ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
@@ -426,7 +440,9 @@ fPublishRepo(){  ## name, version
 	fTarball "${dir}/repo/dist/zuid-linux-x86_64.tgz" "${version}"
 	fTarball "${dir}/repo/dist/zuid-linux-arm64.tgz" "${version}"
 	fTarball "${dir}/repo/dist/zuid-freebsd-x86_64.tgz" "${version}"
-	printf 'x86_64\n' > "${dir}/repo/dist/zuid-linux-x86_64"
+	## Answers --version the way the real one does, for the notes' build line.
+	printf '#!/bin/sh\necho "%s (build abc12)"\n' "${version}" > "${dir}/repo/dist/zuid-linux-x86_64"
+	chmod +x "${dir}/repo/dist/zuid-linux-x86_64"
 	printf 'arm64\n'  > "${dir}/repo/dist/zuid-linux-arm64"
 	printf 'freebsd\n' > "${dir}/repo/dist/zuid-freebsd-x86_64"
 	printf 'stale\n'  > "${dir}/repo/dist/checksums.txt"
@@ -455,7 +471,7 @@ fPublishIn(){  ## name, quiet, allow partial
 		# shellcheck disable=2329
 		fThrowError(){ printf '%s\n' "$1"; exit 1; }
 		local fn=""
-		for fn in fConfig _fMustBeInPath fCoreVersion fPublish_Preflight fPublish_Downloads fStage_Publish; do
+		for fn in fConfig _fMustBeInPath fGh fCoreVersion fPublish_Preflight fPublish_Downloads fStage_Publish; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		fConfig
@@ -650,6 +666,12 @@ for ((argIndex = 0; argIndex < ${#betaArgs[@]}; argIndex++)); do
 	if [[ "${betaArgs[argIndex]}" == "--notes" ]]; then betaNotes="${betaArgs[argIndex + 1]:-}"; fi
 done
 if [[ "${betaNotes}" == *"Notes for this one."* ]] && [[ "${betaNotes}" != *"older one"* ]]
+	then fPass
+	else fFail "notes were '${betaNotes:0:120}'"
+fi
+
+fId EshGwj3 "the release notes start with the build number"
+if [[ "${betaNotes}" == "zuid v1.0.0-beta.1 build abc12"$'\n'* ]]
 	then fPass
 	else fFail "notes were '${betaNotes:0:120}'"
 fi
@@ -1077,6 +1099,7 @@ fLine ""
 ##		- 20261010 JC: --container.
 ##		- 20261005 JC: The profile report's registry bucket.
 ##		- 20261004 JC: SOURCE_DATE_EPOCH kept from zig.
+##		- 20261014 JC: --gate refusals, and the build number in the release notes.
 ##		- 20261004 JC: The download table in the release notes.
 ##		- 20261004 JC: test-ids.py and the Zig fuzz report.
 ##		- 20261003 JC: Publishing.
