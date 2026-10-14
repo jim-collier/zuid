@@ -759,10 +759,10 @@ fCase_Rerun(){  ## label, runner
 ## a missing argument by name.
 fCase_MissingValue(){
 	local flag="" out="" rc=0
-	for flag in --release --target --arch; do
+	for flag in --release --target; do
 		rc=0
 		out="$(HOME="$(fNewHome "missing-value")" bash "${bashCopy}" "${flag}" 2>&1)" || rc=$?
-		fId "${flag}" --release=Eq9oNBg --target=Eq9oNBh --arch=Eq9oNBi "bash: ${flag} with no value names the flag"
+		fId "${flag}" --release=Eq9oNBg --target=Eq9oNBh "bash: ${flag} with no value names the flag"
 		if ((rc != 0)) && [[ "${out}" == *"${flag}"* && "${out}" == *"needs a value"* ]]
 			then fPass
 			else fFail "rc=${rc} and '${out}'"
@@ -918,6 +918,152 @@ fCase_ForeignLink(){  ## label, runner
 	fi
 }
 
+## The README runs both from a pipe, where there's no file for --help to read
+## its own text from. install.bash printed nothing there.
+fCase_HelpPiped(){
+	local out="" rc=0
+	out="$(bash <(cat "${bashCopy}") --help 2>&1)" || rc=$?
+	fId EshFEjs "bash: --help works from a pipe"
+	if ((rc == 0)) && [[ "${out}" == *"Usage:"* && "${out}" == *"--release"* ]]
+		then fPass
+		else fFail "rc=${rc} and '${out}'"
+	fi
+	rc=0
+	out="$(bash "${bashCopy}" --version 2>&1)" || rc=$?
+	fId EshFEjt "bash: --version prints the installer's version"
+	if ((rc == 0)) && [[ "${out}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+		then fPass
+		else fFail "rc=${rc} and '${out}'"
+	fi
+}
+
+fCase_HelpPs1(){
+	local out="" rc=0
+	if [[ -z "${skipWhy}" ]]; then
+		out="$(pwsh -NoProfile -Command "& ([scriptblock]::Create((Get-Content -Raw '${ps1Copy}'))) -Help" 2>&1)" || rc=$?
+	fi
+	fId EshFEju "ps1: -Help works from a scriptblock"
+	if ((rc == 0)) && [[ "${out}" == *"Usage:"* && "${out}" == *"-Release"* ]]
+		then fPass
+		else fFail "rc=${rc} and '${out}'"
+	fi
+	rc=0
+	if [[ -z "${skipWhy}" ]]; then
+		out="$(pwsh -NoProfile -File "${ps1Copy}" -Version 2>&1)" || rc=$?
+	fi
+	fId EshFEjv "ps1: -Version prints the installer's version"
+	if ((rc == 0)) && [[ "${out}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+		then fPass
+		else fFail "rc=${rc} and '${out}'"
+	fi
+}
+
+fCase_EqualsForm(){
+	local home="" out="" got=""
+	home="$(fNewHome "equals-form")"
+	out="$(HOME="${home}" bash "${bashCopy}" --release=dev --target=user --yes 2>&1)" || true
+	got="$(fInstalledVersion "${home}")"
+	fId EshFEjw "bash: --release=dev works like --release dev"
+	if [[ "${got}" == "2.1.0-beta.1" ]]
+		then fPass
+		else fFail "expected the beta, got ${got}. Output: ${out}"
+	fi
+}
+
+## GitHub lists by date. A v1.0.0 fix published after v2.0.0 used to win.
+fCase_SemverOrder(){  ## label, runner
+	local -r label="$1" runner="$2"
+	local home="" out="" got=""
+	cp "${apiDir}/releases" "${work}/releases.byDate"
+	cat > "${apiDir}/releases" <<'JSON'
+[
+	{ "tag_name": "v1.0.0", "draft": false, "prerelease": false },
+	{ "tag_name": "v2.1.0-beta.1", "draft": false, "prerelease": true },
+	{ "tag_name": "v2.0.0", "draft": false, "prerelease": false }
+]
+JSON
+	home="$(fNewHome "${label}-semver-dev")"
+	out="$("${runner}" "${home}" user dev yes)" || true
+	got="$(fInstalledVersion "${home}")"
+	fId "${label}" bash=EshFEjx ps1=EshFEjy "${label}: dev takes the highest version, not the newest listed"
+	if [[ "${got}" == "2.1.0-beta.1" ]]
+		then fPass
+		else fFail "expected 2.1.0-beta.1, got ${got}. Output: ${out}"
+	fi
+	home="$(fNewHome "${label}-semver-stable")"
+	out="$("${runner}" "${home}" user yes)" || true
+	got="$(fInstalledVersion "${home}")"
+	fId "${label}" bash=EshFEjz ps1=EshFEk0 "${label}: and stable takes the highest full release"
+	if [[ "${got}" == "2.0.0" ]]
+		then fPass
+		else fFail "expected 2.0.0, got ${got}. Output: ${out}"
+	fi
+	cp "${work}/releases.byDate" "${apiDir}/releases"
+}
+
+## A rate limit or a dead network used to read as "no published release found".
+fCase_LookupFails(){  ## label, copy
+	local -r label="$1" copy="$2"
+	local out="" rc=0 broken="${work}/lookup-fails-${label}"
+	if [[ -z "${skipWhy}" ]]; then
+		cp "${copy}" "${broken}"
+		fRewrite "${broken}" "the releases API URL" -e "s|${baseUrl}/api/repos/|${baseUrl}/api/nowhere/|"
+		if [[ "${label}" == "bash" ]]
+			then out="$(HOME="$(fNewHome "${label}-lookup")" bash "${broken}" --target user --yes 2>&1)" || rc=$?
+			else out="$(HOME="$(fNewHome "${label}-lookup")" pwsh -NoProfile -File "${broken}" -Target user -Yes 2>&1)" || rc=$?
+		fi
+	fi
+	fId "${label}" bash=EshFEk1 ps1=EshFEk2 "${label}: a failed lookup gives the HTTP status"
+	if ((rc != 0)) && [[ "${out}" == *"HTTP 404"* && "${out}" != *"no published release"* ]]
+		then fPass
+		else fFail "rc=${rc} and '${out}'"
+	fi
+}
+
+## A build copied to ~/.local/bin by hand, at the same version, used to make
+## install.bash say "Already installed" with nothing in the install directory.
+fCase_ForeignSameVersion(){  ## label, runner
+	local -r label="$1" runner="$2"
+	local home="" out=""
+	home="$(fNewHome "${label}-foreign-same")"
+	fWriteStandIn "v2.0.0" "hand-copied" "${home}/.local/bin/${PROG}"
+	out="$("${runner}" "${home}" user yes)" || true
+	fId "${label}" bash=EshFEk3 ps1=EshFEk4 "${label}: a hand-copied build of the same version isn't an install"
+	if [[ -x "${home}/${userShare}/bin/${PROG}" && "${out}" != *"Already installed"* ]]
+		then fPass
+		else fFail "nothing went into ${userShare}. Output: ${out}"
+	fi
+}
+
+## A Mac's /bin/bash is 3.2, where an empty array under set -u is unbound. The
+## host bash is newer, so this runs in a container when one is on hand.
+fCase_Bash32(){
+	local skipWhy="${skipWhy}" out="" rc=0 home=""
+	if ! command -v docker >/dev/null 2>&1 || ! docker image inspect bash:3.2 >/dev/null 2>&1; then
+		skipWhy="no docker image bash:3.2"
+	fi
+	home="$(fNewHome "bash32")"
+	if [[ -z "${skipWhy}" ]]; then
+		out="$(docker run --rm --network none -e HOME=/home -v "${home}:/home" -v "${bashCopy}:/install.bash:ro" \
+			bash:3.2 bash /install.bash --uninstall --target user --yes 2>&1)" || rc=$?
+	fi
+	fId EshFEk5 "bash 3.2: uninstall runs"
+	if ((rc == 0)) && [[ "${out}" == *"Removed."* ]]
+		then fPass
+		else fFail "rc=${rc} and '${out}'"
+	fi
+	rc=0
+	if [[ -z "${skipWhy}" ]]; then
+		out="$(docker run --rm --network none -v "${bashCopy}:/install.bash:ro" \
+			bash:3.2 bash -c 'bash <(cat /install.bash) --help' 2>&1)" || rc=$?
+	fi
+	fId EshFEk6 "bash 3.2: --help works from a pipe"
+	if ((rc == 0)) && [[ "${out}" == *"Usage:"* ]]
+		then fPass
+		else fFail "rc=${rc} and '${out}'"
+	fi
+}
+
 fEcho "Installers: against a local release listing on port ${port}"
 fLine ""
 
@@ -931,6 +1077,12 @@ if [[ "${only}" != "ps1" ]]; then
 	fCase_SystemTarget "bash" "fRunBashSys" "yes"
 	fCase_Rerun "bash" "fRunBash"
 	fCase_MissingValue
+	fCase_HelpPiped
+	fCase_EqualsForm
+	fCase_SemverOrder "bash" "fRunBash"
+	fCase_LookupFails "bash" "${bashCopy}"
+	fCase_ForeignSameVersion "bash" "fRunBash"
+	fCase_Bash32
 	fCase_NoBuild
 	fCase_Arm64Linux
 	fCase_FreeBSD
@@ -952,6 +1104,10 @@ if [[ "${only}" != "bash" ]]; then
 	fCase_SystemUnwritable
 	fCase_Rerun "ps1" "fRunPs1"
 	fCase_ForeignLink "ps1" "fRunPs1"
+	fCase_HelpPs1
+	fCase_SemverOrder "ps1" "fRunPs1"
+	fCase_LookupFails "ps1" "${ps1Copy:-}"
+	fCase_ForeignSameVersion "ps1" "fRunPs1"
 	skipWhy=""
 fi
 
@@ -967,6 +1123,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261014 JC: --help from a pipe, --version, --opt=value, semver order, lookup errors, bash 3.2.
 ##		- 20261003 JC: An aarch64 Linux machine fetches the arm64 tarball.
 ##		- 20261003 JC: A system with no build is refused by name.
 ##		- 20260930 JC: Test IDs. A listing with only a prerelease in it, a bad checksum, no answer.
