@@ -556,19 +556,12 @@ fCase_PackageHeader(){
 	fi
 }
 
-## With no target named, the choice has to come from whether the system location
-## can be written, not whether it exists. install.ps1 tested existence, so a
-## normal user on a box with /usr/local/bin - which is to say any box - got a
-## system install that failed after the download, with no elevation path.
-##
-## Skipped where the system location happens to be writable, such as a run as
-## root, since then system is the right answer and there is nothing to catch.
-## Both halves count: Homebrew leaves /usr/local/bin writable on an Intel Mac,
-## while /opt is not.
+## With no target named, it's a user install. install.ps1 once tested whether
+## the system location existed, so a normal user on any box got a system
+## install that failed after the download. The writable case is in
+## fCase_SystemTarget, against the moved system paths.
 fCase_DefaultTarget(){  ## label, runner
 	local -r label="$1" runner="$2"
-	local skipWhy="${skipWhy}"
-	if [[ -w /usr/local/bin && -w /opt ]]; then skipWhy="/usr/local/bin and /opt are writable here, so system is the right default"; fi
 
 	local home="" out="" got=""
 	home="$(fNewHome "${label}-default-target")"
@@ -606,6 +599,16 @@ fCase_SystemTarget(){  ## label, runner, elevates
 	if [[ "$(fSudoCount)" == "0" ]]
 		then fPass
 		else fFail "called sudo $(fSudoCount) time(s). Output: ${out}"
+	fi
+
+	## Writable or not, system is only when asked for. Both used to pick it
+	## whenever they could write there, root and admins included.
+	home="$(fNewHome "${label}-system-default")"
+	out="$("${runner}" "${home}" yes)" || true
+	fId "${label}" bash=EshaOjs ps1=EshaOjt "${label}: with no target named, a writable system location still gets a user install"
+	if [[ "$(fInstalledVersion "${home}")" == "2.0.0" && ! -e "${installed}" && "$(fSudoCount)" == "0" ]]
+		then fPass
+		else fFail "got $(fInstalledVersion "${home}") under HOME, ${installed} $([[ -e "${installed}" ]] && echo exists || echo absent). Output: ${out}"
 	fi
 
 	home="$(fNewHome "${label}-system")"
@@ -937,6 +940,36 @@ fCase_HelpPiped(){
 	fi
 }
 
+## Windows PowerShell 5.1 runs on .NET Framework, which lacks some of what
+## pwsh has. PSScriptAnalyzer's own 5.1 profile names what's missing. It can't
+## see a read of $IsWindows, which 5.1 doesn't have, so that one takes a real
+## 5.1 run.
+fCase_Ps1Compat(){
+	local skipWhy="${skipWhy}" out="" rc=0
+	if [[ -z "${skipWhy}" ]] && ! pwsh -NoProfile -Command 'if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { exit 1 }' >/dev/null 2>&1; then
+		skipWhy="PSScriptAnalyzer not installed"
+	fi
+	if [[ -z "${skipWhy}" ]]; then
+		# shellcheck disable=2016  ## PowerShell's own variables.
+		out="$(ZUID_PS1="${repoRoot}/install.ps1" pwsh -NoProfile -Command '
+			$p = "win-8_x64_10.0.17763.0_5.1.17763.316_x64_4.0.30319.42000_framework"
+			$rules = @{
+				PSUseCompatibleSyntax   = @{ Enable = $true; TargetVersions = @("5.1", "7.0") }
+				PSUseCompatibleCommands = @{ Enable = $true; TargetProfiles = @($p) }
+				PSUseCompatibleTypes    = @{ Enable = $true; TargetProfiles = @($p) }
+			}
+			if (-not (Test-Path $env:ZUID_PS1)) { "no file at $env:ZUID_PS1"; exit 1 }
+			$found = @(Invoke-ScriptAnalyzer -Path $env:ZUID_PS1 -Settings @{ Rules = $rules })
+			$found | ForEach-Object { "{0}: {1}" -f $_.Line, $_.Message }
+			if ($found.Count) { exit 1 }' 2>&1)" || rc=$?
+	fi
+	fId EshaOju "ps1: uses nothing Windows PowerShell 5.1 lacks"
+	if ((rc == 0))
+		then fPass
+		else fFail "${out}"
+	fi
+}
+
 fCase_HelpPs1(){
 	local out="" rc=0
 	if [[ -z "${skipWhy}" ]]; then
@@ -1105,6 +1138,7 @@ if [[ "${only}" != "bash" ]]; then
 	fCase_Rerun "ps1" "fRunPs1"
 	fCase_ForeignLink "ps1" "fRunPs1"
 	fCase_HelpPs1
+	fCase_Ps1Compat
 	fCase_SemverOrder "ps1" "fRunPs1"
 	fCase_LookupFails "ps1" "${ps1Copy:-}"
 	fCase_ForeignSameVersion "ps1" "fRunPs1"
@@ -1123,6 +1157,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261014 JC: User target by default. install.ps1 against the 5.1 profile.
 ##		- 20261014 JC: --help from a pipe, --version, --opt=value, semver order, lookup errors, bash 3.2.
 ##		- 20261003 JC: An aarch64 Linux machine fetches the arm64 tarball.
 ##		- 20261003 JC: A system with no build is refused by name.

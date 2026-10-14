@@ -99,6 +99,7 @@ fWantRefusal ErgqYt3 "--publish with --only go is refused"            "--publish
 fWantRefusal EsJ9SjI "--publish with --container is refused"          "does not go with --container" --publish --container
 fWantRefusal EshGwj4 "--gate with --commit is refused"                "--gate only builds and tests" --gate --commit
 fWantRefusal EshGwj5 "--gate with --package is refused"               "--gate only builds and tests" --gate --package
+fWantRefusal Eshc39l "--publish with --no-package is refused"         "does not go with --no-package" --publish --no-package
 
 fId EsJ9cHS "--container inside the container is refused"
 out="$(env -u ZUID_CICD_QUIET ZUID_IN_CONTAINER=1 bash "${cicd}" --container 2>&1 < /dev/null)" && rc=0 || rc=$?
@@ -267,19 +268,24 @@ fInitIn(){  ## repo dir, args...
 		# shellcheck disable=2034  ## Read by the lifted fInit.
 		{
 			repoRoot="$1"; onlyToolchain=""; commitMsg=""; doQuietly=0
-			doCross=0; doQuick=0; doSync=1; doCommit=0; commitAsked=0; doPush=0; doPackage=0
+			doCross=0; doQuick=0; doSync=1; doCommit=0; commitAsked=0; doPush=0; doPackage=0; noPackage=0; packageSkipWhy=""
 			doBackup=1; backupAsked=0; backupInWorktree=0; doDogfood=1; dogfoodAsked=0; doPublish=0; allowPartial=0
 			doContainer=0; inContainer=0; doGate=0
 		}
 		shift
 		local fn=""
-		for fn in fMustBeAValue fInit; do
+		for fn in fMustBeAValue fPackageBlocker fInit; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
+		# shellcheck disable=2030  ## Only this subshell's PATH, on purpose.
+		if [[ -n "${fakePath:-}" ]]; then PATH="${fakePath}"; fi
 		fInit "$@"
-		if [[ "${showGate:-0}" == "1" ]]
-			then printf 'doQuick=%s doSync=%s doBackup=%s doDogfood=%s\n' "${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}"
-			else printf 'doBackup=%s backupInWorktree=%s\n' "${doBackup}" "${backupInWorktree}"
+		if [[ "${showGate:-0}" == "1" ]]; then
+			printf 'doQuick=%s doSync=%s doBackup=%s doDogfood=%s doPackage=%s\n' "${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}" "${doPackage}"
+		elif [[ "${showPackage:-0}" == "1" ]]; then
+			printf 'doPackage=%s skip=%s\n' "${doPackage}" "${packageSkipWhy}"
+		else
+			printf 'doBackup=%s backupInWorktree=%s\n' "${doBackup}" "${backupInWorktree}"
 		fi
 	) 2>&1
 }
@@ -303,9 +309,115 @@ fi
 ## or push again.
 fId EshGwj6 "--gate is a quick run with no sync, dogfood, or backup"
 out="$(showGate=1 fInitIn "${worktreeMain}" --gate)" && rc=0 || rc=$?
-if ((rc == 0)) && [[ "${out}" == "doQuick=1 doSync=0 doBackup=0 doDogfood=0" ]]
+if ((rc == 0)) && [[ "${out}" == "doQuick=1 doSync=0 doBackup=0 doDogfood=0 doPackage=0" ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
+fi
+
+## A full run packages where --package is known to work: Linux x86_64 or a Mac,
+## with llvm-objcopy for the Linux strip. Elsewhere it says why and goes on.
+## The host is a stand-in uname, on a PATH that has only it, git, and maybe a
+## stand-in llvm-objcopy.
+fakeHost="${work}/fake-host"
+mkdir -p "${fakeHost}/with" "${fakeHost}/without"
+for fakeDir in "${fakeHost}/with" "${fakeHost}/without"; do
+	ln -s "$(command -v git)" "${fakeDir}/git"
+	# shellcheck disable=2016  ## The stand-in's own text.
+	printf '#!/bin/sh\ncase "$1" in -s) echo "${FAKE_OS}" ;; -m) echo "${FAKE_ARCH}" ;; esac\n' > "${fakeDir}/uname"
+	chmod +x "${fakeDir}/uname"
+done
+printf '#!/bin/sh\n' > "${fakeHost}/with/llvm-objcopy"
+chmod +x "${fakeHost}/with/llvm-objcopy"
+fPackageIn(){  ## os, arch, with|without, args...
+	local -r os="$1" arch="$2" kit="$3"; shift 3
+	FAKE_OS="${os}" FAKE_ARCH="${arch}" fakePath="${fakeHost}/${kit}" showPackage=1 fInitIn "${worktreeMain}" "$@"
+}
+
+fId EshbzZU "a full run on Linux x86_64 with llvm-objcopy packages"
+out="$(fPackageIn Linux x86_64 with)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == "doPackage=1 skip=" ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+fId EshbzZV "without llvm-objcopy it doesn't, and says why"
+out="$(fPackageIn Linux x86_64 without)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == "doPackage=0 skip=no llvm-objcopy"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+fId EshbzZW "a full run on a Mac packages"
+out="$(fPackageIn Darwin arm64 without)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == "doPackage=1 skip=" ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+fId EshbzZX "a full run anywhere else doesn't, and says --package asks anyway"
+out="$(fPackageIn FreeBSD amd64 with)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == "doPackage=0 skip="*"--package"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+fId EshbzZY "--quick, --no-package and --only go each turn the default off"
+out="$(fPackageIn Linux x86_64 with --quick; fPackageIn Linux x86_64 with --no-package; fPackageIn Linux x86_64 with --only go)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == $'doPackage=0 skip=\ndoPackage=0 skip=\ndoPackage=0 skip=' ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+fId Eshc39k "--package still asks on a quick run, and where the default wouldn't"
+out="$(fPackageIn Linux x86_64 with --quick --package; fPackageIn FreeBSD amd64 without --package)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == $'doPackage=1 skip=\ndoPackage=1 skip=' ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+## Dogfood. Packaged release files go each to their own platform's dir, over
+## what's there, and a missing dir is passed over. Unpackaged, zig-out's command
+## goes to the first fallback that exists.
+fDogfoodIn(){  ## root, doPackage
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fEcho(){ :; }
+		# shellcheck disable=2329
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2034  ## Read by the lifted fStage_Dogfood.
+		{
+			repoRoot="$1/repo"; zigDir="$1/repo/zig"; doPackage="$2"
+			dogfoodSynced=("zuid-linux-x86_64|zuid|$1/linux" "zuid-windows-x86_64.exe|zuid.exe|$1/mswin" "zuid-darwin-universal|zuid|$1/macos")
+			dogfoodDirs=("$1/nope" "$1/fallback")
+		}
+		local fn=""
+		for fn in fDogfoodCopy fStage_Dogfood; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		fStage_Dogfood
+	) 2>&1
+}
+dogRoot="${work}/dogfood"
+mkdir -p "${dogRoot}/repo/dist" "${dogRoot}/repo/zig/zig-out/bin" "${dogRoot}/linux" "${dogRoot}/mswin" "${dogRoot}/fallback"
+echo linux-release > "${dogRoot}/repo/dist/zuid-linux-x86_64"
+echo windows-release > "${dogRoot}/repo/dist/zuid-windows-x86_64.exe"
+echo zig-out > "${dogRoot}/repo/zig/zig-out/bin/zuid"
+chmod +x "${dogRoot}/repo/zig/zig-out/bin/zuid"
+echo stale > "${dogRoot}/linux/zuid"
+
+fId EshcCTw "packaged release files go to their platform's synced dir, over what's there"
+out="$(fDogfoodIn "${dogRoot}" 1)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "$(cat "${dogRoot}/linux/zuid" 2>/dev/null)" == "linux-release" && "$(cat "${dogRoot}/mswin/zuid.exe" 2>/dev/null)" == "windows-release" ]] \
+	&& [[ ! -e "${dogRoot}/macos" && ! -e "${dogRoot}/fallback/zuid" ]]
+	then fPass
+	else fFail "exited ${rc}, said '${out//$'\n'/ | }'"
+fi
+
+fId EshcCTx "with nothing packaged, zig-out's command goes to the first fallback that exists"
+out="$(fDogfoodIn "${dogRoot}" 0)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "$(cat "${dogRoot}/fallback/zuid" 2>/dev/null)" == "zig-out" && "$(cat "${dogRoot}/linux/zuid")" == "linux-release" ]]
+	then fPass
+	else fFail "exited ${rc}, said '${out//$'\n'/ | }'"
 fi
 
 ## The container stage, with a stand-in for docker that logs what it was asked.
@@ -408,6 +520,7 @@ exit 1
 EOF_gh
 chmod +x "${stubBin}/gh"
 export ZUID_GH="${stubBin}/gh"
+# shellcheck disable=2031  ## The fake PATH above was only in a subshell.
 export PATH="${stubBin}:${PATH}"
 
 ## A tarball whose top directory has the version in its name, the way package.bash

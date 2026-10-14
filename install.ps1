@@ -5,14 +5,14 @@
 
 .DESCRIPTION
 	Idempotent: it states what it is about to do and asks before touching
-	anything, and reinstalling the same version is a no-op. Runs on Windows,
-	Linux, and macOS under PowerShell 7 or newer.
+	anything, and reinstalling the same version is a no-op. Runs under Windows
+	PowerShell 5.1, and under PowerShell 7 on Windows, Linux, and macOS.
 
 .PARAMETER Release
 	stable (default) or dev.
 
 .PARAMETER Target
-	user (default when the system location is not writable) or system.
+	user (default) or system.
 
 .PARAMETER Yes
 	Skip the confirmation prompt.
@@ -56,7 +56,7 @@ $ErrorActionPreference = 'Stop'
 
 $repository = 'jim-collier/zuid'
 $program = 'zuid'
-$installerVersion = '1.1.0'
+$installerVersion = '1.2.0'
 
 ## Here and not through Get-Help, which needs the script as a file. Under irm |
 ## scriptblock there isn't one.
@@ -75,9 +75,8 @@ Usage:
 Options:
   -Release stable|dev   stable (default): newest full release
                         dev: newest release, prereleases included
-  -Target user|system   user: your own account, no admin needed
+  -Target user|system   user (default): your own account, no admin needed
                         system: Program Files, /opt, /usr/local
-                        default: system if it's writable, otherwise user
   -Yes                  don't ask before installing
   -Uninstall            remove what this installer put in place
   -Version              print the installer's version
@@ -97,10 +96,24 @@ function Write-Status { param([string] $Message) Write-Host "[ $Message ]" }
 function Write-Detail { param([string] $Message) Write-Host $Message }
 function Stop-WithMessage { param([string] $Message) throw "$program-install: $Message" }
 
-## Windows PowerShell 5.1 has no $IsWindows, so under strict mode it stopped at
-## the first platform test with a message about an unset variable.
-if ($PSVersionTable.PSVersion.Major -lt 7) {
-	Stop-WithMessage "this needs PowerShell 7 or newer, and this is PowerShell $($PSVersionTable.PSVersion). Install PowerShell 7 from https://aka.ms/powershell, then run this again from pwsh."
+$psVer = $PSVersionTable.PSVersion
+if ($psVer.Major -lt 5 -or ($psVer.Major -eq 5 -and $psVer.Minor -lt 1)) {
+	Stop-WithMessage "this needs Windows PowerShell 5.1 or PowerShell 7, and this is PowerShell $psVer. Install PowerShell 7 from https://aka.ms/powershell, then run this again from pwsh."
+}
+
+## 5.1 is Windows only and has no $IsWindows at all, which strict mode won't read.
+$onWindows = $true; $onMac = $false; $onLinux = $false
+if ($psVer.Major -ge 6) { $onWindows = $IsWindows; $onMac = $IsMacOS; $onLinux = $IsLinux }
+
+## 5.1 can still default to TLS 1.0 on an older box, which GitHub refuses with
+## "the underlying connection was closed". -UseBasicParsing keeps it off the IE
+## engine, which throws when IE was never started.
+$webArgs = @{}
+if ($psVer.Major -lt 6) {
+	try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072 } catch { Write-Verbose 'TLS 1.2 not settable' }
+	$webArgs['UseBasicParsing'] = $true
+	## Its progress bar slows a download down by a lot.
+	$ProgressPreference = 'SilentlyContinue'
 }
 
 Write-Host ''
@@ -109,21 +122,21 @@ Write-Host ''
 #-------------------------------------------------------------------------------
 ## Where things go, per platform.
 
-if ($IsWindows) {
+if ($onWindows) {
 	$systemDir = Join-Path $env:ProgramFiles $program
 	$userDir = Join-Path $env:LOCALAPPDATA "Programs\$program"
 	$osLabel = 'windows'
 	$binaryName = "$program.exe"
 	$archiveExtension = 'zip'
 }
-elseif ($IsMacOS) {
+elseif ($onMac) {
 	$systemDir = "/opt/$program"
 	$userDir = Join-Path $HOME "Library/Application Support/$program"
 	$osLabel = 'darwin'
 	$binaryName = $program
 	$archiveExtension = 'tgz'
 }
-elseif ($IsLinux) {
+elseif ($onLinux) {
 	$systemDir = "/opt/$program"
 	$userDir = Join-Path $HOME ".local/share/$program"
 	$osLabel = 'linux'
@@ -132,7 +145,7 @@ elseif ($IsLinux) {
 }
 else {
 	## PowerShell does not support FreeBSD, so install.bash covers it.
-	Stop-WithMessage "no $program build exists for $([System.Runtime.InteropServices.RuntimeInformation]::OSDescription). Build from source instead - see the README."
+	Stop-WithMessage "no $program build exists for $([Environment]::OSVersion.VersionString). Build from source instead - see the README."
 }
 
 ## Whether the system location can be written, not whether it is there. Testing
@@ -167,14 +180,13 @@ function Test-DirectoryWritable {
 ## install directory is all there is, since there is no link.
 function Test-SystemTargetUsable {
 	if (-not (Test-DirectoryWritable $systemDir)) { return $false }
-	if ($IsWindows) { return $true }
+	if ($onWindows) { return $true }
 	return Test-DirectoryWritable '/usr/local/bin'
 }
 
-if (-not $Target) {
-	$Target = if (Test-SystemTargetUsable) { 'system' } else { 'user' }
-}
-elseif ($Target -eq 'system' -and -not (Test-SystemTargetUsable)) {
+## User unless asked, admin or not.
+if (-not $Target) { $Target = 'user' }
+if ($Target -eq 'system' -and -not (Test-SystemTargetUsable)) {
 	## Asked for by name, with nowhere to write. There is no elevation here the
 	## way install.bash has sudo, and the write is the last thing this script
 	## does - so without this the whole release downloaded and verified before
@@ -183,7 +195,7 @@ elseif ($Target -eq 'system' -and -not (Test-SystemTargetUsable)) {
 }
 
 $installDirectory = if ($Target -eq 'system') { $systemDir } else { $userDir }
-$linkDirectory = if ($IsWindows) {
+$linkDirectory = if ($onWindows) {
 	$null
 }
 elseif ($Target -eq 'system') {
@@ -191,6 +203,100 @@ elseif ($Target -eq 'system') {
 }
 else {
 	Join-Path $HOME '.local/bin'
+}
+
+
+#-------------------------------------------------------------------------------
+## Windows has no link, so the bin folder goes on PATH: the user's for a user
+## install, the machine's for a system one. Through the registry, since
+## [Environment]::SetEnvironmentVariable rewrites a REG_EXPAND_SZ PATH as REG_SZ
+## and every %VAR% in it stops expanding.
+
+$windowsBin = Join-Path $installDirectory 'bin'
+$pathScope = if ($Target -eq 'system') { 'Machine' } else { 'User' }
+
+function Open-PathKey {
+	param([string] $Scope, [bool] $Writable)
+	if ($Scope -eq 'Machine') {
+		return [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\CurrentControlSet\Control\Session Manager\Environment', $Writable)
+	}
+	return [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $Writable)
+}
+
+function Test-SameDirectory {
+	param([string] $A, [string] $B)
+	return $A.TrimEnd('\') -eq $B.TrimEnd('\')
+}
+
+function Test-OnWindowsPath {
+	$key = Open-PathKey $pathScope $false
+	if (-not $key) { return $false }
+	try { $raw = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) }
+	finally { $key.Close() }
+	foreach ($entry in ($raw -split ';')) { if (Test-SameDirectory $entry $windowsBin) { return $true } }
+	return $false
+}
+
+## Explorer, and whatever it starts, rereads the environment only when told.
+function Send-EnvironmentChange {
+	try {
+		if (-not ('ZuidInstall.Env' -as [type])) {
+			Add-Type -Namespace ZuidInstall -Name Env -MemberDefinition @'
+[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+'@
+		}
+		$ignored = [UIntPtr]::Zero
+		## HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG, 5 s.
+		[void]([type]'ZuidInstall.Env')::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$ignored)
+	}
+	catch { Write-Detail '  A window opened from the Start menu may not see the new PATH until you sign in again.' }
+}
+
+## Adds or removes the one entry and leaves the rest of PATH as it was. Says
+## what it did, and never throws: the install itself already worked.
+function Set-WindowsPath {
+	param([bool] $Present)
+	try {
+		$key = Open-PathKey $pathScope $true
+		if (-not $key) { throw "can't open the $pathScope environment key" }
+		try {
+			$raw = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+			$kind = if ($raw) { $key.GetValueKind('Path') } else { [Microsoft.Win32.RegistryValueKind]::ExpandString }
+			$entries = @($raw -split ';')
+			$kept = @($entries | Where-Object { -not (Test-SameDirectory $_ $windowsBin) })
+			if ($Present) {
+				if ($kept.Count -ne $entries.Count) { return }
+				## A trailing ';' stays trailing, so removing the entry later gives
+				## back the same value.
+				$new = if (-not $raw) { $windowsBin } elseif ($raw.EndsWith(';')) { "$raw$windowsBin;" } else { "$raw;$windowsBin" }
+				## Past these, parts of Windows cut PATH short, and a lost PATH
+				## is worse than a missing entry.
+				$limit = if ($pathScope -eq 'User') { 2047 } else { 4095 }
+				if ([Environment]::ExpandEnvironmentVariables($new).Length -gt $limit) {
+					Write-Detail "  Note: the $($pathScope.ToLower()) PATH is close to Windows' length limit, so $windowsBin wasn't added."
+					Write-Detail "  Run it as: $(Join-Path $windowsBin $binaryName)"
+					return
+				}
+			}
+			else {
+				if ($kept.Count -eq $entries.Count) { return }
+				$new = $kept -join ';'
+			}
+			$key.SetValue('Path', $new, $kind)
+		}
+		finally { $key.Close() }
+		if ($Present) {
+			$env:PATH = "$env:PATH;$windowsBin"
+			Write-Detail "  Added $windowsBin to the $($pathScope.ToLower()) PATH. Shells already open need a restart to see it."
+		}
+		else { Write-Detail "  Removed $windowsBin from the $($pathScope.ToLower()) PATH." }
+		Send-EnvironmentChange
+	}
+	catch {
+		Write-Detail "  Note: couldn't update the $($pathScope.ToLower()) PATH ($($_.Exception.Message))."
+		if ($Present) { Write-Detail "  Run it as: $(Join-Path $windowsBin $binaryName)" }
+	}
 }
 
 
@@ -220,9 +326,11 @@ if ($Uninstall) {
 	## the link dangles and there is no target left to recognize.
 	$link = if ($linkDirectory) { Join-Path $linkDirectory $program } else { $null }
 	$ownsLink = if ($link) { Test-OurLink $link $installDirectory } else { $false }
+	$ownsPath = if ($onWindows) { Test-OnWindowsPath } else { $false }
 
 	Write-Status 'Uninstall'
 	Write-Detail "  Remove: $installDirectory"
+	if ($ownsPath) { Write-Detail "  Remove: $windowsBin from the $($pathScope.ToLower()) PATH" }
 	if ($ownsLink) {
 		Write-Detail "  Remove: $link"
 	}
@@ -244,6 +352,7 @@ if ($Uninstall) {
 	}
 	if (Test-Path $installDirectory) { Remove-Item -Recurse -Force $installDirectory }
 	if ($ownsLink) { Remove-Item -Force -LiteralPath $link }
+	if ($ownsPath) { Set-WindowsPath $false }
 	Write-Status 'Removed.'
 	Write-Host ''
 	return
@@ -253,8 +362,15 @@ if ($Uninstall) {
 #-------------------------------------------------------------------------------
 ## Work out what to fetch.
 
-$Arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
-	'X64' { 'x86_64' }
+## .NET Framework under 5.1 doesn't have OSArchitecture. Named by string so the
+## 5.1 lint doesn't flag the branch that never runs there.
+$osArch = if ($psVer.Major -ge 6) {
+	[string]([type]'System.Runtime.InteropServices.RuntimeInformation')::OSArchitecture
+}
+elseif ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 }
+else { $env:PROCESSOR_ARCHITECTURE }
+$Arch = switch ($osArch) {
+	{ $_ -in 'X64', 'AMD64' } { 'x86_64' }
 	'Arm64' { 'arm64' }
 	default { Stop-WithMessage "no $program build exists for $_. Build from source instead - see the README." }
 }
@@ -327,7 +443,7 @@ Write-Status "Looking up the $Release release"
 ## runs against an array of flags instead of one flag.
 ## A rate limit or a dead network used to read as "no release found".
 try {
-	$response = Invoke-RestMethod -Uri "https://api.github.com/repos/$repository/releases?per_page=100" -Headers @{ 'User-Agent' = "$program-install" }
+	$response = Invoke-RestMethod -Uri "https://api.github.com/repos/$repository/releases?per_page=100" -Headers @{ 'User-Agent' = "$program-install" } @webArgs
 	$found = @($response)
 }
 catch {
@@ -361,7 +477,7 @@ $tag = $chosen.tag_name
 $kind = if ($chosen.prerelease) { 'prerelease' } else { 'stable' }
 
 ## The macOS release is one universal build, for either architecture.
-$assetArch = if ($IsMacOS) { 'universal' } else { $Arch }
+$assetArch = if ($onMac) { 'universal' } else { $Arch }
 $asset = "$program-$osLabel-$assetArch.$archiveExtension"
 $baseUrl = "https://github.com/$repository/releases/download/$tag"
 
@@ -370,7 +486,11 @@ $baseUrl = "https://github.com/$repository/releases/download/$tag"
 ## State the plan, then ask.
 
 $existing = Join-Path $installDirectory (Join-Path 'bin' $binaryName)
-$installedVersion = if (Test-Path $existing) { (& $existing --version 2>$null | Select-Object -First 1) } else { $null }
+## 5.1 turns any stderr from a native command into an error, and Stop makes that fatal.
+$installedVersion = $null
+if (Test-Path $existing) {
+	try { $installedVersion = & $existing --version 2>$null | Select-Object -First 1 } catch { $installedVersion = $null }
+}
 
 ## --version is "1.0.0-alpha.1 (build dcrb0)", and the tag has a leading v.
 ## Nothing used to compare the two, so a second run downloaded the same release,
@@ -406,7 +526,8 @@ if ($linkDirectory) {
 		Write-Detail "  Overwriting : $plannedLink is not this installer's link"
 	}
 }
-else { Write-Detail "  PATH .......: add $(Join-Path $installDirectory 'bin') yourself" }
+elseif (Test-OnWindowsPath) { Write-Detail "  PATH .......: already has $windowsBin" }
+else { Write-Detail "  PATH .......: add $windowsBin to the $($pathScope.ToLower()) PATH" }
 if ($installedVersion) { Write-Detail "  Replacing ..: $installedVersion" }
 Write-Detail ''
 
@@ -432,9 +553,9 @@ try {
 	$checksums = Join-Path $work 'checksums.txt'
 
 	Write-Status 'Downloading'
-	try { Invoke-WebRequest -Uri "$baseUrl/$asset" -OutFile $archive }
+	try { Invoke-WebRequest -Uri "$baseUrl/$asset" -OutFile $archive @webArgs }
 	catch { Stop-WithMessage "couldn't download $baseUrl/$asset ($($_.Exception.Message))" }
-	try { Invoke-WebRequest -Uri "$baseUrl/checksums.txt" -OutFile $checksums }
+	try { Invoke-WebRequest -Uri "$baseUrl/checksums.txt" -OutFile $checksums @webArgs }
 	catch { Stop-WithMessage "couldn't download the checksums for $tag ($($_.Exception.Message))" }
 
 	Write-Status 'Verifying'
@@ -483,9 +604,9 @@ try {
 
 	Write-Detail ''
 	Write-Status "Installed $tag to $installDirectory"
-	$binDirectory = if ($linkDirectory) { $linkDirectory } else { Join-Path $installDirectory 'bin' }
-	if (($env:PATH -split [System.IO.Path]::PathSeparator) -notcontains $binDirectory) {
-		Write-Detail "  Note: $binDirectory is not on your PATH."
+	if ($onWindows) { Set-WindowsPath $true }
+	elseif (($env:PATH -split [System.IO.Path]::PathSeparator) -notcontains $linkDirectory) {
+		Write-Detail "  Note: $linkDirectory is not on your PATH."
 	}
 	Write-Detail "  Try: $program --help"
 	Write-Host ''

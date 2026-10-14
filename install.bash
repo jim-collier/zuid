@@ -19,10 +19,10 @@ set -Eeuo pipefail
 
 REPO="jim-collier/zuid"
 PROG="zuid"
-installerVersion="1.1.0"
+installerVersion="1.2.0"
 
 release="stable"
-target=""
+target="user"
 assumeYes=0
 doUninstall=0
 
@@ -47,9 +47,8 @@ Usage:
 Options:
   --release stable|dev   stable (default): newest full release
                          dev: newest release, prereleases included
-  --target user|system   user: under \$HOME, no root needed
+  --target user|system   user (default): under \$HOME, no root needed
                          system: /opt or /usr/local, uses sudo
-                         default: system if it's writable, otherwise user
   --yes, -y              don't ask before installing
   --uninstall            remove what this installer put in place
   --version              print the installer's version
@@ -82,8 +81,8 @@ case "${release}" in stable|dev) ;; *) fDie "--release wants stable or dev, got 
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## Where things go. A user install needs no privileges and is the default when
-## the system directories are not writable.
+## Where things go. A user install needs no privileges, so it's the default
+## even for root. System only when asked for.
 
 ## Linux, macOS and FreeBSD. FreeBSD keeps third-party software under /usr/local.
 case "$(uname -s)" in
@@ -94,16 +93,6 @@ case "$(uname -s)" in
 esac
 userLink="${HOME}/.local/bin/${PROG}"
 
-## Both get written, so both have to be writable, the same as install.ps1.
-## Homebrew leaves /usr/local/bin writable on an Intel Mac while /opt is not.
-fWritable(){  ## path. The install creates the leaf, so it is the nearest existing dir that counts.
-	local probe="$1"
-	while [[ ! -d "${probe}" ]]; do probe="$(dirname "${probe}")"; done
-	[[ -w "${probe}" ]]
-}
-if [[ -z "${target}" ]]; then
-	if fWritable "${systemDir}" && fWritable "$(dirname "${systemLink}")"; then target="system"; else target="user"; fi
-fi
 case "${target}" in
 	user)   installDir="${userDir}";   linkPath="${userLink}";   needsRoot=0 ;;
 	system) installDir="${systemDir}"; linkPath="${systemLink}"; needsRoot=1 ;;
@@ -387,6 +376,7 @@ printf '\n'
 
 
 ##	History:
+##		- 20261014 JC: User install by default, root included.
 ##		- 20261014 JC: --version, --opt=value, semver release pick, sha256 fallbacks. Works under bash 3.2. --arch dropped.
 ##		- 20261004 JC: FreeBSD x86_64.
 ##		- 20261003 JC: No BSD build, so a system other than Linux or macOS is refused by name.
