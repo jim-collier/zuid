@@ -27,13 +27,13 @@ Each language's own formatter wins. Run it, take its output, and do not hand-for
 
 ## Formatting
 
-| Language | Formatter | Indentation |
-| :-- | :-- | :-- |
-| Go | `gofmt` | tabs |
-| Zig | `zig fmt` | four spaces, and it cannot be configured |
-| C | matches the Zig side | four spaces |
-| Bash | none enforced, but `shellcheck` must pass | tabs |
-| Markdown | none | tabs |
+| Language | Formatter                                  | Indentation
+| :---     | :---                                       | :---
+| Go       | `gofmt`                                    | tabs
+| Zig      | `zig fmt`                                  | four spaces, and it cannot be configured
+| C        | matches the Zig side                       | four spaces
+| Bash     | none enforced, but `shellcheck` must pass  | tabs
+| Markdown | none                                       | tabs
 
 Spaces are for alignment, never for indentation, wherever the formatter allows a choice.
 
