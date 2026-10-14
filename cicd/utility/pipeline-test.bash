@@ -410,7 +410,7 @@ chmod +x "${stubBin}/gh"
 export ZUID_GH="${stubBin}/gh"
 export PATH="${stubBin}:${PATH}"
 
-## A tarball whose top directory carries the version, the way package.bash
+## A tarball whose top directory has the version in its name, the way package.bash
 ## names it.
 fTarball(){  ## path, version
 	local -r tree="${work}/tgz-$$-${RANDOM}"

@@ -151,7 +151,7 @@ function Test-DirectoryWritable {
 		$probeDir = $parent
 	}
 	if (-not $probeDir) { return $false }
-	## Actually write, rather than read a mode or an ACL. Those disagree with
+	## Write a file, rather than read a mode or an ACL. Those disagree with
 	## the filesystem often enough, and this is one file in a directory the
 	## script is about to use anyway.
 	$probe = Join-Path $probeDir ".$program-write-probe-$PID"
@@ -164,7 +164,7 @@ function Test-DirectoryWritable {
 }
 
 ## Both locations get written, so both have to be writable. On Windows the
-## install directory is the whole story, since there is no link.
+## install directory is all there is, since there is no link.
 function Test-SystemTargetUsable {
 	if (-not (Test-DirectoryWritable $systemDir)) { return $false }
 	if ($IsWindows) { return $true }
@@ -216,7 +216,7 @@ function Test-OurLink {
 }
 
 if ($Uninstall) {
-	## Decided before anything is removed: once the install directory is gone
+	## Worked out before anything is removed: once the install directory is gone
 	## the link dangles and there is no target left to recognize.
 	$link = if ($linkDirectory) { Join-Path $linkDirectory $program } else { $null }
 	$ownsLink = if ($link) { Test-OurLink $link $installDirectory } else { $false }
@@ -321,7 +321,7 @@ function Select-Newest {
 }
 
 Write-Status "Looking up the $Release release"
-## The response has to land in a variable before it is wrapped. Invoke-RestMethod
+## The response has to go in a variable before it is wrapped. Invoke-RestMethod
 ## hands a JSON array to the pipeline as one object, so @(irm ...) inline gives a
 ## single element holding the whole list, and every later per-release test then
 ## runs against an array of flags instead of one flag.
@@ -372,7 +372,7 @@ $baseUrl = "https://github.com/$repository/releases/download/$tag"
 $existing = Join-Path $installDirectory (Join-Path 'bin' $binaryName)
 $installedVersion = if (Test-Path $existing) { (& $existing --version 2>$null | Select-Object -First 1) } else { $null }
 
-## --version is "1.0.0-alpha.1 (build dcrb0)", and the tag carries a leading v.
+## --version is "1.0.0-alpha.1 (build dcrb0)", and the tag has a leading v.
 ## Nothing used to compare the two, so a second run downloaded the same release,
 ## deleted the install directory and copied it back - while the help, the README
 ## and the backlog all said re-running changes nothing.

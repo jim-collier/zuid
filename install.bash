@@ -137,7 +137,7 @@ fLinkIsOurs(){
 }
 
 if ((doUninstall)); then
-	## Decided before anything is removed: once installDir is gone the link
+	## Worked out before anything is removed: once installDir is gone the link
 	## dangles and there is no target left to recognize.
 	ownsLink=0
 	if fLinkIsOurs; then ownsLink=1; fi
@@ -307,7 +307,7 @@ if [[ -x "${installDir}/bin/${PROG}" ]]; then
 	installed="$("${installDir}/bin/${PROG}" --version 2>/dev/null | head -n1 || true)"
 fi
 
-## --version is "1.0.0-alpha.1 (build dcrb0)", and the tag carries a leading v.
+## --version is "1.0.0-alpha.1 (build dcrb0)", and the tag has a leading v.
 ## Nothing used to compare the two, so a second run downloaded the same release,
 ## deleted the install directory and copied it back - while the help, the README
 ## and the backlog all said re-running changes nothing.

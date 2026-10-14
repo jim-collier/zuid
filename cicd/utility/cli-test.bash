@@ -310,7 +310,7 @@ fWantQuiet EqAb38g "random output does not warn" -n 20 --format '%d%r'
 fWantQuiet EqAb38h "one identifier cannot repeat" -n 1 --format '%d'
 
 ## Narrow enough random draws collide on their own, which is the case the
-## warning is really for - it counts what repeated, not whether %r was typed.
+## warning is for - it counts what repeated, not whether %r was typed.
 fWantWarning EqAb38i "a narrow draw still counts" "identifiers repeat" \
 	-n 100 --base 16 --rand-chars 1 --format '%r'
 
@@ -322,7 +322,7 @@ fWantFailure EqAb38n "a missing count is refused"  "count" --count
 
 ## A reader that quits early closed the pipe under the writer. That used to end
 ## in Zig's own error trace and a non-zero exit, which is not a failed run.
-## pipefail carries the writer's status through wc, and the '|| pipeRc' keeps
+## pipefail passes the writer's status through wc, and the '|| pipeRc' keeps
 ## errexit from taking the whole harness down with it.
 pipeRc=0
 pipeLines="$("${bin}" -n 10000 --format '%d%r' 2>/dev/null | head -n 2 | wc -l | tr -d ' ')" || pipeRc=$?
@@ -353,8 +353,8 @@ fWantLen ErOiQbP "-b 16 follows"           9 -b 16
 fWantLen ErOiQbQ "--base 16 follows"       9 --base 16
 
 ## Only a leading-dash argument splits, and only at its first '=', so a format
-## carrying one survives either way.
-fWantExact ErOiQbR "a format may carry an '='"      "a=b" --format 'a=b'
+## with one survives either way.
+fWantExact ErOiQbR "a format may contain an '='"    "a=b" --format 'a=b'
 fWantExact ErOiQbS "and so may an attached one"     "a=b" --format=a=b
 fWantFailure ErOiQbT "--no-hash refuses a value"    "takes no value" --no-hash=1
 fWantFailure ErOiQbU "-h refuses a value"           "takes no value" -h=1
@@ -371,8 +371,8 @@ fWantFailure ErOiQbY "a zero --rand-chars is refused" "out of range for --rand-c
 ## copyright lives in --about.
 fWantLines ErOiQbZ "--version is one line"                  1 --version
 fWantMatch ErOiQba "--version is the version and build"     '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)? \(build [0-9a-z]+\)$' --version
-fWantAbsent ErOiQbb "--version carries no copyright"        "Copyright" --version
-fWantContains ErOiQbc "--about carries the copyright"       "Copyright ©" --about
+fWantAbsent ErOiQbb "--version has no copyright"            "Copyright" --version
+fWantContains ErOiQbc "--about has the copyright"           "Copyright ©" --about
 fWantContains ErOiQbd "--about names both licenses"         "The Go module and the C library are Apache-2.0." --about
 fWantContains ErOiQbe "--donate says where to give"         "https://github.com/sponsors/jim-collier" --donate
 fWantContains ErOyR7K "--donate names Ko-fi too"          "https://ko-fi.com/jimcollier" --donate

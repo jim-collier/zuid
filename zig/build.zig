@@ -15,7 +15,7 @@ const std = @import("std");
 /// there is nothing to keep in step, with any prerelease tag dropped - an
 /// soname has no room for one. The major is the C ABI promise that goes with
 /// the error codes: a consumer records libzuid.so.1 and keeps working as long
-/// as that number holds.
+/// as that number stays the same.
 const abi_version: std.SemanticVersion = v: {
     const parsed = std.SemanticVersion.parse(@import("lib/src/core.zig").version) catch
         @compileError("core.zig version is not a semantic version");
@@ -338,7 +338,7 @@ const Headers = struct {
 fn translateHeaders(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.Optimize, wasmtime: []const u8) Headers {
     // The translate-c steps hash to_file's bytes, and their output paths end
     // up in every file's debug info. The self-hosted backend's symbols and
-    // debug info, and the LLVM ones at -j1, carry the compiler's thread
+    // debug info, and the LLVM ones at -j1, include the compiler's thread
     // numbers, so those bytes changed between cold builds. LLVM and stripped
     // they don't. Backlog 2026101313551112.
     const to_file = b.addExecutable(.{
@@ -352,7 +352,7 @@ fn translateHeaders(b: *std.Build, target: std.Build.ResolvedTarget, optimize: s
     });
     const wasmtime_h = translateHeader(b, to_file, target, optimize, "lib/c/wasmtime.h", wasmtime);
     // The translation cache sees only the files it is handed. Wasmtime's own
-    // header carries the release version, so a new pin changes it.
+    // header has the release version, so a new pin changes it.
     wasmtime_h.run.addFileInput(b.path(b.fmt("{s}/include/wasmtime.h", .{wasmtime})));
     return .{
         .clock = translateHeader(b, to_file, target, optimize, "lib/c/clock.h", null).module,

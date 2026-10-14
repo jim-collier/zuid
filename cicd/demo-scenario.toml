@@ -6,13 +6,13 @@
 # step would not fit, so the demo scrolls as little as it clears.
 #
 # Keep the whole thing under about forty-five seconds. It loops, so anyone
-# wanting a second look gets one for free. Typing pace stays at a human rate on
+# wanting a second look gets one for free. Typing pace stays at a realistic rate on
 # purpose, which means the way to shorten this is fewer words, not faster typing.
 #
 # Flags are written --flag=value rather than -f value. Costs a few characters of
 # typing time and makes it obvious both what the flag means and which value
-# belongs to it, which is the whole point of a ten-second look. Quotes go on only
-# where the value carries a symbol the shell would otherwise take ('-', '%'), so
+# belongs to it, which is what a ten-second look needs. Quotes go on only
+# where the value has a symbol the shell would otherwise take ('-', '%'), so
 # the ones that are there look deliberate.
 
 title = "zuid"
@@ -20,7 +20,8 @@ prog  = "zuid"
 seed  = 62
 font  = ["Monaspace Argon SemiBold"]
 end_hold    = 3.5
-end_black   = 5.0
+## 3 s of black, so the loop point is plain.
+end_black   = 3.0
 clear_pause = 1.7
 
 [[step]]
@@ -52,6 +53,6 @@ pause = 2.0
 [[step]]
 # Closing notes only, so the name is the last thing read before the loop. The
 # end hold is the read time, so the pause itself stays short.
-note  = ["zuid", "Ships as module too, with Apache license"]
+note  = ["zuid", "Also a Go and C module, Apache licensed"]
 notepause = 0.45
 pause = 0.5

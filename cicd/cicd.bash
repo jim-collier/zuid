@@ -103,9 +103,9 @@ fConfig(){ :;
 	fi
 
 	## Extra rar excludes for the backup, one per line, on top of the helper's generic
-	## list (.zig-cache, zig/vendor, links back in etc). The panoplia audit dirs are
-	## old build copies. Trailing '/' or rar matches files only.
-	default_rarExcludes="*/panoplia/working/audit-*/"
+	## list (.zig-cache, zig/vendor, links back in etc). Old build copies under
+	## private/ are left out. Trailing '/' or rar matches files only.
+	default_rarExcludes="*/working/audit-*/"
 
 	## Artifact retention, grandfather-father-son. Keep this many of each.
 	default_keepDaily=7
@@ -346,14 +346,14 @@ fMain(){
 	## Set by the publish preflight, read by the publish stage.
 	local publishVersion="" publishRemote="" publishHead="" publishRepoUrl=""
 
-	## Dogfooding rides along with every full run - the whole point is that daily
-	## use is the build that just passed. A quick run is mid-iteration, so it stays
+	## Dogfooding rides along with every full run, so that daily use is the
+	## build that just passed. A quick run is mid-iteration, so it stays
 	## off the path unless asked for by name.
 	if ((doQuick)) && ((! dogfoodAsked)); then doDogfood=0; fi
 	readonly doDogfood
 
 	## Backing up survives a quick run - the archive is cheap next to the stages
-	## quick actually exists to skip, and an archive nobody remembered to ask for
+	## quick exists to skip, and an archive nobody remembered to ask for
 	## is not an archive. Any branch, too: the helper commits and pushes the same
 	## way it would run by hand from the repo, main included.
 	readonly doBackup
@@ -470,7 +470,7 @@ fInit(){
 	fi
 
 	## The backup helper does its own commit and push, so pairing it with either of
-	## ours would land the same work twice. Asked for together that is a mistake and
+	## ours would commit the same work twice. Asked for together that is a mistake and
 	## says so; with the backup merely riding along by default, the narrower git path
 	## is plainly what was meant, so it wins quietly.
 	if ((commitAsked)) || ((doPush)); then
@@ -528,7 +528,7 @@ fMustBeAValue(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## True when HEAD sits on a branch this script must not land work on. A detached
+## True when HEAD sits on a branch this script must not commit to. A detached
 ## HEAD is not protected - that is its own error, raised where it matters.
 fIsProtectedBranch(){
 
@@ -719,7 +719,7 @@ fPreflight(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Every test prints one line with its ID, the way the harnesses do. A check
 ## here starts with fId and ends in one of the three below. A check run once
-## per item carries an ID for each, picked by a key:
+## per item has an ID for each, picked by a key:
 ## fId "${target}" linux/arm64=<id> darwin/arm64=<id> "what it checks".
 ## New IDs come from cicd/utility/test-ids.py, and its check refuses a test
 ## without one.
@@ -835,7 +835,7 @@ fStage_Docs(){
 
 	## A GPL file at the root read as covering everything, modules included. The
 	## root has only the map now, and each licensed directory has its own text.
-	fId ErOj0WT "each directory carries the license license.md says it does"
+	fId ErOj0WT "each directory has the license license.md says it does"
 	local licenseFile="" licenseWant="" licenseBad=""
 	[[ -f "${repoRoot}/license.md" ]] || licenseBad+=" license.md is missing;"
 	if compgen -G "${repoRoot}/LICENSE*" >/dev/null; then licenseBad+=" a LICENSE file is back at the root;"; fi
@@ -1203,8 +1203,8 @@ fStage_Zig_Vendor(){
 				fEcho_Clean "Reactor ....: rebuilt from the pinned release"
 			fi
 		else
-			## The whole point of building it here is that the two sides cannot
-			## reach different library versions, so a failure that falls back to
+			## It's built here so the two sides can't reach different library
+			## versions. A failure that falls back to
 			## an older vendored copy has to say what went wrong.
 			rm -f "${wasmTmp}"
 			[[ -f "${wasmVendored}" ]] || fThrowError "Could not build the reactor wasm module, and no vendored copy exists: ${buildLog}"  "${FUNCNAME[0]}"
@@ -1234,7 +1234,7 @@ fVendor_Wasmtime(){  ## platform, destination
 		fThrowError "No vendored Wasmtime pin for ${platform}. Add that archive's checksum to fConfig first."  "${FUNCNAME[0]}"
 	fi
 
-	## Version-stamped, so re-pinning in fConfig actually re-fetches instead of
+	## Version-stamped, so re-pinning in fConfig re-fetches instead of
 	## quietly keeping whatever was vendored first.
 	local -r wtStamp="${dest}/.version"
 	if [[ -f "${dest}/include/wasmtime.h" ]] && [[ "$(cat "${wtStamp}" 2>/dev/null || true)" == "${wasmtimeVer}" ]]; then
@@ -1276,7 +1276,7 @@ fVendor_Wasmtime(){  ## platform, destination
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## FreeBSD's Wasmtime, from its packages into the same layout as Wasmtime's own
 ## release: include/, lib/libwasmtime.a and LICENSE, with libzstd.a beside it,
-## and zstd's license for the release to carry.
+## and zstd's license for the release to include.
 fVendor_FreeBSD(){  ## destination
 
 	local -r dest="$1"
@@ -1315,7 +1315,7 @@ fVendor_FreeBSD(){  ## destination
 	cp -R "${usrLocal}/include" "${dest}/"
 	cp "${usrLocal}/lib/libwasmtime.a" "${usrLocal}/lib/libzstd.a" "${dest}/lib/"
 	## zstd is dual BSD and GPLv2; the release takes it under BSD, whose text
-	## carries the copyright line a binary distribution has to reproduce.
+	## has the copyright line a binary distribution has to reproduce.
 	cp "$(find "${usrLocal}/share/licenses" -path '*/zstd-*/BSD3CLAUSE' -print -quit)" "${dest}/LICENSE-zstd" \
 		|| fThrowError "The zstd package has no BSD3CLAUSE license file."  "${FUNCNAME[0]}"
 	## The port installs Wasmtime's own LICENSE under the name of its license,
@@ -1339,14 +1339,14 @@ fStage_Zig(){
 
 	cd "${zigDir}" || fThrowError "Missing the Zig tree: '${zigDir}'."  "${FUNCNAME[0]}"
 
-	## ReleaseSafe is what would ship; the vectors replay through it too.
+	## ReleaseSafe is what a release uses; the vectors replay through it too.
 	## zig wants the count attached to the flag, not as a separate word.
 	## On Linux the command is built for package.bash's target, not this CPU,
 	## since dogfood copies it into a dir other machines run from. One built
 	## for the build machine's CPU died on the first hash on a CPU without SHA-NI.
-	local -a shipTarget=()
-	if [[ "$(uname -s)" == "Linux" ]]; then shipTarget=("-Dtarget=$(uname -m)-linux-gnu.2.28"); fi
-	zig build "-j${buildJobs}" -Doptimize=ReleaseSafe "${shipTarget[@]}"
+	local -a releaseTarget=()
+	if [[ "$(uname -s)" == "Linux" ]]; then releaseTarget=("-Dtarget=$(uname -m)-linux-gnu.2.28"); fi
+	zig build "-j${buildJobs}" -Doptimize=ReleaseSafe "${releaseTarget[@]}"
 	fId EsXcjyV "the command dogfood installs uses nothing past x86-64-v1 in code built here"
 	if [[ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]]; then
 		fTestSkip "only a Linux x86_64 build goes to the synced dir"
@@ -1564,7 +1564,7 @@ fStage_Zig_BuildStamp(){
 
 	## The translate-c steps hash to_file's bytes, and where they put the headers
 	## is in every file's debug info. Both caches above are new, so each built
-	## its own to_file. __anon_ names carry the compiler's thread numbers, and a
+	## its own to_file. __anon_ names include the compiler's thread numbers, and a
 	## builder with 1 CPU gets other ones, so a match here alone isn't enough.
 	fId EscLn6s "tools/to_file comes out the same in 2 new caches"
 	local -a toFiles=()
@@ -1661,7 +1661,7 @@ fStage_Zig_CApi(){
 	if ((isMac)); then local -x MACOSX_DEPLOYMENT_TARGET; MACOSX_DEPLOYMENT_TARGET="$(sw_vers -productVersion)"; fi
 	local -r libDir="${zigDir}/zig-out/lib"
 
-	## Shared: self-contained, so the header and -lzuid are the whole story.
+	## Shared: self-contained, so the header and -lzuid are all it needs.
 	## An rpath rather than LD_LIBRARY_PATH, which macOS does not read.
 	fId ElpGOHZ "capi_smoke.c against the shared library"
 	"${systemCc}" "${cWarn[@]}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
@@ -1741,12 +1741,12 @@ fStage_Zig_CApi(){
 	fTestPass
 
 	## Now the same thing the way somebody who downloaded the release does it:
-	## against a tree holding only what gets shipped, with the link line the
+	## against a tree holding only what's in the release, with the link line the
 	## header prints. libzuid.a used to nest the whole wasmtime archive inside
-	## itself, where no linker looks, and the release carried no separate copy,
+	## itself, where no linker looks, and the release had no separate copy,
 	## so this is the check that would have caught it. Deliberately not pointed
 	## at vendor/.
-	fId Eq9hexE "capi_smoke.c links against the shipped tree, with the header's link line"
+	fId Eq9hexE "capi_smoke.c links against the release tree, with the header's link line"
 	local -r relTree="${buildDir}/release"
 	mkdir -p "${relTree}/lib" "${relTree}/include"
 	cp "${zigDir}/zig-out/include/zuid.h"                  "${relTree}/include/"
@@ -1774,7 +1774,7 @@ fStage_Zig_CApi(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## Two profiles, because the two implementations have different hot shapes: the
+## Two profiles, because the two implementations have different hot paths: the
 ## Go module through its own benchmarks, and the command itself through perf.
 fStage_Profile(){
 
@@ -1812,7 +1812,7 @@ fProfile_Go(){
 	local -r cpuOut="${profileDir}/cpu_${runStamp}.pprof"
 	## Only the per-identifier benchmarks. BenchmarkNew builds the base registry,
 	## which costs more than everything else put together and would bury the
-	## work actually worth looking at. The others build one generator each, outside
+	## work worth looking at. The others build one generator each, outside
 	## the loop, so the bench time has to dwarf that: at 3000 runs it was a third
 	## of a 51-sample profile.
 	go test -p "${buildJobs}" -run '^$' -bench 'BenchmarkGenerate' -benchtime 1s \
@@ -1885,7 +1885,11 @@ fStage_Demo(){
 		return 0
 	fi
 
-	local -r demoDir="${artifactDir}/demo"
+	## Renders are kept with the private project files, beside the repo, when
+	## they're here. A plain clone keeps them under cicd/artifacts/.
+	local demoDir="${artifactDir}/demo"
+	if [[ -d "${repoRoot}/../private" ]]; then demoDir="${repoRoot}/../private/demo/gif"; fi
+	readonly demoDir
 	mkdir -p "${demoDir}"
 	local -r rendered="${demoDir}/demo_${runStamp}.gif"
 
@@ -1934,7 +1938,7 @@ fStage_Package(){
 	if command -v objdump >/dev/null 2>&1; then haveObjdump=1; fi
 
 	## The macOS checks read one slice at a time. The x86_64 scan means nothing on
-	## arm64, and the minimum macOS has to hold for both.
+	## arm64, and the minimum macOS has to be right for both.
 	local thinDir=""
 	thinDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${thinDir}")
@@ -2254,7 +2258,7 @@ fX86FloorScan_Pe(){  ## readobj, pdbutil, x86_64 program, its .pdb
 ## archive. arm64 links wasmtime.dll, since Wasmtime has only an MSVC build
 ## there, and puts it in bin/. Nothing here can run either, so this checks
 ## what each file is, what it needs and exports, and that capi_smoke.c links
-## against both libraries. vm925w runs the x86_64 one by hand, and nothing runs
+## against both libraries. A Windows machine runs the x86_64 one by hand, and nothing runs
 ## the arm64 one yet.
 fStage_Package_Windows(){  ## scratch dir
 
@@ -2457,7 +2461,7 @@ fStage_Package_Windows(){  ## scratch dir
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The FreeBSD x86_64 release, cross-built on Linux from FreeBSD's own Wasmtime
-## package. As with arm64, nothing here can run it; vmFreeBSD does that by hand.
+## package. As with arm64, nothing here can run it; a FreeBSD machine does that by hand.
 fStage_Package_FreeBSD(){  ## scratch dir
 
 	local -r scratchDir="$1"
@@ -2578,8 +2582,8 @@ fStage_Package_FreeBSD(){  ## scratch dir
 ## directory of whoever built it, and made every release file differ between
 ## two machines building one commit. So release binaries go out stripped, and
 ## their debug info goes to dist/debug/, which is never uploaded. Wasmtime's
-## and zstd's archives are shipped as their projects publish them, so only the
-## path rule holds for those.
+## and zstd's archives go out as their projects publish them, so only the
+## path rule applies to those.
 fStage_Package_Stripped(){  ## scratch dir
 
 	local -r scratchDir="$1"
@@ -2909,7 +2913,7 @@ fStage_Package_Arm64(){  ## scratch dir, glibc floor
 	if command -v readelf >/dev/null 2>&1;      then haveReadelf=1; fi
 	if command -v objdump >/dev/null 2>&1;      then haveObjdump=1; fi
 
-	## The tarball's own top directory carries the version, so find it rather
+	## The tarball's own top directory has the version in its name, so find it rather
 	## than rebuild its name.
 	local armLib=""
 	if ((isLinux)) && [[ -f "${armRelease}.tgz" ]]; then
@@ -3008,7 +3012,7 @@ fStage_Package_Arm64(){  ## scratch dir, glibc floor
 		fTestPass
 	fi
 
-	## Link only, against what the tarball ships: there is no arm64 machine here
+	## Link only, against what's in the tarball: there is no arm64 machine here
 	## to run the result. zig cc stands in for an arm64 compiler, so it needs
 	## -lunwind where gcc would bring libgcc.
 	local -r smokeSrc="${zigDir}/lib/test/capi_smoke.c"
@@ -3268,7 +3272,7 @@ fPublish_Downloads(){  ## download URL, asset...
 	local -ra osOrder=("linux" "darwin" "windows" "freebsd")
 	local -rA osTitles=([linux]="Linux" [darwin]="macOS" [windows]="Windows" [freebsd]="FreeBSD")
 	local -ra cpuOrder=("x86_64" "arm64")
-	## macOS ships one universal file, so its row is one cell even when it is missing.
+	## macOS has one universal file, so its row is one cell even when it is missing.
 	local -rA universalOnly=([darwin]=1)
 	local -A cells=()
 	local -a ranked=() others=()
@@ -3534,7 +3538,7 @@ fHalfTheCores(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## sort -V puts 1.2.3 before 1.2.3-dev, so a pre-release reads as newer than the
 ## release it precedes. Comparing the release part first is what stops a dev
-## snapshot passing a floor it is actually below.
+## snapshot passing a floor it is below.
 fVersion_AtLeast(){
 	local -r have="$1"
 	local -r want="$2"

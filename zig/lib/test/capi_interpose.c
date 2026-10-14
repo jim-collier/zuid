@@ -34,7 +34,7 @@ int main(void) {
 		return 1;
 	}
 
-	/* Far enough to have used the runtime, not just allocated the context. */
+	/* Far enough to have used the runtime, not only allocated the context. */
 	char out[256];
 	if (zuid_generate(z, NULL, out, sizeof out) != ZUID_OK) {
 		printf("  generate failed: %s\n", zuid_last_error(z));

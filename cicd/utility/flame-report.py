@@ -144,7 +144,7 @@ def fAnalyze(total, frames, top):
 	print(f"  {'other, app code':.<32}: {pct(attrib.get('other, app code', 0.0))}")
 	print()
 
-	print("top self-time (where CPU actually burns):")
+	print("top self-time (where CPU time goes):")
 	for name, v in sorted(selfBy.items(), key=lambda kv: -kv[1])[:top]:
 		if v < 1:
 			break

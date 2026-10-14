@@ -16,7 +16,7 @@ import (
 // test-id: ErmqB7E
 func TestAccountNameIsLowerCased(t *testing.T) {
 	cases := map[string]string{
-		`VM925W\WinTest`:  "wintest",
+		`HOST\Alice`:      "alice",
 		`KÖNIG\ÅSA.ÖBERG`: "åsa.öberg",
 	}
 	for name, want := range cases {

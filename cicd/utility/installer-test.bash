@@ -36,7 +36,7 @@ fLine(){    printf '%s\n' "$*" ;}
 fDie(){     printf '\n%s: %s\n\n' "installer-test" "$*" >&2; exit 1 ;}
 
 ## Every check starts with fId, naming its test ID and what it checks, then ends
-## in one fPass or fFail. A case run once per installer carries an ID for each,
+## in one fPass or fFail. A case run once per installer has an ID for each,
 ## picked by the label: fId "${label}" bash=<id> ps1=<id> "what it checks".
 ## New IDs come from test-ids.py. While skipWhy is set every check reports as
 ## skipped, and the runners do nothing.
@@ -266,8 +266,8 @@ fi
 ## A second pair, with /opt and /usr/local moved under a scratch root. That is
 ## the only way to reach --target system here: the real locations need root, and
 ## a test that asks for root is a test nobody runs. Kept separate from the copies
-## above so the default-target case still sees the real /usr/local/bin, which is
-## the whole point of that case.
+## above so the default-target case still sees the real /usr/local/bin, which
+## is what that case checks.
 sysRoot="${work}/sysroot"
 
 bashSysCopy="${work}/install-sys.bash"
@@ -432,7 +432,7 @@ JSON
 }
 
 ## Both scripts check the download against the published checksums. A tarball
-## that does not match has to stop the install, not just be reported.
+## that does not match has to stop the install, not only be reported.
 fCase_Checksum(){  ## label, runner
 	local -r label="$1" runner="$2"
 	local -r sums="${dlRoot}/v2.0.0/checksums.txt"
@@ -508,7 +508,7 @@ fCase_PackageOutDir(){
 		else fFail "--out was emptied. Output: ${out}"
 	fi
 	fId Eq9fild "package: and says why it refused"
-	if [[ "${out}" == *"carries no"* ]]
+	if [[ "${out}" == *"and has no"* ]]
 		then fPass
 		else fFail "refused without saying why. Output: ${out}"
 	fi
@@ -518,7 +518,7 @@ fCase_PackageOutDir(){
 	mkdir -p "${fresh}"
 	out="$(PATH="${area}/bin:${PATH}" bash "${packager}" --out "${fresh}" --version v0 2>&1)" || true
 	fId Eq9file "package: an empty --out is accepted"
-	if [[ "${out}" != *"carries no"* ]]
+	if [[ "${out}" != *"and has no"* ]]
 		then fPass
 		else fFail "an empty --out was refused. Output: ${out}"
 	fi
@@ -526,13 +526,13 @@ fCase_PackageOutDir(){
 	## And a path that does not exist yet, which is what dist/ is on a clean tree.
 	out="$(PATH="${area}/bin:${PATH}" bash "${packager}" --out "${area}/brand-new" --version v0 2>&1)" || true
 	fId Eq9filf "package: a new --out is accepted"
-	if [[ "${out}" != *"carries no"* ]]
+	if [[ "${out}" != *"and has no"* ]]
 		then fPass
 		else fFail "a new --out was refused. Output: ${out}"
 	fi
 }
 
-## The .deb and .rpm shipped zuid.h with no library behind it, so anything that
+## The .deb and .rpm included zuid.h with no library behind it, so anything that
 ## included it failed at the link step. Building a real package here would need
 ## nfpm and a full release build, so this reads the nfpm contents list instead:
 ## a header may only be in there if a library is too.
@@ -587,7 +587,7 @@ fCase_DefaultTarget(){  ## label, runner
 ## those two locations moved under the scratch tree.
 ##
 ## elevates is "yes" for a script that shells out to sudo and "no" for one that
-## just writes and hopes, which is what install.ps1 does.
+## writes and hopes, which is what install.ps1 does.
 fCase_SystemTarget(){  ## label, runner, elevates
 	local -r label="$1" runner="$2" elevates="$3"
 	local home="" out="" got=""
@@ -611,7 +611,7 @@ fCase_SystemTarget(){  ## label, runner, elevates
 	home="$(fNewHome "${label}-system")"
 	out="$("${runner}" "${home}" system yes)" || true
 
-	fId "${label}" bash=EqANb6w ps1=EqANb6x "${label}: a system install lands under /opt/${PROG}"
+	fId "${label}" bash=EqANb6w ps1=EqANb6x "${label}: a system install goes under /opt/${PROG}"
 	if [[ -x "${installed}/bin/${PROG}" ]]
 		then fPass
 		else fFail "nothing at ${installed}/bin/${PROG}. Output: ${out}"

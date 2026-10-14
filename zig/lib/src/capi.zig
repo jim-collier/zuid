@@ -26,7 +26,7 @@ const gpa = switch (builtin.mode) {
 // design's leak-detection claim resting on a check that never ran. These two
 // give the tests somewhere to ask instead.
 //
-// Debug only, so a release build carries neither the counter nor the chance of
+// Debug only, so a release build has neither the counter nor the chance of
 // it wrapping on a caller's double free - which is already outside the
 // contract the header states.
 const counts_contexts = builtin.mode == .debug;
@@ -74,7 +74,7 @@ pub fn textFor(err: core.Error) []const u8 {
         core.Error.HashTooWide => "a hashed component cannot be wider than a SHA-256 fills in that base",
         core.Error.SaltTooLong => "the salt is longer than ZUID_MAX_SALT_BYTES",
         core.Error.EnvUnavailable => "this machine could not supply that component",
-        core.Error.BaseNotText => "that base renders raw bytes or control characters rather than text, so it cannot carry an identifier",
+        core.Error.BaseNotText => "that base renders raw bytes or control characters rather than text, so it cannot be used for an identifier",
         core.Error.BufferTooSmall => "out_cap is too small for the identifier plus its terminating NUL",
         core.Error.RuntimeFailed => "the embedded wasm runtime or its module failed",
         else => "",
@@ -118,7 +118,7 @@ pub const Zuid = struct {
         self.err_buf[kept] = 0;
     }
 
-    /// Spells out the ceiling for the base actually being rendered in - 64
+    /// States the ceiling for the base being rendered in - 64
     /// symbols in base 16, down to 24 in 2048tz. False if the base could not be
     /// read, and then the caller falls back to the fixed sentence.
     fn setHashCeilingText(self: *Zuid, base: []const u8, hash_chars: u32) bool {
@@ -126,7 +126,7 @@ pub const Zuid = struct {
         const radix = self.wasm_host.converter().radix(name) catch return false;
         const written = std.fmt.bufPrint(
             self.err_buf[0 .. self.err_buf.len - 1],
-            "hash width {d}: base {s} carries at most {d} symbols of a 256-bit digest",
+            "hash width {d}: base {s} fits at most {d} symbols of a 256-bit digest",
             .{ hash_chars, name, core.maxHashChars(radix) },
         ) catch return false;
         self.err_buf[written.len] = 0;

@@ -18,12 +18,12 @@
 	another part of the program gets.
 
 	A freed context must not be used again, and must not be freed again -
-	the same contract C's own free() carries. Every entry point rejects a
+	the same contract C's own free() has. Every entry point rejects a
 	pointer it can see is stale, but nothing can make that reliable once the
 	memory is gone.
 
-	Linking: the shared libzuid exports only these entry points and carries
-	its own runtime, so -lzuid is the whole story. It carries an soname, so
+	Linking: the shared libzuid exports only these entry points and includes
+	its own runtime, so -lzuid is all it needs. It has an soname, so
 	what a linked program records is libzuid.so.1; from 1.0.0 on, the major
 	only changes if one of the entry points or error codes below does. The
 	prereleases before it are not held to that. The static libzuid.a holds
@@ -73,7 +73,7 @@ enum {
 	                               is longer than ZUID_MAX_SALT_BYTES */
 	ZUID_ERR_ENV = 10,          /* no host name, user, hardware address or random source, or the
 	                               clock could not be read */
-	ZUID_ERR_BASE_DIGITS = 11,  /* no longer produced; every base can carry every component */
+	ZUID_ERR_BASE_DIGITS = 11,  /* no longer produced; every base can take every component */
 	ZUID_ERR_HORIZON = 12,      /* the clock is past the padding horizon, so %d no longer fits its width */
 	ZUID_ERR_BASE_NOT_TEXT = 13, /* the base renders raw bytes or control characters, not text */
 	ZUID_ERR_CONTEXT = 14        /* z is NULL or already freed */
@@ -107,7 +107,7 @@ typedef struct zuid_request {
 
 	/*
 		Hashing for %h, %u, and %f is on by default: the name goes through
-		SHA-256 and only hash_chars symbols survive, so the identifier carries a
+		SHA-256 and only hash_chars symbols survive, so the identifier has a
 		fingerprint rather than the name. Nonzero here emits the name itself,
 		which is then the one component that is not fixed width.
 	*/
@@ -115,7 +115,7 @@ typedef struct zuid_request {
 
 	/*
 		Symbols kept from a hashed component. Zero derives the width from the
-		base so that every base carries the same fingerprint strength rather
+		base so that every base has the same fingerprint strength rather
 		than the same symbol count - 12 symbols in base 16, 8 in 62, 5 in
 		2048tz. A symbol is worth four bits in base 16 and eleven in 2048tz, so
 		one fixed count would mean wildly different strength.

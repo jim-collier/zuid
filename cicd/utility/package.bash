@@ -4,7 +4,7 @@
 
 ##	Purpose:
 ##		- Builds the release artifacts for whatever platform this machine can
-##		  actually produce, into the output directory:
+##		  produce, into the output directory:
 ##		    - a tarball of the CLI, its C libraries, and the header, or a zip
 ##		      for Windows
 ##		    - the bare CLI binary (grab-and-run)
@@ -145,7 +145,7 @@ trap 'rm -rf "${work}"' EXIT
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## --out comes from whoever ran this, and it used to be handed straight to
 ## 'rm -rf'. So the directory has to be one of ours before anything in it is
-## touched: either it does not exist, or it is empty, or it carries the marker a
+## touched: either it does not exist, or it is empty, or it has the marker a
 ## previous run left. Anything else is somebody's work and gets refused.
 ##
 ## The check runs now and the clearing runs after the build, so a mistyped --out
@@ -158,8 +158,8 @@ outMarker=".${PKG}-package-dir"
 fDirHasContent(){ [[ -n "$(find "$1" -mindepth 1 -maxdepth 1 -print -quit)" ]] ;}
 
 ## Ours if this script picked the path, if a previous run left its marker, or if
-## there is nothing there to lose. The marker is what carries a --out directory
-## from one run to the next.
+## there is nothing there to lose. The marker is how a --out directory is
+## known from one run to the next.
 fOutDirIsOurs(){
 	((outIsDefault))                  && return 0
 	[[ -e "${OUT}/${outMarker}" ]]    && return 0
@@ -171,7 +171,7 @@ fCheckOutDir(){
 	[[ -e "${OUT}" ]] || return 0
 	[[ -d "${OUT}" ]] || fDie "--out names something that is not a directory: ${OUT}"
 	fOutDirIsOurs && return 0
-	fDie "refusing to empty ${OUT}: it holds files and carries no ${outMarker} marker, so it is not a previous run's output. Pass --out somewhere this script made, or an empty or new directory."
+	fDie "refusing to empty ${OUT}: it holds files and has no ${outMarker} marker, so it is not a previous run's output. Pass --out somewhere this script made, or an empty or new directory."
 }
 
 ## Only reached once the build has produced something to put here. Clears the
@@ -180,7 +180,7 @@ fCheckOutDir(){
 fClaimOutDir(){
 	mkdir -p "${OUT}"
 	if fDirHasContent "${OUT}"; then
-		fOutDirIsOurs || fDie "${OUT} gained files while the build ran, and carries no ${outMarker} marker. Refusing to empty it."
+		fOutDirIsOurs || fDie "${OUT} gained files while the build ran, and has no ${outMarker} marker. Refusing to empty it."
 		find "${OUT}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 	fi
 	: > "${OUT}/${outMarker}"
@@ -213,8 +213,8 @@ fNormalizeArchive(){  ## path
 		return 0
 	fi
 	local extractDir; extractDir="$(mktemp -d "${work}/ar.XXXXXX")"
-	## llvm-ar extracts on basenames into the working directory, which is the
-	## whole point: the paths go away here. Zig's Mach-O archives give their
+	## llvm-ar extracts on basenames into the working directory, so the paths
+	## go away here. Zig's Mach-O archives give their
 	## members mode 000, so they come out unreadable. Windows members are .obj.
 	( cd "${extractDir}" && "${llvmAr}" x "${archive}" && chmod u+r ./* && "${llvmAr}" rcsD "${archive}.new" ./* )
 	mv "${archive}.new" "${archive}"
@@ -243,7 +243,7 @@ fWasmtimeArchive(){  ## zig target
 
 ## Each slice is a whole tree. zuid.h tells a static consumer to link -lzuid
 ## -lwasmtime, so the archive it names goes in too. libzuid.a holds its own
-## objects only, and the release used to carry no wasmtime at all, which left
+## objects only, and the release used to have no wasmtime at all, which left
 ## that link line with nothing to satisfy it.
 lipo=""
 if ((mergeSlices)); then
@@ -282,7 +282,7 @@ fi
 ## Mac keeps the whole unstripped copy.
 ## Windows PDBs move there whole: the command's from bin/, and the DLL's from
 ## lib/, where build.zig puts it, since both are zuid.pdb.
-## Wasmtime's and zstd's files are left as their projects ship them.
+## Wasmtime's and zstd's files are left as their projects publish them.
 fStripSlice(){  ## slice, debug dir, zig target
 	local -r slice="$1" debugDir="$2" zigTarget="$3"
 	local file="" name="" sub=""
@@ -371,7 +371,7 @@ mv "${work}/debug" "${OUT}/debug"
 
 ## Two or more slices are merged file by file. Symlinks come from the first, and
 ## everything else is one file holding every slice. -P, because the shared
-## library carries an soname: lib/ holds libzuid.so and libzuid.so.1 as symlinks
+## library has an soname: lib/ holds libzuid.so and libzuid.so.1 as symlinks
 ## onto libzuid.so.1.0.0, and a plain cp would follow them and put three 28 MB
 ## copies in the tarball.
 fMergeSlices(){  ## stage, subdir, slice...
@@ -421,7 +421,7 @@ fTarball(){  ## tree, output
 	fTreeList "${parent}" "${tree}" | tar -C "${parent}" -cf - --no-recursion "${tarFlags[@]}" -T - | gzip -n > "$2"
 }
 
-## Zip keeps local time, so the zone is pinned too. -X drops the owner and the
+## Zip keeps local time, so the zone is pinned too. -X drops owner IDs and the
 ## extra time fields.
 fZip(){  ## tree, output
 	local -r parent="$(dirname "$1")" tree="$(basename "$1")"
@@ -476,7 +476,7 @@ fRelease(){  ## os label, arch label, slice...
 ##
 ## The command only. These used to install zuid.h with no library behind it, so
 ## the one thing a header is for - compiling against it - failed at the link
-## step. The C module ships in the tarball instead, where the static archive can
+## step. The C module is in the tarball instead, where the static archive can
 ## sit next to the Wasmtime archive it needs. A real -dev package, with the
 ## shared library in the right per-distro lib directory and ldconfig run after
 ## it, is a separate job.

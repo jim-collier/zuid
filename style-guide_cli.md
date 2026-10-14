@@ -5,7 +5,7 @@
 <!-- markdownlint-disable MD041 -- First line in a file should be a top-level heading -->
 # Command-line style guide
 
-How the `zuid` command talks: what it prints, where it prints it, and what it exits with. [style_guide.md](style_guide.md) covers code and prose; this one covers the surface a user actually meets.
+How the `zuid` command talks: what it prints, where it prints it, and what it exits with. [style_guide.md](style_guide.md) covers code and prose; this one covers the surface a user meets.
 
 Everything here describes what the command already does. It is written down so the next flag matches the last one, rather than each being argued from scratch.
 
@@ -40,7 +40,7 @@ There is no third code. The command does one thing, and a caller that needs to k
 
 - Every flag has a long spelling. A short one is a convenience and only exists where the flag is typed often.
 
-- A value attaches with `=` or follows as the next argument. `--base=16` and `--base 16` are the same thing, and so are `-b=16` and `-b 16`. Only an argument starting with a dash is split at its `=`, so a format string carrying one survives.
+- A value attaches with `=` or follows as the next argument. `--base=16` and `--base 16` are the same thing, and so are `-b=16` and `-b 16`. Only an argument starting with a dash is split at its `=`, so a format string with one survives.
 
 - A flag that takes no value refuses one rather than ignoring it. `--no-hash=1` is an error.
 
@@ -52,7 +52,7 @@ There is no third code. The command does one thing, and a caller that needs to k
 
 ## Errors
 
-One line, on stderr, in this shape:
+One line, on stderr, in this form:
 
 ~~~text
 zuid: Precision '9' is out of range. Want -1 (minute), 0 (second), or 1 (millisecond).
@@ -64,7 +64,7 @@ zuid: Precision '9' is out of range. Want -1 (minute), 0 (second), or 1 (millise
 
 - A value the user typed is quoted with `'single quotes'`, so an empty or space-padded one is visible.
 
-- Where there is a right answer, a second sentence says what it is, starting with "Want". That is the part people actually use.
+- Where there is a right answer, a second sentence says what it is, starting with "Want". That is the part people use.
 
 - It says what was wrong with what was given, in the words the user used. Not the name of the internal error, and not a stack of context.
 
@@ -74,7 +74,7 @@ One exception, and it is not something a user typed: a failure inside the embedd
 
 ## Warnings
 
-A warning says the run produced something the caller probably did not want, without the run having failed. Same stream and same shape as an error, with `warning: ` after the program name:
+A warning says the run produced something the caller probably did not want, without the run having failed. Same stream and same form as an error, with `warning: ` after the program name:
 
 ~~~text
 zuid: warning: 2 of 3 identifiers repeat an earlier line. Want unique output: add %r to the format.
@@ -84,7 +84,7 @@ zuid: warning: 2 of 3 identifiers repeat an earlier line. Want unique output: ad
 
 - It never changes the exit code and never changes what stdout got. A caller that does not care can ignore it and still be reading correct output.
 
-- It counts what actually happened rather than guessing from the flags. The repeat warning fires on identifiers that matched, so a narrow `--rand-chars` draw that collides on its own is reported the same as a format with nothing random in it.
+- It counts what happened rather than guessing from the flags. The repeat warning fires on identifiers that matched, so a narrow `--rand-chars` draw that collides on its own is reported the same as a format with nothing random in it.
 
 ## Help
 
@@ -101,7 +101,7 @@ zuid: warning: 2 of 3 identifiers repeat an earlier line. Want unique output: ad
 
 The option list is built from the same constants the command runs on, so it cannot describe a base that is no longer curated.
 
-No colour, no bold, no box drawing. The help has to read the same in a terminal, a pipe, and a bug report pasted into an issue.
+No color, no bold, no box drawing. The help has to read the same in a terminal, a pipe, and a bug report pasted into an issue.
 
 ## Version, about, donate
 

@@ -8,7 +8,7 @@
 
 **Short version:** the code is free; the name is not. You may fork and redistribute the software under its license, but you may not use our name or logo to identify your version, without written permission.
 
-That said, asking is free - and we'd prefer to say yes. Forks that credibly carry the project forward with compatible goals are what we'd like to see. This trademark exists not to hoard credit, but so that users can tell what came from us - to protect the umbrella and specific branding that has taken a long time to establish. This only works if we're serious and consistent about protecting it.
+That said, asking is free - and we'd prefer to say yes. Forks that credibly take the project forward with compatible goals are what we'd like to see. This trademark exists not to hoard credit, but so that users can tell what came from us - to protect the umbrella and specific branding that has taken a long time to establish. This only works if we're serious and consistent about protecting it.
 
 ## 1. Marks covered
 

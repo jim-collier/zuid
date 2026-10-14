@@ -56,7 +56,7 @@ Short, sortable, privacy-preserving unique identifiers - from a command line, a 
 
 </div>
 
-> **Alpha.** First prerelease is `v1.0.0-alpha.1`. Both implementations build and reproduce the shared test vectors, and every component works from the command line, the Go module, and the C module. It's for x86_64 Linux only, and it was built for newer CPUs than intended, so it stops with an illegal instruction on many Intel chips from before 2019. The next release fixes that and adds the other platforms. See [project/backlog.md](project/backlog.md) for where it actually stands.
+> **Alpha.** First prerelease is `v1.0.0-alpha.1`. Both implementations build and reproduce the shared test vectors, and every component works from the command line, the Go module, and the C module. It's for x86_64 Linux only, and it was built for newer CPUs than intended, so it stops with an illegal instruction on many Intel chips from before 2019. The next release fixes that and adds the other platforms. See [project/backlog.md](project/backlog.md) for where it stands.
 
 <!-- TOC ignore:true -->
 ## Table of contents
@@ -239,7 +239,7 @@ cicd/cicd.bash --no-backup          # skip the archive, commit, and push
 cicd/cicd.bash --commit -m "message"  # commit too, refusing on main and dev
 ~~~
 
-Underneath it is just `cd go && go build ./...` and `cd zig && zig build`. The Zig half needs `cicd/cicd.bash` to have run at least once first, since that is what populates `zig/vendor/`. Zig refuses an empty or non-numeric `SOURCE_DATE_EPOCH` the first time it builds its own C libraries, so unset it rather than leave it empty. `cicd/cicd.bash` drops one like that by itself.
+Underneath it's only `cd go && go build ./...` and `cd zig && zig build`. The Zig half needs `cicd/cicd.bash` to have run at least once first, since that is what populates `zig/vendor/`. Zig refuses an empty or non-numeric `SOURCE_DATE_EPOCH` the first time it builds its own C libraries, so unset it rather than leave it empty. `cicd/cicd.bash` drops one like that by itself.
 
 Both sides have to reproduce every row of `testdata/vectors.tsv` before anything merges. That file is the specification in executable form, so a change to the identifier format means regenerating it and re-running both.
 
@@ -257,7 +257,7 @@ Three documents, and between them they answer most of what a patch gets sent bac
 
 ## Copyright and license
 
-The command is GPL-2.0-or-later. The Go and C modules are Apache-2.0, so embedding one carries no obligation beyond attribution. [license.md](license.md) says which license covers which directory, and links the full text of each.
+The command is GPL-2.0-or-later. The Go and C modules are Apache-2.0, so embedding one brings no obligation beyond attribution. [license.md](license.md) says which license covers which directory, and links the full text of each.
 
 > Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]<br />
 > Licensed under the [GNU General Public License v2.0 or later](https://spdx.org/licenses/GPL-2.0-or-later.html)<br />

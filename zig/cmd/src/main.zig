@@ -14,8 +14,8 @@ const messages = @import("messages.zig");
 
 const build_options = @import("build_options");
 
-/// The curated list, spelled out and wrapped at compile time so help cannot
-/// drift from what the library actually offers.
+/// The curated list, written out and wrapped at compile time so help cannot
+/// drift from what the library offers.
 const curated_list = blk: {
     // Where help descriptions start, and where they wrap.
     const desc_col = 30;
@@ -306,7 +306,7 @@ pub fn main(init: std.process.Init) !void {
 
 /// The compiled wasm module, kept between runs. Compiling it is most of what a
 /// run costs, and Wasmtime spreads that over every core. Nothing here is fatal:
-/// any failure just means the next run compiles again.
+/// any failure means the next run compiles again.
 const ModuleCache = struct {
     dir: []const u8,
     name: []const u8,
@@ -448,8 +448,8 @@ const max_out_len = 1 << 20;
 const max_count = 1_000_000;
 
 /// Renders into a buffer that grows until the identifier fits. A fixed one
-/// refused anything past it, whether the format repeated a component or just
-/// carried a long literal, and the module renders into whatever it is handed.
+/// refused anything past it, whether the format repeated a component or only
+/// had a long literal, and the module renders into whatever it is handed.
 ///
 /// The buffer is kept between identifiers, so a large --count does not leave a
 /// buffer per line behind in the arena. That makes each returned slice good
