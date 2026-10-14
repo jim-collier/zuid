@@ -30,6 +30,160 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## Issues
 
+- `install.ps1` stops under Windows PowerShell 5.1.
+	- ID: 2026101410495978
+	- Type: Enhancement
+	- Status: Waiting for answers
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Target OS: Windows
+	- Requirements  [Feature]:
+		- The house installer rules want it to work under 5.1 as well as pwsh 7, so the one-liner works on a stock Windows box.
+	- Progress log:
+		- 20261014: Question: port it, or keep 7 and above? Nothing records why it stops. The port is small: no `$IsWindows` on 5.1, TLS 1.2 forced, `-UseBasicParsing`, and the arch from `PROCESSOR_ARCHITECTURE`.
+
+- Both installers pick a system install whenever the system location is writable.
+	- ID: 2026101410495979
+	- Type: Enhancement
+	- Status: Waiting for answers
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- The house installer rules want user as the default, with system only when asked for.
+	- Progress log:
+		- 20261014: Question: default to user always, or keep it? Today root or an admin gets a system install without asking for one. README says so.
+
+- `cicd.bash --commit` stages untracked files too.
+	- ID: 2026101410495980
+	- Type: Bug
+	- Status: Waiting for answers
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Incorrect behavior [Bug]: The commit stage runs `git add -A`, so anything new in the tree goes in, edits from elsewhere included.
+	- Expected behavior [Bug]: Only what belongs in the commit.
+	- Progress log:
+		- 20261014: Question: stage tracked changes only (`git add -u`), and name new files by hand? That would leave a new file out of a `--commit` run.
+
+- Release file names don't include the version.
+	- ID: 2026101410495982
+	- Type: Enhancement
+	- Status: Waiting for answers
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Every release file has the version in its name, in one scheme settled before the first tagged release, so download links never change.
+	- Progress log:
+		- 20261014: Question: change it before beta.1? The alpha is out under the current names, and both installers ask for them, so they'd change together. The `.deb` and `.rpm` already have the version.
+
+- A full run builds no release files unless `--package` is passed.
+	- ID: 2026101410495983
+	- Type: Enhancement
+	- Status: Waiting for answers
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- The house pipeline rules want release files built on every run without `--quick`.
+	- Progress log:
+		- 20261014: Question: package on full runs, or keep it opt-in? It adds a few minutes and about 72 MB of `dist/debug/` to every full run.
+
+- A Windows install leaves `PATH` to the user.
+	- ID: 2026101410495985
+	- Type: Enhancement
+	- Status: Waiting for answers
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Target OS: Windows
+	- Progress log:
+		- 20261014: Question: should `install.ps1` add the `bin` folder to the user or machine `PATH`, the way silkterm's does? Today it prints a hint. A machine `PATH` near 4 KB is a known trap on both test boxes.
+
+- A launcher that keeps dated copies of the dogfood build.
+	- ID: 2026101410495986
+	- Type: Feature
+	- Status: Waiting for answers
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- A cross-platform `dogfood_zuid.ps1` plus bash and cmd launchers in the synced util dirs, master copies in the repo. It copies the newest dogfood build into a versions folder under a dated name, keeps 5 to 10 copies within 1 GB, never deletes one in use, and runs the newest with the arguments passed through.
+	- Progress log:
+		- 20261014: `cicd/utility/run-latest.ps1` does some of this from `zig-out`, keyed on mtime, pruned by age.
+		- 20261014: Question: build it from shcl's, skip it since zuid is already on the path, or leave it for later?
+
+- README and GitHub About wording.
+	- ID: 2026101410495988
+	- Type: Task
+	- Status: Waiting for answers
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Progress log:
+		- 20261014: Suggested rewrites are in `private/suggestions.md`: badges, a status note, a who-it-isn't-for section, module examples, a support section, and the About blurb and topics. Facts and spelling were fixed in place.
+
+- Installer options and messages per the house installer rules.
+	- ID: 2026101410495989
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Done. `installer-test.bash` 83 of 83.
+	- Needs external testing: A real run of each one-liner on a Mac and a Windows box.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- `--version`, and `--opt=value` beside `--opt value`.
+		- Pick releases in semver order, not GitHub's date order.
+		- Say why a release lookup failed: rate limit, network, or HTTP status.
+		- Name the target and the alternative when a write fails.
+		- Check sha256 with `shasum` or `openssl` where there's no `sha256sum`.
+		- Drop `--arch` and `-Arch`. The arch is detected.
+		- `install.ps1` gets `-Help` and `-Version`, and passes PSScriptAnalyzer.
+	- Progress log:
+		- 20261014: Both scripts and the README install section. The README one-liners lost their option text, which didn't run as pasted, and say to pass `--help`.
+	- Branch: tidyup
+	- Commit: c286dfe
+	- Test case: EshFEjt, EshFEjv, EshFEjw, EshFEjx, EshFEjy, EshFEjz, EshFEk0, EshFEk1, EshFEk2. `--arch`'s missing-value case, Eq9oNBi, is retired with the flag.
+
+- A pre-push gate for main.
+	- ID: 2026101410495991
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Done. `pipeline-test.bash` 64 of 64, and the hook gated a push of 5cf3883 in about 2 minutes.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- `cicd.bash --gate`: a quick run with no sync, dogfood, backup, commit, or push.
+		- `cicd/utility/git-hooks/pre-push` runs it on the commit being pushed to main, in a scratch worktree. The content scrub runs on every push when it's there.
+		- `SKIP_GATE=1` skips it. A run's own backup and push set that, since the run just passed.
+	- Progress log:
+		- 20261014: Turned on in this clone with `git config core.hooksPath cicd/utility/git-hooks`. Other clones need the same.
+	- Branch: tidyup
+	- Commit: 5cf3883
+	- Test case: EshGwj4, EshGwj5, EshGwj6.
+
+- Wording in code, messages, and docs.
+	- ID: 2026101410495992
+	- Type: Task
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Done. `--gate` passed, and the Windows Zig tests passed under Wine.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Progress log:
+		- 20261014: Comments, docs, messages, and test names reworded. 3 messages changed: a raw-byte base "cannot be used for an identifier", a hash width "fits at most" so many symbols, and the Go salt check's "could contain one".
+		- 20261014: Long Zig test names shortened. Made-up Windows account names in the tests. The template banner is gone from `code_of_conduct.md`.
+		- 20261014: design.md: 64h doesn't sort, base 128 at second precision is one of the tightest horizons, the allocator and cross-build notes match the code, and the folder tree is complete. Its tables and fences follow the house format.
+		- 20261014: README: the alpha's illegal-instruction crash on older CPUs, `%m` isn't hashed, the rpm name, the cache path, `--no-backup` for a plain clone, and the tools `--package` needs.
+		- 20261014: The demo ends on 3 s of black, its closing line is reworded, and it's 42.6 s.
+	- Branch: tidyup
+	- Commit: aaa915c
+	- Test case: none. Wording only. The tests that read messages still pass.
+
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -75,7 +229,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Check the reactor's exports are unchanged, rerun the vectors, and measure again.
 	- Progress log:
 		- 20261005: A command built with a reactor from `dev` started in 0.25 s, or 0.02 s with the module cached, against 0.55 s and 0.34 s on `v0.1.0`. Go's `New` should drop from 57 ms the same way.
-		- 20261006: Stalled. convert-base-v2 is in the middle of an upgrade, so no tag until that settles, by direct answer.
+		- 20261006: Stalled. convert-base-v2 is in the middle of an upgrade, so no tag until that settles.
 
 - The Windows exe and dll differ between machines building one commit.
 	- ID: 2026101305595483
@@ -111,6 +265,101 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261013: Split from 2026100416052036 and the old packaging and C module items. Both builds pass their static checks, and the Windows one passed under Wine on vmDebARM64.
 		- 20261013: Stalled. There is no arm64 Windows machine or Apple Silicon Mac here. A Windows ARM64 guest under emulation on b23 is too slow for more than a launch check.
 
+- PowerShell files aren't linted.
+	- ID: 2026101410495993
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Run PSScriptAnalyzer on `install.ps1` and `cicd/utility/run-latest.ps1` when it's installed, and fail on a finding. `install.ps1` is clean as of 20261014.
+
+- No vulnerability check on the Go dependencies.
+	- ID: 2026101410495995
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- govulncheck at a pinned version, skipped offline, with the pin in `fConfig`.
+
+- The host's shellcheck isn't checked against the container's pin.
+	- ID: 2026101410495996
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Say so when the host's shellcheck isn't the Dockerfile's `SC_VER`, the way EsbF9Jy does for nfpm.
+
+- Stage headers have no full-width rule above them.
+	- ID: 2026101410495998
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- A blank line, a full-width rule of `•`, then the title, as silkterm's `fSection` does. About 27 headers. Check `lint-report.bash` and `pipeline-test.bash` don't match on the header lines.
+
+- The Windows exe has no version resource or icon.
+	- ID: 2026101410495999
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Target OS: Windows
+	- Requirements  [Feature]:
+		- An ASCII VERSIONINFO for the Windows targets, in the plain copyright form. The icon waits on a logo.
+		- Recheck that the exe still builds the same on 2 machines, apart from the known PDB paths.
+
+- The FreeBSD release has no `.pkg`.
+	- ID: 2026101410500001
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Target OS: FreeBSD
+	- Requirements  [Feature]:
+		- A `.pkg` beside the tarball. nfpm can't make one, so it's `pkg create` on a FreeBSD machine.
+
+- Most harness labels are full sentences in one pattern.
+	- ID: 2026101410500002
+	- Type: Task
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Shorten the labels in `cli-test.bash`, `installer-test.bash`, `pipeline-test.bash`, and `cicd.bash`. The IDs stay. The Zig names were done in 2026101410495992.
+
+- `install.bash` stops under a Mac's stock bash for a user install.
+	- ID: 2026101410500003
+	- Type: Bug
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Target OS: macOS
+	- Steps to reproduce [Bug]:
+		- Run the README one-liner on a Mac whose `bash` is `/bin/bash`, 3.2.
+	- Incorrect behavior [Bug]: `runAs[@]: unbound variable`, after the download, and nothing is installed. Uninstall stops the same way.
+	- Expected behavior [Bug]: It installs.
+	- Reproduced [Bug]: Yes, in a `bash:3.2` container, 20261014.
+	- Actual cause [Bug]:
+		- An empty array is unbound under `set -u` before bash 4.4.
+	- Actual fix [Bug]: A small function runs a command through sudo or not.
+	- Branch: tidyup
+	- Commit: c286dfe
+	- Test case: EshFEk5, which runs in the `bash:3.2` image when it's on hand. It failed before the fix.
+	- Acceptance signoff: Self-closed: reproduced, and the test failed before and passes after.
+	- Closed: 20261014-105000
+
 - Release binaries keep debug info and the build machine's paths.
 	- ID: 2026101008194330
 	- Type: Bug
@@ -134,8 +383,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261013: Reproduced on b23 by the new check, 43 problems, the same paths and debug sections in every binary of every asset.
 		- 20261013: Stripped, the bare Linux and FreeBSD binaries come out the same from b23 and the container. Other files still differ for reasons outside debug info, logged as 2026101304122319.
 	- Decisions:
-		- 20261013, by direct answer: release binaries are stripped. Each one's debug info goes in `dist/debug/`, not published, but kept by the backup so a panic address can still be looked up. The Windows `.pdb` leaves the zips the same way.
-		- 20261013, by direct answer: `libzuid.a` keeps only its debug info in `dist/debug/`, not a whole unstripped copy.
+		- 20261013: release binaries are stripped. Each one's debug info goes in `dist/debug/`, not published, but kept by the backup so a panic address can still be looked up. The Windows `.pdb` leaves the zips the same way.
+		- 20261013: `libzuid.a` keeps only its debug info in `dist/debug/`, not a whole unstripped copy.
 	- Actual fix [Bug]: `package.bash` strips every binary built here. On Linux that's `llvm-objcopy`, for both ELF and Windows files. On a Mac it's `strip`, with `dsymutil` first. A program or shared library keeps its symbols and DWARF in `dist/debug/<release>/`, as `<name>.debug` or `<name>.dSYM`. A static library keeps its symbols, and only its DWARF goes there, as `libzuid.a.debug`. On Linux every ELF `.debug` file is zlib packed, which gdb reads as is. A Mac keeps a whole unstripped `libzuid.a`, since Apple's tools can't split an archive. Both Windows PDBs move there, the DLL's included, which was dropped before. The AVX and armv8-a scans take function names from the debug file.
 	- Branch: strip, dbgonly
 	- Commit: 60169a5, f9cd9fd
@@ -274,7 +523,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261005: a width the format does not use is not checked, as in Go. The setters refused one whatever the format.
 	- Decisions:
 		- 20261005: one call taking the struct, not a second call beside the old one. Two ways to do one thing is what was being fixed.
-		- 20261005: the soname stays `libzuid.so.1`. The header now says the prereleases are not held to it. `v1.0.0-alpha.1` shipped the old call.
+		- 20261005: the soname stays `libzuid.so.1`. The header now says the prereleases are not held to it. `v1.0.0-alpha.1` has the old call.
 	- Branch: fastcli
 	- Test case: EloUhj2, Eq9dPAO, Em32Nzd and the other C tests in `tests.zig` pass a request now, and so does `capi_smoke.c`. EloUhj2 failed with a negative width read as zero, and Em32Nzd with the old code.
 	- Acceptance signoff: Self-closed: matches Go's `Request`, as asked after the design review, and the prereleases aren't held to the ABI.
@@ -305,6 +554,25 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: Ersmdcr, Ersmdcs, Ersmdct and Ersmdcu in `cli-test.bash`, and Ersmdcv in `tests.zig`. Each failed with its part of the cache broken.
 	- Acceptance signoff: Self-closed: tested on 3 OSes, uses each one's usual cache dir, and a bad file only costs one slower run.
 	- Closed: 20261013-033301
+
+- `install.bash --help` prints nothing from the README one-liner, and `install.ps1` has no `-Help`.
+	- ID: 2026101410500005
+	- Type: Bug
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Incorrect behavior [Bug]: `bash <(curl ...) --help` printed nothing and exited 0. `install.ps1 -Help` failed with an unknown parameter.
+	- Expected behavior [Bug]: Usage, from either form.
+	- Reproduced [Bug]: Yes, 20261014.
+	- Actual cause [Bug]:
+		- The help was read out of the script's own file, which under `bash <(...)` is a pipe that's already been read.
+	- Actual fix [Bug]: The help is a heredoc in each script.
+	- Branch: tidyup
+	- Commit: c286dfe
+	- Test case: EshFEjs, EshFEju, EshFEk6. Each failed before the fix.
+	- Acceptance signoff: Self-closed: reproduced, and the tests failed before and pass after.
+	- Closed: 20261014-105000
 
 - `libzuid.a`'s compiler_rt object can differ between 2 builds of one commit.
 	- ID: 2026101305595488
@@ -349,7 +617,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261013: `cicd.bash --quick --package` passed on b26, EscFGGR and Esa8LVS included.
 	- Acceptance signoff: Self-closed 20261013. The fix does what the item asked, and its test failed before it and passes after.
 	- Closed: 20261013-151453
-	- Note: 20261013, the debug info in every file built here still differs between 2 cold builds. `tools/to_file.zig` is built in Debug and its bytes differ from one cold build to the next. The translate-c steps hash those bytes, so the translated headers land under new cache paths, and the paths are in the DWARF. Stripped files match. Filed as 2026101313551112.
+	- Note: 20261013, the debug info in every file built here still differs between 2 cold builds. `tools/to_file.zig` is built in Debug and its bytes differ from one cold build to the next. The translate-c steps hash those bytes, so the translated headers go under new cache paths, and the paths are in the DWARF. Stripped files match. Filed as 2026101313551112.
 
 - Debug info differs between 2 cold builds of one commit.
 	- ID: 2026101313551112
@@ -367,9 +635,9 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Incorrect behavior [Bug]: The debug info differs. The stripped files match.
 	- Expected behavior [Bug]: The same bytes from any machine that builds the same commit.
 	- Reproduced [Bug]: Yes, 20261013, on b23, while working 2026101305595488.
-	- Possible cause [Bug]: `tools/to_file.zig` is built in Debug, and its bytes differ from one cold build to the next. The translate-c steps hash those bytes, so the translated headers land under new cache paths, and those paths end up in the DWARF.
+	- Possible cause [Bug]: `tools/to_file.zig` is built in Debug, and its bytes differ from one cold build to the next. The translate-c steps hash those bytes, so the translated headers go under new cache paths, and those paths end up in the DWARF.
 	- Actual cause [Bug]:
-		- Confirmed. Same class as 2026101305595488. `to_file` was built by Zig's own x86_64 backend, which compiles functions on many threads. Its code came out the same every time, but its symbol names and debug info did not: `__anon_N` names carry the compiler's thread number, and the debug info is written in the order the threads finish.
+		- Confirmed. Same class as 2026101305595488. `to_file` was built by Zig's own x86_64 backend, which compiles functions on many threads. Its code came out the same every time, but its symbol names and debug info did not: `__anon_N` names include the compiler's thread number, and the debug info is written in the order the threads finish.
 		- A translate-c step hashes the program it runs, so each cold build put the translated headers in a new `o/<hash>` folder. Those folders are in the debug info of the command, `libzuid.so` and `libzuid.a`.
 	- Progress log:
 		- 20261013: 3 cold builds of `to_file` alone gave 3 different files. `.text` and the data matched; `.strtab`, `.debug_info`, `.debug_str` and `.debug_line` did not.
@@ -423,7 +691,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261013: 2 package runs on b23, the second under umask 077, gave 10 different files of 33: every tarball, zip, deb and rpm, and the checksums.
 		- 20261013: After the fix, b23 against the container: the bare Linux x86_64, arm64 and FreeBSD binaries and the FreeBSD tarball match. The Linux tarballs differ only in `libzuid.a`'s compiler_rt object. The Windows zips differ only there and in `zuid.exe` and `zuid.dll`, 20 bytes each. The deb and rpm match with the same nfpm. Tar and zip headers match.
 		- 20261013: b23's nfpm was left at 2.43.0, since it's installed outside the project.
-		- 20261013: b23's nfpm moved to the container's 2.47.0, by direct answer, from the same release file and hash. EsbF9Jy says so when a host's nfpm isn't the pinned one.
+		- 20261013: b23's nfpm moved to the container's 2.47.0, from the same release file and hash. EsbF9Jy says so when a host's nfpm isn't the pinned one.
 		- 20261013: Reproduced on b26 by packaging twice, the second under umask 077. The release file was the tarball, and in it only `libzuid.a` and the 2 dylib symlinks differed.
 	- Actual fix [Bug]:
 		- `package.bash` gives every file in a tarball, zip, deb and rpm one time: SOURCE_DATE_EPOCH, else the HEAD commit date, never the clock, and no earlier than 1980. Modes are 0755 or 0644 by whether the file runs. Tarballs are owner 0 by number with no names, sorted bytewise, and gzip keeps no name or time. Zips get the same list, with the zone pinned to UTC and no extra fields. nfpm gets the time, a fixed rpm build host and set modes on the license files.
@@ -545,7 +813,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261004: With that one fixture date written as `+00:00`, the rest of the full `--package` run passed on b26.
 		- 20261004: Every Python script the pipeline runs was checked against 3.9. Only `--at` with a `Z` needed newer. `gen-demo-gif.py` needs 3.11 for `tomllib` and already says so in one line, and the demo stage skips when it fails.
 		- 20261004: A bad `--at` threw a traceback too. It now prints one line and exits 2.
-		- 20261004: README lists Python 3.9 for the pipeline and 3.11 for the demo, by direct answer.
+		- 20261004: README lists Python 3.9 for the pipeline and 3.11 for the demo.
 	- Actual cause [Bug]:
 		- `test-ids.py new --at` handed the time straight to `fromisoformat`, which takes a trailing `Z` only from Python 3.11. The script header promises an ISO 8601 time, and `Z` is ISO.
 	- Decisions:
@@ -768,7 +1036,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261013: kept. Sister projects without a container item get one queued in their own backlog.
 	- Branch: container
 	- Test case: EsJ9SjE to EsJ9SjI and EsJ9cHS in `pipeline-test.bash`. Each one failed with its part of the stage broken.
-	- Acceptance signoff: Kept, by direct answer, 20261013.
+	- Acceptance signoff: Kept, 20261013.
 	- Closed: 20261013-033301
 
 - The Go module's errors cannot be told apart without reading their text.
@@ -810,7 +1078,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- `--publish` wants it in the release set.
 	- Progress log:
 		- 20261004: Reverses 2026100315241091. FreeBSD packages Wasmtime's C library as `libwasmtime`, which that item did not know.
-		- 20261004: The pins are `libwasmtime-45.0.0_1` and `zstd-1.5.7_2` from the FreeBSD 14 quarterly repo. FreeBSD's build of Wasmtime calls zstd, so its `libzstd.a` is linked too and ships in the tarball with zstd's BSD license.
+		- 20261004: The pins are `libwasmtime-45.0.0_1` and `zstd-1.5.7_2` from the FreeBSD 14 quarterly repo. FreeBSD's build of Wasmtime calls zstd, so its `libzstd.a` is linked too and goes in the tarball with zstd's BSD license.
 		- 20261004: `%m` reads AF_LINK as on macOS. Two lines.
 		- 20261004: On `vmFreeBSD`: the tarball's command, every component including `%m`, the 30 Zig tests, and `capi_smoke.c` with the base `cc` against both libraries all pass. `cli-test.bash` panicked the kernel once; see 2026100413383471.
 		- 20261004: On `vmFreeBSD`: `cli-test.bash` against the tarball's command passed 69 of 69, 40 times over.
@@ -845,6 +1113,39 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: none. A check of the test machine, not of zuid; the runs above are the result.
 	- Acceptance signoff: Self-closed: the update check and the retest ran.
 	- Closed: 20261004-183600
+
+- A hand-copied `zuid` of the same version reads as already installed.
+	- ID: 2026101410500006
+	- Type: Bug
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Incorrect behavior [Bug]: `install.bash` asked the link path for its version. A dogfood copy in `~/.local/bin` at the release's version gave "Already installed" with nothing in the install directory.
+	- Expected behavior [Bug]: It installs.
+	- Reproduced [Bug]: Yes, 20261014.
+	- Actual fix [Bug]: It asks the copy in the install directory, as `install.ps1` already did.
+	- Branch: tidyup
+	- Commit: c286dfe
+	- Test case: EshFEk3, which failed before the fix. EshFEk4 pins the same for `install.ps1`.
+	- Acceptance signoff: Self-closed: reproduced, and the test failed before and passes after.
+	- Closed: 20261014-105000
+
+- Go fuzzing and `package.bash` use every core.
+	- ID: 2026101410500008
+	- Type: Bug
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Incorrect behavior [Bug]: `go test -fuzz` starts a worker per core, and `package.bash` ran `zig build` with no job count.
+	- Expected behavior [Bug]: Half the cores, like every other stage.
+	- Actual fix [Bug]: `-parallel` on the fuzz run, and `-j` from `ZUID_JOBS` or half the cores in `package.bash`.
+	- Branch: tidyup
+	- Commit: 5cf3883
+	- Test case: none. A job count has no output to check.
+	- Acceptance signoff: Self-closed: mechanical.
+	- Closed: 20261014-105000
 
 - `pipeline-test.bash` leaves 2 temp folders behind on every run.
 	- ID: 2026101314215041
@@ -982,7 +1283,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261004: The backup stage is skipped in a linked worktree, with a line saying so, and `--backup` asked for by name is refused there. The helper archives the folder above the checkout, which for a worktree is not the project, and it wants a real `.git` directory. Making the backup work from a worktree would mean archiving the main checkout's project instead, which is a bigger change than this item.
 		- 20261004: Verified: `cicd.bash --quick --no-dogfood -q` from a scratch worktree passed, with the backup skipped. `--backup` there was refused before any stage. `pipeline-test.bash` 39 of 39, `test-ids.py check` and shellcheck pass.
 	- Decisions:
-		- Skip the backup in a worktree rather than make it work there. Confirmed by direct answer 20261004.
+		- Skip the backup in a worktree rather than make it work there. Confirmed 20261004.
 	- Actual fix [Bug]: Sync and preflight ask git whether the folder is the top of a checkout. Argument handling spots a linked worktree by its git dir differing from the common one.
 	- Swept: every `.git` path test in `cicd/` and the rest of the repo. `package.bash` and the test harnesses had none. The vendored `n8git_backup-and-publish` tests `.git/HEAD` and stays as is, since `cicd.bash` no longer calls it from a worktree.
 	- Branch: worktree
@@ -1036,7 +1337,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Actual fix [Bug]:
 		- Every tarball and zip gets `share/LICENSE-wasmtime.txt`, from `LICENSE` in the vendored Wasmtime tree. Linux, macOS and Windows take it from Wasmtime's own pinned archive. FreeBSD's `libwasmtime` package keeps it as `share/licenses/libwasmtime-*/APACHE20`, which is Wasmtime's `LICENSE` word for word, and the fetch now copies it in as `LICENSE`. A FreeBSD tree vendored before this has no `LICENSE`, so it is fetched again.
 		- The `.deb` and `.rpm` also get `LICENSE-wasmtime.txt`, `LICENSE-module.txt` and `NOTICE.txt`, beside the GPL text they had.
-		- The module license and NOTICE stay in the packages, by direct answer 20261004.
+		- The module license and NOTICE stay in the packages, 20261004.
 		- Note: the bare binaries still go out with no license file beside them, as before.
 	- Verified: the full `--package` run above. The FreeBSD fetch ran again and its `LICENSE` matches Wasmtime's own. Both macOS archives at the pinned checksums have the same `LICENSE`. Every new check failed against the release built from `main`, and the tarball check failed with the module's license in place of Wasmtime's.
 	- Swept: every tarball, both zips, both `.deb` and both `.rpm`. The Windows check now reads for the text only Wasmtime's license has, as the new checks do. `install.bash` and `install.ps1` install the whole tree, so nothing changes there. The macOS tarball change is only read, not run.
@@ -1099,6 +1400,88 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Acceptance signoff: Self-closed: the intent was clear, and the tests failed before the fix and pass after.
 	- Closed: 20261003-143030
 
+- The release notes have no build number.
+	- ID: 2026101410500009
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- The notes open with `zuid v<version> build <build>`, read from the release binary.
+	- Branch: tidyup
+	- Commit: 5cf3883
+	- Test case: EshGwj3, which failed with the line removed.
+	- Acceptance signoff: Self-closed: the intent was clear and the test passes.
+	- Closed: 20261014-105000
+
+- Lint the rest of the first-party scripts and the C header.
+	- ID: 2026101410500011
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- shellcheck `package.bash` and the pre-push hook too.
+		- Build the C smoke tests with `-std=c99 -Wall -Wextra -Wpedantic -Werror`.
+	- Progress log:
+		- 20261014: Both were clean already, on gcc 14, gcc 15, and clang.
+	- Branch: tidyup
+	- Commit: 5cf3883
+	- Test case: ElpGOHZ, Eq9gPQn, ElpGOHa, Eq9hexE now build with the warnings on.
+	- Acceptance signoff: Self-closed: mechanical.
+	- Closed: 20261014-105000
+
+- Run git and gh through gitsby in the pipeline.
+	- ID: 2026101410552129
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- `cicd.bash` calls git and gh through `gitsby raw` when gitsby is installed, so the git host account matches the repo. A plain clone uses plain git and gh. `ZUID_GH` still wins.
+	- Branch: tidyup
+	- Commit: 5cf3883
+	- Test case: none of its own. The publish cases in `pipeline-test.bash` go through the same function, and `--gate` passed.
+	- Acceptance signoff: Self-closed: mechanical.
+	- Closed: 20261014-105000
+
+- The demo's renders go with the private project files.
+	- ID: 2026101410552130
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Rotate the renders in `private/demo/gif/` when it's there, else `cicd/artifacts/demo/`.
+	- Progress log:
+		- 20261014: The renders already under `cicd/artifacts/demo/` were moved there.
+	- Branch: tidyup
+	- Commit: aaa915c
+	- Test case: none. Where a file goes, with a fallback.
+	- Acceptance signoff: Self-closed: mechanical.
+	- Closed: 20261014-105000
+
+- A content scrub before each push.
+	- ID: 2026101410552132
+	- Type: Task
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- `cicd.bash` and the pre-push hook run `private/hooks/scrub.bash` when it's there, and fail on a finding. A plain clone skips it.
+	- Progress log:
+		- 20261014: The script is copied from tradeclanker's, with this project's skip list. Its first run found 2 lines here, now reworded.
+	- Branch: tidyup
+	- Commit: 5cf3883
+	- Test case: none. The script is private, so a public test can't name what it checks.
+	- Acceptance signoff: Self-closed: mechanical.
+	- Closed: 20261014-105000
+
 - Windows release packages, x86_64 and arm64.
 	- ID: 2026100416052036
 	- Type: Enhancement
@@ -1114,7 +1497,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- `install.ps1` installs them.
 		- The release checks run on them, as on the other targets.
 	- Progress log:
-		- 20261004: Split from the packaging item under Old format. Windows ships as a `.zip` for `install.ps1`.
+		- 20261004: Split from the packaging item under Old format. Windows is released as a `.zip` for `install.ps1`.
 		- 20261004: arm64 has only Wasmtime's MSVC archive. Its `wasmtime.dll` may link from a mingw build, since a DLL's C interface does not depend on the toolchain. Untested.
 		- 20261004: arm64 links `wasmtime.dll` through its import library, and the zip has the DLL in `bin/`. That DLL imports only Windows' own DLLs, with no Visual C++ runtime, so a stock Windows 10 or 11 has everything it needs. Wasmtime's static MSVC archive does not link from mingw, since it asks for MSVC's own C runtime.
 		- 20261004: `--package` on Linux now builds both zips and the bare x86_64 `.exe`. The zips are laid out like the tarballs, plus Wasmtime's license. The checks that built Windows into scratch now read the zips in `dist/`.
@@ -1153,7 +1536,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Every component works there, `%m` included.
 		- The Zig tests and `capi_smoke.c` pass on a Windows test box.
 	- Progress log:
-		- 20261004: Split from the packaging and `%m` items under Old format. Built on the Linux machine, by direct answer 20261004. Both Windows boxes also have a mingw bash and git-bash, off PATH.
+		- 20261004: Split from the packaging and `%m` items under Old format. Built on the Linux machine. Both Windows boxes also have a mingw bash and git-bash, off PATH.
 		- 20261004: Wasmtime v47.0.3 publishes an x86_64 mingw C API archive. For arm64 there is only the MSVC one.
 		- 20261004: Built for `x86_64-windows-gnu` against Wasmtime's mingw archive, pinned by the digest GitHub lists for it and vendored under `--package` as `vendor/wasmtime-x86_64-windows`.
 		- 20261004: The live reads go to the Win32 API on Windows: the logon name, the DNS computer name, getaddrinfo for the FQDN, the adapter list for `%m`, and the system RNG.
@@ -1201,7 +1584,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261004: the macOS universal file spans both architecture columns. A markdown table cannot span cells, so the release notes need an HTML table for this.
 		- 20261004: the table goes after the changelog section, under its own "Downloads" heading. What changed reads first, and GitHub lists the assets at the bottom of the page anyway. With no changelog section the notes are the table alone, where before they were empty.
 		- 20261004: every row shows even with no files, as dashes, so the layout is the same in every release.
-		- 20261004: a missing macOS file is one dash across both columns. Left to this side by direct answer.
+		- 20261004: a missing macOS file is one dash across both columns. Settled 20261004.
 	- Branch: dl-table
 	- Commit: de03ae4
 	- Test case: `pipeline-test.bash` Erm9fTp (rows and columns), Erm9fTq (spanned macOS cell), Erm9fTr (missing target), ErmpEWr (missing macOS file), Erm9fTs (changelog, table, then checksums.txt), ErmAuec (refusal when gh cannot name the repo). All failed before their change.
@@ -1369,7 +1752,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- `getentropy` comes from `sys/random.h` there.
 		- `%m` reads `AF_LINK`.
-		- The shared library's install name carries the ABI major, `@rpath/libzuid.1.dylib`.
+		- The shared library's install name has the ABI major, `@rpath/libzuid.1.dylib`.
 		- The Wasmtime pin is per platform.
 		- The harnesses no longer depend on GNU `sed -i`, `wc` padding or `nproc`.
 	- Branch: macos
@@ -1410,7 +1793,9 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- FYI future versions of shcl might do the config backup and conversion for you. So just be careful not to race, conflict, or trample what shcl might try to do. (And first, while wiring up a new version of shcl in code, see if it has a new API to do or at least assist with the conversion for you.)
 	- Progress log:
 		- 20261003: waits on the config file item under Old format, which waits on shcl v3. shcl v3 is not cut yet.
-		- 20261005: Moot. There will be no config file, by direct answer.
+		- 20261005: Moot. There will be no config file.
+	- Test case: none. Moot.
+	- Closed: 20261005-194056
 
 - Write a test as part of CICD that creates old shcl file versions for settings, and tests the automatic (non-shcl-assisted) conversion.
 	- ID: 2026100313105251
@@ -1423,6 +1808,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261003: waits on its parent.
 		- 20261005: Moot, with its parent.
+	- Test case: none. Moot.
+	- Closed: 20261005-194056
 
 ## Old format
 
@@ -1447,7 +1834,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Note: 20261003, branch `publish`. The first real run waits on the Windows build, or on a go-ahead to publish with `--allow-partial`. The version in `core.zig` is still `1.0.0-alpha.1`, so a run today refuses on that tag.
 	- Decision: 20261004, the first real run waits on the Windows build. No `--allow-partial`.
 	- Test case: `ErgqYt2` to `ErgqYtH` and `ErgqjsR` in `pipeline-test.bash`. Each was seen to fail with its check broken.
-	- Note: 20261004, the Windows zips are built on Linux now, so every target lands in `dist/` and `dist-incoming/` is only for the macOS tarball. The first real run needs the version in `core.zig` moved to `1.0.0-beta.1`, and a go-ahead, since it publishes.
+	- Note: 20261004, the Windows zips are built on Linux now, so every target goes in `dist/` and `dist-incoming/` is only for the macOS tarball. The first real run needs the version in `core.zig` moved to `1.0.0-beta.1`, and a go-ahead, since it publishes.
 	- Decision: 20261005, at the first real publish every "open to change" decision above becomes settled and loses the tag, so they stop coming back at each review.
 	- Opened: 20260802-025417
 
@@ -1502,7 +1889,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - ✅ The `.deb` and `.rpm` checksums did not match the downloaded files.
 	- Cause: GitHub rewrites `~` to `.` in an uploaded filename.
 	- Fixed: both are named that way to begin with, so `checksums.txt` matches what a downloader ends up with.
-	- Note: the version recorded inside each package still carries the `~` that sorts it ahead of the final release.
+	- Note: the version recorded inside each package still has the `~` that sorts it ahead of the final release.
 	- Test case: none. It needs nfpm and a release build, which only `--package` does.
 	- Opened: 20260805-014016
 	- Closed: 20260805-014958
@@ -1545,7 +1932,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
 		- Fixed: the static module no longer links the Wasmtime archive, so `libzuid.a` holds its own two objects and went from 75 MB to 9.8 MB. Whoever links it supplies Wasmtime, which is what the header always said.
 		- Fixed: `package.bash` puts `libwasmtime.a` in the release `lib/`, so the link line the header prints has something to satisfy it.
-		- Fixed: member names are re-archived on basenames, so a published archive no longer carries the build machine's cache paths. That needs llvm-ar, since GNU ar lists the members Zig writes and then cannot address them; without it the step warns instead of failing.
+		- Fixed: member names are re-archived on basenames, so a published archive no longer has the build machine's cache paths. That needs llvm-ar, since GNU ar lists the members Zig writes and then cannot address them; without it the step warns instead of failing.
 		- Fixed: the header's linking paragraph now says where `libwasmtime.a` comes from, and that the shared library exports only the entry points.
 		- Done: two cicd checks. One links the smoke test against a tree holding only what is released, with the header's own link line, deliberately not pointed at `vendor/`. The other refuses an archive with another archive inside it.
 		- Verified: restoring the nesting fails the archive check. The review's reproduction - a tree holding only `libzuid.a` and `zuid.h` - failed with "have you installed the static version of the wasmtime library ?" before, and the unpacked release tarball now links both static and shared.
@@ -1553,14 +1940,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ✅ F3, should-fix: a C context that is never freed is not reported as a leak, in tests or in debug builds.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
 		- Cause: nothing could call the debug allocator's own check. A C caller never says it is finished, so there is no last moment for a `deinit()` to run in.
-		- Fixed: `capi.liveContexts()` and `capi.leakCount()` let the tests ask instead, the second one straight through `DebugAllocator.detectLeaks()` so the stack traces the design promises are real. Both are debug-only, so a release build carries no counter.
+		- Fixed: `capi.liveContexts()` and `capi.leakCount()` let the tests ask instead, the second one straight through `DebugAllocator.detectLeaks()` so the stack traces the design promises are real. Both are debug-only, so a release build has no counter.
 		- Verified: the review's own injection - replacing the three `defer capi.zuid_free(z)` lines with `_ = &z` - reports "expected 0, found 3", and the allocator half names all three leaked addresses on its own when checked first.
 		- Note: the test deliberately does not free twice. The magic check reads memory the allocator has unmapped, so it segfaults rather than returning, which is the recorded reason the header promises no more than C's `free()`.
 		- Test case: `Eq9icWm`.
 	- ✅ F5, should-fix: the C module reports a buffer too small for any identifier over 4 KB, however large the caller's buffer, and that error never has a message.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
 		- Fixed: `zuid_generate` renders straight into the caller's buffer, less the byte the NUL needs, so the only limit is the one the header documents. The error path now re-terminates that buffer, since a failure part way through leaves its own partial output where a separate buffer used to hide it.
-		- Fixed: `ZUID_ERR_BUFFER` carries text in all three cases - a short `out_cap`, a zero `out_cap`, and a NULL `out`. The clearing moved above the buffer checks so a rejected buffer reports its own reason rather than the previous call's.
+		- Fixed: `ZUID_ERR_BUFFER` has text in all three cases - a short `out_cap`, a zero `out_cap`, and a NULL `out`. The clearing moved above the buffer checks so a rejected buffer reports its own reason rather than the previous call's.
 		- Swept: the command had the same fixed 4096 buffer and reported `BufferTooSmall` by its error name. It now grows the buffer until the identifier fits, up to 1 MB, and says so in words past that. The Go module returns a string and never had the limit.
 		- Done: `cicd/utility/cli-test.bash` is new - 15 cases over what the command prints and exits with, which nothing covered before - and is a cicd stage.
 		- Verified: before the fix all four probe cases returned code 5 with empty text, including two that should have rendered. Reverting the module fails the Zig test and three `capi_smoke.c` checks; reverting the command fails three CLI cases.
@@ -1569,7 +1956,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Origin: 08c6996. Not seen by an earlier review. Confirmed.
 		- Cause: the test was whether `/usr/local/bin` exists, which it does everywhere, rather than whether it can be written. The install then failed after the whole download, with no elevation path of the kind `install.bash` has through sudo.
 		- Fixed: `Test-DirectoryWritable` writes a probe file into the nearest existing ancestor and removes it, rather than reading a mode or an ACL. On Windows the install directory decides; elsewhere the link directory does, which is what `install.bash` tests.
-		- Verified: a new harness case. Before the fix nothing landed under `HOME`; after it, the user install happens. It skips itself where the system location is writable, such as a run as root, since system is then the right answer.
+		- Verified: a new harness case. Before the fix nothing went under `HOME`; after it, the user install happens. It skips itself where the system location is writable, such as a run as root, since system is then the right answer.
 		- Note: an explicit `-Target system` never reaches the probe, so that path is unchanged. Not covered by a test, since a system install needs root.
 		- Note: the harness gave every case its own `HOME` only on paper - the counter naming them was incremented inside the command substitution that read it, so the subshell kept the new value and all of them shared one directory. Named directories now.
 		- Test case: `Eq9l4yO`, `Eq9l4yP`.
@@ -1699,7 +2086,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Should work on Windows too.
 	- Done: macOS, 20260930. Windows is left.
 	- Decision: 20261003, the Windows build may run on a Windows test box, so the MSVC toolchain is open as well as mingw. MSVC is preferred where the box has the build tools, since most Windows C users link with it.
-	- Note: 20261004, the Windows build is cross-built on Linux after all, by direct answer. See 2026100416052035.
+	- Note: 20261004, the Windows build is cross-built on Linux after all. See 2026100416052035.
 	- Done: 20261004, Windows, through GetAdaptersAddresses. Go and Zig gave the same `%m` on vm925w. See 2026100416052035.
 	- Test case: the Zig tests and the `--package` Windows checks, run on vm925w. No test pins the Windows address itself, since it differs per machine.
 	- Opened: 20260802-135041
@@ -1720,9 +2107,9 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Opened: 20260917-131500
 	- Closed: 20261004-175611
 
-- ✅ The backup archived every build cache it walked past. Here that was a 12 GB `.zig-cache` and 957 MB of Panoplia audit scratch, and no other project excluded any of it.
-	- Cause: the exclude was set from this project's cicd stage, on the reasoning that about 20 projects carry their own fork of the helper and a fix in one reaches none of the others. That left the helper's own generic list with no cache patterns at all, so every other project kept paying.
-	- Fixed: the patterns moved into the helper's generic list, in all 22 project copies plus the canonical one, as one dir-and-contents block. It covers `.zig-cache`, ccache, ccls, `CMakeFiles`, `.cache`, and the JS, Haskell and Python caches. The Panoplia `working/audit-*` trees go with them, since each subagent gets a whole copy of the build; the reports beside them are small and stay in.
+- ✅ The backup archived every build cache it walked past. Here that was a 12 GB `.zig-cache` and 957 MB of old audit build copies, and no other project excluded any of it.
+	- Cause: the exclude was set from this project's cicd stage, on the reasoning that about 20 projects keep their own fork of the helper and a fix in one reaches none of the others. That left the helper's own generic list with no cache patterns at all, so every other project kept paying.
+	- Fixed: the patterns moved into the helper's generic list, in all 22 project copies plus the canonical one, as one dir-and-contents block. It covers `.zig-cache`, ccache, ccls, `CMakeFiles`, `.cache`, and the JS, Haskell and Python caches. The `working/audit-*` trees go with them, since each holds a whole copy of the build; the reports beside them are small and stay in.
 	- Fixed: `default_rarExcludes` is empty now, with the hook left plumbed for a pattern only this project would want. The stage line says so rather than printing nothing.
 	- Verified: archiving the live tree drops from 14 GB to 299 MB, and from 1.1 GB for this project specifically, which was already excluding its Zig cache. `zig-out`, `dist/` and the audit reports are all still in.
 	- Note: `zig-out` is deliberately not excluded. The block promises release builds stay in.
@@ -1754,7 +2141,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 - ✅ The installers' system-wide destinations are untested.
 	- Done: `installer-test.bash` patches a second pair of copies with `/opt` and `/usr/local` moved under its scratch tree, so `--target system` runs with no root anywhere. `sudo` is a shim that runs the command as-is and records that it was asked.
-	- Done: covers where the install lands, that the link is a symlink onto it, that nothing is written under `HOME`, that a re-run fetches nothing, and that uninstall takes both the directory and the link. `install.bash` also has to elevate, and say so in the plan beforehand; the user target has to not.
+	- Done: covers where the install goes, that the link is a symlink onto it, that nothing is written under `HOME`, that a re-run fetches nothing, and that uninstall takes both the directory and the link. `install.bash` also has to elevate, and say so in the plan beforehand; the user target has to not.
 	- Verified: three injected faults - a system target writing into `HOME`, a missing `sudo` prefix, and an uninstall that leaves the link - each fail the new cases.
 	- Note: 28 cases before, 49 after.
 	- Test case: `EqANb6u` through `EqANb7B`.
@@ -1795,9 +2182,9 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Opened: 20260917-104114
 	- Closed: 20260917-130524
 
-- ✅ The `.deb` and `.rpm` install the C header but no library. Ship the libraries with it, or leave the header out.
+- ✅ The `.deb` and `.rpm` install the C header but no library. Put the libraries in too, or leave the header out.
 	- Done: the header is out. Both packages install the command and its license, nothing else.
-	- Why that way round: the shared library is 28 MB, which doubles the download for everyone who only wants the command, and it would need a per-distro library directory and an `ldconfig` step to be found at all. The tarball already ships the whole C module, including the Wasmtime archive the static library needs.
+	- Why that way round: the shared library is 28 MB, which doubles the download for everyone who only wants the command, and it would need a per-distro library directory and an `ldconfig` step to be found at all. The tarball already has the whole C module, including the Wasmtime archive the static library needs.
 	- Verified: `installer-test.bash` reads the nfpm contents list and fails if a header is listed with no library. Putting the header entry back turns it red.
 	- Note: a proper `-dev` package is the real answer eventually. Listed under Future.
 	- Origin: code review 20260917-104114, idea I7.
@@ -1835,7 +2222,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Opened: 20260917-104114
 	- Closed: 20260917-124100
 
-- ✅ Add to demo GIF: ships as module too.
+- ✅ Add to demo GIF: it's a module too.
 	- Done: the demo closes on the name and the module note. The random step was cut to stay under 45 seconds.
 	- Test case: none. It is a rendered animation, checked by eye.
 	- Opened: 20260917-092933
@@ -1869,7 +2256,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Opened: 20260801-090104
 	- Closed: 20260805-014958
 
-- ✅ `jim-collier/zuid` exists and carries `main`, the `v1.0.0-alpha.1` tag, and that prerelease with its x86_64 Linux artifacts.
+- ✅ `jim-collier/zuid` exists and has `main`, the `v1.0.0-alpha.1` tag, and that prerelease with its x86_64 Linux artifacts.
 	- Test case: none. It is state on the git host.
 	- Opened: 20260801-090104
 	- Closed: 20260805-012556
@@ -1895,7 +2282,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Closed: 20260805-001410
 
 - ✅ Identifier spec. Drafted in `design.md`, implemented on both sides.
-	- ✅ One time encoding (units since the Unix epoch, UTC), replacing the predecessor's four algorithms. Precision stays selectable, carrying its surface forward: -1 minute, 0 second (default), 1 millisecond.
+	- ✅ One time encoding (units since the Unix epoch, UTC), replacing the predecessor's four algorithms. Precision stays selectable, with the same values: -1 minute, 0 second (default), 1 millisecond.
 	- ✅ Fixed-width zero padding, which is what actually makes output sortable. Width is derived rather than tabulated, so moving the horizon or a strength target moves the widths with it.
 	- ✅ The three open questions are settled: horizon year 3000, precision as above, same-tick repeats stay literal with a warning once multi-emit exists.
 	- Test case: `ElmNxqS`, `EloUhiz`, `ElmNxqU`, `Em32NzU`, `Em32Nzb`, `Elom8tE`, `ErOiQbL`, `ErOiQbM`.
@@ -1906,7 +2293,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ✅ Repo, folder layout, and the architecture decisions behind the split.
 	- ✅ Shared test vectors (`testdata/vectors.tsv`), which both must reproduce.
 		- ✅ Time-only rows, across the narrow curated bases and all three precisions, including truncation and horizon-boundary rows. Sort guarantee checked against them.
-		- ✅ Rows for the other components, then for the wide bases, then for the derived widths: 190 in total. An `env` column carries the injected host, user, FQDN, hardware address, random stream, and width options, so a row states only what it cares about.
+		- ✅ Rows for the other components, then for the wide bases, then for the derived widths: 190 in total. An `env` column has the injected host, user, FQDN, hardware address, random stream, and width options, so a row states only what it cares about.
 		- ✅ Expected values come from a third independent derivation, worked from `design.md` rather than from either implementation, so agreement between the two cannot just mean they are wrong the same way.
 	- Test case: `ElmNxqS`, `EloUhiz`.
 	- Opened: 20260801-090104
@@ -1956,14 +2343,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ✅ Curated set is now **16, 32w, 36, 62, 64tt, 128tt, 256tt, 512tt, 1024tz, 2048tz**, default still 62. `tt` up to 512, `tz` above it, which is where `tt` stops existing.
 	- ✅ Padding and truncation both delegate to the library's one right-align call, so the two implementations cannot drift on half a policy each.
 	- ✅ The multi-byte-digit refusal is gone. Every component works in every base, which is what made the wide families usable at all. Its C error code is retired rather than renumbered.
-	- ✅ `%r` draws enough bytes to fill its symbols. One byte each still covers everything up to 256; above that a symbol carries more than eight bits and the leading one would otherwise never vary.
+	- ✅ `%r` draws enough bytes to fill its symbols. One byte each still covers everything up to 256; above that a symbol is more than eight bits and the leading one would otherwise never vary.
 	- ✅ `go.mod` pins the published release; the local `replace` directive is gone. The reactor wasm is built from that same pinned version instead of copied from a neighboring checkout.
 	- ✅ Vectors grew 115 -> 187. The new rows come from a third independent derivation, which reproduces all 115 existing rows before generating any new one.
 	- Test case: `ElmNxqS`, `EloUhiz`, `Em2hrcO`, `Em2hrcP`, `Em2hrcQ`, `Em2hrcR`, `ErOj0WV`.
 	- Opened: 20260802-143233
 	- Closed: 20260804-210541
 
-- ✅ Curated base list, in the help output and in both implementations: **16, 32w, 36, 62, 64tt, 128tt, 256tt, 512tt, 1024tz, 2048tz**, default 62. Help builds the line from the list itself, so the two cannot drift. `--base` still accepts any base the library knows, and an unknown one gets the library's near-match suggestion. The `zuid-go` command that first carried it was dropped - the Go side is module-only.
+- ✅ Curated base list, in the help output and in both implementations: **16, 32w, 36, 62, 64tt, 128tt, 256tt, 512tt, 1024tz, 2048tz**, default 62. Help builds the line from the list itself, so the two cannot drift. `--base` still accepts any base the library knows, and an unknown one gets the library's near-match suggestion. The `zuid-go` command that first had it was dropped - the Go side is module-only.
 	- Decided: the RFC 4648 base 64 variants were dropped. Their alphabet does not sort, and they need the same 8 characters as base 62, which does.
 	- Decided: the wide families were added once truncation worked in them. `tt` up to 512, `tz` above it - below 512 the two are one alphabet under two names, at 512 they genuinely differ, and past it only `tz` continues.
 	- ✅ Alphabets reconciled against `convertbase`. Its `32w` is the same 32 symbols the vectors assume, reached by the same alias, so every row reproduces through the real library rather than a local table.
@@ -1989,7 +2376,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Closed: 20260804-210541
 
 - ✅ The remaining components are done on both sides, and the vectors grew from 72 rows to 115.
-	- ✅ The `Converter` interface now carries a from-base, since hashes, hardware addresses, and UUIDs all arrive as hex rather than decimal.
+	- ✅ The `Converter` interface now takes a from-base, since hashes, hardware addresses, and UUIDs all arrive as hex rather than decimal.
 	- ✅ Zig gained an `Env` interface next to it, so the core still touches neither the runtime nor the operating system.
 	- Test case: `ElmNxqS`, `EloUhiz`, `ElpGOHX`.
 	- Opened: 20260802-020157
@@ -2099,12 +2486,12 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - ✅ Trimmed the `x9muid1` reference copy from 3039 lines to 1280, so it can be read for what it actually does.
 	- Done: dropped the debug-trace, unit-test, and sudo scaffolding, plus the ~1600-line generic library that nothing in it called.
 	- Verified: same output and exit codes across every dtalgo, precision, hashing setting, and error path.
-	- Test case: none. It is a reference copy, not built or shipped.
+	- Test case: none. It is a reference copy, not built or released.
 	- Opened: n/a
 	- Closed: 20260802-010143
 
 - ✅ Code review 20260804, the enhancement half.
-	- ✅ Code review 20260804 item 5: component widths carry a strength rather than a symbol count.
+	- ✅ Code review 20260804 item 5: component widths come from a strength rather than a symbol count.
 		- Cause: a symbol is worth four bits in base 16 and eleven in 2048tz, so the fixed 8-and-6 defaults promised a strength they only delivered in base 62. `%r` was 36 bits there and 24 in base 16, where a birthday collision arrives after about four thousand draws.
 		- Fixed: the default width is now derived from a target - 47 bits for a hashed name, 35 for `%r`, which is what 8 and 6 base-62 symbols have always held - so the strength stays put and the width moves: 12 and 9 symbols in base 16, 5 and 4 in 2048tz. Base 62 is unchanged.
 		- Note: this is the rule `%d`, `%m`, and `%g` already followed, so all seven components now size themselves one way instead of two.
@@ -2146,16 +2533,17 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 🔘 Settings live under `~/.config` (YAML or TOML), resistant to errors (e.g. don't bail on the whole thing due to one bad line).
 			- Notes:
 				- This would be shcl now, not YAML or TOML.
-				- Wait for v3 to ship.
+				- Wait for v3 to be released.
 	- 🔘 Overridden by program options at run-time.
 	- 🔘 Config file creation belongs to the command only, never to either module.
-	- Decision: 20261005, no config file, by direct answer. A default that moves the base or the precision changes width and sort order, so one script would give identifiers on two machines that do not sort together. Defaults stay compiled in and options override them. The salt, the one per-deployment setting, comes from `--salt-file`.
+	- Decision: 20261005, no config file. A default that moves the base or the precision changes width and sort order, so one script would give identifiers on two machines that do not sort together. Defaults stay compiled in and options override them. The salt, the one per-deployment setting, comes from `--salt-file`.
 	- Opened: 20260801-090104
 	- Closed: 20261005-193439
 
 - 🚫 No logo. `README.md` dropped the template's `assets/logo.png` references since there is no `assets/`.
-	- Note: `assets/` exists now, but holds only the demo animation.
+	- Note: `assets/` exists now, but has only the demo animation.
 	- Opened: 20260801-090104
+	- Closed: 20260801-090104
 
 ## Template
 
