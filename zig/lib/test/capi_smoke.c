@@ -58,7 +58,7 @@ int main(void) {
 	want("time, base 32w", out, "2r8pRr2");
 
 	/* Derived widths, in base 62: hash 8, uuid 22, random 6. Every base gets
-	   the width carrying the same strength, not the same symbol count. */
+	   the width with the same strength, not the same symbol count. */
 	wantCode("generate %h", gen(z, "%h", NULL, out, sizeof out), ZUID_OK);
 	wantLen("host, hashed", out, 8);
 	wantCode("generate %g", gen(z, "%g", NULL, out, sizeof out), ZUID_OK);
@@ -67,7 +67,7 @@ int main(void) {
 	wantLen("random", out, 6);
 
 	/* Bases whose digits are several bytes each. The clock is the only source
-	   this API can pin, so %d is what gets an exact value; %h and %r just have
+	   this API can pin, so %d is what gets an exact value; %h and %r only have
 	   to work, since their widths are in symbols and strlen counts bytes. The
 	   vectors cover those two in these bases from both implementations. */
 	zuid_set_clock_ms(z, 1785585600000LL);
@@ -86,7 +86,7 @@ int main(void) {
 		wantLen("resized components", out, 17);
 	}
 
-	/* Zero is the base's derived default, and nothing carried over. */
+	/* Zero is the base's derived default, and nothing was left over. */
 	wantCode("generate defaulted", gen(z, "%h%r", NULL, out, sizeof out), ZUID_OK);
 	wantLen("defaulted components", out, 14);
 
@@ -148,7 +148,7 @@ int main(void) {
 	zuid_clear_clock(z);
 
 	/* ZUID_ERR_BUFFER used to fire for a fixed 4096-byte buffer inside the
-	   module, whatever out_cap said, and it never carried any text. */
+	   module, whatever out_cap said, and it never had any text. */
 	{
 		static char big[65536];
 		char many[401];

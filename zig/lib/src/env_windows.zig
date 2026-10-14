@@ -125,13 +125,13 @@ fn toUtf8(wide: []const u16, out: []u8) core.Error![]const u8 {
     return out[0..std.unicode.wtf16LeToWtf8(out, wide)];
 }
 
-// A name from Go's user.Current or the environment can carry the domain.
+// A name from Go's user.Current or the environment can include the domain.
 // test-id: ErmqB7B
-test "a Windows account name drops its domain" {
+test "Windows account drops domain" {
     const L = std.unicode.utf8ToUtf16LeStringLiteral;
-    try std.testing.expectEqualSlices(u16, L("WinTest"), bareAccountName(u16, L("VM925W\\WinTest")));
+    try std.testing.expectEqualSlices(u16, L("Alice"), bareAccountName(u16, L("HOST\\Alice")));
     try std.testing.expectEqualSlices(u16, L("ÅSA"), bareAccountName(u16, L("ÅSA")));
-    try std.testing.expectEqualSlices(u16, L("wintest"), bareAccountName(u16, L("\\wintest")));
+    try std.testing.expectEqualSlices(u16, L("alice"), bareAccountName(u16, L("\\alice")));
 }
 
 // Windows ignores case in account names. Go's zuid_windows_test.go checks the
@@ -141,6 +141,6 @@ test "a Windows account name is lower-cased" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
     const L = std.unicode.utf8ToUtf16LeStringLiteral;
     var out: [core.name_buf_len]u8 = undefined;
-    try std.testing.expectEqualStrings("wintest", try accountName(L("VM925W\\WinTest"), &out));
+    try std.testing.expectEqualStrings("alice", try accountName(L("HOST\\Alice"), &out));
     try std.testing.expectEqualStrings("åsa.öberg", try accountName(L("KÖNIG\\ÅSA.ÖBERG"), &out));
 }

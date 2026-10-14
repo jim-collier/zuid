@@ -20,7 +20,7 @@ pub const default_base = "62";
 /// The short list the help screen shows. --base still accepts anything the
 /// conversion library knows; these are the ones that sort. The first four
 /// transcribe by hand; the wide families trade that away for length, and only
-/// one of the two names each radix carries is listed - tt up to 512, tz above
+/// one of the two names each radix has is listed - tt up to 512, tz above
 /// it, which is where tt stops existing.
 pub const curated_bases = [_][]const u8{
     "16",     "32w",    "36",    "62",
@@ -28,7 +28,7 @@ pub const curated_bases = [_][]const u8{
     "1024tz", "2048tz",
 };
 
-/// Fingerprint strength a hashed component carries, and %r's. The default
+/// Fingerprint strength a hashed component has, and %r's. The default
 /// widths are whatever these come to in the output base - which is what eight
 /// and six base-62 symbols have always held, so base 62 is unchanged and every
 /// other base is sized to match its strength rather than its symbol count. A
@@ -57,8 +57,8 @@ const digest_bits: u16 = std.crypto.hash.sha2.Sha256.digest_length * 8;
 /// the widths follow.
 pub const horizon_ms: u64 = 32503680000000;
 
-/// Time unit for the %d component, carrying the predecessor's surface
-/// forward: -1 minute, 0 second (the default), 1 millisecond. The clock is
+/// Time unit for the %d component, keeping the predecessor's choices:
+/// -1 minute, 0 second (the default), 1 millisecond. The clock is
 /// always injected in milliseconds; coarser units truncate toward zero.
 pub const Precision = enum(i8) {
     minute = -1,
@@ -98,19 +98,19 @@ pub const component_buf_len = 1024;
 /// Sized for a format naming every component, plus literal text between them.
 pub const out_buf_len = 4096;
 
-/// Longest name %h, %u, or %f can carry. A fully-qualified name tops out at
+/// Longest name %h, %u, or %f can take. A fully-qualified name tops out at
 /// 253 bytes.
 pub const name_buf_len = 256;
 
 /// Bytes any component hands to base conversion. The largest is a random draw
-/// filling max_component_chars symbols of the widest base the library carries,
+/// filling max_component_chars symbols of the widest base the library has,
 /// whose symbols are 16 bits - two bytes each. A wider base than that would
 /// need more, so randomComponent checks rather than trusting the arithmetic.
 const raw_buf_len = max_component_chars * 2;
 
 pub const Error = error{
     /// Base name or alias resolves to nothing. The converter's error text
-    /// carries near-match suggestions.
+    /// includes near-match suggestions.
     UnknownBase,
     /// The conversion library rejected the input or the request.
     BadInput,
@@ -131,7 +131,7 @@ pub const Error = error{
     /// trapped or erred, or its module failed inside. Ask it for the text.
     RuntimeFailed,
     /// The base renders raw bytes or control characters rather than text, so
-    /// it cannot carry an identifier.
+    /// it cannot be used for an identifier.
     BaseNotText,
     /// hash_chars is past what a SHA-256 fills in this base, so the extra
     /// symbols would all be left-fill. maxHashChars has the ceiling.
@@ -165,7 +165,7 @@ pub const Converter = struct {
         /// The base's zero digit, which is also the padding symbol. Used to
         /// tell a text base from a raw-byte one.
         zeroSymbol: *const fn (ctx: *anyopaque, base: []const u8, out: []u8) Error![]const u8,
-        /// What the last text check decided about this base, or null if it has
+        /// What the last text check found about this base, or null if it has
         /// not been asked. The check itself stays here in core, since it is
         /// spec; only the remembering is the converter's, next to the radix and
         /// the zero digit it already keeps. 33 round trips an identifier is
@@ -292,7 +292,7 @@ pub fn defaultRandomChars(radix: u64) u32 {
     return widthForBits(radix, random_bits);
 }
 
-/// How many symbols of a SHA-256 this base can actually carry: 64 in base 16,
+/// How many symbols of a SHA-256 this base can hold: 64 in base 16,
 /// down to 24 in 2048tz. Past it the extra symbols are all left-fill, so the
 /// identifier grows without the fingerprint getting any stronger - worth
 /// refusing rather than emitting.
@@ -314,7 +314,7 @@ pub fn generate(conv: Converter, env: Env, opts: Options, out: []u8) Error![]con
         .hash = if (opts.hash_chars == 0) defaultHashChars(radix) else opts.hash_chars,
         .random = if (opts.random_chars == 0) defaultRandomChars(radix) else opts.random_chars,
     };
-    // Only the widths this format actually spends get checked. A hash width
+    // Only the widths this format uses get checked. A hash width
     // that fits base 16 is past the ceiling in 2048tz, and a bare %d has no
     // business failing over a number it never reads.
     const spends = spentWidths(opts.format);
@@ -378,7 +378,7 @@ fn spentWidths(format: []const u8) SpentWidths {
     return spends;
 }
 
-/// The conversion library carries a base whose 256 digits are literal byte
+/// The conversion library has a base whose 256 digits are literal byte
 /// values. It converts happily, which is the problem - an identifier full of
 /// control characters and invalid UTF-8 is not an identifier, and that base
 /// cannot hold a decimal timestamp at all, so a format mixing %d with anything
@@ -386,7 +386,7 @@ fn spentWidths(format: []const u8) SpentWidths {
 /// is the one piece of base metadata both implementations can read.
 ///
 /// One text-looking base is a problem too: 98keyboard holds tab, newline and
-/// return among its digits, so an identifier can carry a line break without
+/// return among its digits, so an identifier can contain a line break without
 /// the zero digit ever showing it. Each control byte gets asked after.
 /// The verdict is remembered by the converter, because asking costs 33 round
 /// trips and a base cannot change its digits. Only a settled yes or no is
@@ -455,7 +455,7 @@ fn timeComponent(conv: Converter, base: []const u8, radix: u64, precision: Preci
 const NameKind = enum { host, user, fqdn };
 
 /// Host, user, or FQDN. Hashed by default: the name goes through SHA-256 and
-/// only the rightmost few symbols survive, so the identifier carries a
+/// only the rightmost few symbols survive, so the identifier has a
 /// fingerprint rather than an identity. Opting out emits the name itself,
 /// which is the one component that is not fixed width.
 ///
@@ -514,7 +514,7 @@ fn randomComponent(conv: Converter, env: Env, base: []const u8, radix: u64, coun
 /// How many bytes fill count symbols of the given radix. One byte per symbol
 /// covers anything up to 256 symbols and is what the narrow bases have always
 /// drawn, so the floor keeps their output unchanged. Above 256 a symbol
-/// carries more than eight bits, and one byte each would leave the leading
+/// holds more than eight bits, and one byte each would leave the leading
 /// symbols permanently at the zero digit.
 fn randomBytesFor(radix: u64, count: u32) u32 {
     const bits_per_symbol: u32 = 64 - @clz(radix - 1);
@@ -562,7 +562,7 @@ test "widthFor matches the design table" {
 }
 
 // test-id: ElpGOHV
-test "component widths come from their bit counts" {
+test "component widths from bit counts" {
     try std.testing.expectEqual(@as(u32, 12), widthForBits(16, mac_bits));
     try std.testing.expectEqual(@as(u32, 10), widthForBits(32, mac_bits));
     try std.testing.expectEqual(@as(u32, 10), widthForBits(36, mac_bits));
@@ -578,7 +578,7 @@ test "component widths come from their bit counts" {
 // from the strength instead, and base 62 - where the targets were taken from -
 // stays where it was.
 // test-id: Em3M9HG
-test "default widths carry the same strength in every base" {
+test "default width strength" {
     const cases = [_]struct { radix: u64, hash: u32, random: u32, ceiling: u32 }{
         .{ .radix = 16, .hash = 12, .random = 9, .ceiling = 64 },
         .{ .radix = 32, .hash = 10, .random = 7, .ceiling = 52 },
@@ -603,7 +603,7 @@ test "default widths carry the same strength in every base" {
 }
 
 // test-id: Elom8tE
-test "precision surface round-trips -1|0|1 and rejects the rest" {
+test "precision round-trip" {
     try std.testing.expectEqual(Precision.minute, Precision.fromInt(-1).?);
     try std.testing.expectEqual(Precision.second, Precision.fromInt(0).?);
     try std.testing.expectEqual(Precision.milli, Precision.fromInt(1).?);
@@ -612,7 +612,7 @@ test "precision surface round-trips -1|0|1 and rejects the rest" {
 }
 
 // test-id: ElpGOHW
-test "hex is upper case, which is what base 16 expects" {
+test "hex is upper case" {
     var buf: [8]u8 = undefined;
     try std.testing.expectEqualStrings("00AB5EFF", hexUpper(&[_]u8{ 0x00, 0xab, 0x5e, 0xff }, &buf));
 }

@@ -56,7 +56,7 @@ Short, sortable, privacy-preserving unique identifiers - from a command line, a 
 
 </div>
 
-> **Alpha.** First prerelease is `v1.0.0-alpha.1`. Both implementations build and reproduce the shared test vectors, and every component works from the command line, the Go module, and the C module. Releases for platforms other than Linux are still to come. See [project/backlog.md](project/backlog.md) for where it actually stands.
+> **Alpha.** First prerelease is `v1.0.0-alpha.1`. Both implementations build and reproduce the shared test vectors, and every component works from the command line, the Go module, and the C module. It's for x86_64 Linux only, and it was built for newer CPUs than intended, so it stops with an illegal instruction on many Intel chips from before 2019. The next release fixes that and adds the other platforms. See [project/backlog.md](project/backlog.md) for where it stands.
 
 <!-- TOC ignore:true -->
 ## Table of contents
@@ -68,7 +68,7 @@ Short, sortable, privacy-preserving unique identifiers - from a command line, a 
 - [How it is built](#how-it-is-built)
 - [Installation](#installation)
 	- [Packages and installers](#packages-and-installers)
-	- [Direct install script](#direct-install-script)
+	- [Direct stable and dev install scripts](#direct-stable-and-dev-install-scripts)
 	- [Do it yourself](#do-it-yourself)
 - [Setting up a development environment](#setting-up-a-development-environment)
 	- [Prerequisites](#prerequisites)
@@ -80,13 +80,13 @@ Short, sortable, privacy-preserving unique identifiers - from a command line, a 
 
 ## Why
 
-A UUID is 36 characters, sorts meaninglessly, and is awkward to read over a phone. Most of the time that buys uniqueness nobody needed.
+A random UUID is 36 characters, sorts meaninglessly, and is awkward to read over a phone. Most of the time that buys uniqueness nobody needed.
 
 An identifier built from a timestamp and rendered in a compact base is far shorter, sorts in creation order as plain text, and is still unique enough for the job. When it is not, more components can be mixed in - more time precision, host, user, hardware address, a UUID, or random data - and the same identifier gets as unique as required.
 
-Host and user components are hashed by default, so an identifier does not leak where it came from.
+Host and user components are hashed by default, so an identifier does not leak where it came from. A hardware address (`%m`) is not hashed, so leave it out where that matters.
 
-```
+~~~console
 $ zuid                          # the default: a timestamp, base 62, to the second
 1wqd1q
 $ zuid -f='%d%r'                # plus six random symbols, for same-second uniqueness
@@ -97,9 +97,9 @@ $ zuid -f='%d%r' -n='3'         # three at once, one per line
 1wqd2AKtvRnz
 1wqd2AQ1mc6f
 1wqd2A9xJbEY
-```
+~~~
 
-Every component is a fixed width, so identifiers line up in a column, sort as text, and can be split back into their parts by offset.
+Every component except an unhashed name is a fixed width, so identifiers line up in a column, sort as text, and can be split back into their parts by offset.
 
 ## Features
 
@@ -137,49 +137,49 @@ The Go module stays free of cgo and cross-compiles statically. The Zig side prod
 
 Preferred. `v1.0.0-alpha.1` is published for x86_64 Linux; on any other platform, build from source with [Do it yourself](#do-it-yourself) below.
 
-| Platform | Package |
-| :-- | :-- |
-| Debian, Ubuntu | `zuid_<version>_amd64.deb` |
-| Fedora, RHEL, openSUSE | `zuid-<version>.x86_64.rpm` |
-| Windows | the `.zip`, or on x86_64 the bare `.exe` |
-| Anything else | the `.tgz`, or the bare binary |
+| Platform               | Package
+| :---                   | :---
+| Debian, Ubuntu         | `zuid_<version>_amd64.deb`
+| Fedora, RHEL, openSUSE | `zuid-<version>-1.x86_64.rpm`
+| Windows                | the `.zip`, or on x86_64 the bare `.exe`
+| Anything else          | the `.tgz`, or the bare binary
 
-The `.deb` and `.rpm` install the command. The C module - the header, the static and shared libraries, and the Wasmtime archive the static one needs - comes in the `.tgz`, or the `.zip` on Windows. On arm64 Windows, Wasmtime is `wasmtime.dll`, which has to sit beside `zuid.exe`, so there is no bare `.exe` for it.
+The `.deb` and `.rpm` install the command. The C module - the header, the static and shared libraries, and the Wasmtime archive the static one needs, plus `libzstd.a` on FreeBSD - comes in the `.tgz`, or the `.zip` on Windows. On arm64 Windows, Wasmtime is `wasmtime.dll`, which has to sit beside `zuid.exe`, so there is no bare `.exe` for it.
 
-macOS, ARM, Windows, and FreeBSD x86_64 builds are produced but not published yet.
+Linux arm64, macOS, Windows, and FreeBSD x86_64 builds are produced but not published yet.
 
-### Direct install script
+### Direct stable and dev install scripts
 
-Both scripts download the latest release, check it against the published checksums, say what they are about to do, and ask before touching anything. Re-running one is a no-op when nothing changed, and `--uninstall` reverses it.
+Both scripts download the latest release, check it against the published checksums, say what they are about to do, and ask before touching anything. Re-running one is a no-op when nothing changed. Pass `--help` (`-Help` for PowerShell) for options. It uses sane defaults and prompts for confirmation.
 
 Linux, macOS, FreeBSD, and WSL. FreeBSD needs `pkg install bash curl` first:
 
 ~~~bash
-bash <(curl -fsSL https://raw.githubusercontent.com/jim-collier/zuid/main/install.bash)  [--release stable|dev]  [--target user|system]  [--arch x86_64|arm64]
+bash <(curl -fsSL https://raw.githubusercontent.com/jim-collier/zuid/main/install.bash)
 ~~~
 
 Windows, Linux, and macOS, under PowerShell 7 or newer. Windows PowerShell 5.1 stops with a message saying so:
 
 ~~~powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/jim-collier/zuid/main/install.ps1')))  [-Release dev|stable]  [-Target user|system]  [-Arch x86_64|arm64]
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/jim-collier/zuid/main/install.ps1')))
 ~~~
 
 Where things go:
 
-| OS | System install | Command | User install | Command |
-| :-- | :-- | :-- | :-- | :-- |
-| Linux | `/opt/zuid/` | `/usr/local/bin/zuid` | `~/.local/share/zuid/` | `~/.local/bin/zuid` |
-| macOS | `/opt/zuid/` | `/usr/local/bin/zuid` | `~/Library/Application Support/zuid/` | `~/.local/bin/zuid` |
-| FreeBSD | `/usr/local/zuid/` | `/usr/local/bin/zuid` | `~/.local/share/zuid/` | `~/.local/bin/zuid` |
-| Windows | `C:\Program Files\zuid\` | add the `bin` folder to `%PATH%` | `%LOCALAPPDATA%\Programs\zuid\` | add the `bin` folder to `%PATH%` |
+| OS      | System install           | Command                          | User install                          | Command
+| :---    | :---                     | :---                             | :---                                  | :---
+| Linux   | `/opt/zuid/`             | `/usr/local/bin/zuid`            | `~/.local/share/zuid/`                | `~/.local/bin/zuid`
+| macOS   | `/opt/zuid/`             | `/usr/local/bin/zuid`            | `~/Library/Application Support/zuid/` | `~/.local/bin/zuid`
+| FreeBSD | `/usr/local/zuid/`       | `/usr/local/bin/zuid`            | `~/.local/share/zuid/`                | `~/.local/bin/zuid`
+| Windows | `C:\Program Files\zuid\` | add the `bin` folder to `%PATH%` | `%LOCALAPPDATA%\Programs\zuid\`        | add the `bin` folder to `%PATH%`
 
 A user install is the default when the system location is not writable.
 
-The first run compiles the WebAssembly module built into the command, which takes a few seconds of CPU, and keeps the result in `~/.cache/zuid/`. On macOS that is `~/Library/Caches/zuid/`, and on Windows `%LOCALAPPDATA%\zuid\`. Later runs load it instead. It is safe to delete, and a run as root does not use it.
+The first run compiles the WebAssembly module built into the command, which takes a few seconds of CPU, and keeps the result in `$XDG_CACHE_HOME/zuid/`, or `~/.cache/zuid/` when that isn't set. On macOS that is `~/Library/Caches/zuid/`, and on Windows `%LOCALAPPDATA%\zuid\`. Later runs load it instead. It is safe to delete, and a run as root does not use it.
 
 ### Do it yourself
 
-Clone the repository and run `cicd/cicd.bash`. It fetches what it needs, builds both sides, and runs the tests. The command ends up at `zig/zig-out/bin/zuid`, and a full run also copies it to the first of `~/.local/bin` or `~/bin` that exists, so what is on your path is the build that just passed. `--no-dogfood` turns that off.
+Clone the repository and run `cicd/cicd.bash --no-backup`. Without that flag a run also archives the tree, then commits and pushes it. It fetches what it needs, builds both sides, and runs the tests. The command ends up at `zig/zig-out/bin/zuid`, and a full run also copies it to the first of `~/.local/bin` or `~/bin` that exists, so what is on your path is the build that just passed. `--no-dogfood` turns that off.
 
 For the Go module, no install step is needed:
 
@@ -195,23 +195,28 @@ The module sits in a subdirectory, so pinning it to a release needs a `go/`-pref
 
 ### Prerequisites
 
-| Tool | Version | Needed for |
-| :-- | :-- | :-- |
-| Go | 1.24 or newer | the Go module, and building the WebAssembly module the Zig side embeds |
-| Zig | 0.17.0 | the command and the C module |
-| git, curl, tar, sha256sum | any | fetching and verifying the vendored runtime |
-| gcc or clang | any | checking that a foreign toolchain can use the C module |
-| shellcheck | any | linting the build script |
-| python3 | 3.9 or newer | the test ID check and the profile report |
+| Tool                      | Version       | Needed for
+| :---                      | :---          | :---
+| Go                        | 1.24 or newer | the Go module, and building the WebAssembly module the Zig side embeds
+| Zig                       | 0.17.0        | the command and the C module
+| git, curl, tar, sha256sum | any           | fetching and verifying the vendored runtime
+| gcc or clang              | any           | checking that a foreign toolchain can use the C module
+| shellcheck                | any           | linting the build script
+| python3                   | 3.9 or newer  | the test ID check and the profile report
 
-Optional, and each stage that wants one skips itself with a note when it is missing:
+Optional. A stage that wants one skips itself with a note when it's missing, except the 2 that say they stop:
 
-| Tool | Used for |
-| :-- | :-- |
-| nfpm | building `.deb` and `.rpm` packages |
-| zip | building the Windows `.zip` packages |
-| python3 3.11 or newer with pillow, gifsicle | rendering the demo animation |
-| perf, inferno | profiling the command |
+| Tool                                        | Used for
+| :---                                        | :---
+| llvm-objcopy                                | `--package`, which stops without it. It strips the release files.
+| nfpm                                        | building `.deb` and `.rpm` packages
+| zip                                         | building the Windows `.zip` packages
+| objdump, readelf, nm                        | checking the release files for CPU features and library versions
+| dpkg-deb, rpm2cpio, cpio                    | checking what the packages install
+| Intel SDE                                   | running the release on an emulated old CPU
+| python3 3.11 or newer with pillow, gifsicle | rendering the demo animation
+| perf, inferno                               | profiling the command
+| rar                                         | the backup stage, which stops without it. `--no-backup` skips it.
 
 If the `zig` on PATH is older, `cicd/cicd.bash` takes the one named by `ZIG`, or a release unpacked as `~/.local/zig-<platform>-0.17.0`, and every stage uses that one.
 
@@ -229,14 +234,16 @@ cicd/cicd.bash --quick              # skip fuzzing, profiling, the demo and the 
 cicd/cicd.bash --only go            # one toolchain, so only that one has to exist
 cicd/cicd.bash --cross              # add the Go cross-compile checks
 cicd/cicd.bash --container          # build and test in the pinned image instead
-cicd/cicd.bash -m "message"         # commit too, refusing on main and dev
+cicd/cicd.bash --package           # build the release files into dist/
+cicd/cicd.bash --no-backup          # skip the archive, commit, and push
+cicd/cicd.bash --commit -m "message"  # commit too, refusing on main and dev
 ~~~
 
-Underneath it is just `cd go && go build ./...` and `cd zig && zig build`. The Zig half needs `cicd/cicd.bash` to have run at least once first, since that is what populates `zig/vendor/`. Zig refuses an empty or non-numeric `SOURCE_DATE_EPOCH` the first time it builds its own C libraries, so unset it rather than leave it empty. `cicd/cicd.bash` drops one like that by itself.
+Underneath it's only `cd go && go build ./...` and `cd zig && zig build`. The Zig half needs `cicd/cicd.bash` to have run at least once first, since that is what populates `zig/vendor/`. Zig refuses an empty or non-numeric `SOURCE_DATE_EPOCH` the first time it builds its own C libraries, so unset it rather than leave it empty. `cicd/cicd.bash` drops one like that by itself.
 
 Both sides have to reproduce every row of `testdata/vectors.tsv` before anything merges. That file is the specification in executable form, so a change to the identifier format means regenerating it and re-running both.
 
-Run logs, profiles, and demo renders land under `cicd/artifacts/`, which is rotated and not committed.
+Run logs, profiles, and demo renders go under `cicd/artifacts/`, which is rotated and not committed.
 
 ### House style
 
@@ -250,7 +257,7 @@ Three documents, and between them they answer most of what a patch gets sent bac
 
 ## Copyright and license
 
-The command is GPL-2.0-or-later. The Go and C modules are Apache-2.0, so embedding one carries no obligation beyond attribution. [license.md](license.md) says which license covers which directory, and links the full text of each.
+The command is GPL-2.0-or-later. The Go and C modules are Apache-2.0, so embedding one brings no obligation beyond attribution. [license.md](license.md) says which license covers which directory, and links the full text of each.
 
 > Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]<br />
 > Licensed under the [GNU General Public License v2.0 or later](https://spdx.org/licenses/GPL-2.0-or-later.html)<br />

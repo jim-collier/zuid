@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 ##	Purpose: Render an animated demo GIF of a CLI program, without recording a
-##		real terminal (no ttyd, no asciinema, no ffmpeg - just Pillow). A TOML
+##		real terminal (no ttyd, no asciinema, no ffmpeg - only Pillow). A TOML
 ##		scenario file scripts the session; each command is "typed" into a fake
-##		terminal window with human timing (slower digits, a beat before flags,
-##		the occasional corrected typo), then actually executed so the captured
+##		terminal window with realistic timing (slower digits, a beat before flags,
+##		the occasional corrected typo), then executed for real so the captured
 ##		output can never go stale. Motion runs at 50 fps, the fastest a GIF can
 ##		go: scrolling is pixel-smooth at a constant velocity and the cursor
 ##		eases between cells rather than teleporting. The screen resets only
@@ -96,9 +96,9 @@ ANSI_RE = re.compile(r"\x1b(\[[0-9;?]*[ -/]*[@-~]|\][^\x07\x1b]*(\x07|\x1b\\)|.)
 
 
 def fEmojiInit():
-	##	Color emoji are beyond FreeType-via-Pillow now (Noto ships COLRv1), so
+	##	Color emoji are beyond FreeType-via-Pillow now (Noto uses COLRv1), so
 	##	glyph tiles come from Pango+cairo instead. Everything here is optional:
-	##	if any piece is missing the chars just draw through the monochrome
+	##	if any piece is missing the chars draw through the monochrome
 	##	fallback like before.
 	try:
 		import gi, cairo
@@ -128,7 +128,7 @@ def fOptimize(path):
 	##	Another sixth off, losslessly: gifsicle can mark individual unchanged
 	##	pixels transparent per frame, where Pillow only ever writes one changed
 	##	rectangle. Pixels and frame delays come out identical, so this is purely
-	##	a size pass. Skipped when gifsicle is not installed - the gif is just
+	##	a size pass. Skipped when gifsicle is not installed - the gif is only
 	##	bigger, which is why it is a probe and not a requirement.
 	tmp = path + ".gifsicle"
 	try:
@@ -186,14 +186,14 @@ def fLoadScenario(path):
 	##	                                                 comment line per element)
 	##	  show = "{prog} 255 16"        the command line as typed (optional: a step
 	##	                                with only notes types them and pauses)
-	##	  run  = "echo hi | {bin} ..."  what actually executes (default: show)
+	##	  run  = "echo hi | {bin} ..."  the command that runs (default: show)
 	##	  pause = 2.6                   read time after the output, seconds
 	##	  overflow = "truncate"         or "wrap" for real feature output
 	##	  scrollrate = 260              px/s smooth scroll during this step's output
 	##	  linems = 26                   ms per output line before scrolling kicks in
 	##	  gap = true                    blank line between the command and its output
 	##	  paste = true                  long numbers in show= arrive pasted, not typed
-	##	  pastepause = 1.0              hesitation before a pasted value lands, seconds
+	##	  pastepause = 1.0              hesitation before a pasted value appears, seconds
 	##	  preenter = 2.0                cursor holds at the end of the command, seconds
 	##	  typescale = 1.5               command typing speed multiplier (notes unaffected)
 	##	  notepause = 0.5               read time after each note line, seconds
@@ -252,7 +252,7 @@ def fTypeEvents(text, rng, wpm_range, typos=True, wpmDigits=WPM_DIGITS, paste=Fa
 	for i, ch in fTypeUnits(text, paste):
 		if len(ch) > 1:
 			if pastePre > 0:
-				events.append((("pause", None), pastePre))   # a beat before it lands
+				events.append((("pause", None), pastePre))   # a beat before it appears
 			events.append((("type", ch), rng.uniform(280, 420)))
 			continue
 		if ch.isdigit():
@@ -306,10 +306,10 @@ def fNeighborKey(ch, rng):
 	return ch
 
 
-##	Palette: one shared 256-entry table for every frame. The text colors carry
+##	Palette: one shared 256-entry table for every frame. The text colors have
 ##	short blend ramps toward their background so antialiased edges quantize
 ##	cleanly instead of dithering, and the leftover entries are median-cut from
-##	the emoji tiles the scenario actually produces. One global table means no
+##	the emoji tiles the scenario produces. One global table means no
 ##	per-frame palette cost.
 def fBuildPalette(userTint, hostTint, emojiTiles):
 	def blend(a, b, k):
@@ -641,7 +641,7 @@ def fMain():
 	scr = Screen(font, fontName, sc.get("title", prog), prompt, None, sc.get("fontsize", 15))
 
 	##	Run every command up front: the outputs feed the demo AND tell the
-	##	palette which emoji it must carry before the first frame renders.
+	##	palette which emoji it must include before the first frame renders.
 	here = os.path.dirname(os.path.abspath(args.scenario))
 	stepOut = [fRunStep(step, prog, binpath, here) for step in sc["step"]]
 	emojiSet = sorted({ch for lines in stepOut for ln in lines for ch in ln
@@ -670,7 +670,7 @@ def fMain():
 			glideMs, rest = ms, 0.0
 		for s in range(1, steps + 1):
 			k = s / steps
-			k = k * k * (3.0 - 2.0 * k)      # smoothstep: soft leave, soft landing
+			k = k * k * (3.0 - 2.0 * k)      # smoothstep: soft start, soft stop
 			shown[0] = x0 + (tx - x0) * k
 			shown[1] = y0 + (ty - y0) * k
 			snap(glideMs / steps)
@@ -695,14 +695,14 @@ def fMain():
 		##	scroll at every line boundary, which costs a fraction of a frame each
 		##	time and reads as judder once the frame rate is high enough to see it.
 		##	Committing the next line the moment the view catches up keeps the
-		##	velocity dead constant and carries the sub-pixel remainder forward.
+		##	velocity dead constant and passes the sub-pixel remainder forward.
 		step = rate * FRAME_MS / 1000.0
 		pending = [ln for text in outLines for ln in scr.fWrap(text, "fg", overflow)]
 		while True:
 			##	Commit the next line as soon as the view is within one frame of
-			##	catching up, never after. Waiting for an exact landing forces a
+			##	catching up, never after. Waiting for an exact arrival forces a
 			##	short frame at every line boundary; releasing a frame early lets
-			##	the sub-pixel remainder carry into the next line instead.
+			##	the sub-pixel remainder roll into the next line instead.
 			if pending and scr.fRestScroll() - scr.scroll <= step + 0.5:
 				scr.fPut(pending.pop(0))
 				if scr.fRestScroll() - scr.scroll <= 0.5:
@@ -745,7 +745,7 @@ def fMain():
 		lineMs = float(step.get("linems", 26))
 		##	Reset only when this step would otherwise scroll - a reset nobody
 		##	needed is more jarring than the scroll it saves. Nothing types
-		##	`clear`; the screen just resets, the way a full-screen tool leaves
+		##	`clear`; the screen resets, the way a full-screen tool leaves
 		##	it, and then holds long enough to register as deliberate.
 		crowded = len(scr.lines) + stepRows(step, stepOut[stepIdx]) > scr.rows
 		if step.get("clear", crowded) and scr.lines:
@@ -846,7 +846,7 @@ if __name__ == "__main__":
 ##		- 20260713: End of loop holds the final frame (end_hold, 3s) then hard-
 ##			cuts to black (end_black, 2s) before repeating.
 ##		- 20260711: v1.2. Antialiased text again (ramped 256 palette), color
-##			emoji tiles, prompt hidden until output lands, faster typing and
+##			emoji tiles, prompt hidden until output appears, faster typing and
 ##			scrolling, cell-width wrap.
 ##		- 20260711: v1.1. Pixel-smooth scrolling and cursor glide; scenario
 ##			knobs wpm_digits, scrollrate, linems.

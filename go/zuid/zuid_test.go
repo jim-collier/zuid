@@ -30,7 +30,7 @@ const vectorPath = "../../testdata/vectors.tsv"
 const expectedVectorRows = 201
 
 // Injected state for one row. The defaults match the vectors file's header, so
-// a row only spells out what it cares about.
+// a row only lists what it cares about.
 type env struct {
 	host   string
 	user   string
@@ -153,7 +153,7 @@ func sharedGenerator(t *testing.T) *zuid.Generator {
 }
 
 // A second generator, kept on its live sources, for the tests that check the
-// machine is actually readable. Injecting into the shared one would leave a
+// machine can be read. Injecting into the shared one would leave a
 // spent random reader behind for whichever test ran next.
 var oneLiveGenerator = sync.OnceValues(func() (*zuid.Generator, error) { return zuid.New() })
 
@@ -207,7 +207,7 @@ func TestVectors(t *testing.T) {
 }
 
 // Width is fixed per base and precision, whatever the timestamp. Without this
-// the sort guarantee below cannot hold.
+// the sort guarantee below can't be met.
 // test-id: ElmNxqT
 func TestFixedWidth(t *testing.T) {
 	generator := sharedGenerator(t)
@@ -383,7 +383,7 @@ func TestSalt(t *testing.T) {
 	}
 }
 
-// %r has to actually vary, or appending it to a same-tick timestamp buys
+// %r has to vary, or appending it to a same-tick timestamp buys
 // nothing. Live generators read a cryptographic source.
 // test-id: ElpGOHS
 func TestRandomVaries(t *testing.T) {
@@ -667,8 +667,8 @@ func TestBaseVerdictPerBase(t *testing.T) {
 }
 
 // 98keyboard counts tab, newline and return among its digits, so an identifier
-// in it could carry a line break. Its zero digit is '0', which is why the
-// alphabet gets read rather than just that one symbol.
+// in it could contain a line break. Its zero digit is '0', which is why the
+// alphabet gets read rather than only that one symbol.
 // test-id: Eq9xBUe
 func TestBaseWithControlDigitsIsRefused(t *testing.T) {
 	generator := sharedGenerator(t)
@@ -703,9 +703,8 @@ func TestUnusedWidthsAreNotChecked(t *testing.T) {
 // Every component works in a base whose digits are several bytes each. This
 // used to be refused outright, because slicing a converted string at a symbol
 // boundary was not something the conversion library could do; Fit does it now,
-// so the wide bases carry the truncating components as well as the padded
-// ones. Widths are counted in symbols, which is the whole point - byte length
-// says nothing here.
+// so the wide bases take the truncating components as well as the padded
+// ones. Widths are counted in symbols, since byte length says nothing here.
 // test-id: Em2hrcO
 func TestMultiByteBaseComponents(t *testing.T) {
 	registry, err := convertbase.NewRegistry()
@@ -754,7 +753,7 @@ func TestMultiByteBaseComponents(t *testing.T) {
 }
 
 // A random draw has to fill the symbols it claims. One byte per symbol runs
-// short above 256, where a symbol carries more than eight bits, and the
+// short above 256, where a symbol holds more than eight bits, and the
 // shortfall shows up as a leading zero digit that never varies.
 // test-id: Em2hrcP
 func TestRandomFillsWideBases(t *testing.T) {
@@ -844,7 +843,7 @@ func TestWidthForCuratedBases(t *testing.T) {
 // width is derived from the strength instead, and base 62 - the one the
 // targets were taken from - stays where it was.
 // test-id: Em3M9HE
-func TestDefaultWidthsCarryTheSameStrength(t *testing.T) {
+func TestDefaultWidthStrength(t *testing.T) {
 	want := map[int]struct{ hash, random, ceiling int }{
 		16:   {12, 9, 64},
 		32:   {10, 7, 52},
@@ -918,7 +917,7 @@ func TestLiveSources(t *testing.T) {
 		}
 	}
 	// A machine with no network interface is legitimate, so %m is allowed to
-	// fail - it just has to say so rather than render something wrong.
+	// fail - it only has to say so rather than render something wrong.
 	if got, err := generator.Generate(zuid.Request{Format: "%m"}); err != nil {
 		t.Logf("no MAC available here: %v", err)
 	} else if len([]rune(got)) != 9 {
@@ -979,7 +978,7 @@ func TestMACWrongLength(t *testing.T) {
 	}
 }
 
-// convertbase carries a base whose digits are raw byte values. It converts
+// convertbase has a base whose digits are raw byte values. It converts
 // fine, which is the problem - an identifier made of control characters is not
 // an identifier.
 // test-id: Em32NzX

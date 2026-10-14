@@ -105,7 +105,7 @@ pub const Host = struct {
 
     /// A base's radix, zero digit and text verdict do not change, and every
     /// component asks for one of them. One slot is enough: an identifier
-    /// renders in a single base, and a name too long for the slot just misses
+    /// renders in a single base, and a name too long for the slot misses
     /// and calls the module, which is correct if slower.
     const BaseCache = struct {
         name: [64]u8 = undefined,
@@ -489,7 +489,7 @@ pub const Host = struct {
         return .{ .ptr = ptr, .len = @intCast(text.len) };
     }
 
-    /// Linear memory as a bounds-carrying slice. The raw C pointer has no
+    /// Linear memory as a bounds-checked slice. The raw C pointer has no
     /// length, so a pointer the module returned would otherwise be trusted
     /// blind - and the module is rebuilt from upstream, not frozen here.
     fn memoryBytes(self: *Host) []u8 {
@@ -549,7 +549,7 @@ fn causeOf(msg: []const u8) []const u8 {
 // the wrong way on purpose. Both used to come back as code 4, conversion
 // failed, and the module exit's text was a cut-off backtrace.
 // test-id: Ert2uRC
-test "a runtime failure is code 7 and says why" {
+test "runtime failure is code 7" {
     const capi = @import("capi.zig");
     var h = try Host.init(.auto);
     defer h.deinit();

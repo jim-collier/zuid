@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-##	Purpose: Test IDs. Every test the pipeline runs carries one, so a result can
+##	Purpose: Test IDs. Every test the pipeline runs has one, so a result can
 ##		be named on the console and a backlog item can point at the test that
 ##		covers it. An ID is when the test was written, as milliseconds since
 ##		2000-01-01 00:00 UTC in base 62 - seven symbols, so they sort by age.
@@ -98,7 +98,7 @@ def fScan():
 			if not m or "(){" in line:
 				continue
 			where = f"{path.relative_to(REPO)}:{i + 1}"
-			## fId "${label}" bash=<id> ps1=<id> "name" carries one per key.
+			## fId "${label}" bash=<id> ps1=<id> "name" has one per key.
 			if m.group(1) == "fId":
 				try:
 					words = shlex.split(m.group(2))
@@ -160,7 +160,7 @@ def fStrays(seen, ceiling):
 			continue
 		for i, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
 			where = f"{path.relative_to(REPO)}:{i + 1}"
-			## Only Go and Zig use the comment. In bash it is just text.
+			## Only Go and Zig use the comment. In bash it is plain text.
 			for found in MARK_RE.finditer(line) if path in marked else ():
 				if found.group(1) not in seen:
 					problems.append(f"{where}: test-id '{found.group(1)}' is not directly above a test")
@@ -288,7 +288,7 @@ ZIG_END_RE   = re.compile(r"^(OK|SKIP|FAIL \(.*\))$")
 
 def fCmd_Zig(_args):
 	"""Reads the test runner's own stderr, which prints 'N/M name...OK' when it
-	is not talking to a terminal. Anything a test prints lands between the dots
+	is not talking to a terminal. Anything a test prints shows up between the dots
 	and the verdict."""
 	ids = fIdsByName("zig")
 	failed = 0

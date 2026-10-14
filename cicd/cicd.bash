@@ -14,6 +14,7 @@
 ##		- 20261003 JC: Publishing to GitHub releases.
 ##		- 20261004 JC: Runs in a linked worktree, minus the backup.
 ##		- 20261010 JC: --container.
+##		- 20261014 JC: --gate and the pre-push hook. git and gh through gitsby when it's installed.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Set by --container for the run it starts inside.
@@ -21,6 +22,18 @@ declare -i inContainer=0; [[ "${ZUID_IN_CONTAINER:-}" == "1" ]] && inContainer=1
 declare    thisVersion="0.1.0"
 declare    copyrightYear="2026"
 declare    author="Jim Collier"
+
+## gitsby picks the git host account from the repo's path. A plain clone
+## without it gets plain git and gh.
+if command -v gitsby >/dev/null 2>&1; then
+	git(){ gitsby -q raw git "$@" ;}
+fi
+fGh(){
+	if   [[ -n "${ZUID_GH:-}" ]];                then "${ZUID_GH}" "$@"
+	elif command -v gitsby >/dev/null 2>&1; then gitsby -q raw gh "$@"
+	else gh "$@"
+	fi
+}
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -90,9 +103,9 @@ fConfig(){ :;
 	fi
 
 	## Extra rar excludes for the backup, one per line, on top of the helper's generic
-	## list (.zig-cache, zig/vendor, links back in etc). The panoplia audit dirs are
-	## old build copies. Trailing '/' or rar matches files only.
-	default_rarExcludes="*/panoplia/working/audit-*/"
+	## list (.zig-cache, zig/vendor, links back in etc). Old build copies under
+	## private/ are left out. Trailing '/' or rar matches files only.
+	default_rarExcludes="*/working/audit-*/"
 
 	## Artifact retention, grandfather-father-son. Keep this many of each.
 	default_keepDaily=7
@@ -149,6 +162,8 @@ fPrint_Help(){
 		                      plus the dogfood install. The backup and everything
 		                      that gates a merge still run.
 		    --no-sync         Skip the remote refresh at the start.
+		    --gate            The pre-push check: --quick, with no sync, dogfood,
+		                      backup, commit or push. See below.
 		    -m, --message     Commit message. Implies --commit.
 		    --commit          Commit if everything passed. Refuses on a protected
 		                      branch: ${protectedBranches[*]}
@@ -214,6 +229,12 @@ fPrint_Help(){
 		The sync, demo, dogfood and backup stay on this machine, since they need its
 		git keys, fonts and paths. It needs docker, or ZUID_DOCKER naming another
 		program that takes docker's arguments. x86_64 only. Not with --publish.
+
+		--gate is what cicd/utility/git-hooks/pre-push runs before a push to main,
+		on the commit being pushed, in a scratch worktree. Turn the hook on once
+		per clone with: git config core.hooksPath cicd/utility/git-hooks
+		SKIP_GATE=1 skips it. A run's own backup and push skip it, since that run
+		just passed.
 
 		Exit code is 0 only if every stage that ran passed.
 	EOF_h7wq4
@@ -309,6 +330,7 @@ fMain(){
 	local -i doPublish=0
 	local -i allowPartial=0
 	local -i doContainer=0
+	local -i doGate=0
 	fInit "${@}"
 	readonly onlyToolchain
 	readonly doCross
@@ -319,18 +341,19 @@ fMain(){
 	readonly doPublish
 	readonly allowPartial
 	readonly doContainer
+	readonly doGate
 
 	## Set by the publish preflight, read by the publish stage.
 	local publishVersion="" publishRemote="" publishHead="" publishRepoUrl=""
 
-	## Dogfooding rides along with every full run - the whole point is that daily
-	## use is the build that just passed. A quick run is mid-iteration, so it stays
+	## Dogfooding rides along with every full run, so that daily use is the
+	## build that just passed. A quick run is mid-iteration, so it stays
 	## off the path unless asked for by name.
 	if ((doQuick)) && ((! dogfoodAsked)); then doDogfood=0; fi
 	readonly doDogfood
 
 	## Backing up survives a quick run - the archive is cheap next to the stages
-	## quick actually exists to skip, and an archive nobody remembered to ask for
+	## quick exists to skip, and an archive nobody remembered to ask for
 	## is not an archive. Any branch, too: the helper commits and pushes the same
 	## way it would run by hand from the repo, main included.
 	readonly doBackup
@@ -427,6 +450,7 @@ fInit(){
 			--publish)    doPublish=1; doPackage=1 ;;
 			--allow-partial) allowPartial=1 ;;
 			--container)  doContainer=1 ;;
+			--gate)       doGate=1 ;;
 			-q|--quiet)   doQuietly=1 ;;
 
 			## ¯\_(:/)_/¯
@@ -436,8 +460,17 @@ fInit(){
 		shift || true
 	done
 
+	## The pre-push hook's run. Anything that writes outside the tree, or to git,
+	## would be a push inside a push.
+	if ((doGate)); then
+		if ((doCommit)) || ((doPush)) || ((backupAsked)) || ((doPackage)) || ((doContainer)) || ((dogfoodAsked)); then
+			fThrowError "--gate only builds and tests. Drop the other stage flags."  "${FUNCNAME[0]}"
+		fi
+		doQuick=1; doSync=0; doBackup=0; doDogfood=0; doQuietly=1
+	fi
+
 	## The backup helper does its own commit and push, so pairing it with either of
-	## ours would land the same work twice. Asked for together that is a mistake and
+	## ours would commit the same work twice. Asked for together that is a mistake and
 	## says so; with the backup merely riding along by default, the narrower git path
 	## is plainly what was meant, so it wins quietly.
 	if ((commitAsked)) || ((doPush)); then
@@ -495,7 +528,7 @@ fMustBeAValue(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## True when HEAD sits on a branch this script must not land work on. A detached
+## True when HEAD sits on a branch this script must not commit to. A detached
 ## HEAD is not protected - that is its own error, raised where it matters.
 fIsProtectedBranch(){
 
@@ -686,7 +719,7 @@ fPreflight(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Every test prints one line with its ID, the way the harnesses do. A check
 ## here starts with fId and ends in one of the three below. A check run once
-## per item carries an ID for each, picked by a key:
+## per item has an ID for each, picked by a key:
 ## fId "${target}" linux/arm64=<id> darwin/arm64=<id> "what it checks".
 ## New IDs come from cicd/utility/test-ids.py, and its check refuses a test
 ## without one.
@@ -722,7 +755,8 @@ fStage_Shell(){
 		## code, and the copied helpers keep their own upstream's lint state.
 		shellcheck "${repoRoot}/cicd/cicd.bash" "${repoRoot}/install.bash" \
 			"${utilityDir}/installer-test.bash" "${utilityDir}/cli-test.bash" \
-			"${utilityDir}/pipeline-test.bash"
+			"${utilityDir}/pipeline-test.bash" "${utilityDir}/package.bash" \
+			"${utilityDir}/git-hooks/pre-push"
 		fEcho_Clean "Clean."
 	fi
 
@@ -730,7 +764,20 @@ fStage_Shell(){
 	fStage_Shell_Pipeline
 	fStage_Shell_Installers
 	fStage_Docs
+	fContentScrub
 
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The scrub lives with the private project files. A clone without them, or a
+## worktree, skips it.
+fContentScrub(){
+	local -r scrub="${repoRoot}/../private/hooks/scrub.bash"
+	[[ -x "${scrub}" ]] || return 0
+	fEcho_Clean
+	fEcho "Content scrub"
+	"${scrub}" "${repoRoot}" || fThrowError "The content scrub found something."  "${FUNCNAME[0]}"
 }
 
 
@@ -788,7 +835,7 @@ fStage_Docs(){
 
 	## A GPL file at the root read as covering everything, modules included. The
 	## root has only the map now, and each licensed directory has its own text.
-	fId ErOj0WT "each directory carries the license license.md says it does"
+	fId ErOj0WT "each directory has the license license.md says it does"
 	local licenseFile="" licenseWant="" licenseBad=""
 	[[ -f "${repoRoot}/license.md" ]] || licenseBad+=" license.md is missing;"
 	if compgen -G "${repoRoot}/LICENSE*" >/dev/null; then licenseBad+=" a LICENSE file is back at the root;"; fi
@@ -1058,7 +1105,7 @@ fStage_Go_Fuzz(){
 
 	while ((attempt < 2)); do
 		attempt=$((attempt + 1))
-		if output="$(go test -run=xxx -fuzz=FuzzGenerate -fuzztime="${fuzzTime}" ./zuid 2>&1)"; then
+		if output="$(go test -run=xxx -fuzz=FuzzGenerate -fuzztime="${fuzzTime}" -parallel="${buildJobs}" ./zuid 2>&1)"; then
 			fTestPass
 			return 0
 		fi
@@ -1156,8 +1203,8 @@ fStage_Zig_Vendor(){
 				fEcho_Clean "Reactor ....: rebuilt from the pinned release"
 			fi
 		else
-			## The whole point of building it here is that the two sides cannot
-			## reach different library versions, so a failure that falls back to
+			## It's built here so the two sides can't reach different library
+			## versions. A failure that falls back to
 			## an older vendored copy has to say what went wrong.
 			rm -f "${wasmTmp}"
 			[[ -f "${wasmVendored}" ]] || fThrowError "Could not build the reactor wasm module, and no vendored copy exists: ${buildLog}"  "${FUNCNAME[0]}"
@@ -1187,7 +1234,7 @@ fVendor_Wasmtime(){  ## platform, destination
 		fThrowError "No vendored Wasmtime pin for ${platform}. Add that archive's checksum to fConfig first."  "${FUNCNAME[0]}"
 	fi
 
-	## Version-stamped, so re-pinning in fConfig actually re-fetches instead of
+	## Version-stamped, so re-pinning in fConfig re-fetches instead of
 	## quietly keeping whatever was vendored first.
 	local -r wtStamp="${dest}/.version"
 	if [[ -f "${dest}/include/wasmtime.h" ]] && [[ "$(cat "${wtStamp}" 2>/dev/null || true)" == "${wasmtimeVer}" ]]; then
@@ -1229,7 +1276,7 @@ fVendor_Wasmtime(){  ## platform, destination
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## FreeBSD's Wasmtime, from its packages into the same layout as Wasmtime's own
 ## release: include/, lib/libwasmtime.a and LICENSE, with libzstd.a beside it,
-## and zstd's license for the release to carry.
+## and zstd's license for the release to include.
 fVendor_FreeBSD(){  ## destination
 
 	local -r dest="$1"
@@ -1268,7 +1315,7 @@ fVendor_FreeBSD(){  ## destination
 	cp -R "${usrLocal}/include" "${dest}/"
 	cp "${usrLocal}/lib/libwasmtime.a" "${usrLocal}/lib/libzstd.a" "${dest}/lib/"
 	## zstd is dual BSD and GPLv2; the release takes it under BSD, whose text
-	## carries the copyright line a binary distribution has to reproduce.
+	## has the copyright line a binary distribution has to reproduce.
 	cp "$(find "${usrLocal}/share/licenses" -path '*/zstd-*/BSD3CLAUSE' -print -quit)" "${dest}/LICENSE-zstd" \
 		|| fThrowError "The zstd package has no BSD3CLAUSE license file."  "${FUNCNAME[0]}"
 	## The port installs Wasmtime's own LICENSE under the name of its license,
@@ -1292,14 +1339,14 @@ fStage_Zig(){
 
 	cd "${zigDir}" || fThrowError "Missing the Zig tree: '${zigDir}'."  "${FUNCNAME[0]}"
 
-	## ReleaseSafe is what would ship; the vectors replay through it too.
+	## ReleaseSafe is what a release uses; the vectors replay through it too.
 	## zig wants the count attached to the flag, not as a separate word.
 	## On Linux the command is built for package.bash's target, not this CPU,
 	## since dogfood copies it into a dir other machines run from. One built
 	## for the build machine's CPU died on the first hash on a CPU without SHA-NI.
-	local -a shipTarget=()
-	if [[ "$(uname -s)" == "Linux" ]]; then shipTarget=("-Dtarget=$(uname -m)-linux-gnu.2.28"); fi
-	zig build "-j${buildJobs}" -Doptimize=ReleaseSafe "${shipTarget[@]}"
+	local -a releaseTarget=()
+	if [[ "$(uname -s)" == "Linux" ]]; then releaseTarget=("-Dtarget=$(uname -m)-linux-gnu.2.28"); fi
+	zig build "-j${buildJobs}" -Doptimize=ReleaseSafe "${releaseTarget[@]}"
 	fId EsXcjyV "the command dogfood installs uses nothing past x86-64-v1 in code built here"
 	if [[ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]]; then
 		fTestSkip "only a Linux x86_64 build goes to the synced dir"
@@ -1517,7 +1564,7 @@ fStage_Zig_BuildStamp(){
 
 	## The translate-c steps hash to_file's bytes, and where they put the headers
 	## is in every file's debug info. Both caches above are new, so each built
-	## its own to_file. __anon_ names carry the compiler's thread numbers, and a
+	## its own to_file. __anon_ names include the compiler's thread numbers, and a
 	## builder with 1 CPU gets other ones, so a match here alone isn't enough.
 	fId EscLn6s "tools/to_file comes out the same in 2 new caches"
 	local -a toFiles=()
@@ -1597,6 +1644,8 @@ fStage_Zig_CApi(){
 		return 0
 	fi
 	fEcho_Clean "Compiler ...: ${systemCc}"
+	## The header is for C99 callers, and has to stay quiet for them.
+	local -ra cWarn=(-std=c99 -Wall -Wextra -Wpedantic -Werror)
 
 	local -r smokeSrc="${zigDir}/lib/test/capi_smoke.c"
 	local buildDir=""
@@ -1612,10 +1661,10 @@ fStage_Zig_CApi(){
 	if ((isMac)); then local -x MACOSX_DEPLOYMENT_TARGET; MACOSX_DEPLOYMENT_TARGET="$(sw_vers -productVersion)"; fi
 	local -r libDir="${zigDir}/zig-out/lib"
 
-	## Shared: self-contained, so the header and -lzuid are the whole story.
+	## Shared: self-contained, so the header and -lzuid are all it needs.
 	## An rpath rather than LD_LIBRARY_PATH, which macOS does not read.
 	fId ElpGOHZ "capi_smoke.c against the shared library"
-	"${systemCc}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
+	"${systemCc}" "${cWarn[@]}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
 		-L "${libDir}" -lzuid -Wl,-rpath,"${libDir}" -o "${buildDir}/smoke-shared" || fTestFail "did not compile."
 	"${buildDir}/smoke-shared" || fTestFail "the smoke test failed."
 	fTestPass
@@ -1673,7 +1722,7 @@ fStage_Zig_CApi(){
 	local -r interposeSrc="${zigDir}/lib/test/capi_interpose.c"
 	fId Eq9gPQn "a program defining a Wasmtime name still gets a working context"
 	if [[ -f "${interposeSrc}" ]]; then
-		"${systemCc}" -I "${zigDir}/zig-out/include" "${interposeSrc}" \
+		"${systemCc}" "${cWarn[@]}" -I "${zigDir}/zig-out/include" "${interposeSrc}" \
 			-L "${libDir}" -lzuid -Wl,-rpath,"${libDir}" -o "${buildDir}/interpose" || fTestFail "did not compile."
 		"${buildDir}/interpose" || fTestFail "the library's calls were displaced."
 		fTestPass
@@ -1685,19 +1734,19 @@ fStage_Zig_CApi(){
 	## No -lunwind here on purpose - libgcc already provides __register_frame,
 	## and the header says so.
 	fId ElpGOHa "capi_smoke.c against the static library"
-	"${systemCc}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
+	"${systemCc}" "${cWarn[@]}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
 		"${zigDir}/zig-out/lib/libzuid.a" "${zigDir}/vendor/wasmtime/lib/libwasmtime.a" \
 		-lpthread -ldl -lm -o "${buildDir}/smoke-static" || fTestFail "did not link."
 	"${buildDir}/smoke-static" || fTestFail "the smoke test failed."
 	fTestPass
 
 	## Now the same thing the way somebody who downloaded the release does it:
-	## against a tree holding only what gets shipped, with the link line the
+	## against a tree holding only what's in the release, with the link line the
 	## header prints. libzuid.a used to nest the whole wasmtime archive inside
-	## itself, where no linker looks, and the release carried no separate copy,
+	## itself, where no linker looks, and the release had no separate copy,
 	## so this is the check that would have caught it. Deliberately not pointed
 	## at vendor/.
-	fId Eq9hexE "capi_smoke.c links against the shipped tree, with the header's link line"
+	fId Eq9hexE "capi_smoke.c links against the release tree, with the header's link line"
 	local -r relTree="${buildDir}/release"
 	mkdir -p "${relTree}/lib" "${relTree}/include"
 	cp "${zigDir}/zig-out/include/zuid.h"                  "${relTree}/include/"
@@ -1706,7 +1755,7 @@ fStage_Zig_CApi(){
 	## Apple's ld has no -Bstatic. It needs none here, with only archives in lib/.
 	local -a staticOn=('-Wl,-Bstatic') staticOff=('-Wl,-Bdynamic')
 	if ((isMac)); then staticOn=(); staticOff=(); fi
-	"${systemCc}" -I "${relTree}/include" "${smokeSrc}" \
+	"${systemCc}" "${cWarn[@]}" -I "${relTree}/include" "${smokeSrc}" \
 		-L "${relTree}/lib" "${staticOn[@]}" -lzuid -lwasmtime "${staticOff[@]}" \
 		-lpthread -ldl -lm -o "${buildDir}/smoke-release" || fTestFail "did not link."
 	"${buildDir}/smoke-release" || fTestFail "the smoke test failed."
@@ -1725,7 +1774,7 @@ fStage_Zig_CApi(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## Two profiles, because the two implementations have different hot shapes: the
+## Two profiles, because the two implementations have different hot paths: the
 ## Go module through its own benchmarks, and the command itself through perf.
 fStage_Profile(){
 
@@ -1763,7 +1812,7 @@ fProfile_Go(){
 	local -r cpuOut="${profileDir}/cpu_${runStamp}.pprof"
 	## Only the per-identifier benchmarks. BenchmarkNew builds the base registry,
 	## which costs more than everything else put together and would bury the
-	## work actually worth looking at. The others build one generator each, outside
+	## work worth looking at. The others build one generator each, outside
 	## the loop, so the bench time has to dwarf that: at 3000 runs it was a third
 	## of a 51-sample profile.
 	go test -p "${buildJobs}" -run '^$' -bench 'BenchmarkGenerate' -benchtime 1s \
@@ -1836,7 +1885,11 @@ fStage_Demo(){
 		return 0
 	fi
 
-	local -r demoDir="${artifactDir}/demo"
+	## Renders are kept with the private project files, beside the repo, when
+	## they're here. A plain clone keeps them under cicd/artifacts/.
+	local demoDir="${artifactDir}/demo"
+	if [[ -d "${repoRoot}/../private" ]]; then demoDir="${repoRoot}/../private/demo/gif"; fi
+	readonly demoDir
 	mkdir -p "${demoDir}"
 	local -r rendered="${demoDir}/demo_${runStamp}.gif"
 
@@ -1872,7 +1925,7 @@ fStage_Package(){
 	## Linux box then publishes.
 	local packageVersion=""
 	packageVersion="$(fCoreVersion)" || fThrowError "Could not read the version from zig/lib/src/core.zig."  "${FUNCNAME[0]}"
-	"${packager}" --out "${repoRoot}/dist" --version "v${packageVersion}"
+	ZUID_JOBS="${buildJobs}" "${packager}" --out "${repoRoot}/dist" --version "v${packageVersion}"
 
 	## The release has to run on machines older than this one. These check that
 	## it did not pick up this one's CPU, glibc or macOS version. Linux makes an
@@ -1885,7 +1938,7 @@ fStage_Package(){
 	if command -v objdump >/dev/null 2>&1; then haveObjdump=1; fi
 
 	## The macOS checks read one slice at a time. The x86_64 scan means nothing on
-	## arm64, and the minimum macOS has to hold for both.
+	## arm64, and the minimum macOS has to be right for both.
 	local thinDir=""
 	thinDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${thinDir}")
@@ -2205,7 +2258,7 @@ fX86FloorScan_Pe(){  ## readobj, pdbutil, x86_64 program, its .pdb
 ## archive. arm64 links wasmtime.dll, since Wasmtime has only an MSVC build
 ## there, and puts it in bin/. Nothing here can run either, so this checks
 ## what each file is, what it needs and exports, and that capi_smoke.c links
-## against both libraries. vm925w runs the x86_64 one by hand, and nothing runs
+## against both libraries. A Windows machine runs the x86_64 one by hand, and nothing runs
 ## the arm64 one yet.
 fStage_Package_Windows(){  ## scratch dir
 
@@ -2408,7 +2461,7 @@ fStage_Package_Windows(){  ## scratch dir
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The FreeBSD x86_64 release, cross-built on Linux from FreeBSD's own Wasmtime
-## package. As with arm64, nothing here can run it; vmFreeBSD does that by hand.
+## package. As with arm64, nothing here can run it; a FreeBSD machine does that by hand.
 fStage_Package_FreeBSD(){  ## scratch dir
 
 	local -r scratchDir="$1"
@@ -2529,8 +2582,8 @@ fStage_Package_FreeBSD(){  ## scratch dir
 ## directory of whoever built it, and made every release file differ between
 ## two machines building one commit. So release binaries go out stripped, and
 ## their debug info goes to dist/debug/, which is never uploaded. Wasmtime's
-## and zstd's archives are shipped as their projects publish them, so only the
-## path rule holds for those.
+## and zstd's archives go out as their projects publish them, so only the
+## path rule applies to those.
 fStage_Package_Stripped(){  ## scratch dir
 
 	local -r scratchDir="$1"
@@ -2732,7 +2785,7 @@ fStage_Package_Again(){  ## scratch dir, version
 		how="umask 077, as root on host zuid-again"
 		runner=(unshare -r -u bash -c 'hostname zuid-again && umask 077 && exec "$@"' again)
 	fi
-	if ! "${runner[@]}" "${packager}" --out "${againDir}" --version "v${version}" >"${scratchDir}/again.log" 2>&1; then
+	if ! ZUID_JOBS="${buildJobs}" "${runner[@]}" "${packager}" --out "${againDir}" --version "v${version}" >"${scratchDir}/again.log" 2>&1; then
 		fTestFail "the second run failed (${how}): $(tail -c 400 "${scratchDir}/again.log")"
 	fi
 	local -a problems=()
@@ -2860,7 +2913,7 @@ fStage_Package_Arm64(){  ## scratch dir, glibc floor
 	if command -v readelf >/dev/null 2>&1;      then haveReadelf=1; fi
 	if command -v objdump >/dev/null 2>&1;      then haveObjdump=1; fi
 
-	## The tarball's own top directory carries the version, so find it rather
+	## The tarball's own top directory has the version in its name, so find it rather
 	## than rebuild its name.
 	local armLib=""
 	if ((isLinux)) && [[ -f "${armRelease}.tgz" ]]; then
@@ -2959,7 +3012,7 @@ fStage_Package_Arm64(){  ## scratch dir, glibc floor
 		fTestPass
 	fi
 
-	## Link only, against what the tarball ships: there is no arm64 machine here
+	## Link only, against what's in the tarball: there is no arm64 machine here
 	## to run the result. zig cc stands in for an arm64 compiler, so it needs
 	## -lunwind where gcc would bring libgcc.
 	local -r smokeSrc="${zigDir}/lib/test/capi_smoke.c"
@@ -3010,7 +3063,7 @@ fPublish_Preflight(){
 	local -r ghCmd="${ZUID_GH:-gh}"
 	_fMustBeInPath curl
 	command -v "${ghCmd}" >/dev/null 2>&1 || fThrowError "--publish creates the release with gh, which is not installed."  "${FUNCNAME[0]}"
-	"${ghCmd}" auth status >/dev/null 2>&1 || fThrowError "gh is not logged in. Run 'gh auth login' first."  "${FUNCNAME[0]}"
+	fGh auth status >/dev/null 2>&1 || fThrowError "gh is not logged in. Run 'gh auth login' first."  "${FUNCNAME[0]}"
 
 	local -r branch="$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD)"
 	if [[ "${branch}" != "${releaseBranch}" ]]; then
@@ -3049,7 +3102,7 @@ fPublish_Preflight(){
 
 	## The notes link each download by its full address. gh is asked, so it is
 	## the same repo the release goes to.
-	publishRepoUrl="$(cd "${repoRoot}" && "${ghCmd}" repo view --json url --jq .url 2>/dev/null || true)"
+	publishRepoUrl="$(cd "${repoRoot}" && fGh repo view --json url --jq .url 2>/dev/null || true)"
 	if [[ ! "${publishRepoUrl}" =~ ^https://[A-Za-z0-9./_-]+$ ]]; then
 		fThrowError "gh cannot tell which GitHub repo this is, so the notes would have no download links. Run 'gh repo set-default' first."  "${FUNCNAME[0]}"
 	fi
@@ -3068,7 +3121,6 @@ fStage_Publish(){
 	fEcho_Clean
 	fEcho "Publish"
 
-	local -r ghCmd="${ZUID_GH:-gh}"
 	local -r tag="v${publishVersion}"
 	local -r goTag="go/v${publishVersion}"
 	local -r distDir="${repoRoot}/dist"
@@ -3153,6 +3205,13 @@ fStage_Publish(){
 		notesFrom="the download table only - changelog.md has no section for ${tag}"
 	fi
 
+	## The build number, read from the release binary, so it's the one users see.
+	local buildLine=""
+	if [[ -x "${repoRoot}/dist/zuid-linux-x86_64" ]]; then
+		buildLine="$("${repoRoot}/dist/zuid-linux-x86_64" --version 2>/dev/null | sed -n '1s/^\([^ ]*\) (build \([^)]*\))$/zuid v\1 build \2/p' || true)"
+	fi
+	if [[ -n "${buildLine}" ]]; then notes="${buildLine}"$'\n\n'"${notes}"; fi
+
 	local prerelease=""
 	if [[ "${publishVersion}" == *-* ]]; then prerelease=" (prerelease)"; fi
 	fEcho_Clean "Release ....: ${tag}${prerelease}"
@@ -3182,13 +3241,13 @@ fStage_Publish(){
 	local -a ghArgs=(release create "${tag}" --verify-tag --title "${tag}" --notes "${notes}")
 	if [[ -n "${prerelease}" ]]; then ghArgs+=(--prerelease); fi
 	for asset in "${assets[@]}" checksums.txt; do ghArgs+=("${stageDir}/${asset}"); done
-	if ! (cd "${repoRoot}" && "${ghCmd}" "${ghArgs[@]}"); then
+	if ! (cd "${repoRoot}" && fGh "${ghArgs[@]}"); then
 		fThrowError "Both tags are pushed, but the release was not created. Run 'gh release create ${tag} --verify-tag' with the files in dist/release/, or delete both tags from ${publishRemote} and publish again."  "${FUNCNAME[0]}"
 	fi
 
 	## The tag shows before the assets do, for a minute or so.
 	local url=""
-	url="$(cd "${repoRoot}" && "${ghCmd}" release view "${tag}" --json assets --jq '.assets[] | select(.name == "checksums.txt") | .url' 2>/dev/null || true)"
+	url="$(cd "${repoRoot}" && fGh release view "${tag}" --json assets --jq '.assets[] | select(.name == "checksums.txt") | .url' 2>/dev/null || true)"
 	[[ -n "${url}" ]] || fThrowError "${tag} is released, but gh lists no checksums.txt on it."  "${FUNCNAME[0]}"
 	local -i tries=1
 	until curl -fsSL -o /dev/null "${url}" 2>/dev/null; do
@@ -3213,7 +3272,7 @@ fPublish_Downloads(){  ## download URL, asset...
 	local -ra osOrder=("linux" "darwin" "windows" "freebsd")
 	local -rA osTitles=([linux]="Linux" [darwin]="macOS" [windows]="Windows" [freebsd]="FreeBSD")
 	local -ra cpuOrder=("x86_64" "arm64")
-	## macOS ships one universal file, so its row is one cell even when it is missing.
+	## macOS has one universal file, so its row is one cell even when it is missing.
 	local -rA universalOnly=([darwin]=1)
 	local -A cells=()
 	local -a ranked=() others=()
@@ -3352,7 +3411,7 @@ fStage_Backup(){
 	## for './.git' - so it gets run from there rather than wherever cicd was called.
 	(
 		cd "${repoRoot}" || fThrowError "Could not enter '${repoRoot}'."  "${FUNCNAME[0]}"
-		GIT_BACKUP_AND_PUBLISH_RAR_EXCLUDES="${rarExcludes}" "${helper}" "${helperArgs[@]}"
+		SKIP_GATE=1 GIT_BACKUP_AND_PUBLISH_RAR_EXCLUDES="${rarExcludes}" "${helper}" "${helperArgs[@]}"
 	)
 
 }
@@ -3400,7 +3459,7 @@ fStage_Push(){
 	if [[ "${branch}" == "HEAD" ]]; then
 		fThrowError "HEAD is detached, so there is no branch to push."  "${FUNCNAME[0]}"
 	fi
-	git -C "${repoRoot}" push -u "${remote}" "${branch}"
+	SKIP_GATE=1 git -C "${repoRoot}" push -u "${remote}" "${branch}"
 
 }
 
@@ -3479,7 +3538,7 @@ fHalfTheCores(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## sort -V puts 1.2.3 before 1.2.3-dev, so a pre-release reads as newer than the
 ## release it precedes. Comparing the release part first is what stops a dev
-## snapshot passing a floor it is actually below.
+## snapshot passing a floor it is below.
 fVersion_AtLeast(){
 	local -r have="$1"
 	local -r want="$2"

@@ -16,7 +16,7 @@ import (
 // gives the reason: the FQDN read is a blocking name lookup, and a source that
 // changed its answer mid-run would put two fingerprints on one machine.
 //
-// The host name was not actually wrapped, so %h re-read it for every identifier
+// The host name was never wrapped, so %h re-read it for every identifier
 // and could disagree with the cached %f.
 // test-id: Eq9mpyS
 func TestLiveSourcesReadOncePerProcess(t *testing.T) {
@@ -88,9 +88,9 @@ func TestPickMACSkipsSharedAddress(t *testing.T) {
 // test-id: ErmqB7D
 func TestBareAccountNameDropsDomain(t *testing.T) {
 	cases := map[string]string{
-		`VM925W\WinTest`: "WinTest",
-		"ÅSA":            "ÅSA",
-		`\wintest`:       "wintest",
+		`HOST\Alice`: "Alice",
+		"ÅSA":        "ÅSA",
+		`\alice`:     "alice",
 	}
 	for name, want := range cases {
 		if got := bareAccountName(name); got != want {

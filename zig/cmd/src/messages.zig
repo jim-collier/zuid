@@ -36,7 +36,7 @@ pub fn generating(w: *std.Io.Writer, err: anyerror, detail: []const u8, given: G
         error.BareFormatPercent => try w.writeAll("The format string ends on a bare '%'."),
         error.ClockBeforeEpoch => try w.writeAll("The clock predates the Unix epoch."),
         error.WidthOverflow => try w.writeAll("The clock is past the padding horizon, so the timestamp no longer fits its fixed width."),
-        error.BaseNotText => try w.writeAll("That base renders raw bytes or control characters rather than text, so it cannot carry an identifier."),
+        error.BaseNotText => try w.writeAll("That base renders raw bytes or control characters rather than text, so it cannot be used for an identifier."),
         error.EnvUnavailable => try w.writeAll("This machine could not supply that component - no name, hardware address, or random source."),
         error.OptionRange => try w.print("A symbol count is out of range. Want 1 to {d}.", .{given.max_chars}),
         error.SaltTooLong => try w.print("The salt is {d} bytes. Want at most {d}.", .{ given.salt_len, given.max_salt }),

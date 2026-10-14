@@ -40,7 +40,7 @@ func BenchmarkGenerate(b *testing.B) {
 }
 
 // The wide bases take the multi-byte path through tokenize and fit, which is a
-// different shape of work from the byte-per-symbol bases.
+// different kind of work from the byte-per-symbol bases.
 func BenchmarkGenerateWideBase(b *testing.B) {
 	generator, err := zuid.New()
 	if err != nil {

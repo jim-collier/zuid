@@ -3,6 +3,7 @@
 <!-- markdownlint-disable MD033 -- No inline html -->
 <!-- markdownlint-disable MD055 -- Table pipe style [Expected: leading_and_trailing; Actual: leading_only; Missing trailing pipe] -->
 <!-- markdownlint-disable MD041 -- First line in a file should be a top-level heading -->
+<!-- TOC ignore:true -->
 # Design
 
 Design, requirements, and direction. The active pre-v1.0.0 bug/feature task list lives in `backlog.md`.
@@ -20,7 +21,7 @@ Design, requirements, and direction. The active pre-v1.0.0 bug/feature task list
 	- [Reaching the library from C](#reaching-the-library-from-c)
 	- [Which bases to offer](#which-bases-to-offer)
 	- [Memory safety on the Zig side](#memory-safety-on-the-zig-side)
-		- [What is actually detected, and what is not](#what-is-actually-detected-and-what-is-not)
+		- [What is detected, and what is not](#what-is-detected-and-what-is-not)
 - [Identifier specification](#identifier-specification)
 	- [One time encoding, not four](#one-time-encoding-not-four)
 	- [Fixed width, because sorting depends on it](#fixed-width-because-sorting-depends-on-it)
@@ -54,7 +55,7 @@ The identifier is built from a time component, optionally combined with host, us
 
 - An identifier is generated far more often than it is parsed, so generation speed matters and parsing convenience does not.
 
-- Callers who can start a process should just run the binary. The Go and C modules exist for callers who cannot.
+- Callers who can start a process should run the binary. The Go and C modules exist for callers who cannot.
 
 - Sortability is a property worth protecting. Any base whose alphabet does not sort in code-point order breaks it, and that constrains which bases are sensible defaults.
 
@@ -64,7 +65,7 @@ The identifier is built from a time component, optionally combined with host, us
 
 ### Two implementations, one spec
 
-Among the options considered, we decided on two independent implementations of the same identifier spec rather than one core with bindings around it.
+Two independent implementations of the same identifier spec were chosen over one core with bindings around it.
 
 - The Go implementation imports the base-conversion library directly, as any Go caller would.
 
@@ -72,7 +73,7 @@ Among the options considered, we decided on two independent implementations of t
 
 The cost is writing the identifier logic twice. Three things buy it back:
 
-- Each implementation genuinely exercises a different artifact of the sister project, which is a stated reason this project exists.
+- Each implementation exercises a different artifact of the sister project, which is a stated reason this project exists.
 
 - The two cross-check each other. A shared table of test vectors that both must reproduce catches a mistake in either one, which a single implementation with bindings cannot do.
 
@@ -82,7 +83,7 @@ The command-line tool is built from the Zig implementation, and every use of it 
 
 ### Where base conversion comes from
 
-Base conversion is not reimplemented here. It comes from the sister project `convert-base-v2`, whose `convertbase` package already carries seventy-odd bases, tail schemes for the large ones, and constant-memory streaming.
+Base conversion is not reimplemented here. It comes from the sister project `convert-base-v2`, whose `convertbase` package already has seventy-odd bases, tail schemes for the large ones, and constant-memory streaming.
 
 Reimplementing that would be a large amount of subtle work, and having two definitions of what a base means is exactly the kind of disagreement that shows up years later in stored data.
 
@@ -96,11 +97,11 @@ The sister project publishes two WebAssembly builds today, and neither is callab
 
 A third build closes the gap. Go 1.24 added `//go:wasmexport` together with `-buildmode=c-shared` for the `wasip1` target, which produces a reactor-style module: named function exports, an `_initialize` entry point instead of `_start`, and imports limited to the standard `wasi_snapshot_preview1` set that every embeddable runtime provides.
 
-We decided this build belongs upstream in `convert-base-v2` rather than here. Putting it here would have been faster, but the capability is useful to every caller of that project rather than only to this one, and a base-conversion export surface is a poor fit for a repository about identifiers.
+This build belongs upstream in `convert-base-v2` rather than here. Putting it here would have been faster, but the capability is useful to every caller of that project rather than only to this one, and a base-conversion export surface is a poor fit for a repository about identifiers.
 
 The identifier core stays native Zig. Only base conversion crosses the WebAssembly boundary.
 
-Among the runtimes considered, we decided on the Wasmtime C API: it is the reference implementation, has the best-documented C interface, and is the fastest of the options. It is also the heaviest, and it is not present on a stock system, so it is vendored rather than assumed present. The build pins a release, verifies its checksum, and links the static archive, so the binary and the shared library are self-contained; the module bytes are embedded at build time for the same reason.
+Of the runtimes considered, the Wasmtime C API was chosen: it is the reference implementation, has the best-documented C interface, and is the fastest of the options. It is also the heaviest, and it is not present on a stock system, so it is vendored rather than assumed present. The build pins a release, verifies its checksum, and links the static archive, so the binary and the shared library are self-contained; the module bytes are embedded at build time for the same reason.
 
 Wasmtime publishes no FreeBSD build, but FreeBSD packages one. The FreeBSD release links that package's archive, pinned by checksum like the rest, with the zstd archive that build calls. It runs behind Wasmtime's own releases and its port has no maintainer, so it is the first place to look if that build breaks. Switching to an interpreter for one platform was not worth it.
 
@@ -124,23 +125,23 @@ The curated set keeps the common case obvious without walling anything off. The 
 
 Sortability turns out to be the sharpest filter, and it rules on the alphabet rather than on the size of the base. Byte-order comparison only tracks numeric order if the alphabet is itself in ascending code-point order, which several standard ones are not:
 
-| Base | Sorts | Note
-| :-- | :-- | :--
-| 10 | yes |
-| 16 | yes |
-| 26 | yes |
-| 32h, 32c, 32w | yes | base32hex, Crockford, and wordsafe all happen to be ascending
-| 32r | **no** | RFC 4648 puts `A-Z` before `2-7`
-| 36 | yes |
-| 52 | yes |
-| 62 | yes |
-| 64r, 64u | **no** | RFC 4648 puts `A-Z` before `0-9`
-| 64h | yes |
-| `*tt`, `*tz` | yes | the wide families, built on ordered alphabets for exactly this reason
+| Base          | Sorts  | Note
+| :---          | :---   | :---
+| 10            | yes
+| 16            | yes
+| 26            | yes
+| 32h, 32c, 32w | yes    | base32hex, Crockford, and wordsafe all happen to be ascending
+| 32r           | **no** | RFC 4648 puts `A-Z` before `2-7`
+| 36            | yes
+| 52            | yes
+| 62            | yes
+| 64r, 64u      | **no** | RFC 4648 puts `A-Z` before `0-9`
+| 64h           | **no** | `0-9A-Za-z` then `-_`, so `-` sorts before `0` and `_` before `a`
+| `*tt`, `*tz`  | yes    | the wide families, built on ordered alphabets for exactly this reason
 
 That removes the RFC base 64 variants from consideration entirely, which is the reason neither is in the curated list. Base 64 and base 62 need the same 8 characters for a timestamp, and base 62 is already URL-safe and filesystem-safe with no escaping. So base 64 cost the sort guarantee and bought nothing back at this magnitude.
 
-Above base 62 the sensible choices are the two wide families the library carries. They are the same alphabet below 512, diverge at 512, and only `tz` continues past it - so listing both names for one radix would offer a choice that is not really a choice. The curated set takes `tt` up to 512 and `tz` above, which is where `tt` stops existing.
+Above base 62 the sensible choices are the two wide families the library has. They are the same alphabet below 512, diverge at 512, and only `tz` continues past it - so listing both names for one radix would offer a choice that isn't one. The curated set takes `tt` up to 512 and `tz` above, which is where `tt` stops existing.
 
 The curated set is therefore **16, 32w, 36, 62, 64tt, 128tt, 256tt, 512tt, 1024tz, 2048tz**, with 62 the default. Every one of them sorts.
 
@@ -148,27 +149,27 @@ The first four transcribe by hand. The wide ones trade that away - their digits 
 
 `--base` still accepts anything the library knows, including the non-sorting ones. Asking for one of those is a legitimate thing to want; getting one without asking is not.
 
-One base is refused outright. The library carries a raw-byte mode whose 256 digits are literal byte values, and it converts as happily as any other base. An identifier made of control characters and invalid UTF-8 is not an identifier, and that base cannot hold a decimal timestamp at all, so a format mixing `%d` with anything else would only half work. Both implementations test the same thing - the base's zero digit - and refuse it before generating anything.
+One base is refused outright. The library has a raw-byte mode whose 256 digits are literal byte values, and it converts as happily as any other base. An identifier made of control characters and invalid UTF-8 is not an identifier, and that base cannot hold a decimal timestamp at all, so a format mixing `%d` with anything else would only half work. Both implementations test the same thing - the base's zero digit - and refuse it before generating anything.
 
 ### Memory safety on the Zig side
 
 Zig has no borrow checker, so memory safety is a design constraint here rather than something the language enforces. It does check bounds, overflow, null unwrap, invalid casts, and alignment in debug and safe builds, and as of 0.16 returning the address of a local is a compile error. What it does not catch on its own is use-after-free and double-free.
 
-Among the options considered - writing an allocator, taking a third-party one, or using the standard library's - we decided the standard library's is already the strongest of the three, and that the larger win is not allocating in the first place. Four rules:
+Three options were considered: writing an allocator, taking a third-party one, or using the standard library's. The standard library's is already the strongest of the three, and the larger win is not allocating in the first place. Four rules:
 
-- **The identifier core takes no allocator at all.** Every component has a width fixed by the spec, so each intermediate fits a stack array and the core writes into a buffer the caller supplies. That is also the right shape for the C module, where the caller owns the buffer and there is no free contract to get wrong. A memory bug that cannot be expressed beats one that gets caught.
+- **The identifier core takes no allocator at all.** Every component has a width fixed by the spec, so each intermediate fits a stack array and the core writes into a buffer the caller supplies. That is also the right design for the C module, where the caller owns the buffer and there is no free contract to get wrong. A memory bug that cannot be expressed beats one that gets caught.
 
-- **Nothing else on the Zig side allocates either.** This went further than planned. Argument handling uses the arena the process already hands to `main`, the WebAssembly runtime owns its own memory, and the C module makes exactly one allocation: the context itself.
+- **Everything else on the Zig side allocates as little as it can.** The command takes everything from the arena the process already hands to `main`: the arguments, the module cache file, the salt file, the output buffer, and the set of identifiers seen for the repeat warning. All of it goes when the process does. The WebAssembly runtime owns its own memory, and the C module makes exactly one allocation, the context itself. The only other one is `%m` on Windows, which asks the page allocator for the adapter list when it doesn't fit on the stack, and frees it before returning.
 
-- **`std.heap.DebugAllocator` backs that one allocation in debug builds**, `std.heap.smp_allocator` in release. It is the renamed `GeneralPurposeAllocator`, and it is what a hand-written allocator would be trying to become: leak detection with stack traces, and double-free detection that prints the allocation and both frees.
+- **`std.heap.DebugAllocator` backs the C module's context in debug builds**, `std.heap.smp_allocator` in release. It is the renamed `GeneralPurposeAllocator`, and it is what a hand-written allocator would be trying to become: leak detection with stack traces, and double-free detection that prints the allocation and both frees.
 
-- **The tests need no allocator at all.** The vectors file is built into the test binary, so there is nothing to read and nothing to free.
+- **The tests hardly allocate.** The vectors file is built into the test binary, so there is nothing to read. The one test that keeps two identifiers to compare copies them with `std.testing.allocator`, which fails the test on a leak.
 
-Writing our own would mean reproducing all of that and then debugging it, in a project whose entire dynamic-memory need is one arena per run. The third-party options were looked at and none of them is a safety story: `zimalloc` and `zig-slab` are performance and layout work, `zig-composable-allocators` is a construction kit in the Alexandrescu style, and `andrewrk/zig-general-purpose-allocator` is the historical repo that became the standard library's. So no third-party allocator dependency.
+Writing one here would mean reproducing all of that and then debugging it, in a project whose dynamic-memory need is almost all one arena per run. The third-party options were looked at and none of them is a safety story: `zimalloc` and `zig-slab` are performance and layout work, `zig-composable-allocators` is a construction kit in the Alexandrescu style, and `andrewrk/zig-general-purpose-allocator` is the historical repo that became the standard library's. So no third-party allocator dependency.
 
-#### What is actually detected, and what is not
+#### What is detected, and what is not
 
-The 0.16 and 0.17 behaviour, which is narrower than it looks:
+The 0.16 and 0.17 behavior, which is narrower than it looks:
 
 - Leaks and double frees are caught, with full stack traces at the allocation and at both frees.
 
@@ -194,9 +195,9 @@ Its author's own warning is the clearest statement of the problem:
 
 > For any given use-case, you should never mix type, base, and/or precision, or the very purpose for using this tool could be obviated and you'd wind up hating life at best, or with data collisions and/or loss data at worst.
 
-We decided on a single time encoding: **the count of time units elapsed since the Unix epoch, UTC** - the predecessor's `--dtalgo 1`. The others were rejected: packing `YYYYMMDDHHmmSS` as a decimal integer wastes roughly a third of the range on digit combinations that cannot occur, and subdividing the day to fit the base exactly is clever but makes the value impossible to reason about without the tool that produced it.
+A single time encoding was chosen: **the count of time units elapsed since the Unix epoch, UTC** - the predecessor's `--dtalgo 1`. The others were rejected: packing `YYYYMMDDHHmmSS` as a decimal integer wastes roughly a third of the range on digit combinations that cannot occur, and subdividing the day to fit the base exactly is clever but makes the value impossible to reason about without the tool that produced it.
 
-Precision, though, stays selectable - the predecessor already deliberated this at length, and its surface carries forward: **`-1` minute, `0` second (the default), `1` millisecond**. Coarser precisions truncate toward zero. The algorithm choice is what gets removed, not the precision choice; an encoding nobody can select wrongly needs no marker saying which one was used, and precision is visible in the output width anyway.
+Precision, though, stays selectable - the predecessor already deliberated this at length, and its 3 options stay: **`-1` minute, `0` second (the default), `1` millisecond**. Coarser precisions truncate toward zero. The algorithm choice is what gets removed, not the precision choice; an encoding nobody can select wrongly needs no marker saying which one was used, and precision is visible in the output width anyway.
 
 Identifiers of different precisions have different widths and therefore do not sort against each other. That is the same caveat as mixing bases, and the predecessor's warning quoted above covers it: pick one combination per use-case.
 
@@ -207,17 +208,17 @@ Rendering an integer in a compact base does not by itself produce something that
 So output is **zero-padded to a fixed width**, chosen per base and precision as the width that holds any timestamp through the year 3000. The predecessor does not pad at all - its help documents the year each encoding's width grows by one character, which is exactly when its sort order breaks. Padding is what this spec fixes; year 3000 is the chosen horizon. Widths (derived in code, not tabulated):
 
 | Base | Minute | Second | Millisecond
-| :-- | --: | --: | --:
-| 16 | 8 | 9 | 12
-| 32 | 6 | 7 | 9
-| 36 | 6 | 7 | 9
-| 62 | 5 | 6 | 8
-| 64 | 5 | 6 | 8
-| 128 | 5 | 5 | 7
-| 256 | 4 | 5 | 6
-| 512 | 4 | 4 | 5
-| 1024 | 3 | 4 | 5
-| 2048 | 3 | 4 | 5
+| :--- | :---   | :---   | :---
+| 16   | 8      | 9      | 12
+| 32   | 6      | 7      | 9
+| 36   | 6      | 7      | 9
+| 62   | 5      | 6      | 8
+| 64   | 5      | 6      | 8
+| 128  | 5      | 5      | 7
+| 256  | 4      | 5      | 6
+| 512  | 4      | 4      | 5
+| 1024 | 3      | 4      | 5
+| 2048 | 3      | 4      | 5
 
 Width is quantized, so most of those overshoot the horizon by a wide margin. Base 62 at millisecond precision shows it: 8 characters last until 8888, and the next width down runs out in 2081. At the default second precision base 62 is 6 characters - the same length the predecessor produces today, now with the sort guarantee.
 
@@ -225,24 +226,24 @@ The quantization also explains why the wide bases flatten out at the bottom of t
 
 Two consequences follow:
 
-- Sorting is byte-order sorting. It holds under `LC_COLLATE=C`, and does not hold under a locale-aware collation that ignores case, which would fold `A` and `a` together. Any base whose alphabet uses both cases has this property, and it is a property of the locale rather than of the identifier.
+- Sorting is byte-order sorting. It works under `LC_COLLATE=C`, and does not work under a locale-aware collation that ignores case, which would fold `A` and `a` together. Any base whose alphabet uses both cases has this property, and it is a property of the locale rather than of the identifier.
 
 - Padding costs nothing today and one character eventually. The width only diverges from the unpadded length once the unpadded value grows, which is precisely when unpadded output stops sorting.
 
 ### Format and components
 
-The format string keeps the predecessor's shape, since it reads well and is the part worth carrying forward:
+The format string keeps the predecessor's syntax, since it reads well and is the part worth keeping:
 
-| Token | Component | Width in base 62
-| :-- | :-- | --:
-| `%d` | Time, as above. The default format is exactly this. | 6
-| `%h` | Short host name, hashed by default | 8
-| `%u` | User name, hashed by default | 8
-| `%f` | Fully-qualified name, hashed by default | 8
-| `%m` | Hardware address of the lowest-numbered non-loopback interface | 9
-| `%g` | A UUID v4 | 22
-| `%r` | Random data from a cryptographic source | 6
-| `%%` | A literal `%`. Anything else in the format goes out as itself. | -
+| Token | Component                                                            | Width in base 62
+| :---  | :---                                                                 | :---
+| `%d`  | Time, as above. The default format is exactly this.                  | 6
+| `%h`  | Short host name, hashed by default                                   | 8
+| `%u`  | User name, hashed by default                                         | 8
+| `%f`  | Fully-qualified name, hashed by default                              | 8
+| `%m`  | Hardware address of the lowest-numbered non-loopback interface       | 9
+| `%g`  | A UUID v4                                                            | 22
+| `%r`  | Random data from a cryptographic source                              | 6
+| `%%`  | A literal `%`. Any character outside a `%` token goes out as itself. | -
 
 Every component is rendered as a number in the output base, and every one of them is a fixed number of symbols wide. Fixed width is what makes the leading timestamp sort, and it also means an identifier can be split back into its parts by offset. The single exception is an unhashed name, which is emitted as text.
 
@@ -258,7 +259,7 @@ The byte-valued components all take the same path - hex in, converted from base 
 
 - `%g` is a real UUID v4 - 16 bytes from the random source with the version and variant bits forced - but rendered as a plain number in the output base rather than in the dashed text form, which would not sort and would be four times as long.
 
-- `%r` draws enough bytes to fill the symbols it emits. Below base 256 that is one byte each, which is more entropy than a symbol can spend; above it a symbol carries more than eight bits, so the draw scales with the radix. Details under [Component widths](#component-widths).
+- `%r` draws enough bytes to fill the symbols it emits. Below base 256 that is one byte each, which is more entropy than a symbol can spend; above it a symbol holds more than eight bits, so the draw scales with the radix. Details under [Component widths](#component-widths).
 
 Padding and truncation both come from the conversion library, through one call that right-aligns a converted value to an exact symbol count. That is deliberate: the two halves of the policy - left-fill with the base's zero digit when short, keep the rightmost symbols when long - are exactly the kind of thing two implementations drift on if each writes its own. Neither does.
 
@@ -276,7 +277,7 @@ Both implementations reject the same six things before rendering anything, so ne
 
 - A precision that is not -1, 0, or 1.
 
-- A base whose digits are raw bytes rather than text, or whose alphabet holds a control character. 98keyboard is the second kind: its digits include tab, newline and return, so an identifier in it could carry a line break.
+- A base whose digits are raw bytes rather than text, or whose alphabet holds a control character. 98keyboard is the second kind: its digits include tab, newline and return, so an identifier in it could contain a line break.
 
 - A clock before the Unix epoch or past the padding horizon. Past the horizon is an error rather than a truncation, because quietly dropping the high symbols would break the sort instead of reporting it.
 
@@ -290,44 +291,44 @@ Each refusal has one name on every surface. The C module returns a code from `zu
 
 Every width is derived rather than tabulated, by one rule: the smallest number of symbols that holds the largest value the component can take. `%d` takes that value from the horizon; `%m` and `%g` take it from a bit count, 48 and 128.
 
-`%h`, `%u`, `%f`, and `%r` have no largest value - a hash is as wide as you cut it - so what gets derived instead is a target *strength*, and the width is whatever carries it in that base. The targets are 47 bits for a hashed name and 35 for `%r`, which is what 8 and 6 base-62 symbols have always held.
+`%h`, `%u`, `%f`, and `%r` have no largest value - a hash is as wide as you cut it - so what gets derived instead is a target *strength*, and the width is whatever reaches it in that base. The targets are 47 bits for a hashed name and 35 for `%r`, which is what 8 and 6 base-62 symbols have always held.
 
 That distinction matters because a symbol is not a fixed amount of information: four bits in base 16, eleven in 2048tz. A fixed symbol count therefore promises a strength it only delivers in one base - `%r` at 6 symbols is 36 bits in base 62 but 24 in base 16, where a birthday collision arrives after about four thousand draws. Deriving from the target instead keeps the strength constant and lets the width move, which is the same trade the other components already make.
 
 | Base | `%h` `%u` `%f` (47 bits) | `%r` (35 bits) | `%m` (48 bits) | `%g` (128 bits) | Digest ceiling
-| :-- | --: | --: | --: | --: | --:
-| 16 | 12 | 9 | 12 | 32 | 64
-| 32 | 10 | 7 | 10 | 26 | 52
-| 36 | 10 | 7 | 10 | 25 | 50
-| 62 | 8 | 6 | 9 | 22 | 43
-| 64 | 8 | 6 | 8 | 22 | 43
-| 128 | 7 | 5 | 7 | 19 | 37
-| 256 | 6 | 5 | 6 | 16 | 32
-| 512 | 6 | 4 | 6 | 15 | 29
-| 1024 | 5 | 4 | 5 | 13 | 26
-| 2048 | 5 | 4 | 5 | 12 | 24
+| :--- | :---                     | :---           | :---           | :---            | :---
+| 16   | 12                       | 9              | 12             | 32              | 64
+| 32   | 10                       | 7              | 10             | 26              | 52
+| 36   | 10                       | 7              | 10             | 25              | 50
+| 62   | 8                        | 6              | 9              | 22              | 43
+| 64   | 8                        | 6              | 8              | 22              | 43
+| 128  | 7                        | 5              | 7              | 19              | 37
+| 256  | 6                        | 5              | 6              | 16              | 32
+| 512  | 6                        | 4              | 6              | 15              | 29
+| 1024 | 5                        | 4              | 5              | 13              | 26
+| 2048 | 5                        | 4              | 5              | 12              | 24
 
 `--rand-chars` still overrides the derived width for `%r`. The command has no override for the hashed width, but the Go and C interfaces do. The last column is the ceiling on that override: a SHA-256 is 256 bits, so past that many symbols the value is only being left-filled.
 
-`%r` is the one component whose *input* depends on the base. It draws one byte per symbol, which is more entropy than a base of 256 symbols or fewer can spend. Above 256 a symbol carries more than eight bits, so a byte each would leave the leading symbols pinned at the zero digit forever; the draw is `ceil(symbols * bits / 8)` bytes there instead. The floor of one byte per symbol keeps the narrow bases drawing exactly what they always did.
+`%r` is the one component whose *input* depends on the base. It draws one byte per symbol, which is more entropy than a base of 256 symbols or fewer can spend. Above 256 a symbol holds more than eight bits, so a byte each would leave the leading symbols pinned at the zero digit forever; the draw is `ceil(symbols * bits / 8)` bytes there instead. The floor of one byte per symbol keeps the narrow bases drawing exactly what they always did.
 
 ### Resolved questions
 
 Three choices were left open until the vectors froze; all three are now settled:
 
-- **Padding horizon: year 3000.** The predecessor does not pad, so it had no horizon to inherit; 3000 was chosen as a reasonable compromise. Width is quantized so coarsely that most cells clear the horizon by centuries. The tightest are base 32 at second precision and base 32 or 512 at millisecond precision, and even those have decades of headroom, so moving the horizon changes almost nothing.
+- **Padding horizon: year 3000.** The predecessor does not pad, so it had no horizon to inherit; 3000 was chosen as a reasonable compromise. Width is quantized so coarsely that most cells clear the horizon by centuries. The tightest are base 32 and base 128 at second precision, which run out around 3059, and base 32 and base 512 at millisecond precision, around 3085. Even those have decades of headroom, so moving the horizon changes almost nothing.
 
-- **Precision: selectable, `-1|0|1`, defaulting to seconds.** The predecessor already worked through this trade-off, and its answer carries forward: minute, second, and millisecond, second as the default. What was dropped is the algorithm choice, not the precision choice.
+- **Precision: selectable, `-1|0|1`, defaulting to seconds.** The predecessor already worked through this trade-off, and its answer stays: minute, second, and millisecond, second as the default. What was dropped is the algorithm choice, not the precision choice.
 
 - **Same-tick repeats stay literal, with a warning.** A time-only format is fully determined by the clock, so several identifiers generated within one tick come out identical - verified, not hypothetical. The format means what it says: nothing is appended silently. `--count` prints the repeats as they are and writes one line to stderr saying how many of them there were, suggesting `%r`. Callers wanting uniqueness say so in the format.
 
 Five more were settled with the remaining components:
 
-- **All three hashed components are one width, not three.** The predecessor used 5 for host and user and 8 for the FQDN. One number is easier to remember than three, and 5 symbols in base 62 is only about 30 bits, which is thin across a large fleet. That width was itself fixed at 8 to begin with, and is now derived per base from the strength 8 base-62 symbols carry.
+- **All three hashed components are one width, not three.** The predecessor used 5 for host and user and 8 for the FQDN. One number is easier to remember than three, and 5 symbols in base 62 is only about 30 bits, which is thin across a large fleet. That width was itself fixed at 8 to begin with, and is now derived per base from the strength of 8 base-62 symbols.
 
-- **One flag rather than six.** `--no-hash` applies to all three name components, where the predecessor had a hashing switch and a width per component. A `--hash-chars` flag once set the shared width too, and was dropped as more confusing than useful, since the derived width already carries the same strength in every base. Per-component control is the kind of surface that grew by accretion there, and it is the thing this project set out to improve on.
+- **One flag rather than six.** `--no-hash` applies to all three name components, where the predecessor had a hashing switch and a width per component. A `--hash-chars` flag once set the shared width too, and was dropped as more confusing than useful, since the derived width already has the same strength in every base. Per-component control is the kind of surface that grew by accretion there, and it is the thing this project set out to improve on.
 
-- **`%r` carries about 36 bits**, where the predecessor's 4 symbols carried around 24. Enough that appending `%r` to a same-tick timestamp actually resolves the collision it exists to resolve. In base 62 that is the same 6 symbols it always was.
+- **`%r` has about 36 bits**, where the predecessor's 4 symbols had around 24. Enough that appending `%r` to a same-tick timestamp resolves the collision it exists to resolve. In base 62 that is the same 6 symbols it always was.
 
 - **`%m` takes the lowest-numbered non-loopback interface**, for the reasons under [Format and components](#format-and-components).
 
@@ -337,25 +338,30 @@ Five more were settled with the remaining components:
 
 ### Folder structure
 
-```
+~~~text
 go/
 	zuid/               the Go module; module only, no command
 zig/
 	lib/                identifier core, WebAssembly host, C module (Apache-2.0)
+		c/              the libc and Wasmtime headers translate-c reads
 		include/zuid.h  the C header
 		src/
 		test/           the C smoke test a system compiler builds
 	cmd/                the CLI (GPL-2.0-or-later)
 		src/
+	tools/              build helpers, such as the translate-c wrapper
 testdata/
 	vectors.tsv         shared spec; both implementations must reproduce it
 	errors.tsv          every failure, its code, and what each surface must say
 cicd/
 	utility/            helper scripts the pipeline calls
+	container/          the image the pipeline can run in
 	artifacts/          run logs, profiles, demo renders; rotated, not committed
 project/
 assets/                 the demo animation the README shows
-```
+install.bash            installer for Linux, macOS, and FreeBSD
+install.ps1             the same under PowerShell 7, Windows included
+~~~
 
 ### Logical code structure
 
@@ -371,9 +377,9 @@ Only rendering differs between the two implementations. Components and assembly 
 
 ### Data flow
 
-```
+~~~text
 format string -> component selection -> assembly -> base conversion -> output
-```
+~~~
 
 Base conversion is a direct function call in Go, and a WebAssembly call through the vendored runtime in Zig.
 
@@ -381,7 +387,7 @@ Base conversion is a direct function call in Go, and a WebAssembly call through 
 
 ### Software stack
 
-- **Zig 0.17** for the identifier core, the command-line tool, and the C module. Its C interoperation is direct, and `zig cc` cross-compiles to every target from one machine, which removes the usual reason a C artifact is expensive to distribute. Current stable was chosen while no Zig code existed yet: 0.13 through 0.16 rewrote both the I/O and the allocator surfaces, so starting on the old one would have meant porting later for nothing. The move from 0.16 to 0.17 came for fuzz mode, which 0.16.0 could not build.
+- **Zig 0.17** for the identifier core, the command-line tool, and the C module. Its C interoperation is direct, and `zig cc` cross-compiles every Linux, Windows, and FreeBSD release from one Linux machine, which removes the usual reason a C artifact is expensive to distribute. The macOS release is built on a Mac, since its 2 slices are merged with `lipo` and the dylib is relinked with Apple's linker. Current stable was chosen while no Zig code existed yet: 0.13 through 0.16 rewrote both the I/O and the allocator surfaces, so starting on the old one would have meant porting later for nothing. The move from 0.16 to 0.17 came for fuzz mode, which 0.16.0 could not build.
 
 - **Go** for the module, importing `convertbase`.
 
@@ -415,15 +421,15 @@ Two things follow from acquisition being outside the vectors:
 
 The expected column comes from a third independent derivation, working from this document rather than from either implementation, so that "both sides agree" cannot mean "both sides are wrong the same way".
 
-The vectors say nothing about what happens to a format string nobody sane would write, so both sides fuzz that separately. The Go module's `FuzzGenerate` drives the format and the base name, and asks for two things: a failed call returns no identifier, and the same request twice returns the same one. A full pipeline run gives it twenty seconds. The Zig side has the matching pair - one over the core parser, one over the C `zuid_generate` - and they additionally check that a call which failed part way through handed every wasm region back. The Zig test pass only replays their corpus. A full pipeline run then fuzzes them for 50K iterations in Debug, since the leaked-context test counts contexts only in Debug. Zig reports a failing input without a failing exit code, so the pipeline reads the output for it and keeps the input under `cicd/artifacts/fuzz/` for the corpus.
+The vectors say nothing about what happens to a format string nobody sane would write, so both sides fuzz that separately. The Go module's `FuzzGenerate` drives the format and the base name, and asks for two things: a failed call returns no identifier, and the same request twice returns the same one. A full pipeline run gives it twenty seconds. The Zig side has the matching pair - one over the core parser, one over the C `zuid_generate` - and they also check that a call which failed part way through handed every wasm region back. The Zig test pass only replays their corpus. A full pipeline run then fuzzes them for 50K iterations in Debug, since the leaked-context test counts contexts only in Debug. Zig reports a failing input without a failing exit code, so the pipeline reads the output for it and keeps the input under `cicd/artifacts/fuzz/` for the corpus.
 
 ## Relationship to x9muid1
 
 `cicd/utility/x9muid1` is the 2023 bash predecessor, kept as reference. It defines the problem, not the solution.
 
-Carried forward: the format-string idea, the component set, hashed host and user by default, and time-based sortable output.
+Kept: the format-string idea, the component set, hashed host and user by default, and time-based sortable output.
 
-Deliberately not carried forward: its base list, which is longer than an identifier generator needs, and its command-line surface, which grew by accretion. Improving on that interface is one of the reasons this project exists.
+Deliberately not kept: its base list, which is longer than an identifier generator needs, and its command-line surface, which grew by accretion. Improving on that interface is one of the reasons this project exists.
 
 ## Upstream dependency status
 
@@ -431,7 +437,7 @@ Both integration points run against a published release. Nothing is pinned to a 
 
 - The `convertbase` package is fetched at a tagged version, like any other dependency. The local `replace` directive that stood in while it was unreleased is gone.
 
-- The reactor WebAssembly module is **built from that same pinned version** rather than copied in as a prebuilt artifact. That is the point: the Go side imports the library and the Zig side calls it through WebAssembly, and building both from one module version is what stops them drifting onto two. It needs a Go 1.24+ toolchain for `//go:wasmexport`; a vendored copy covers an offline build.
+- The reactor WebAssembly module is **built from that same pinned version** rather than copied in as a prebuilt artifact. That is on purpose: the Go side imports the library and the Zig side calls it through WebAssembly, and building both from one module version is what stops them drifting onto two. It needs a Go 1.24+ toolchain for `//go:wasmexport`; a vendored copy covers an offline build.
 
 The two goals this architecture exists to serve - exercising the upstream Go module and the upstream WebAssembly module - are both met, and now against released artifacts rather than a neighboring directory.
 
@@ -448,10 +454,17 @@ The repo root has no license text of its own. `license.md` there maps each direc
 ## Plan
 
 1. ~~Fix the identifier spec and write `testdata/vectors.tsv` from it.~~ Done, for the time component; the other components extend it.
+
 2. ~~Build the Go implementation against a local checkout of `convertbase`.~~ Done.
+
 3. ~~Upstream the reactor WebAssembly build to `convert-base-v2`.~~ Done, upstream.
+
 4. ~~Build the Zig implementation and the C module against that.~~ Done.
+
 5. ~~Run both against the shared vectors, and reconcile.~~ Done; both sides replay every row.
+
 6. ~~The remaining components - host, user, FQDN, MAC, UUID, random.~~ Done, both sides, with the vectors extended to cover them.
+
 7. ~~Emit more than one identifier per invocation.~~ Done, as `--count`.
+
 8. ~~Configuration, then packaging.~~ Packaging done. A configuration file was dropped; see [Configuration model](#configuration-model).

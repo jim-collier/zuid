@@ -1,0 +1,60 @@
+#!/bin/sh
+# Local merge gate. Before a push that updates main, run cicd.bash --gate on the
+# commit being pushed, in a scratch worktree, since the working tree often has
+# edits that aren't in it. Feature branches aren't gated; they're tested before
+# they merge.
+# SKIP_GATE=1 skips it. cicd.bash sets that for its own pushes, after a pass.
+#
+# Turn it on once per clone:  git config core.hooksPath cicd/utility/git-hooks
+
+##	Copyright (c) 2026 Bubbles
+##	Licensed under The MIT License (MIT). Full text at:
+##		https://mit-license.org/
+##	SPDX-License-Identifier: MIT
+set -eu
+
+[ "${SKIP_GATE:-0}" = "1" ] && exit 0
+
+# stdin: "<local_ref> <local_sha> <remote_ref> <remote_sha>" per ref.
+mainSha=""
+while read -r _ localSha remoteRef _; do
+	case "${remoteRef}" in
+		refs/heads/main)
+			# A delete pushes the zero sha, with nothing to check.
+			case "${localSha}" in *[!0]*) mainSha="${localSha}" ;; esac
+			;;
+	esac
+done
+
+top="$(git rev-parse --show-toplevel)"
+
+# The content scrub, on every push, where the private tree is here.
+scrub="${top}/../private/hooks/scrub.bash"
+if [ -x "${scrub}" ]; then
+	"${scrub}" "${top}" || { echo "pre-push: content scrub failed" >&2; exit 1; }
+fi
+
+[ -n "${mainSha}" ] || exit 0
+
+echo "pre-push: gating the push to main with cicd.bash --gate (SKIP_GATE=1 skips)" >&2
+gateDir="$(mktemp -d "${TMPDIR:-/tmp}/zuid-gate.XXXXXX")"
+tree="${gateDir}/tree"
+fCleanup() {
+	git -C "${top}" worktree remove --force "${tree}" >/dev/null 2>&1 || :
+	rm -rf "${gateDir}"
+}
+trap fCleanup EXIT INT TERM
+git -C "${top}" worktree add --detach -q "${tree}" "${mainSha}" \
+	|| { echo "pre-push: couldn't check out ${mainSha} to gate it" >&2; exit 1; }
+
+# zig/vendor isn't committed. Copied rather than fetched again, and the Zig
+# cache is shared, so only what changed gets rebuilt.
+if [ -d "${top}/zig/vendor" ]; then
+	cp -R --reflink=auto "${top}/zig/vendor" "${tree}/zig/" 2>/dev/null || cp -R "${top}/zig/vendor" "${tree}/zig/"
+fi
+ZIG_LOCAL_CACHE_DIR="${ZIG_LOCAL_CACHE_DIR:-${top}/zig/.zig-cache}"
+export ZIG_LOCAL_CACHE_DIR
+"${tree}/cicd/cicd.bash" --gate
+
+##	History:
+##		- 20261014: Created, from silkterm's.

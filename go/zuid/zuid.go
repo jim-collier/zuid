@@ -11,7 +11,7 @@
 // order and what lets an identifier be split by offset.
 //
 // Base conversion is not done here. It comes from convertbase, which already
-// carries the alphabets and the arbitrary-precision conversion. This package
+// has the alphabets and the arbitrary-precision conversion. This package
 // contributes the components and the fixed-width padding.
 package zuid
 
@@ -41,7 +41,7 @@ import (
 // curatedBases are the bases offered in help. Base still accepts anything
 // convertbase knows; these are the ones that sort. The first four transcribe by
 // hand; the wide families trade that away for length, and only one of the two
-// names each radix carries is listed - tt up to 512, tz above it, which is
+// names each radix has is listed - tt up to 512, tz above it, which is
 // where tt stops existing.
 var curatedBases = []string{
 	"16", "32w", "36", "62",
@@ -59,7 +59,7 @@ func CuratedBases() []string {
 const DefaultBase = "62"
 
 const (
-	// HashBits is the fingerprint strength a hashed component carries, and
+	// HashBits is the fingerprint strength a hashed component has, and
 	// DefaultHashChars is whatever that comes to in the output base. These are
 	// what eight and six base-62 symbols have always held, so base 62 is
 	// unchanged and every other base is sized to match it rather than to match
@@ -70,7 +70,7 @@ const (
 	RandomBits = 35
 	// MaxComponentChars bounds the width of any one component. It does not
 	// bound the whole identifier, since a format string may repeat a component
-	// and may carry literal text of any length.
+	// and may include literal text of any length.
 	MaxComponentChars = 64
 	// MaxSaltBytes is the longest Request.Salt accepted. SHA-256 works on
 	// 64-byte blocks, so a longer secret is not buying anything, and the C
@@ -124,16 +124,16 @@ func DefaultRandomChars(radix int) int {
 }
 
 // MaxHashChars is how many symbols of a SHA-256 a base of this radix can
-// actually carry: 64 in base 16, down to 24 in 2048tz. Past it the extra
+// hold: 64 in base 16, down to 24 in 2048tz. Past it the extra
 // symbols are all left-fill, so the identifier grows without the fingerprint
 // getting any stronger - which is worth refusing rather than emitting.
 func MaxHashChars(radix int) int {
 	return widthForValueBits(radix, digestBits)
 }
 
-// Precision selects the time unit, carrying the predecessor's surface
-// forward: -1 minute, 0 second, 1 millisecond. The clock is always taken in
-// milliseconds and truncated toward zero for the coarser units.
+// Precision selects the time unit, keeping the predecessor's choices: -1
+// minute, 0 second, 1 millisecond. The clock is always taken in milliseconds
+// and truncated toward zero for the coarser units.
 type Precision int
 
 const (
@@ -319,7 +319,7 @@ func (g *Generator) Generate(req Request) (string, error) {
 	if req.RandomChars == 0 {
 		req.RandomChars = DefaultRandomChars(radix)
 	}
-	// Only the widths this format actually spends get checked. A hash width
+	// Only the widths this format uses get checked. A hash width
 	// that fits base 16 is past the ceiling in 2048tz, and a bare %d has no
 	// business failing over a number it never reads.
 	spendsHash, spendsRandom := spentWidths(req.Format)
@@ -328,7 +328,7 @@ func (g *Generator) Generate(req Request) (string, error) {
 			return "", err
 		}
 		if ceiling := MaxHashChars(radix); req.HashChars > ceiling {
-			return "", kind(ErrOption, fmt.Errorf("hash width %d: base %s carries at most %d symbols of a %d-bit digest",
+			return "", kind(ErrOption, fmt.Errorf("hash width %d: base %s fits at most %d symbols of a %d-bit digest",
 				req.HashChars, base.Name(), ceiling, digestBits))
 		}
 	}
@@ -425,14 +425,14 @@ func (g *Generator) renderable(base *convertbase.Base) error {
 }
 
 // checkRenderable rejects a base whose digits are raw bytes rather than text.
-// convertbase carries one - each of its 256 digits is a literal byte value - and
+// convertbase has one - each of its 256 digits is a literal byte value - and
 // it converts happily, so nothing downstream would object to an identifier full
 // of control characters and invalid UTF-8. It also cannot hold a decimal
 // timestamp at all, so a format mixing %d with anything else would half work.
 // The test is the zero digit, which both implementations can read.
 //
 // One text-looking base is a problem too: 98keyboard holds tab, newline and
-// return among its digits, so an identifier can carry a line break without the
+// return among its digits, so an identifier can contain a line break without the
 // zero digit ever showing it. Single-byte digits are what the Zig side can ask
 // about one at a time, so both sides look at exactly those.
 func checkRenderable(base *convertbase.Base) error {
@@ -447,7 +447,7 @@ func checkRenderable(base *convertbase.Base) error {
 	}
 	for _, digit := range base.Symbols {
 		if len(digit) == 1 && (digit[0] < 0x20 || digit[0] == 0x7f) {
-			return kind(ErrBaseNotText, fmt.Errorf("base %s has a control character among its digits, so an identifier could carry one", base.Name()))
+			return kind(ErrBaseNotText, fmt.Errorf("base %s has a control character among its digits, so an identifier could contain one", base.Name()))
 		}
 	}
 	return nil
@@ -585,7 +585,7 @@ func (g *Generator) randomComponent(base *convertbase.Base, count int) (string, 
 // randomBytesFor is how many bytes fill count symbols of the given radix.
 // One byte per symbol covers anything up to 256 symbols and is what the narrow
 // bases have always drawn, so the floor keeps their output unchanged. Above
-// 256 a symbol carries more than eight bits, and one byte each would leave the
+// 256 a symbol holds more than eight bits, and one byte each would leave the
 // leading symbols permanently at the zero digit.
 func randomBytesFor(radix, count int) int {
 	return max(count, (count*bits.Len(uint(radix-1))+7)/8)
@@ -605,7 +605,7 @@ func (g *Generator) convert(value string, from, to *convertbase.Base) (string, e
 	return converted, nil
 }
 
-// WidthFor is the symbol count a base needs to carry any timestamp up to the
+// WidthFor is the symbol count a base needs to hold any timestamp up to the
 // horizon, in the precision's unit. For 32w that pads with '2', because its
 // alphabet starts at '2' - looks wrong at a glance, is not.
 func WidthFor(radix int, precision Precision) (int, error) {
@@ -738,7 +738,7 @@ var liveFQDN = sync.OnceValues(func() (string, error) {
 	return name, nil
 })
 
-// liveMAC takes the lowest-numbered non-loopback interface carrying an EUI-48.
+// liveMAC takes the lowest-numbered non-loopback interface with an EUI-48.
 // The predecessor picked the interface holding the default route, which needs
 // the routing table on three platforms; interface order is stable enough for a
 // value whose only job is to differ between hosts.

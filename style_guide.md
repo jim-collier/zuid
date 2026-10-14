@@ -27,13 +27,13 @@ Each language's own formatter wins. Run it, take its output, and do not hand-for
 
 ## Formatting
 
-| Language | Formatter | Indentation |
-| :-- | :-- | :-- |
-| Go | `gofmt` | tabs |
-| Zig | `zig fmt` | four spaces, and it cannot be configured |
-| C | matches the Zig side | four spaces |
-| Bash | none enforced, but `shellcheck` must pass | tabs |
-| Markdown | none | tabs |
+| Language | Formatter                                  | Indentation
+| :---     | :---                                       | :---
+| Go       | `gofmt`                                    | tabs
+| Zig      | `zig fmt`                                  | four spaces, and it cannot be configured
+| C        | matches the Zig side                       | four spaces
+| Bash     | none enforced, but `shellcheck` must pass  | tabs
+| Markdown | none                                       | tabs
 
 Spaces are for alignment, never for indentation, wherever the formatter allows a choice.
 
@@ -45,7 +45,7 @@ Markdown is never hard-wrapped. One paragraph or one bullet is one physical line
 
 ## Naming
 
-Names should be findable. Someone reading the code has to be able to search for a name and get the places that actually mean it.
+Names should be findable. Someone reading the code has to be able to search for a name and get the places that mean it.
 
 - Prefer a descriptive word to an abbreviation: `upperBound`, not `ub`.
 
@@ -67,15 +67,13 @@ Comments say *why*. The code already says what.
 
 - Terse. A comment that has grown into a paragraph usually wants to be in `project/design.md` instead.
 
-- Describe what the code does and why, never how it was written, tested, or arrived at.
-
 Every source file opens with a copyright and SPDX header. Helper scripts under `cicd/utility/` are MIT regardless of the rest of the project, since they are useful on their own.
 
 ## Errors
 
 - Errors are values, returned and then handled or propagated immediately. Nothing is discarded silently.
 
-- No panic, `unreachable`, or equivalent for ordinary failure. Where one is genuinely impossible, a comment carries the proof.
+- No panic, `unreachable`, or equivalent for ordinary failure. Where one can't happen, a comment gives the proof.
 
 - Return early. The success path sits at the lowest indentation, and there is no `else` after a return.
 
@@ -89,7 +87,7 @@ Public documents are read by people deciding whether to use this, so they are wr
 
 - Plain words. Minimal bold and italic, no capitals for emphasis, and no dramatic adjectives.
 
-- No characters that are not on a keyboard, unless the subject genuinely requires them.
+- No characters that are not on a keyboard, unless the subject requires them.
 
 - US spellings.
 

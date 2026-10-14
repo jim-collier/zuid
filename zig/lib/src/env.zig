@@ -47,7 +47,7 @@ const NameCache = struct {
 };
 
 /// A live Env. Holds what it has already read, so one instance per context is
-/// the intended shape - and, like the C context it sits in, it is not safe to
+/// the intended use - and, like the C context it sits in, it is not safe to
 /// share across threads.
 pub const Live = struct {
     host: NameCache = .{},
@@ -140,7 +140,7 @@ fn readFqdn(out: []u8) core.Error![]const u8 {
     return copyOut(qualified, out);
 }
 
-/// The lowest-numbered non-loopback interface carrying an EUI-48. The
+/// The lowest-numbered non-loopback interface with an EUI-48. The
 /// predecessor picked the interface holding the default route, which needs the
 /// routing table on three platforms; interface order is stable enough for a
 /// value whose only job is to differ between hosts.
