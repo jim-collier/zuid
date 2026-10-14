@@ -30,42 +30,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## Issues
 
-- `install.ps1` stops under Windows PowerShell 5.1.
-	- ID: 2026101410495978
-	- Type: Enhancement
-	- Status: Waiting for answers
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Target OS: Windows
-	- Requirements  [Feature]:
-		- The house installer rules want it to work under 5.1 as well as pwsh 7, so the one-liner works on a stock Windows box.
-	- Progress log:
-		- 20261014: Question: port it, or keep 7 and above? Nothing records why it stops. The port is small: no `$IsWindows` on 5.1, TLS 1.2 forced, `-UseBasicParsing`, and the arch from `PROCESSOR_ARCHITECTURE`.
-
-- Both installers pick a system install whenever the system location is writable.
-	- ID: 2026101410495979
-	- Type: Enhancement
-	- Status: Waiting for answers
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- The house installer rules want user as the default, with system only when asked for.
-	- Progress log:
-		- 20261014: Question: default to user always, or keep it? Today root or an admin gets a system install without asking for one. README says so.
-
-- `cicd.bash --commit` stages untracked files too.
-	- ID: 2026101410495980
-	- Type: Bug
-	- Status: Waiting for answers
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Incorrect behavior [Bug]: The commit stage runs `git add -A`, so anything new in the tree goes in, edits from elsewhere included.
-	- Expected behavior [Bug]: Only what belongs in the commit.
-	- Progress log:
-		- 20261014: Question: stage tracked changes only (`git add -u`), and name new files by hand? That would leave a new file out of a `--commit` run.
 
 - Release file names don't include the version.
 	- ID: 2026101410495982
@@ -78,42 +42,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Every release file has the version in its name, in one scheme settled before the first tagged release, so download links never change.
 	- Progress log:
 		- 20261014: Question: change it before beta.1? The alpha is out under the current names, and both installers ask for them, so they'd change together. The `.deb` and `.rpm` already have the version.
-
-- A full run builds no release files unless `--package` is passed.
-	- ID: 2026101410495983
-	- Type: Enhancement
-	- Status: Waiting for answers
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- The house pipeline rules want release files built on every run without `--quick`.
-	- Progress log:
-		- 20261014: Question: package on full runs, or keep it opt-in? It adds a few minutes and about 72 MB of `dist/debug/` to every full run.
-
-- A Windows install leaves `PATH` to the user.
-	- ID: 2026101410495985
-	- Type: Enhancement
-	- Status: Waiting for answers
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Target OS: Windows
-	- Progress log:
-		- 20261014: Question: should `install.ps1` add the `bin` folder to the user or machine `PATH`, the way silkterm's does? Today it prints a hint. A machine `PATH` near 4 KB is a known trap on both test boxes.
-
-- A launcher that keeps dated copies of the dogfood build.
-	- ID: 2026101410495986
-	- Type: Feature
-	- Status: Waiting for answers
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- A cross-platform `dogfood_zuid.ps1` plus bash and cmd launchers in the synced util dirs, master copies in the repo. It copies the newest dogfood build into a versions folder under a dated name, keeps 5 to 10 copies within 1 GB, never deletes one in use, and runs the newest with the arguments passed through.
-	- Progress log:
-		- 20261014: `cicd/utility/run-latest.ps1` does some of this from `zig-out`, keyed on mtime, pruned by age.
-		- 20261014: Question: build it from shcl's, skip it since zuid is already on the path, or leave it for later?
+		- 20261014: Answer asked for an example. Given in-session: `zuid-linux-x86_64.tgz` would become `zuid-1.0.0-beta.1-linux-x86_64.tgz`, and the installers would build that name from the tag.
 
 - README and GitHub About wording.
 	- ID: 2026101410495988
@@ -124,6 +53,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Opened by: JC
 	- Progress log:
 		- 20261014: Suggested rewrites are in `private/suggestions.md`: badges, a status note, a who-it-isn't-for section, module examples, a support section, and the About blurb and topics. Facts and spelling were fixed in place.
+		- 20261014: Asked what this meant. Explained in-session: `private/suggestions.md` has wording for the README and the GitHub About box, each for a yes or no.
 
 - Installer options and messages per the house installer rules.
 	- ID: 2026101410495989
@@ -165,6 +95,23 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: tidyup
 	- Commit: 5cf3883
 	- Test case: EshGwj4, EshGwj5, EshGwj6.
+
+- A Windows install leaves `PATH` to the user.
+	- ID: 2026101410495985
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Done. `installer-test.bash` 86 of 86.
+	- Needs external testing: A system install from an admin account, which goes on the machine `PATH`. The user `PATH` passed on b29w under 5.1 and 7.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Target OS: Windows
+	- Progress log:
+		- 20261014: Question: should `install.ps1` add the `bin` folder to the user or machine `PATH`, the way silkterm's does? Today it prints a hint. A machine `PATH` near 4 KB is a known trap on both test boxes.
+		- 20261014: Answer: yes. A user install goes on the user `PATH`, a system one on the machine `PATH`, through the registry so `%VAR%` entries keep expanding. Skipped with a note past 2047 or 4095 characters. Uninstall takes it off. On b29w the user `PATH` came back byte for byte after an uninstall, once a trailing `;` was kept.
+	- Branch: answers
+	- Commit:
+	- Test case: None in the harness, since it runs on Linux, where there is no registry. The b29w runs are the check.
 
 - Wording in code, messages, and docs.
 	- ID: 2026101410495992
@@ -274,6 +221,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Opened by: JC
 	- Requirements  [Feature]:
 		- Run PSScriptAnalyzer on `install.ps1` and `cicd/utility/run-latest.ps1` when it's installed, and fail on a finding. `install.ps1` is clean as of 20261014.
+	- Progress log:
+		- 20261014: `installer-test.bash` checks `install.ps1` against the 5.1 profile when PSScriptAnalyzer is installed (EshaOju). The general lint is still open.
 
 - No vulnerability check on the Go dependencies.
 	- ID: 2026101410495995
@@ -337,6 +286,103 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Opened by: JC
 	- Requirements  [Feature]:
 		- Shorten the labels in `cli-test.bash`, `installer-test.bash`, `pipeline-test.bash`, and `cicd.bash`. The IDs stay. The Zig names were done in 2026101410495992.
+
+- `install.ps1` stops under Windows PowerShell 5.1.
+	- ID: 2026101410495978
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. `installer-test.bash` 86 of 86.
+	- Needs external testing: Done. b29w, under Windows PowerShell 5.1.26100 and pwsh 7, as a non-admin user.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Target OS: Windows
+	- Requirements  [Feature]:
+		- The house installer rules want it to work under 5.1 as well as pwsh 7, so the one-liner works on a stock Windows box.
+	- Progress log:
+		- 20261014: Question: port it, or keep 7 and above? Nothing records why it stops. The port is small: no `$IsWindows` on 5.1, TLS 1.2 forced, `-UseBasicParsing`, and the arch from `PROCESSOR_ARCHITECTURE`.
+		- 20261014: Answer: yes. Ported. No `$IsWindows` on 5.1, TLS 1.2 forced, `-UseBasicParsing`, the arch from `PROCESSOR_ARCHITECTURE`, and no stderr redirect that 5.1 turns into a fatal error. On b29w both versions installed, re-ran as a no-op, printed `-Help` from a scriptblock, refused with no answer, and uninstalled.
+	- Branch: answers
+	- Commit:
+	- Test case: EshaOju, which checks `install.ps1` against PSScriptAnalyzer's 5.1 profile and failed on the old file. It can't see a read of `$IsWindows`, so the b29w run covers that.
+	- Acceptance signoff: Self-closed: asked for directly, and passed on real 5.1.
+	- Closed: 20261014-115218
+
+- Both installers pick a system install whenever the system location is writable.
+	- ID: 2026101410495979
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. `installer-test.bash` 86 of 86.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- The house installer rules want user as the default, with system only when asked for.
+	- Progress log:
+		- 20261014: Question: default to user always, or keep it? Today root or an admin gets a system install without asking for one. README says so.
+		- 20261014: Answer: yes. Both default to user, root and admins included. The README and help say so.
+	- Branch: answers
+	- Commit:
+	- Test case: EshaOjs, EshaOjt: no target, with a writable system location, gets a user install. Both failed before. Eq9l4yO and Eq9l4yP no longer skip as root.
+	- Acceptance signoff: Self-closed: asked for directly, and the tests failed before and pass after.
+	- Closed: 20261014-115218
+
+- A full run builds no release files unless `--package` is passed.
+	- ID: 2026101410495983
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. `pipeline-test.bash` 73 of 73.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- The house pipeline rules want release files built on every run without `--quick`.
+	- Progress log:
+		- 20261014: Question: package on full runs, or keep it opt-in? It adds a few minutes and about 72 MB of `dist/debug/` to every full run.
+		- 20261014: Answer: yes. A full run packages on Linux x86_64 and macOS. On Linux with no `llvm-objcopy` it skips with a note, so a fresh clone still passes. `--no-package` turns it off and `--quick` skips it.
+	- Branch: answers
+	- Commit:
+	- Test case: EshbzZU, EshbzZV, EshbzZW, EshbzZX, EshbzZY, Eshc39k, Eshc39l. With the default broken, EshbzZU and EshbzZW failed.
+	- Acceptance signoff: Self-closed: asked for directly, and the tests catch a broken default.
+	- Closed: 20261014-115218
+
+- A launcher that keeps dated copies of the dogfood build.
+	- ID: 2026101410495986
+	- Type: Feature
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- A cross-platform `dogfood_zuid.ps1` plus bash and cmd launchers in the synced util dirs, master copies in the repo. It copies the newest dogfood build into a versions folder under a dated name, keeps 5 to 10 copies within 1 GB, never deletes one in use, and runs the newest with the arguments passed through.
+	- Progress log:
+		- 20261014: `cicd/utility/run-latest.ps1` does some of this from `zig-out`, keyed on mtime, pruned by age.
+		- 20261014: Question: build it from shcl's, skip it since zuid is already on the path, or leave it for later?
+		- 20261014: Answer: no launcher. Copy the bare executables to each platform's synced bin folder instead, overwriting. A full run now puts `zuid-linux-x86_64` in `util/linux/bin`, `zuid-windows-x86_64.exe` in `util/mswin/cli/by-self/win64`, and on a Mac `zuid-darwin-universal` in `util/macos/bin`. The old copies in `util/linux/bash` and `util/macos/bash` went to the trash.
+	- Decisions:
+		- 20261014: No launcher, by direct answer.
+	- Branch: answers
+	- Commit:
+	- Test case: EshcCTw, EshcCTx. With only the first synced entry read, EshcCTw failed.
+	- Acceptance signoff: Self-closed: asked for directly, and tested.
+	- Closed: 20261014-115218
+
+- README installation and development sections in their own docs.
+	- ID: 2026101411521833
+	- Type: Task
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-115218
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Move installation, including development, to one or more docs, and link them from the README.
+	- Progress log:
+		- 20261014: `install.md` has packages, the install scripts, and building from source. `development.md` has prerequisites, building and testing, and house style. The README links both.
+	- Branch: answers
+	- Commit:
+	- Test case: EqA4qmP checks every link in the root docs. EqA4qmO now looks for the style guides in `development.md`, and Eq9m0j2 for the `go get` line in every root doc.
+	- Acceptance signoff: Self-closed: asked for directly.
+	- Closed: 20261014-115218
 
 - `install.bash` stops under a Mac's stock bash for a user install.
 	- ID: 2026101410500003
@@ -1778,6 +1824,20 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: none. It is a machine, not code.
 	- Acceptance signoff: Self-closed: built as asked.
 	- Closed: 20261003-152410
+
+- `cicd.bash --commit` stages untracked files too.
+	- ID: 2026101410495980
+	- Type: Bug
+	- Status: Canceled
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Incorrect behavior [Bug]: The commit stage runs `git add -A`, so anything new in the tree goes in, edits from elsewhere included.
+	- Expected behavior [Bug]: Only what belongs in the commit.
+	- Progress log:
+		- 20261014: Question: stage tracked changes only (`git add -u`), and name new files by hand? That would leave a new file out of a `--commit` run.
+		- 20261014: Answer: no. `--commit` keeps `git add -A`.
+	- Closed: 20261014-115218
 
 - When a shcl upgrade breaks compatibility with the application config file(s).
 	- ID: 2026100313105246

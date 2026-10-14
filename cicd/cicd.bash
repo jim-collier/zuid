@@ -94,12 +94,21 @@ fConfig(){ :;
 	## of the conversion library.
 	default_reactorPackage="github.com/jim-collier/convert-base-v2/lib/reactor"
 
-	## Where dogfooding puts the binary. First existing directory wins. Every Linux
-	## x86_64 box runs zuid from the synced dir, and it syncs to the Mac and the
-	## arm64 VM too, so only a Linux x86_64 build goes there.
+	## Dogfood. Each release file this run built goes to its own platform's synced
+	## bin dir, if that dir exists: "file in dist/|name there|dir". Every box reads
+	## those, so only release builds go there, never a host build. No arm64 or
+	## FreeBSD dir exists.
+	default_dogfoodSynced=(
+		"zuid-linux-x86_64|zuid|${HOME}/synced/0-0/common/exec/util/linux/bin"
+		"zuid-windows-x86_64.exe|zuid.exe|${HOME}/synced/0-0/common/exec/util/mswin/cli/by-self/win64"
+		"zuid-darwin-universal|zuid|${HOME}/synced/0-0/common/exec/util/macos/bin"
+	)
+	## With no release files built, the command from zig-out goes to the first of
+	## these that exists. On Linux x86_64 that's built for the release target, so
+	## it can go in the synced dir too; on a Mac it's a host build.
 	default_dogfoodDirs=("${HOME}/.local/bin" "${HOME}/bin")
 	if [[ "$(uname -s)-$(uname -m)" == "Linux-x86_64" ]]; then
-		default_dogfoodDirs=("${HOME}/synced/0-0/common/exec/util/linux/bash" "${default_dogfoodDirs[@]}")
+		default_dogfoodDirs=("${HOME}/synced/0-0/common/exec/util/linux/bin" "${default_dogfoodDirs[@]}")
 	fi
 
 	## Extra rar excludes for the backup, one per line, on top of the helper's generic
@@ -141,8 +150,8 @@ fPrint_AboutAndSyntax(){
 	fEcho_Clean ""
 	#  X-------------------------------------------------------------------------------X
 	cat <<- EOF_p3vk9
-		Builds and tests both zuid implementations, then archives the project and
-		publishes it. Nothing is packaged unless asked for.
+		Builds and tests both zuid implementations, packages the release files on a
+		full run, then archives the project and publishes it.
 
 		Syntax: ${meName} [options]
 	EOF_p3vk9
@@ -158,9 +167,9 @@ fPrint_Help(){
 		    --only <go|zig>   Drive one toolchain instead of both. Only that one has
 		                      to be installed.
 		    --cross           Also cross-compile for: ${crossTargets[*]}
-		    --quick           Skip the slow stages: fuzzing, profiling and the demo,
-		                      plus the dogfood install. The backup and everything
-		                      that gates a merge still run.
+		    --quick           Skip the slow stages: fuzzing, profiling, the demo and
+		                      packaging, plus the dogfood install. The backup and
+		                      everything that gates a merge still run.
 		    --no-sync         Skip the remote refresh at the start.
 		    --gate            The pre-push check: --quick, with no sync, dogfood,
 		                      backup, commit or push. See below.
@@ -168,7 +177,9 @@ fPrint_Help(){
 		    --commit          Commit if everything passed. Refuses on a protected
 		                      branch: ${protectedBranches[*]}
 		    --push            Push the current branch. Implies a remote exists.
-		    --package         Build release artifacts into dist/.
+		    --package         Build release artifacts into dist/, even on a quick
+		                      run. A full run does anyway, where it can.
+		    --no-package      Do not build them, however the run went.
 		    --backup          Archive and publish. On by default, so this only undoes
 		                      an earlier --no-backup.
 		    --no-backup       Do not archive or publish, however the run went.
@@ -195,10 +206,16 @@ fPrint_Help(){
 		Every run is logged to cicd/artifacts/, along with any profile and demo it
 		produced. Those are rotated, not kept forever, and none of it is committed.
 
-		A full run that builds the Zig side also copies the command into the first
-		of these that exists, so daily use is always the build that just passed:
-		${dogfoodDirs[*]}
+		A full run that builds the Zig side also puts the command where daily use
+		finds it, so that's always the build that just passed. Each release file it
+		packaged goes to its own platform's dir, if that dir exists:
+		$(printf '  %s\n' "${dogfoodSynced[@]}" | sed 's/|/ -> /; s/|/ in /')
+		With nothing packaged, the command from zig-out goes to the first of these
+		that exists: ${dogfoodDirs[*]}
 		It says so and moves on when none of them do.
+
+		A full run packages only on Linux x86_64 and macOS, and skips it with a
+		note when llvm-objcopy is missing on Linux. --package asks anyway.
 
 		--package also runs the Linux x86_64 release under Intel's SDE, emulating a
 		Core 2 Duo and a Pentium 4, when it finds one: ZUID_SDE if set, else sde64
@@ -270,6 +287,7 @@ fMain(){
 	local    default_freebsdRepo=""
 	local -a default_freebsdPkgs=()
 	local    default_reactorPackage=""
+	local -a default_dogfoodSynced=()
 	local -a default_dogfoodDirs=()
 	local    default_rarExcludes=""
 	local -i default_keepDaily=0
@@ -289,6 +307,7 @@ fMain(){
 	local -r  freebsdRepo="${default_freebsdRepo}"
 	local -ra freebsdPkgs=("${default_freebsdPkgs[@]}")
 	local -r reactorPackage="${default_reactorPackage}"
+	local -ra dogfoodSynced=("${default_dogfoodSynced[@]}")
 	local -ra dogfoodDirs=("${default_dogfoodDirs[@]}")
 	local -r  rarExcludes="${default_rarExcludes}"
 	local -ri keepDaily="${default_keepDaily}"
@@ -322,6 +341,8 @@ fMain(){
 	local -i commitAsked=0
 	local -i doPush=0
 	local -i doPackage=0
+	local -i noPackage=0
+	local    packageSkipWhy=""
 	local -i doBackup=1
 	local -i backupAsked=0
 	local -i backupInWorktree=0
@@ -338,6 +359,7 @@ fMain(){
 	readonly doSync
 	readonly doPush
 	readonly doPackage
+	readonly packageSkipWhy
 	readonly doPublish
 	readonly allowPartial
 	readonly doContainer
@@ -389,6 +411,7 @@ fMain(){
 	## The demo draws with this machine's fonts, so a container never renders it.
 	if ((! doQuick)) && ((! inContainer)); then fStage_Demo; fi
 	if ((doPackage)) && ((! doContainer)); then fStage_Package; fi
+	if [[ -n "${packageSkipWhy}" ]]; then fEcho_Clean; fEcho_Clean "Package ....: skipped, ${packageSkipWhy}"; fi
 	if ((doPublish));              then fStage_Publish;   fi
 	if ((doZig)) && ((doDogfood)); then fStage_Dogfood;   fi
 	if ((doBackup));               then fStage_Backup;    fi
@@ -442,7 +465,8 @@ fInit(){
 			--no-sync)    doSync=0    ;;
 			--commit)     doCommit=1; commitAsked=1 ;;
 			--push)       doPush=1    ;;
-			--package)    doPackage=1 ;;
+			--package)    doPackage=1; noPackage=0 ;;
+			--no-package) doPackage=0; noPackage=1 ;;
 			--backup)     doBackup=1; backupAsked=1 ;;
 			--no-backup)  doBackup=0; backupAsked=0 ;;
 			--dogfood)    doDogfood=1; dogfoodAsked=1 ;;
@@ -511,7 +535,35 @@ fInit(){
 	if ((doPublish)) && [[ "${onlyToolchain}" == "go" ]]; then
 		fThrowError "--publish needs the Zig side, which builds every release asset. Drop --only go."  "${FUNCNAME[0]}"
 	fi
+	if ((doPublish)) && ((noPackage)); then
+		fThrowError "--publish builds the release files, so it does not go with --no-package."  "${FUNCNAME[0]}"
+	fi
 
+	## A full run builds the release files too. Where it can't, it says why and
+	## moves on, so a fresh clone without LLVM still passes. The container has
+	## every tool.
+	if ((! doQuick)) && ((! doPackage)) && ((! noPackage)) && [[ "${onlyToolchain}" != "go" ]]; then
+		if ((doContainer)); then packageSkipWhy=""; else packageSkipWhy="$(fPackageBlocker)"; fi
+		if [[ -z "${packageSkipWhy}" ]]; then doPackage=1; fi
+	fi
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Why a full run can't package here, or nothing. Only the hosts --package has
+## passed on: Linux x86_64 and a Mac. Asking for --package skips this.
+fPackageBlocker(){
+	case "$(uname -s)-$(uname -m)" in
+		Linux-x86_64) ;;
+		Darwin-*)     return 0 ;;
+		*)            printf 'a full run packages only on Linux x86_64 and macOS (pass --package to try)'; return 0 ;;
+	esac
+	local tool=""
+	for tool in llvm-objcopy llvm-objcopy-21 llvm-objcopy-20 llvm-objcopy-19 llvm-objcopy-18 llvm-objcopy-17 llvm-objcopy-16; do
+		if command -v "${tool}" >/dev/null 2>&1; then return 0; fi
+	done
+	printf 'no llvm-objcopy to strip the release with'
 }
 
 
@@ -809,9 +861,9 @@ fStage_Docs(){
 	## Both style guides were written and then pointed at from two places. A
 	## guide nothing links to is one nobody reads, which is how the CLI one came
 	## to be missing in the first place.
-	fId EqA4qmO "both style guides are linked from README.md and contributing.md"
+	fId EqA4qmO "both style guides are linked from development.md and contributing.md"
 	local guide="" from=""
-	for from in README.md contributing.md; do
+	for from in development.md contributing.md; do
 		for guide in style_guide.md style-guide_cli.md; do
 			grep -q "(${guide})" "${repoRoot}/${from}" \
 				|| fTestFail "${from} does not link ${guide}."
@@ -1027,14 +1079,18 @@ fStage_Go_Consumer(){
 	fEcho_Clean
 	fEcho "Go: a consumer of the module"
 
-	## README's command has to name the package, not the module root. On the root
+	## The docs' command has to name the package, not the module root. On the root
 	## go get adds the module without what its package needs, and the build stops
 	## on a missing go.sum entry for convertbase.
-	fId Eq9m0j2 "README's go get names the package path"
-	local -r readme="${repoRoot}/README.md"
-	if [[ -f "${readme}" ]] && grep -q 'go get github.com/jim-collier/zuid/go$' "${readme}"; then
-		fTestFail "README tells people 'go get <module root>', which leaves the build unable to resolve convertbase. It should name the package."
-	fi
+	fId Eq9m0j2 "the docs' go get names the package path"
+	local readme=""
+	for readme in "${repoRoot}"/*.md; do
+		if grep -q 'go get github.com/jim-collier/zuid/go$' "${readme}"; then
+			fTestFail "$(basename "${readme}") tells people 'go get <module root>', which leaves the build unable to resolve convertbase. It should name the package."
+		fi
+	done
+	grep -qF 'go get github.com/jim-collier/zuid/go/zuid' "${repoRoot}/install.md" 2>/dev/null \
+		|| fTestFail "install.md has no go get line for the package."
 	fTestPass
 
 	local consumerDir=""
@@ -3345,20 +3401,38 @@ fPublish_Downloads(){  ## download URL, asset...
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## Installs the optimized native build for daily use, into the first of the
-## preferred directories that exists. Part of every full run, so nothing here is
-## fatal - a machine with none of those directories still built and tested fine.
+## Puts the build that just passed where daily use finds it. Release files,
+## when this run made them, each go to their platform's synced dir, overwriting
+## what's there. Otherwise the command from zig-out goes to the first dir that
+## exists. Part of every full run, so nothing here is fatal - a machine with
+## none of those dirs still built and tested fine.
 fStage_Dogfood(){
 
 	fEcho_Clean
 	fEcho "Dogfood"
+
+	local -i placed=0
+	local entry="" file="" name="" dir=""
+	## A container run packages into the same dist/.
+	if ((doPackage)); then
+		for entry in "${dogfoodSynced[@]}"; do
+			IFS='|' read -r file name dir <<< "${entry}"
+			[[ -f "${repoRoot}/dist/${file}" ]] || continue
+			if [[ ! -d "${dir}" ]]; then
+				fEcho_Clean "Skipped ....: ${file}, no ${dir} here"
+				continue
+			fi
+			fDogfoodCopy "${repoRoot}/dist/${file}" "${dir}/${name}"
+			placed=$((placed + 1))
+		done
+	fi
+	if ((placed)); then return 0; fi
 
 	local -r exe="${zigDir}/zig-out/bin/zuid"
 	if [[ ! -x "${exe}" ]]; then
 		fEcho_Clean "Installed ..: nothing built at '${exe}'"
 		return 0
 	fi
-
 	local target="" candidate=""
 	for candidate in "${dogfoodDirs[@]}"; do
 		if [[ -d "${candidate}" ]]; then target="${candidate}"; break; fi
@@ -3367,17 +3441,19 @@ fStage_Dogfood(){
 		fEcho_Clean "Installed ..: no destination on this machine (${dogfoodDirs[*]})"
 		return 0
 	fi
+	fDogfoodCopy "${exe}" "${target}/zuid"
 
-	if cmp -s "${exe}" "${target}/zuid" 2>/dev/null; then
-		fEcho_Clean "Installed ..: ${target}/zuid already current"
-		return 0
-	fi
-	if ! install -m 0755 "${exe}" "${target}/zuid"; then
-		fEcho_Clean "Installed ..: could not write '${target}/zuid'"
-		return 0
-	fi
-	fEcho_Clean "Installed ..: ${target}/zuid"
+}
 
+fDogfoodCopy(){  ## from, to
+	if cmp -s "$1" "$2" 2>/dev/null; then
+		fEcho_Clean "Installed ..: $2 already current"
+	elif install -m 0755 "$1" "$2"; then
+		fEcho_Clean "Installed ..: $2"
+	else
+		fEcho_Clean "Installed ..: could not write '$2'"
+	fi
+	return 0
 }
 
 
