@@ -55,9 +55,10 @@ fConfig(){ :;
 	## --publish tags and releases from this branch only.
 	default_releaseBranch="main"
 
-	## One asset per release target, by the name the installers ask for. --publish
-	## refuses a set with any of these missing, unless --allow-partial.
-	default_releaseAssets=("zuid-linux-x86_64.tgz" "zuid-linux-arm64.tgz" "zuid-freebsd-x86_64.tgz" "zuid-darwin-universal.tgz" "zuid-windows-x86_64.zip" "zuid-windows-arm64.zip")
+	## One asset per release target, by the name the installers ask for, after
+	## "zuid-<version>-". --publish refuses a set with any of these missing, unless
+	## --allow-partial.
+	default_releaseAssets=("linux-x86_64.tgz" "linux-arm64.tgz" "freebsd-x86_64.tgz" "darwin-universal.tgz" "windows-x86_64.zip" "windows-arm64.zip")
 
 	## Vendored Wasmtime C API, pinned. Fetched into zig/vendor/ when absent.
 	## One checksum per platform, as <arch>-<os>=<sha256>, in Wasmtime's own names.
@@ -95,13 +96,14 @@ fConfig(){ :;
 	default_reactorPackage="github.com/jim-collier/convert-base-v2/lib/reactor"
 
 	## Dogfood. Each release file this run built goes to its own platform's synced
-	## bin dir, if that dir exists: "file in dist/|name there|dir". Every box reads
-	## those, so only release builds go there, never a host build. No arm64 or
-	## FreeBSD dir exists.
+	## bin dir, if that dir exists: "file in dist/ after zuid-<version>-|name
+	## there|dir". The name there never has the version, so there's only ever one.
+	## Every box reads those, so only release builds go there, never a host build.
+	## No arm64 or FreeBSD dir exists.
 	default_dogfoodSynced=(
-		"zuid-linux-x86_64|zuid|${HOME}/synced/0-0/common/exec/util/linux/bin"
-		"zuid-windows-x86_64.exe|zuid.exe|${HOME}/synced/0-0/common/exec/util/mswin/cli/by-self/win64"
-		"zuid-darwin-universal|zuid|${HOME}/synced/0-0/common/exec/util/macos/bin"
+		"linux-x86_64|zuid|${HOME}/synced/0-0/common/exec/util/linux/bin"
+		"windows-x86_64.exe|zuid.exe|${HOME}/synced/0-0/common/exec/util/mswin/cli/by-self/win64"
+		"darwin-universal|zuid|${HOME}/synced/0-0/common/exec/util/macos/bin"
 	)
 	## With no release files built, the command from zig-out goes to the first of
 	## these that exists. On Linux x86_64 that's built for the release target, so
@@ -209,7 +211,7 @@ fPrint_Help(){
 		A full run that builds the Zig side also puts the command where daily use
 		finds it, so that's always the build that just passed. Each release file it
 		packaged goes to its own platform's dir, if that dir exists:
-		$(printf '  %s\n' "${dogfoodSynced[@]}" | sed 's/|/ -> /; s/|/ in /')
+		$(printf '  zuid-<version>-%s\n' "${dogfoodSynced[@]}" | sed 's/|/ -> /; s/|/ in /')
 		With nothing packaged, the command from zig-out goes to the first of these
 		that exists: ${dogfoodDirs[*]}
 		It says so and moves on when none of them do.
@@ -323,6 +325,10 @@ fMain(){
 	[[ -n "${repoRoot}" ]] || fThrowError "Could not resolve the repo root."  "${FUNCNAME[0]}"
 	local -r goDir="${repoRoot}/go"
 	local -r zigDir="${repoRoot}/zig"
+	## Release files are named zuid-<version>-<platform>.
+	local distPrefix=""
+	distPrefix="zuid-$(fCoreVersion || true)-"
+	readonly distPrefix
 	local -r artifactDir="${repoRoot}/cicd/artifacts"
 	local -r utilityDir="${repoRoot}/cicd/utility"
 	local -r incomingDir="${repoRoot}/dist-incoming"
@@ -1989,7 +1995,7 @@ fStage_Package(){
 	## first, and the arm64 one by its own IDs below.
 	local osLabel="linux" archLabel="x86_64"
 	if [[ "$(uname -s)" == "Darwin" ]]; then osLabel="darwin"; archLabel="universal"; fi
-	local -r release="${repoRoot}/dist/zuid-${osLabel}-${archLabel}"
+	local -r release="${repoRoot}/dist/${distPrefix}${osLabel}-${archLabel}"
 	local -i haveObjdump=0
 	if command -v objdump >/dev/null 2>&1; then haveObjdump=1; fi
 
@@ -2033,10 +2039,10 @@ fStage_Package(){
 		fTestSkip "no objdump that reads x86_64"
 	else
 		## The release is stripped, so the names come from its debug info.
-		local scanTarget="${release}" scanSymbols="${repoRoot}/dist/debug/zuid-${osLabel}-${archLabel}/bin/zuid.debug"
+		local scanTarget="${release}" scanSymbols="${repoRoot}/dist/debug/${distPrefix}${osLabel}-${archLabel}/bin/zuid.debug"
 		if [[ "${osLabel}" == "darwin" ]]; then
 			scanTarget="${thinDir}/zuid-x86_64"
-			scanSymbols="${repoRoot}/dist/debug/zuid-darwin-universal/x86_64/bin/zuid.dSYM/Contents/Resources/DWARF/zuid"
+			scanSymbols="${repoRoot}/dist/debug/${distPrefix}darwin-universal/x86_64/bin/zuid.dSYM/Contents/Resources/DWARF/zuid"
 			lipo -thin x86_64 "${release}" -output "${scanTarget}" || fTestFail "could not take the x86_64 slice out of ${release}."
 		fi
 		[[ -f "${scanSymbols}" ]] || fTestFail "there is no ${scanSymbols}, which names the functions built here."
@@ -2344,8 +2350,8 @@ fStage_Package_Windows(){  ## scratch dir
 	local link="" linkKind="" smokeExe="" smokeImports=""
 	local -a winFiles=() links=() linkFlags=() importProblems=()
 	for winArch in x86_64 arm64; do
-		winZip="${repoRoot}/dist/zuid-windows-${winArch}.zip"
-		winBare="${repoRoot}/dist/zuid-windows-${winArch}.exe"
+		winZip="${repoRoot}/dist/${distPrefix}windows-${winArch}.zip"
+		winBare="${repoRoot}/dist/${distPrefix}windows-${winArch}.exe"
 		winTree="${scratchDir}/windows-${winArch}"
 		case "${winArch}" in
 			x86_64) winTarget="x86_64-windows-gnu";  machine="8664" ;;
@@ -2498,7 +2504,7 @@ fStage_Package_Windows(){  ## scratch dir
 		fTestSkip "no llvm-readobj and llvm-pdbutil"
 	else
 		winRoot="$(find "${scratchDir}/windows-x86_64" -mindepth 1 -maxdepth 1 -type d -print -quit 2>/dev/null || true)"
-		local -r winPdb="${repoRoot}/dist/debug/zuid-windows-x86_64/bin/zuid.pdb"
+		local -r winPdb="${repoRoot}/dist/debug/${distPrefix}windows-x86_64/bin/zuid.pdb"
 		[[ -n "${winRoot}" ]] || fTestFail "there is no x86_64 zip, or nothing in it."
 		[[ -f "${winPdb}" ]] || fTestFail "there is no ${winPdb}, which names the functions built here."
 		local winScan=""
@@ -2521,7 +2527,7 @@ fStage_Package_Windows(){  ## scratch dir
 fStage_Package_FreeBSD(){  ## scratch dir
 
 	local -r scratchDir="$1"
-	local -r bsdRelease="${repoRoot}/dist/zuid-freebsd-x86_64"
+	local -r bsdRelease="${repoRoot}/dist/${distPrefix}freebsd-x86_64"
 	local -r bsdTree="${scratchDir}/freebsd"
 	local -i isLinux=0 haveReadelf=0 haveObjdump=0
 	if [[ "$(uname -s)" == "Linux" ]];          then isLinux=1;     fi
@@ -2571,7 +2577,7 @@ fStage_Package_FreeBSD(){  ## scratch dir
 	elif ((! haveObjdump)); then
 		fTestSkip "no objdump"
 	else
-		local -r bsdSymbols="${repoRoot}/dist/debug/zuid-freebsd-x86_64/bin/zuid.debug"
+		local -r bsdSymbols="${repoRoot}/dist/debug/${distPrefix}freebsd-x86_64/bin/zuid.debug"
 		[[ -f "${bsdRelease}" ]] || fTestFail "there is no ${bsdRelease}."
 		[[ -f "${bsdSymbols}" ]] || fTestFail "there is no ${bsdSymbols}, which names the functions built here."
 		local bsdScan=""
@@ -2914,7 +2920,7 @@ fStage_Package_Licenses(){  ## scratch dir
 		esac
 		case "${kind}" in
 			linux|freebsd|darwin)
-				found="${repoRoot}/dist/zuid-${archive}.tgz"
+				found="${repoRoot}/dist/${distPrefix}${archive}.tgz"
 				[[ -f "${found}" ]] || fTestFail "there is no $(basename "${found}")."
 				tree="${scratchDir}/license-${archive}"
 				mkdir -p "${tree}"
@@ -2962,7 +2968,7 @@ fStage_Package_Licenses(){  ## scratch dir
 fStage_Package_Arm64(){  ## scratch dir, glibc floor
 
 	local -r scratchDir="$1" glibcFloor="$2"
-	local -r armRelease="${repoRoot}/dist/zuid-linux-arm64"
+	local -r armRelease="${repoRoot}/dist/${distPrefix}linux-arm64"
 	local -r armTree="${scratchDir}/arm64"
 	local -i isLinux=0 haveReadelf=0 haveObjdump=0
 	if [[ "$(uname -s)" == "Linux" ]];          then isLinux=1;     fi
@@ -3030,7 +3036,7 @@ fStage_Package_Arm64(){  ## scratch dir, glibc floor
 	elif [[ -z "${armObjdump}" ]]; then
 		fTestSkip "no objdump that reads arm64"
 	else
-		local -r armSymbols="${repoRoot}/dist/debug/zuid-linux-arm64/bin/zuid.debug"
+		local -r armSymbols="${repoRoot}/dist/debug/${distPrefix}linux-arm64/bin/zuid.debug"
 		[[ -f "${armRelease}" ]] || fTestFail "there is no ${armRelease}."
 		[[ -f "${armSymbols}" ]] || fTestFail "there is no ${armSymbols}, which names the functions built here."
 		local armScan=""
@@ -3231,6 +3237,7 @@ fStage_Publish(){
 
 	local -a missing=()
 	for asset in "${releaseAssets[@]}"; do
+		asset="${distPrefix}${asset}"
 		[[ -e "${stageDir}/${asset}" ]] || missing+=("${asset}")
 	done
 	if ((${#missing[@]})) && ((! allowPartial)); then
@@ -3263,8 +3270,8 @@ fStage_Publish(){
 
 	## The build number, read from the release binary, so it's the one users see.
 	local buildLine=""
-	if [[ -x "${repoRoot}/dist/zuid-linux-x86_64" ]]; then
-		buildLine="$("${repoRoot}/dist/zuid-linux-x86_64" --version 2>/dev/null | sed -n '1s/^\([^ ]*\) (build \([^)]*\))$/zuid v\1 build \2/p' || true)"
+	if [[ -x "${repoRoot}/dist/${distPrefix}linux-x86_64" ]]; then
+		buildLine="$("${repoRoot}/dist/${distPrefix}linux-x86_64" --version 2>/dev/null | sed -n '1s/^\([^ ]*\) (build \([^)]*\))$/zuid v\1 build \2/p' || true)"
 	fi
 	if [[ -n "${buildLine}" ]]; then notes="${buildLine}"$'\n\n'"${notes}"; fi
 
@@ -3334,15 +3341,15 @@ fPublish_Downloads(){  ## download URL, asset...
 	local -a ranked=() others=()
 	local asset="" rank="" words="" os="" cpu="" cell="" row=""
 
-	## Archives first in a cell, then the bare binary, then the packages.
+	## Archives first in a cell, then the bare binary, then the packages. The
+	## version has dots too, so a bare binary is one with none after its last '-'.
 	for asset in "$@"; do
 		case "${asset}" in
 			*.tgz|*.tar.*|*.zip) rank=1 ;;
 			*.exe)               rank=2 ;;
 			*.deb)               rank=3 ;;
 			*.rpm)               rank=4 ;;
-			*.*)                 rank=5 ;;
-			*)                   rank=2 ;;
+			*)                   rank=2; [[ "${asset##*-}" != *.* ]] || rank=5 ;;
 		esac
 		ranked+=("${rank} ${asset}")
 	done
@@ -3417,6 +3424,7 @@ fStage_Dogfood(){
 	if ((doPackage)); then
 		for entry in "${dogfoodSynced[@]}"; do
 			IFS='|' read -r file name dir <<< "${entry}"
+			file="${distPrefix}${file}"
 			[[ -f "${repoRoot}/dist/${file}" ]] || continue
 			if [[ ! -d "${dir}" ]]; then
 				fEcho_Clean "Skipped ....: ${file}, no ${dir} here"

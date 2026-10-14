@@ -329,9 +329,9 @@ fStripSlice(){  ## slice, debug dir, zig target
 ## its debug info is kept per CPU.
 fDebugDir(){  ## zig target
 	if ((mergeSlices)); then
-		echo "${work}/debug/${PKG}-darwin-universal/$(fArchLabel "$1")"
+		echo "${work}/debug/${PKG}-${plainver}-darwin-universal/$(fArchLabel "$1")"
 	else
-		echo "${work}/debug/${PKG}-$(fOsLabel "$1")-$(fArchLabel "$1")"
+		echo "${work}/debug/${PKG}-${plainver}-$(fOsLabel "$1")-$(fArchLabel "$1")"
 	fi
 }
 
@@ -456,14 +456,14 @@ fRelease(){  ## os label, arch label, slice...
 	fSettleTree "${stage}"
 
 	if [[ "${osLabel}" == "windows" ]]; then
-		fZip "${stage}" "${OUT}/${PKG}-${osLabel}-${label}.zip"
+		fZip "${stage}" "${OUT}/${PKG}-${plainver}-${osLabel}-${label}.zip"
 		## arm64 needs wasmtime.dll beside it, so it is not one file there.
 		if [[ ! -f "${stage}/bin/wasmtime.dll" ]]; then
-			cp "${stage}/bin/${exe}" "${OUT}/${PKG}-${osLabel}-${label}.exe"
+			cp "${stage}/bin/${exe}" "${OUT}/${PKG}-${plainver}-${osLabel}-${label}.exe"
 		fi
 	else
-		fTarball "${stage}" "${OUT}/${PKG}-${osLabel}-${label}.tgz"
-		cp "${stage}/bin/${exe}" "${OUT}/${PKG}-${osLabel}-${label}"
+		fTarball "${stage}" "${OUT}/${PKG}-${plainver}-${osLabel}-${label}.tgz"
+		cp "${stage}/bin/${exe}" "${OUT}/${PKG}-${plainver}-${osLabel}-${label}"
 	fi
 	fEcho "built ${osLabel}/${label}"
 	if [[ "${osLabel}" == "linux" ]]; then fLinuxPackages "${stage}" "${label}"; fi

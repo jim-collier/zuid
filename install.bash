@@ -19,7 +19,7 @@ set -Eeuo pipefail
 
 REPO="jim-collier/zuid"
 PROG="zuid"
-installerVersion="1.2.0"
+installerVersion="1.3.0"
 
 release="stable"
 target="user"
@@ -282,7 +282,9 @@ else
 fi
 [[ -n "${tag}" ]] || fDie "no published release found for ${REPO}. Build from source instead - see its README."
 
-asset="${PROG}-${osLabel}-${arch}.tgz"
+asset="${PROG}-${tag#v}-${osLabel}-${arch}.tgz"
+## The alpha went out before release names had the version.
+if [[ "${tag}" == "v1.0.0-alpha.1" ]]; then asset="${PROG}-${osLabel}-${arch}.tgz"; fi
 base="https://github.com/${REPO}/releases/download/${tag}"
 
 
@@ -376,6 +378,7 @@ printf '\n'
 
 
 ##	History:
+##		- 20261014 JC: Release names have the version.
 ##		- 20261014 JC: User install by default, root included.
 ##		- 20261014 JC: --version, --opt=value, semver release pick, sha256 fallbacks. Works under bash 3.2. --arch dropped.
 ##		- 20261004 JC: FreeBSD x86_64.

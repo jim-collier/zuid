@@ -387,7 +387,8 @@ fDogfoodIn(){  ## root, doPackage
 		# shellcheck disable=2034  ## Read by the lifted fStage_Dogfood.
 		{
 			repoRoot="$1/repo"; zigDir="$1/repo/zig"; doPackage="$2"
-			dogfoodSynced=("zuid-linux-x86_64|zuid|$1/linux" "zuid-windows-x86_64.exe|zuid.exe|$1/mswin" "zuid-darwin-universal|zuid|$1/macos")
+			distPrefix="zuid-1.2.3-"
+			dogfoodSynced=("linux-x86_64|zuid|$1/linux" "windows-x86_64.exe|zuid.exe|$1/mswin" "darwin-universal|zuid|$1/macos")
 			dogfoodDirs=("$1/nope" "$1/fallback")
 		}
 		local fn=""
@@ -399,8 +400,10 @@ fDogfoodIn(){  ## root, doPackage
 }
 dogRoot="${work}/dogfood"
 mkdir -p "${dogRoot}/repo/dist" "${dogRoot}/repo/zig/zig-out/bin" "${dogRoot}/linux" "${dogRoot}/mswin" "${dogRoot}/fallback"
-echo linux-release > "${dogRoot}/repo/dist/zuid-linux-x86_64"
-echo windows-release > "${dogRoot}/repo/dist/zuid-windows-x86_64.exe"
+echo linux-release > "${dogRoot}/repo/dist/zuid-1.2.3-linux-x86_64"
+echo windows-release > "${dogRoot}/repo/dist/zuid-1.2.3-windows-x86_64.exe"
+## Another version's file left in dist/ is not this run's.
+echo old-release > "${dogRoot}/repo/dist/zuid-1.2.2-linux-x86_64"
 echo zig-out > "${dogRoot}/repo/zig/zig-out/bin/zuid"
 chmod +x "${dogRoot}/repo/zig/zig-out/bin/zuid"
 echo stale > "${dogRoot}/linux/zuid"
@@ -408,7 +411,7 @@ echo stale > "${dogRoot}/linux/zuid"
 fId EshcCTw "packaged release files go to their platform's synced dir, over what's there"
 out="$(fDogfoodIn "${dogRoot}" 1)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "$(cat "${dogRoot}/linux/zuid" 2>/dev/null)" == "linux-release" && "$(cat "${dogRoot}/mswin/zuid.exe" 2>/dev/null)" == "windows-release" ]] \
-	&& [[ ! -e "${dogRoot}/macos" && ! -e "${dogRoot}/fallback/zuid" ]]
+	&& [[ ! -e "${dogRoot}/macos" && ! -e "${dogRoot}/fallback/zuid" && "$(ls "${dogRoot}/linux")" == "zuid" ]]
 	then fPass
 	else fFail "exited ${rc}, said '${out//$'\n'/ | }'"
 fi
@@ -550,24 +553,24 @@ fPublishRepo(){  ## name, version
 	git -C "${dir}/repo" commit -q -m first
 	git -C "${dir}/repo" remote add origin "${dir}/remote.git"
 	git -C "${dir}/repo" push -q -u origin main 2>/dev/null
-	fTarball "${dir}/repo/dist/zuid-linux-x86_64.tgz" "${version}"
-	fTarball "${dir}/repo/dist/zuid-linux-arm64.tgz" "${version}"
-	fTarball "${dir}/repo/dist/zuid-freebsd-x86_64.tgz" "${version}"
+	fTarball "${dir}/repo/dist/zuid-${version}-linux-x86_64.tgz" "${version}"
+	fTarball "${dir}/repo/dist/zuid-${version}-linux-arm64.tgz" "${version}"
+	fTarball "${dir}/repo/dist/zuid-${version}-freebsd-x86_64.tgz" "${version}"
 	## Answers --version the way the real one does, for the notes' build line.
-	printf '#!/bin/sh\necho "%s (build abc12)"\n' "${version}" > "${dir}/repo/dist/zuid-linux-x86_64"
-	chmod +x "${dir}/repo/dist/zuid-linux-x86_64"
-	printf 'arm64\n'  > "${dir}/repo/dist/zuid-linux-arm64"
-	printf 'freebsd\n' > "${dir}/repo/dist/zuid-freebsd-x86_64"
+	printf '#!/bin/sh\necho "%s (build abc12)"\n' "${version}" > "${dir}/repo/dist/zuid-${version}-linux-x86_64"
+	chmod +x "${dir}/repo/dist/zuid-${version}-linux-x86_64"
+	printf 'arm64\n'  > "${dir}/repo/dist/zuid-${version}-linux-arm64"
+	printf 'freebsd\n' > "${dir}/repo/dist/zuid-${version}-freebsd-x86_64"
 	printf 'stale\n'  > "${dir}/repo/dist/checksums.txt"
 	: > "${dir}/repo/dist/.zuid-package-dir"
 	## What package.bash stripped out, which stays here.
-	mkdir -p "${dir}/repo/dist/debug/zuid-linux-x86_64/bin"
-	printf 'debug\n' > "${dir}/repo/dist/debug/zuid-linux-x86_64/bin/zuid.debug"
+	mkdir -p "${dir}/repo/dist/debug/zuid-${version}-linux-x86_64/bin"
+	printf 'debug\n' > "${dir}/repo/dist/debug/zuid-${version}-linux-x86_64/bin/zuid.debug"
 	printf 'pdb\n'   > "${dir}/repo/dist/debug/zuid.pdb"
-	fTarball "${dir}/repo/dist-incoming/zuid-darwin-universal.tgz" "${version}"
-	printf 'universal\n' > "${dir}/repo/dist-incoming/zuid-darwin-universal"
-	printf 'zip x86_64\n' > "${dir}/repo/dist-incoming/zuid-windows-x86_64.zip"
-	printf 'zip arm64\n'  > "${dir}/repo/dist-incoming/zuid-windows-arm64.zip"
+	fTarball "${dir}/repo/dist-incoming/zuid-${version}-darwin-universal.tgz" "${version}"
+	printf 'universal\n' > "${dir}/repo/dist-incoming/zuid-${version}-darwin-universal"
+	printf 'zip x86_64\n' > "${dir}/repo/dist-incoming/zuid-${version}-windows-x86_64.zip"
+	printf 'zip arm64\n'  > "${dir}/repo/dist-incoming/zuid-${version}-windows-arm64.zip"
 	printf 'deb\n' > "${dir}/repo/dist-incoming/zuid_${version//-/\~}_amd64.deb"
 	printf 'mac sums\n' > "${dir}/repo/dist-incoming/checksums.txt"
 }
@@ -592,6 +595,7 @@ fPublishIn(){  ## name, quiet, allow partial
 		{
 			repoRoot="${dir}/repo"; zigDir="${dir}/repo/zig"; incomingDir="${dir}/repo/dist-incoming"
 			releaseBranch="${default_releaseBranch}"; releaseAssets=("${default_releaseAssets[@]}")
+			distPrefix="zuid-$(fCoreVersion)-"
 			doQuietly="$2"; allowPartial="$3"
 			publishVersion=""; publishRemote=""; publishHead=""; publishRepoUrl=""
 		}
@@ -657,13 +661,13 @@ if ((rc != 0)) && [[ "${out}" == *"Tag go/v1.0.0-beta.1 already exists"* ]] && [
 fi
 
 fPublishRepo partial 1.0.0-beta.1
-rm -f "${work}/partial/repo/dist-incoming/"zuid-windows-*.zip
-fWantPublishRefusal ErgqYt9 "a set missing a platform is refused without --allow-partial" partial "No asset for: zuid-windows-x86_64.zip zuid-windows-arm64.zip" 1 0
+rm -f "${work}/partial/repo/dist-incoming/"zuid-1.0.0-beta.1-windows-*.zip
+fWantPublishRefusal ErgqYt9 "a set missing a platform is refused without --allow-partial" partial "No asset for: zuid-1.0.0-beta.1-windows-x86_64.zip zuid-1.0.0-beta.1-windows-arm64.zip" 1 0
 
 fId ErgqYtA "--allow-partial publishes the rest and names what is missing"
 rm -rf "${work}/partial/repo/dist/release"
 out="$(fPublishIn partial 1 1 < /dev/null)" && rc=0 || rc=$?
-if ((rc == 0)) && [[ "${out}" == *"Missing ....: zuid-windows-x86_64.zip zuid-windows-arm64.zip"* ]] && [[ -e "${work}/partial/gh-create" ]]
+if ((rc == 0)) && [[ "${out}" == *"Missing ....: zuid-1.0.0-beta.1-windows-x86_64.zip zuid-1.0.0-beta.1-windows-arm64.zip"* ]] && [[ -e "${work}/partial/gh-create" ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out: -160}'"
 fi
@@ -687,7 +691,7 @@ fi
 
 fStaleTarball(){
 	fPublishRepo stale 1.0.0-beta.1
-	fTarball "${work}/stale/repo/dist-incoming/zuid-darwin-universal.tgz" 1.0.0-alpha.1
+	fTarball "${work}/stale/repo/dist-incoming/zuid-1.0.0-beta.1-darwin-universal.tgz" 1.0.0-alpha.1
 }
 fStaleTarball
 fWantPublishRefusal ErgqYtH "a copied-in tarball from another version is refused" stale "built from another version" 1 0
@@ -816,7 +820,7 @@ fLinks(){  ## asset...
 	printf '%s' "${links}"
 }
 fPublishRepo table 1.0.0-beta.1
-for name in 'zuid_1.0.0~beta.1_arm64.deb' 'zuid-1.0.0~beta.1-1.x86_64.rpm' 'zuid-1.0.0~beta.1-1.aarch64.rpm' 'zuid-1.0.0-beta.1-src.tar.gz' 'zuid-windows-x86_64.exe'; do
+for name in 'zuid_1.0.0~beta.1_arm64.deb' 'zuid-1.0.0~beta.1-1.x86_64.rpm' 'zuid-1.0.0~beta.1-1.aarch64.rpm' 'zuid-1.0.0-beta.1-src.tar.gz' 'zuid-1.0.0-beta.1-windows-x86_64.exe'; do
 	printf '%s\n' "${name}" > "${work}/table/repo/dist/${name}"
 done
 tableOut="$(fPublishIn table 1 0 < /dev/null)" || true
@@ -828,10 +832,10 @@ fId Erm9fTp "the download table has a row per OS and a column per CPU"
 tableBad=""
 tableWant=(
 	"<tr><th></th><th>x86_64</th><th>arm64</th></tr>"
-	"<tr><th>Linux</th><td>$(fLinks zuid-linux-x86_64.tgz zuid-linux-x86_64 zuid_1.0.0.beta.1_amd64.deb zuid-1.0.0.beta.1-1.x86_64.rpm)</td><td>$(fLinks zuid-linux-arm64.tgz zuid-linux-arm64 zuid_1.0.0.beta.1_arm64.deb zuid-1.0.0.beta.1-1.aarch64.rpm)</td></tr>"
+	"<tr><th>Linux</th><td>$(fLinks zuid-1.0.0-beta.1-linux-x86_64.tgz zuid-1.0.0-beta.1-linux-x86_64 zuid_1.0.0.beta.1_amd64.deb zuid-1.0.0.beta.1-1.x86_64.rpm)</td><td>$(fLinks zuid-1.0.0-beta.1-linux-arm64.tgz zuid-1.0.0-beta.1-linux-arm64 zuid_1.0.0.beta.1_arm64.deb zuid-1.0.0.beta.1-1.aarch64.rpm)</td></tr>"
 	"<tr><th>macOS</th>"
-	"<tr><th>Windows</th><td>$(fLinks zuid-windows-x86_64.zip zuid-windows-x86_64.exe)</td><td>$(fLinks zuid-windows-arm64.zip)</td></tr>"
-	"<tr><th>FreeBSD</th><td>$(fLinks zuid-freebsd-x86_64.tgz zuid-freebsd-x86_64)</td><td>-</td></tr>"
+	"<tr><th>Windows</th><td>$(fLinks zuid-1.0.0-beta.1-windows-x86_64.zip zuid-1.0.0-beta.1-windows-x86_64.exe)</td><td>$(fLinks zuid-1.0.0-beta.1-windows-arm64.zip)</td></tr>"
+	"<tr><th>FreeBSD</th><td>$(fLinks zuid-1.0.0-beta.1-freebsd-x86_64.tgz zuid-1.0.0-beta.1-freebsd-x86_64)</td><td>-</td></tr>"
 )
 ((${#tableRows[@]} == ${#tableWant[@]})) || tableBad+=" ${#tableRows[@]} rows, wanted ${#tableWant[@]};"
 for ((rowIndex = 0; rowIndex < ${#tableWant[@]}; rowIndex++)); do
@@ -847,7 +851,7 @@ if [[ -z "${tableBad}" ]]
 fi
 
 fId Erm9fTq "the macOS universal files span both CPU columns"
-macWant="<tr><th>macOS</th><td colspan=\"2\" align=\"center\">$(fLinks zuid-darwin-universal.tgz zuid-darwin-universal)</td></tr>"
+macWant="<tr><th>macOS</th><td colspan=\"2\" align=\"center\">$(fLinks zuid-1.0.0-beta.1-darwin-universal.tgz zuid-1.0.0-beta.1-darwin-universal)</td></tr>"
 if [[ "${tableRows[2]:-}" == "${macWant}" ]]
 	then fPass
 	else fFail "macOS row was '${tableRows[2]:-}'"
@@ -858,13 +862,13 @@ fId Erm9fTr "a target with no file gets a dash in its cell"
 partialNotes="$(fNotesOf "${work}/partial/gh-create")"
 partialRows=()
 mapfile -t partialRows < <(grep '^<tr>' <<< "${partialNotes}" || true)
-if [[ "${partialRows[3]:-}" == "<tr><th>Windows</th><td>-</td><td>-</td></tr>" ]] && [[ "${partialRows[1]:-}" == "<tr><th>Linux</th><td><a href="* ]] && [[ "${partialNotes}" != *zuid-windows* ]]
+if [[ "${partialRows[3]:-}" == "<tr><th>Windows</th><td>-</td><td>-</td></tr>" ]] && [[ "${partialRows[1]:-}" == "<tr><th>Linux</th><td><a href="* ]] && [[ "${partialNotes}" != *zuid-1.0.0-beta.1-windows* ]]
 	then fPass
 	else fFail "rows were '${partialRows[*]:-}'"
 fi
 
 fPublishRepo nomac 1.0.0-beta.1
-rm -f "${work}/nomac/repo/dist-incoming/"zuid-darwin-universal*
+rm -f "${work}/nomac/repo/dist-incoming/"zuid-1.0.0-beta.1-darwin-universal*
 fId ErmpEWr "a missing macOS file gets one dash across both columns"
 out="$(fPublishIn nomac 1 1 < /dev/null)" && rc=0 || rc=$?
 nomacRows=()
