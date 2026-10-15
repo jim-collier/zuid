@@ -7,20 +7,18 @@ Back to the [README](README.md). To work on zuid itself, see [development.md](de
 
 ## Packages and installers
 
-Preferred. `v1.0.0-alpha.1` is published for x86_64 Linux; on any other platform, build from source with [Do it yourself](#do-it-yourself) below.
+Preferred. `v1.0.0-beta.1` is published for Linux x86_64 and arm64, macOS, Windows x86_64 and arm64, and FreeBSD x86_64. Anywhere else, build from source with [Do it yourself](#do-it-yourself) below.
 
 | Platform               | Package
 | :---                   | :---
-| Debian, Ubuntu         | `zuid_<version>_amd64.deb`
-| Fedora, RHEL, openSUSE | `zuid-<version>-1.x86_64.rpm`
+| Debian, Ubuntu         | `zuid_<version>_amd64.deb` or `_arm64.deb`
+| Fedora, RHEL, openSUSE | `zuid-<version>-1.x86_64.rpm` or `.aarch64.rpm`
 | Windows                | the `.zip`, or on x86_64 the bare `.exe`
 | Anything else          | the `.tgz`, or the bare binary
 
 The rest are named `zuid-<version>-<os>-<cpu>`, like `zuid-1.0.0-beta.1-linux-x86_64.tgz`. The alpha's names don't have the version.
 
 The `.deb` and `.rpm` install the command. The C module - the header, the static and shared libraries, and the Wasmtime archive the static one needs, plus `libzstd.a` on FreeBSD - comes in the `.tgz`, or the `.zip` on Windows. On arm64 Windows, Wasmtime is `wasmtime.dll`, which has to sit beside `zuid.exe`, so there is no bare `.exe` for it.
-
-Linux arm64, macOS, Windows, and FreeBSD x86_64 builds are produced but not published yet.
 
 ## Direct stable and dev install scripts
 
@@ -63,4 +61,4 @@ go get github.com/jim-collier/zuid/go/zuid
 
 Name the package rather than the module root. `go get` on the root adds the module without what its package needs, and the build then stops on a missing `go.sum` entry for `convertbase`.
 
-The module sits in a subdirectory, so pinning it to a release needs a `go/`-prefixed tag, and there is not one yet. Until there is, that command tracks `main`. To pin, name a commit: `go get github.com/jim-collier/zuid/go/zuid@<commit>`.
+The module sits in a subdirectory, so each release also has a `go/`-prefixed tag, such as `go/v1.0.0-beta.1`. Pin to one by its plain version: `go get github.com/jim-collier/zuid/go/zuid@v1.0.0-beta.1`.
