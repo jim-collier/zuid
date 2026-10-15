@@ -58,13 +58,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Removed
 
-- `--hash-chars`. The Go and C modules still take a hash width.
+- `--hash-chars`. The Go and C modules still take hash width.
 
 - The installers' `--arch` and `-Arch`.
 
 ### Other work
 
-- Release files are reproducible, between machines too, except the Windows exe and dll.
+- Most of the release files are reproducible, between machines too, except the Windows exe and dll.
 
 - The build and tests can also run in a pinned container.
 
