@@ -1886,18 +1886,18 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ### Features and enhancements
 
-- 🔬 Publishing. `--publish` stays rejected with a reason until there is somewhere to publish to.
+- ✅ Publishing. `--publish` stays rejected with a reason until there is somewhere to publish to.
 	- Note: GitHub releases is that place now. `v1.0.0-alpha.1` was published there by hand.
 	- Decision: 20261003, every release also gets a `go/v<version>` tag.
 	- Decision: 20261003, the next release is `v1.0.0-beta.1`.
 	- Decision: 20261003, the Mac and Windows files are copied back to the Linux box, which creates the release and uploads everything at once with one checksums file.
 	- Done: 20261003: `cicd.bash --publish` replaces the refusal and implies `--package`. It refuses unless on `main` with a clean tree, HEAD pushed, `gh` logged in, and no tag yet for the version in `core.zig`. It shows the plan and asks, then tags `v<version>` and `go/v<version>`, pushes both, creates the release with every file and one `checksums.txt`, and waits for the download to answer.
-	- Decision: 20261003, open to change: files from the other machines go in `dist-incoming/`, since `--package` empties `dist/`. Only its top level counts, and a `checksums.txt` or dot file there is skipped.
-	- Decision: 20261003, open to change: every target needs its file: Linux x86_64 and arm64, macOS universal, Windows x86_64 and arm64. `--allow-partial` publishes without the missing ones and lists them in the plan.
-	- Decision: 20261003, open to change: anything but `y` or `yes` at the prompt is a no. `-q` skips the prompt.
-	- Decision: 20261003, open to change: a version with a `-` is a prerelease. The notes are that version's section of `changelog.md`, or empty. Both tags are annotated, like `v1.0.0-alpha.1`.
-	- Decision: 20261003, open to change: the tags go on HEAD only when it is exactly what the remote branch has, not just somewhere in its history.
-	- Decision: 20261003, open to change: `--package` names its files for the version in `core.zig`, not for `git describe`. The Mac and Windows files are built before the tag exists, and have to match. A copied-in tarball from another version is refused.
+	- Decision: 20261003: files from the other machines go in `dist-incoming/`, since `--package` empties `dist/`. Only its top level counts, and a `checksums.txt` or dot file there is skipped.
+	- Decision: 20261003: every target needs its file: Linux x86_64 and arm64, macOS universal, Windows x86_64 and arm64. `--allow-partial` publishes without the missing ones and lists them in the plan.
+	- Decision: 20261003: anything but `y` or `yes` at the prompt is a no. `-q` skips the prompt.
+	- Decision: 20261003: a version with a `-` is a prerelease. The notes are that version's section of `changelog.md`, or empty. Both tags are annotated, like `v1.0.0-alpha.1`.
+	- Decision: 20261003: the tags go on HEAD only when it is exactly what the remote branch has, not just somewhere in its history.
+	- Decision: 20261003: `--package` names its files for the version in `core.zig`, not for `git describe`. The Mac and Windows files are built before the tag exists, and have to match. A copied-in tarball from another version is refused.
 	- Note: 20261003, `ZUID_GH` names another `gh`. The tests use a stub with a local bare remote, so nothing reaches GitHub.
 	- Note: 20261003, the old check that `--publish` is refused (`ErOjF72`) is commented out with the reason.
 	- Note: 20261003, branch `publish`. The first real run waits on the Windows build, or on a go-ahead to publish with `--allow-partial`. The version in `core.zig` is still `1.0.0-alpha.1`, so a run today refuses on that tag.
@@ -1905,11 +1905,13 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: `ErgqYt2` to `ErgqYtH` and `ErgqjsR` in `pipeline-test.bash`. Each was seen to fail with its check broken.
 	- Note: 20261004, the Windows zips are built on Linux now, so every target goes in `dist/` and `dist-incoming/` is only for the macOS tarball. The first real run needs the version in `core.zig` moved to `1.0.0-beta.1`, and a go-ahead, since it publishes.
 	- Decision: 20261005, at the first real publish every "open to change" decision above becomes settled and loses the tag, so they stop coming back at each review.
+	- Done: 20261014: `v1.0.0-beta.1` published with `cicd.bash --quick --publish`, 15 files plus `checksums.txt`, build ddytm on every platform. A live `install.bash` from GitHub installed it. The open-to-change decisions above are settled now.
 	- Opened: 20260802-025417
 
-- 🛠️ Tag the Go module as `go/v<version>` at the next release, so it can be asked for by version. A module in a subdirectory needs the prefix, and the plain `v1.0.0-alpha.1` tag does not reach it - `go get ...@v1.0.0-alpha.1` answers "found, but does not contain package". Deferred because pushing a public tag is a release decision, not a code fix. `README.md` says how to pin a commit meanwhile.
+- ✅ Tag the Go module as `go/v<version>` at the next release, so it can be asked for by version. A module in a subdirectory needs the prefix, and the plain `v1.0.0-alpha.1` tag does not reach it - `go get ...@v1.0.0-alpha.1` answers "found, but does not contain package". Deferred because pushing a public tag is a release decision, not a code fix. `README.md` says how to pin a commit meanwhile.
 	- Decision: 20261003, yes, with every release, starting at `v1.0.0-beta.1`.
 	- Note: 20261003, the code is in: `--publish` pushes `go/v<version>` beside `v<version>` on the same commit. The tag goes out with the first real publish, and README's line saying there is no `go/` tag yet changes then.
+	- Done: 20261014: `go/v1.0.0-beta.1` is pushed, and `go get github.com/jim-collier/zuid/go/zuid@v1.0.0-beta.1` resolves through the proxy. `install.md` says how to pin.
 	- Test case: `ErgqYtE` in `pipeline-test.bash`.
 	- Opened: 20260917-104114
 
