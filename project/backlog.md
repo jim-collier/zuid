@@ -274,6 +274,22 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Requirements  [Feature]:
 		- Shorten the labels in `cli-test.bash`, `installer-test.bash`, `pipeline-test.bash`, and `cicd.bash`. The IDs stay. The Zig names were done in 2026101410495992.
 
+- The `go/` tag reads as a second release on GitHub.
+	- ID: 2026101419205100
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-192051
+	- Opened by: JC
+	- Progress log:
+		- 20261014: Asked why there were 2 `v1.0.0-beta.1` releases. There's one; the other entry is the `go/v1.0.0-beta.1` tag, whose message was only its own name.
+		- 20261014: The `go/` tag's message is now "Go module tag for v<version>". The beta.1 tag stays as pushed.
+	- Branch: gotagmsg
+	- Commit: 40af2af
+	- Test case: EsjRmx6. It failed against the old message.
+	- Acceptance signoff: Self-closed: asked for directly, and tested.
+	- Closed: 20261014-192051
+
 - Release file names don't include the version.
 	- ID: 2026101410495982
 	- Type: Enhancement

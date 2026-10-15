@@ -727,6 +727,14 @@ if [[ "$(fRemoteTags "${work}/beta/repo")" == "go/v1.0.0-beta.1 ${betaHead}"$'\n
 	else fFail "the remote has: $(fRemoteTags "${work}/beta/repo" | tr '\n' ';')"
 fi
 
+## GitHub lists a bare tag beside the releases, so its message says what it is.
+fId EsjRmx6 "the go/ tag's message names the release it goes with"
+betaGoMsg="$(git -C "${work}/beta/repo" tag -l --format='%(contents:subject)' go/v1.0.0-beta.1)"
+if [[ "${betaGoMsg}" == "Go module tag for v1.0.0-beta.1" ]]
+	then fPass
+	else fFail "its message is '${betaGoMsg}'"
+fi
+
 ## Exactly one checksums.txt, listing every other upload once with the right
 ## hash, and nothing else.
 fId ErgqYtF "one checksums.txt covers every asset"

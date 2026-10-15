@@ -3295,7 +3295,8 @@ fStage_Publish(){
 	fi
 
 	git -C "${repoRoot}" tag -a "${tag}"   -m "${tag}"   "${publishHead}"
-	git -C "${repoRoot}" tag -a "${goTag}" -m "${goTag}" "${publishHead}"
+	## GitHub lists this beside the releases, so say what it is.
+	git -C "${repoRoot}" tag -a "${goTag}" -m "Go module tag for ${tag}" "${publishHead}"
 	if ! git -C "${repoRoot}" push --atomic "${publishRemote}" "refs/tags/${tag}" "refs/tags/${goTag}"; then
 		git -C "${repoRoot}" tag -d "${tag}" "${goTag}" >/dev/null
 		fThrowError "Could not push the tags, so nothing was published. The local ones were removed again."  "${FUNCNAME[0]}"
