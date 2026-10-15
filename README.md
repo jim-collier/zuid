@@ -7,7 +7,7 @@
 
 [![Command: GPL v2+](https://img.shields.io/badge/Command-GPLv2%2B-blue.svg)](license.md)
 [![Modules: Apache 2.0](https://img.shields.io/badge/Modules-Apache_2.0-green.svg)](license.md)
-![Lifecycle: Alpha](https://img.shields.io/badge/Lifecycle-Alpha-orange)
+![Lifecycle: Beta](https://img.shields.io/badge/Lifecycle-Beta-yellow)
 ![Support](https://img.shields.io/badge/Support-Maintained-brightgreen)
 ![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go&logoColor=white)
 ![Zig](https://img.shields.io/badge/Zig-0.17.0-F7A41D?logo=zig&logoColor=white)
@@ -56,7 +56,7 @@ Short, sortable, privacy-preserving unique identifiers - from a command line, a 
 
 </div>
 
-> **Alpha.** First prerelease is `v1.0.0-alpha.1`. Both implementations build and reproduce the shared test vectors, and every component works from the command line, the Go module, and the C module. It's for x86_64 Linux only, and it was built for newer CPUs than intended, so it stops with an illegal instruction on many Intel chips from before 2019. The next release fixes that and adds the other platforms. See [project/backlog.md](project/backlog.md) for where it stands.
+> **Beta.** The current prerelease is `v1.0.0-beta.1`, for Linux, macOS, Windows, and FreeBSD. Both implementations build and reproduce the shared test vectors, and every component works from the command line, the Go module, and the C module. See [project/backlog.md](project/backlog.md) for where it stands.
 
 <!-- TOC ignore:true -->
 ## Table of contents
