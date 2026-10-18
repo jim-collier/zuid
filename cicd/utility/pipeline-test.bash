@@ -97,8 +97,11 @@ fWantRefusal ErOjF73 "an unknown argument is named"                   "'--bogus'
 fWantRefusal ErgqYt2 "--allow-partial without --publish is refused"   "only means something with --publish" --allow-partial
 fWantRefusal ErgqYt3 "--publish with --only go is refused"            "--publish needs the Zig side" --publish --only go
 fWantRefusal EsJ9SjI "--publish with --container is refused"          "does not go with --container" --publish --container
-fWantRefusal EshGwj4 "--gate with --commit is refused"                "--gate only builds and tests" --gate --commit
-fWantRefusal EshGwj5 "--gate with --package is refused"               "--gate only builds and tests" --gate --package
+fWantRefusal EshGwj4 "--ci with --commit is refused"                  "--ci only builds and tests" --ci --commit
+fWantRefusal EshGwj5 "--ci with --package is refused"                 "--ci only builds and tests" --ci --package
+## --gate was renamed --ci with no alias. The bad --only after it keeps a
+## build that still took --gate from starting a real run.
+fWantRefusal Et6FB1m "--gate is gone, with no alias"                   "'--gate'" --gate --only nope
 fWantRefusal Eshc39l "--publish with --no-package is refused"         "does not go with --no-package" --publish --no-package
 
 fId EsJ9cHS "--container inside the container is refused"
@@ -270,7 +273,7 @@ fInitIn(){  ## repo dir, args...
 			repoRoot="$1"; onlyToolchain=""; commitMsg=""; doQuietly=0
 			doCross=0; doQuick=0; doSync=1; doCommit=0; commitAsked=0; doPush=0; doPackage=0; noPackage=0; packageSkipWhy=""
 			doBackup=1; backupAsked=0; backupInWorktree=0; doDogfood=1; dogfoodAsked=0; doPublish=0; allowPartial=0
-			doContainer=0; inContainer=0; doGate=0
+			doContainer=0; inContainer=0; doCi=0
 		}
 		shift
 		local fn=""
@@ -280,7 +283,9 @@ fInitIn(){  ## repo dir, args...
 		# shellcheck disable=2030  ## Only this subshell's PATH, on purpose.
 		if [[ -n "${fakePath:-}" ]]; then PATH="${fakePath}"; fi
 		fInit "$@"
-		if [[ "${showGate:-0}" == "1" ]]; then
+		if [[ "${showCross:-0}" == "1" ]]; then
+			printf 'doCross=%s\n' "${doCross}"
+		elif [[ "${showGate:-0}" == "1" ]]; then
 			printf 'doQuick=%s doSync=%s doBackup=%s doDogfood=%s doPackage=%s\n' "${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}" "${doPackage}"
 		elif [[ "${showPackage:-0}" == "1" ]]; then
 			printf 'doPackage=%s skip=%s\n' "${doPackage}" "${packageSkipWhy}"
@@ -305,13 +310,22 @@ if ((rc != 0)) && [[ "${out}" == *"linked worktree"* ]]
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-## The pre-push hook runs --gate inside a push, so it must not sync, install,
+## The pre-push hook runs --ci inside a push, so it must not sync, install,
 ## or push again.
-fId EshGwj6 "--gate is a quick run with no sync, dogfood, or backup"
-out="$(showGate=1 fInitIn "${worktreeMain}" --gate)" && rc=0 || rc=$?
+fId EshGwj6 "--ci is a quick run with no sync, dogfood, or backup"
+out="$(showGate=1 fInitIn "${worktreeMain}" --ci)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "doQuick=1 doSync=0 doBackup=0 doDogfood=0 doPackage=0" ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
+fi
+
+## The Go cross builds are seconds, so a quick run and the pre-push one get
+## them as well as a full run.
+fId Et6FB1n "a plain run, --quick and --ci all cross-compile"
+out="$(showCross=1 fInitIn "${worktreeMain}"; showCross=1 fInitIn "${worktreeMain}" --quick; showCross=1 fInitIn "${worktreeMain}" --ci)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == $'doCross=1\ndoCross=1\ndoCross=1' ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
 fi
 
 ## A full run packages where --package is known to work: Linux x86_64 or a Mac,
@@ -448,7 +462,7 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 		# shellcheck disable=2034  ## Read by the lifted fStage_Container.
 		{
 			repoRoot="$(cd "$1" && pwd -P)"; containerImage="zuid-cicd"; containerVolume="zuid-cicd-cache"
-			onlyToolchain="go"; doCross=0; doQuick=1; doPackage=1
+			onlyToolchain="go"; doQuick=1; doPackage=1
 		}
 		local fn=""
 		for fn in _fMustBeInPath fStage_Container; do
@@ -1220,6 +1234,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261018 JC: --gate is --ci. Every run cross-compiles.
 ##		- 20261013 JC: Fuzz cases clean up their temp folders.
 ##		- 20261010 JC: --container.
 ##		- 20261005 JC: The profile report's registry bucket.
