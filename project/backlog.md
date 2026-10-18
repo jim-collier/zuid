@@ -202,7 +202,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - Updates to CICD script flags.
 	- ID: 2026101816243852
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Done. `pipeline-test.bash` 76 of 76, and `cicd.bash --ci -q` passed in 143 s with the 3 Go cross checks in it.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261018-162438
 	- Opened by: JC
@@ -216,6 +217,20 @@ Going forward, new issues in the new template at the bottom of this file, will g
 			- Skip anything requiring an external host.
 		- No flags, by default, should do everything.
 		- The other existing flags can stay.
+	- Progress log:
+		- 20261018: `--gate` is `--ci` in `cicd.bash`, its help, the pre-push hook, `pipeline-test.bash` and `development.md`. Every run cross-compiles the Go module now, quick ones and `--ci` too.
+		- 20261018: Timed the cross builds. Go takes about 4 s a target cold and almost nothing warm, and arm64 is no slower. Zig's release targets take about 20 s each cold, so they stay with packaging.
+		- 20261018: Nothing in the pipeline needs an outside host today, so there was nothing for `--quick` to skip. The sync and backup talk to the git remote and go on without it, the first run downloads Wasmtime once, and `--publish` needs GitHub.
+		- Note: a checkout whose hook predates this still runs `--gate`, which the new `cicd.bash` refuses, so its push to `main` stops. A pull, or `SKIP_GATE=1` once, gets past it.
+	- Swept: `--gate` and `doGate` across `repo/` and the private notes. What's left is in history lines and item 2026101410495991. `SKIP_GATE` keeps its name, since the hook is still a gate.
+	- Decisions:
+		- 20261018: A plain run does every stage, cross included, except `--publish` and the future `--leakcheck` (2026101816474402). It already packaged.
+		- 20261018: `--gate` is renamed `--ci`, with no alias.
+		- 20261018: `--quick` runs every quick lint, check and test, plus the Go cross builds. It skips the Zig cross builds, which come with packaging, since they'd make `--ci` about 1.5 min longer.
+		- 20261018: `--cross` stays and changes nothing now. The other flags stay too.
+	- Branch: ciflags
+	- Commit: 36fe700
+	- Test case: Et6FB1m (`--gate` is refused), Et6FB1n (a plain run, `--quick` and `--ci` all cross-compile). EshGwj4, EshGwj5 and EshGwj6 moved to `--ci`. Both new ones failed first.
 
 - Leak, memory, and correctness checks in CICD.
 	- ID: 2026101816243853
