@@ -11,15 +11,28 @@
 
 const std = @import("std");
 
+const version = @import("lib/src/core.zig").version;
+
 /// The shared library's soname version. Read from the one version constant so
 /// there is nothing to keep in step, with any prerelease tag dropped - an
 /// soname has no room for one. The major is the C ABI promise that goes with
 /// the error codes: a consumer records libzuid.so.1 and keeps working as long
 /// as that number stays the same.
 const abi_version: std.SemanticVersion = v: {
-    const parsed = std.SemanticVersion.parse(@import("lib/src/core.zig").version) catch
+    const parsed = std.SemanticVersion.parse(version) catch
         @compileError("core.zig version is not a semantic version");
     break :v .{ .major = parsed.major, .minor = parsed.minor, .patch = parsed.patch };
+};
+
+/// The year --about prints, so the Windows resource can't say another one.
+const copyright_year = y: {
+    @setEvalBranchQuota(200_000);
+    const main_zig = @embedFile("cmd/src/main.zig");
+    const lead = "\\\\Copyright \u{a9} ";
+    const at = std.mem.indexOf(u8, main_zig, lead) orelse
+        @compileError("no copyright line in cmd/src/main.zig's --about text");
+    const rest = main_zig[at + lead.len ..];
+    break :y rest[0 .. std.mem.indexOfScalar(u8, rest, ' ') orelse rest.len];
 };
 
 pub fn build(b: *std.Build) void {
@@ -43,9 +56,13 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     cmd_mod.addImport("zuid", lib_mod);
+    // What --version prints, and the Windows version resource with it.
+    const build_number = buildNumber(b, buildEpoch(b));
+    const version_line = if (build_number.len > 0) b.fmt("{s} (build {s})", .{ version, build_number }) else version;
     const build_options = b.addOptions();
-    build_options.addOption(i64, "build_epoch", buildEpoch(b));
+    build_options.addOption([]const u8, "version_line", version_line);
     cmd_mod.addOptions("build_options", build_options);
+    if (is_windows) cmd_mod.addWin32ResourceFile(.{ .file = versionResource(b, optimize, version_line, .exe) });
 
     const exe = b.addExecutable(.{
         .name = "zuid",
@@ -89,6 +106,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     wireWasmtime(b, capi_shared_mod, wasmtime, headers);
+    if (is_windows) capi_shared_mod.addWin32ResourceFile(.{ .file = versionResource(b, optimize, version_line, .dll) });
     const shared_lib = b.addLibrary(.{
         .name = "zuid",
         .linkage = .dynamic,
@@ -271,6 +289,88 @@ fn buildEpoch(b: *std.Build) i64 {
     var code: u8 = 0;
     const out = b.runAllowFail(&.{ "git", "-C", b.root.toString(b.allocator) catch @panic("OOM"), "log", "-1", "--format=%ct" }, &code, .ignore) catch return 0;
     return std.fmt.parseInt(i64, std.mem.trim(u8, out, " \r\n"), 10) catch 0;
+}
+
+/// Minutes since 2000-01-01 UTC in lower-case Crockford base32, the same build
+/// number gitsby and silkterm use. Empty when nothing stamped the build.
+fn buildNumber(b: *std.Build, epoch: i64) []const u8 {
+    const epoch_2000 = 946684800;
+    if (epoch < epoch_2000) return "";
+    const alphabet = "0123456789abcdefghjkmnpqrstvwxyz";
+    var minutes: u64 = @intCast(@divFloor(epoch - epoch_2000, 60));
+    var digits: [13]u8 = undefined;
+    var at: usize = digits.len;
+    while (true) {
+        at -= 1;
+        digits[at] = alphabet[minutes % 32];
+        minutes /= 32;
+        if (minutes == 0) break;
+    }
+    return b.dupe(digits[at..]);
+}
+
+/// The VERSIONINFO Explorer shows on a file's Properties tab, for zuid.exe and
+/// zuid.dll. Written from the same line --version prints, so there's no
+/// second copy of the version or the build number to forget. FILEVERSION is 4 numbers, so
+/// a prerelease gets the release's numbers plus the prerelease flag, and the
+/// full version only in the strings. See design.md. ASCII on purpose, since
+/// windres-built ones elsewhere are, and no icon until there's a logo.
+fn versionResource(b: *std.Build, optimize: std.builtin.Optimize, version_line: []const u8, kind: enum { exe, dll }) std.Build.LazyPath {
+    const v = std.SemanticVersion.parse(version) catch unreachable;
+    // VS_FF_DEBUG and VS_FF_PRERELEASE.
+    const flags: u32 = @as(u32, @intFromBool(optimize == .debug)) | @as(u32, @intFromBool(v.pre != null)) << 1;
+    const rc = b.fmt(
+        \\1 VERSIONINFO
+        \\FILEVERSION {[major]d},{[minor]d},{[patch]d},0
+        \\PRODUCTVERSION {[major]d},{[minor]d},{[patch]d},0
+        \\FILEFLAGSMASK 0x3f
+        \\FILEFLAGS 0x{[flags]x}
+        \\FILEOS 0x40004
+        \\FILETYPE {[type]s}
+        \\FILESUBTYPE 0x0
+        \\BEGIN
+        \\    BLOCK "StringFileInfo"
+        \\    BEGIN
+        \\        BLOCK "040904b0"
+        \\        BEGIN
+        \\            VALUE "CompanyName", "Jim Collier"
+        \\            VALUE "FileDescription", "{[description]s}"
+        \\            VALUE "FileVersion", "{[version_line]s}"
+        \\            VALUE "InternalName", "zuid"
+        \\            VALUE "LegalCopyright", "Copyright (C) {[year]s} Jim Collier"
+        \\            VALUE "OriginalFilename", "zuid.{[ext]s}"
+        \\            VALUE "ProductName", "zuid"
+        \\            VALUE "ProductVersion", "{[version_line]s}"
+        \\        END
+        \\    END
+        \\    BLOCK "VarFileInfo"
+        \\    BEGIN
+        \\        VALUE "Translation", 0x409, 1200
+        \\    END
+        \\END
+        \\
+    , .{
+        .major = v.major,
+        .minor = v.minor,
+        .patch = v.patch,
+        .flags = flags,
+        .type = switch (kind) {
+            .exe => "0x1",
+            .dll => "0x2",
+        },
+        .description = switch (kind) {
+            .exe => "zuid",
+            .dll => "zuid C library",
+        },
+        .version_line = version_line,
+        .year = copyright_year,
+        .ext = @tagName(kind),
+    });
+    // The year comes from another file, and the house rule for these is ASCII.
+    for (rc) |c| {
+        if (c >= 0x80) std.process.fatal("the Windows version resource has a non-ASCII byte: {s}", .{rc});
+    }
+    return b.addWriteFiles().add(b.fmt("zuid-{t}.rc", .{kind}), rc);
 }
 
 /// compiler_rt as a root object of its own, so its __anon_N names don't get a

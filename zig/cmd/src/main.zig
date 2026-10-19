@@ -41,23 +41,10 @@ const curated_list = blk: {
     break :blk joined;
 };
 
-/// Minutes since 2000-01-01 UTC in lower-case Crockford base32, stamped from
-/// the commit date by build.zig. Empty when nothing stamped it.
-const build_number = blk: {
-    const epoch_2000 = 946684800;
-    const alphabet = "0123456789abcdefghjkmnpqrstvwxyz";
-    if (build_options.build_epoch < epoch_2000) break :blk "";
-    var minutes: u64 = @intCast(@divFloor(build_options.build_epoch - epoch_2000, 60));
-    var digits: []const u8 = "";
-    while (true) {
-        digits = alphabet[minutes % 32 .. minutes % 32 + 1] ++ digits;
-        minutes /= 32;
-        if (minutes == 0) break;
-    }
-    break :blk digits;
-};
-
-const version_line = zuid.version ++ (if (build_number.len > 0) " (build " ++ build_number ++ ")" else "");
+/// The version, and the build number build.zig stamps from the commit date,
+/// such as "1.0.0-beta.1 (build ddytm)". The Windows version resource has the
+/// same line.
+const version_line = build_options.version_line;
 
 const about_text = "zuid " ++ version_line ++ "\n" ++
     \\Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ].

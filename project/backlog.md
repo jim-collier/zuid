@@ -440,14 +440,27 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - The Windows exe has no version resource or icon.
 	- ID: 2026101410495999
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Done. See Verified.
+	- Needs external testing: Explorer's Properties tab on a Windows box, for `zuid.exe` and `zuid.dll` from the x86_64 zip.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261014-105000
 	- Opened by: JC
+	- Related IDs: 2026101305595483
 	- Target OS: Windows
 	- Requirements  [Feature]:
 		- An ASCII VERSIONINFO for the Windows targets, in the plain copyright form. The icon waits on a logo.
 		- Recheck that the exe still builds the same on 2 machines, apart from the known PDB paths.
+	- Progress log:
+		- 20261019: `zuid.exe` and `zuid.dll` have a version resource on both Windows targets. `build.zig` writes it from the line `--version` prints, and the year from `--about`. `libzuid.a` gets none, since it would end up inside the program that links it.
+		- 20261019: No icon yet. It waits on a logo.
+	- Decisions:
+		- 20261019: The copyright is `Copyright (C) <year> Jim Collier`, with no ID and no license. The license differs between the exe and the dll, and `--about` has it.
+		- 20261019: FILEVERSION is the release's 3 numbers and a 0. A prerelease sets the prerelease flag instead, and the text fields have the full version with the build number. The 4th number can't hold the build number, and any prerelease number there would sort a beta above its release. Noted in design.md.
+		- 20261019: FileDescription is `zuid` for the exe, which is what Task Manager shows, and `zuid C library` for the dll.
+	- Swept: every Windows file in the zips. `wasmtime.dll` is Wasmtime's own, and the test and smoke programs aren't shipped.
+	- Branch: winres
+	- Test case: EtBCCRm and EtBCCRn, one per Windows target, hold both files' resource to `--version` and `--about`, in ASCII with no time stamp. EtBCCRm failed with the resource left out.
 
 - The FreeBSD release has no `.pkg`.
 	- ID: 2026101410500001

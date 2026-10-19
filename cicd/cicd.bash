@@ -2823,6 +2823,23 @@ fStage_Package_Windows(){  ## scratch dir
 	local -r smokeSrc="${zigDir}/lib/test/capi_smoke.c"
 	local -r winSystemLibs="-lws2_32 -liphlpapi -lbcrypt -ladvapi32 -luserenv -lole32 -lntdll"
 
+	## What the version resource in zuid.exe and zuid.dll has to repeat, from
+	## the host's own release. package.bash built every target from one commit
+	## date, so the build number is the same in all of them.
+	local hostRelease="${repoRoot}/dist/${distPrefix}linux-x86_64" versionWant="" yearWant="" aboutText=""
+	if [[ "$(uname -m)" == "aarch64" ]]; then hostRelease="${repoRoot}/dist/${distPrefix}linux-arm64"; fi
+	if ((isLinux)) && versionWant="$("${hostRelease}" --version 2>/dev/null)" && aboutText="$("${hostRelease}" --about 2>/dev/null)"; then
+		yearWant="$(sed -n 's/^Copyright © \([0-9-]*\) Jim Collier .*/\1/p' <<< "${aboutText}")"
+	else
+		versionWant=""
+	fi
+	## FILEVERSION is 4 numbers, so a prerelease gets the flag in place of its tag.
+	local -r versionPlain="${versionWant%% *}"
+	local -r versionNumbers="${versionPlain%%-*}.0"
+	local flagsWant="0x0"
+	if [[ "${versionPlain}" == *-* ]]; then flagsWant="0x2"; fi
+	local peFile="" peFacts="" peWant="" peLine=""
+
 	local winArch="" winTarget="" machine="" winZip="" winBare="" winTree="" winRoot="" winFile=""
 	local winExports="" exportProblem="" importSample="" inZip="" pe="" dll="" symbol=""
 	local -A exported=()
@@ -2866,6 +2883,47 @@ fStage_Package_Windows(){  ## scratch dir
 				cmp -s "${winBare}" "${winRoot}/bin/zuid.exe" || fTestFail "$(basename "${winBare}") is missing, or is not the zip's zuid.exe."
 			fi
 			grep -q "Combined Software" "${winRoot}/share/LICENSE-wasmtime.txt" || fTestFail "LICENSE-wasmtime.txt is not Wasmtime's license."
+			fTestPass
+		fi
+
+		## What Explorer's Properties tab shows. It has to say what --version and
+		## --about say, in ASCII, with no time stamp and no ID in the copyright.
+		fId "${winArch}" x86_64=EtBCCRm arm64=EtBCCRn "the Windows ${winArch} zuid.exe and zuid.dll have one version resource, which matches --version and --about"
+		if ((! isLinux)); then
+			fTestSkip "Linux only"
+		elif ((! haveZip)); then
+			fTestSkip "no zip, so package.bash made no Windows release"
+		elif [[ -z "${versionWant}" || -z "${yearWant}" ]]; then
+			fTestSkip "the host's own release doesn't run here, so there's no --version to hold it to"
+		else
+			[[ -n "${winRoot}" ]] || fTestFail "there is no ${winZip}, or nothing in it."
+			for peFile in zuid.exe zuid.dll; do
+				peFacts="$(python3 "${utilityDir}/pe-version.py" "${winRoot}/bin/${peFile}" 2>&1)" || fTestFail "${peFile}: ${peFacts}"
+				if LC_ALL=C grep -q '[^ -~]' <<< "${peFacts}"; then fTestFail "${peFile}'s version resource isn't all ASCII: ${peFacts}"; fi
+				peWant="resources 1
+STAMP 0x0
+FILEVERSION ${versionNumbers}
+PRODUCTVERSION ${versionNumbers}
+FILEFLAGSMASK 0x3f
+FILEFLAGS ${flagsWant}
+FILEOS 0x40004
+FILETYPE $([[ "${peFile}" == *.exe ]] && echo 0x1 || echo 0x2)
+FILEDATE 0x0
+StringTable 040904b0
+CompanyName=Jim Collier
+FileDescription=$([[ "${peFile}" == *.exe ]] && echo "zuid" || echo "zuid C library")
+FileVersion=${versionWant}
+InternalName=zuid
+LegalCopyright=Copyright (C) ${yearWant} Jim Collier
+OriginalFilename=${peFile}
+ProductName=zuid
+ProductVersion=${versionWant}
+Translation 0409 04b0"
+				if [[ "${peFacts}" != "${peWant}" ]]; then
+					peLine="$(diff <(printf '%s\n' "${peWant}") <(printf '%s\n' "${peFacts}") | grep '^[<>]' | paste -sd' ' - || true)"
+					fTestFail "${peFile}'s version resource isn't what build.zig should write (< want, > have): ${peLine}"
+				fi
+			done
 			fTestPass
 		fi
 
