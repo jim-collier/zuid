@@ -301,6 +301,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261018: Each gate is watched to fail on a planted fault before it's trusted.
 	- Swept: every `go test` call in `cicd.bash`. The fuzz and benchmark runs pass with goleak in. The tests also compile for Windows and macOS with the new `TestMain`.
 	- Branch: leakgate
+	- Commit: a64c88c
 	- Test case: Et9R2xU (goleak), Et9R2xV (every package has it), Et9R2xW (`-race`), Et9R2xX and Et9R2xY (`go vet`), Et9R2xZ and Et9R2xa (staticcheck), Et9R2xb (govulncheck), Et9VtIq (the skip without docker). Each failed first.
 
 - C sanitizer and analyzer checks in CICD.
@@ -350,6 +351,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261019: Done under 2026101816474400. The pin is in the container's Dockerfile rather than `fConfig`, per that item's 20261018 decision.
 	- Branch: leakgate
+	- Commit: a64c88c
 	- Test case: Et9R2xb.
 	- Acceptance signoff: Self-closed: covered by 2026101816474400.
 	- Closed: 20261019-062109
