@@ -231,24 +231,24 @@ fWantLen Eq9kVKp "200 uuids render"       4400 --format "$(python3 -c 'print("%g
 fWantLen Eq9kVKq "a long literal renders" 5000 --format "$(python3 -c 'print("x" * 5000)')"
 
 ## But not without limit, and the ceiling says so in words.
-fWantFailure Eq9kVKr "a runaway format is refused by size" "past what this command will print" \
+fWantFailure Eq9kVKr "runaway format, refused by size" "past what this command will print" \
 	--format "$(python3 -c 'print("%g" * 60000)')"
 
 ## The refusals, each by its own message rather than an error name.
-fWantFailure Eq9kVKs "an unknown component is refused" "Unknown format component" --format '%x'
-fWantFailure Eq9xBUh "the unknown component is named"  "'%x'" --format '%x'
-fWantFailure Eq9kVKt "a bare percent is refused"       "bare" --format '%d%'
+fWantFailure Eq9kVKs "unknown component" "Unknown format component" --format '%x'
+fWantFailure Eq9xBUh "names the bad component"  "'%x'" --format '%x'
+fWantFailure Eq9kVKt "bare percent"       "bare" --format '%d%'
 fWantFailure Eq9kVKx "a raw-byte base is refused"      "raw bytes" --base bytes
-fWantFailure Eq9xBUi "a base with tab digits refused"  "control characters" --base 98keyboard
-fWantFailure Eq9kVKu "an unknown base is refused"      "no-such-base-here" --base no-such-base-here
-fWantFailure Eq9kVKv "a bad precision is refused"      "out of range" --precision 2
-fWantFailure Eq9kVKw "a missing value is refused"      "base" --base
+fWantFailure Eq9xBUi "tab digits in a base"  "control characters" --base 98keyboard
+fWantFailure Eq9kVKu "unknown base"      "no-such-base-here" --base no-such-base-here
+fWantFailure Eq9kVKv "bad precision"      "out of range" --precision 2
+fWantFailure Eq9kVKw "missing value"      "base" --base
 
 ## The unknown-base message used to be the conversion library's own text, in its
 ## style: lower case, double quotes. Only the near match it found is kept now.
-fWantFailure EqABve4 "an unknown base reads in one style" "Unknown base 'no-such-base-here'." --base no-such-base-here
+fWantFailure EqABve4 "unknown base message style" "Unknown base 'no-such-base-here'." --base no-such-base-here
 fWantFailure EqABve5 "a near miss keeps the suggestion"   "Did you mean '62'?" --base 62x
-fWantFailure EqABve6 "a blank base is refused"            "is blank" --base '  '
+fWantFailure EqABve6 "blank base"            "is blank" --base '  '
 
 ## A name long enough to outgrow the 512-byte error buffer used to lose the
 ## error code along with the text, and came back as a bare internal failure.
@@ -260,8 +260,8 @@ fWantFailure EqABve7 "a very long base is still a base" "Unknown base" \
 fWantLen EqAI7sg "a salted host is the same width"  8 --format '%h' --salt pepper
 fWantExact EqAI7sh "an empty salt is the default"   "$(fRun --format '%h')" --format '%h' --salt ''
 fWantExact EqAI7si "a literal name ignores the salt" "$(fRun --format '%h' --no-hash)" --format '%h' --no-hash --salt pepper
-fWantFailure EqAI7sj "a missing salt is refused"    "salt" --salt
-fWantFailure EqAI7sk "an over-long salt is refused" "Want at most 256" \
+fWantFailure EqAI7sj "--salt with no value"    "salt" --salt
+fWantFailure EqAI7sk "salt too long" "Want at most 256" \
 	--format '%h' --salt "$(python3 -c 'print("s" * 257)')"
 
 ## --salt-file keeps the secret out of the process list. One trailing newline is
@@ -278,9 +278,9 @@ if [[ "$(printf 'pepper\r\n' | "${bin}" --format '%h' --salt-file - 2>/dev/null)
 	then fPass
 	else fFail "stdin gave another fingerprint"
 fi
-fWantFailure ErsrUT5 "an empty salt file is refused"           "is empty" --format '%h' --salt-file "${work}/salt-empty"
-fWantFailure ErsrUT6 "an over-long salt file is refused"       "Want at most 256" --format '%h' --salt-file "${work}/salt-long"
-fWantFailure ErsrUT7 "a missing salt file is refused"          "does not exist" --salt-file "${work}/no-such-salt"
+fWantFailure ErsrUT5 "empty salt file"           "is empty" --format '%h' --salt-file "${work}/salt-empty"
+fWantFailure ErsrUT6 "salt file too long"       "Want at most 256" --format '%h' --salt-file "${work}/salt-long"
+fWantFailure ErsrUT7 "no such salt file"          "does not exist" --salt-file "${work}/no-such-salt"
 fWantFailure ErsrUT8 "--salt and --salt-file together"         "one or the other" --salt pepper --salt-file "${work}/salt"
 
 ## The flag checks word their own refusals, so they are held to the table here.
@@ -305,7 +305,7 @@ fWantLines EqAb38b "a count prints that many"    3 --count 3
 fWantLines EqAb38c "the short spelling too"      5 -n 5
 fWantLines EqAb38d "and the attached form"       4 -n=4
 fWantWarning EqAb38e "repeats are reported"      "2 of 3 identifiers repeat" -n 3 --format '%d'
-fWantWarning EqAb38f "the warning suggests %r"   "add %r to the format" -n 3 --format '%d'
+fWantWarning EqAb38f "suggests %r"   "add %r to the format" -n 3 --format '%d'
 fWantQuiet EqAb38g "random output does not warn" -n 20 --format '%d%r'
 fWantQuiet EqAb38h "one identifier cannot repeat" -n 1 --format '%d'
 
@@ -314,11 +314,11 @@ fWantQuiet EqAb38h "one identifier cannot repeat" -n 1 --format '%d'
 fWantWarning EqAb38i "a narrow draw still counts" "identifiers repeat" \
 	-n 100 --base 16 --rand-chars 1 --format '%r'
 
-fWantFailure EqAb38j "a zero count is refused"     "out of range" --count 0
-fWantFailure EqAb38k "a negative count is refused" "out of range" --count -1
+fWantFailure EqAb38j "zero count"     "out of range" --count 0
+fWantFailure EqAb38k "negative count" "out of range" --count -1
 fWantFailure EqAb38l "a count past the ceiling"    "Want 1 to 1000000" --count 1000001
 fWantFailure EqAb38m "a non-numeric count"         "is not a number" --count abc
-fWantFailure EqAb38n "a missing count is refused"  "count" --count
+fWantFailure EqAb38n "--count with no value"  "count" --count
 
 ## A reader that quits early closed the pipe under the writer. That used to end
 ## in Zig's own error trace and a non-zero exit, which is not a failed run.
@@ -364,8 +364,8 @@ fWantFailure ErOiQbV "-v refuses a value"           "takes no value" -v=1
 fWantFailure ErOiQbW "--hash-chars is gone"         "Argument invalid" --hash-chars 5
 
 ## The verb is quoted whole, however many bytes it is.
-fWantFailure ErOiQbX "a multi-byte unknown component is named whole" "'%é'" --format '%é'
-fWantFailure ErOiQbY "a zero --rand-chars is refused" "out of range for --rand-chars" --rand-chars 0
+fWantFailure ErOiQbX "multi-byte component named whole" "'%é'" --format '%é'
+fWantFailure ErOiQbY "zero --rand-chars" "out of range for --rand-chars" --rand-chars 0
 
 ## --version is one bare line for scripts and the installers' head -n1. The
 ## copyright lives in --about.
@@ -390,7 +390,7 @@ fi
 
 ## Help and about have a blank line above and below, and the options list has
 ## no gaps in it.
-fId ErOiQbg "help is set off by blank lines, with no gaps in its options"
+fId ErOiQbg "help spacing"
 helpFirst="$(head -n1 <<< "${helpText}")"
 helpGaps="$(awk '/^Options:/ { on = 1; next } on && /^$/ { exit } on { print }' <<< "${helpText}" | grep -c -- '--donate' || true)"
 helpRaw="$("${bin}" --help 2>/dev/null | tail -c 2 | od -An -c | tr -d ' ')"
@@ -411,7 +411,7 @@ if [[ ${#cached[@]} == 1 && -s "${cached[0]}" ]]
 	else fFail "found: ${cached[*]}"
 fi
 
-fId Ersmdcs "a damaged module is not loaded, and is rewritten"
+fId Ersmdcs "damaged module is rewritten"
 goodSum="$(cksum < "${cached[0]}")"
 python3 -c 'import sys; p = sys.argv[1]; b = bytearray(open(p, "rb").read()); b[len(b) // 2] ^= 0xff; open(p, "wb").write(b)' "${cached[0]}"
 damagedOut="$(fRun || true)"
@@ -420,7 +420,7 @@ if [[ ${#damagedOut} == 6 && "$(cksum < "${cached[0]}")" == "${goodSum}" ]]
 	else fFail "printed '${damagedOut}', and the file is $([[ "$(cksum < "${cached[0]}")" == "${goodSum}" ]] && echo rewritten || echo 'not rewritten')"
 fi
 
-fId Ersmdct "an older build's module is cleared out"
+fId Ersmdct "old build's module cleared out"
 touch "${cacheDir}/module-0000000000000000.cwasm"
 rm -f "${cached[0]}"
 fRun >/dev/null || true
