@@ -123,7 +123,7 @@ fCtuCanary(){
 		echo "The cross-file analyzer missed a null dereference planted across 2 files, so it isn't following calls between them."
 		return 1
 	fi
-	grep -F 'core.NullDereference' "${dir}/out.txt" | sed 's|^.*/canary/||'
+	grep -F 'core.NullDereference' "${dir}/out.txt" | sed 's|^.*/canary/|Planted ....: |'
 	echo "Found the planted null dereference, as it should."
 }
 
