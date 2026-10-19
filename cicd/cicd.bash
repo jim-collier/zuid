@@ -18,6 +18,7 @@
 ##		- 20261018 JC: --gate is --ci now. Every run cross-compiles.
 ##		- 20261019 JC: goleak, go vet on the dependencies, staticcheck and govulncheck from the image.
 ##		- 20261019 JC: govulncheck fails on called stdlib advisories and scans the reactor. The reactor builds with the image's Go.
+##		- 20261019 JC: The C tests under ASan, LSan and UBSan, and gcc's and clang's analyzers, from the image.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Set by --container for the run it starts inside.
@@ -248,10 +249,10 @@ fPrint_Help(){
 		downloads by OS and CPU. What was uploaded stays in dist/release/ until the
 		next --package.
 
-		staticcheck and govulncheck are pinned in the --container image below, and
-		every run calls them from it, building it first when it's missing. Without
-		docker on x86_64 Linux they skip with a note. govulncheck also skips when
-		offline.
+		staticcheck, govulncheck, and the C sanitizers and analyzers are pinned in
+		the --container image below, and every run calls them from it, building it
+		first when it's missing. Without docker on x86_64 Linux they skip with a
+		note. govulncheck also skips when offline.
 
 		--container runs preflight through package in a Debian image with every tool
 		pinned, built from cicd/container/Dockerfile the first time it is needed.
@@ -850,7 +851,7 @@ fStage_Shell(){
 		shellcheck "${repoRoot}/cicd/cicd.bash" "${repoRoot}/install.bash" \
 			"${utilityDir}/installer-test.bash" "${utilityDir}/cli-test.bash" \
 			"${utilityDir}/pipeline-test.bash" "${utilityDir}/package.bash" \
-			"${utilityDir}/git-hooks/pre-push"
+			"${utilityDir}/c-checks.bash" "${utilityDir}/git-hooks/pre-push"
 		fEcho_Clean "Clean."
 	fi
 
@@ -1205,6 +1206,7 @@ fStage_Go_Checks(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Sets checkerSkipWhy when the image's tools can't run here. Builds the image
 ## when it's missing, so the first run after a Dockerfile edit takes minutes.
+## The C checks use it too.
 fGoCheckers_Ready(){
 	checkerSkipWhy=""
 	if ((inContainer)); then return 0; fi
@@ -1216,8 +1218,9 @@ fGoCheckers_Ready(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## One of the image's pinned tools, run in a folder of the repo. Inside the
-## container that's a plain call.
+## One of the image's pinned tools, run in a folder. Inside the container
+## that's a plain call. A folder outside the repo, such as a scratch dir, is
+## mounted at its own path too.
 fInImage(){  ## folder, command...
 	local -r dir="$1"; shift
 	if ((inContainer)); then
@@ -1226,6 +1229,7 @@ fInImage(){  ## folder, command...
 	fi
 	local -a runArgs=()
 	fContainer_RunArgs runArgs
+	if [[ "${dir}" != "${repoRoot}" && "${dir}" != "${repoRoot}/"* ]]; then runArgs+=(-v "${dir}:${dir}"); fi
 	"${containerEngine}" run "${runArgs[@]}" -w "${dir}" "${containerTag}" "$@"
 }
 
@@ -1642,6 +1646,7 @@ fStage_Zig(){
 
 	fStage_Zig_Cli
 	fStage_Zig_CApi
+	fStage_Zig_CChecks
 	fStage_Zig_Fuzz
 
 }
@@ -2013,6 +2018,74 @@ fStage_Zig_CApi(){
 
 	rm -rf "${buildDir}"
 
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The C tests again under ASan, LSan and UBSan, and gcc's and clang's
+## analyzers over every first-party .c file. Only our C is instrumented, since
+## Wasmtime comes prebuilt. Its mallocs still go through ASan, so LSan sees a
+## Wasmtime object that zuid_free leaves behind. The compilers are the image's,
+## like the Go checkers. About 15 s on a busy box, most of it starting the
+## image 5 times, so quick runs keep it.
+fStage_Zig_CChecks(){
+
+	fEcho_Clean
+	fEcho "Zig: C sanitizers and analyzers"
+
+	local checkerSkipWhy=""
+	fGoCheckers_Ready
+
+	local -r cChecks="${utilityDir}/c-checks.bash"
+	local -r testDir="${zigDir}/lib/test" incDir="${zigDir}/zig-out/include" libDir="${zigDir}/zig-out/lib"
+	local -ra cWarn=(-std=c99 -Wall -Wextra -Wpedantic -Werror)
+	local buildDir=""
+	buildDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	_scratchDirs+=("${buildDir}")
+
+	fId EtAHpAd "capi_smoke.c against the shared library, under ASan, LSan and UBSan"
+	fCCheck "${buildDir}" "it did not build, or a sanitizer reported something. What it said is above." \
+		bash "${cChecks}" sanitize smoke-shared "${cWarn[@]}" -I "${incDir}" "${testDir}/capi_smoke.c" \
+		-L "${libDir}" -lzuid -Wl,-rpath,"${libDir}"
+
+	fId EtAHpAe "capi_smoke.c against the static library, under ASan, LSan and UBSan"
+	fCCheck "${buildDir}" "it did not build, or a sanitizer reported something. What it said is above." \
+		bash "${cChecks}" sanitize smoke-static "${cWarn[@]}" -I "${incDir}" "${testDir}/capi_smoke.c" \
+		"${libDir}/libzuid.a" "${zigDir}/vendor/wasmtime/lib/libwasmtime.a" -lpthread -ldl -lm
+
+	fId EtAHpAf "capi_interpose.c under ASan, LSan and UBSan"
+	if [[ -f "${testDir}/capi_interpose.c" ]]; then
+		fCCheck "${buildDir}" "it did not build, or a sanitizer reported something. What it said is above." \
+			bash "${cChecks}" sanitize interpose "${cWarn[@]}" -I "${incDir}" "${testDir}/capi_interpose.c" \
+			-L "${libDir}" -lzuid -Wl,-rpath,"${libDir}"
+	else
+		fTestSkip "capi_interpose.c is not present"
+	fi
+
+	## Every tracked .c file is ours. Nothing vendored is tracked.
+	local -a cFiles=()
+	mapfile -t cFiles < <(git -C "${repoRoot}" ls-files --full-name '*.c' | sed "s|^|${repoRoot}/|")
+
+	fId EtAHpAg "gcc's -fanalyzer finds nothing in the first-party C"
+	if ((${#cFiles[@]} == 0)); then fTestFail "git ls-files found no .c files, so this would analyze nothing."; fi
+	fCCheck "${buildDir}" "the analyzer found something. What it said is above." \
+		bash "${cChecks}" gcc-analyzer "${cWarn[@]}" -I "${zigDir}/lib/include" -- "${cFiles[@]}"
+
+	fId EtAHpAh "clang's analyzer finds nothing in the first-party C"
+	fCCheck "${buildDir}" "the analyzer found something. What it said is above." \
+		bash "${cChecks}" clang-analyzer "${cWarn[@]}" -I "${zigDir}/lib/include" -- "${cFiles[@]}"
+
+	rm -rf "${buildDir}"
+
+}
+
+
+## One check run in the image, or skipped with the reason.
+fCCheck(){  ## folder, why it failed, command...
+	if [[ -n "${checkerSkipWhy}" ]]; then fTestSkip "${checkerSkipWhy}"; return 0; fi
+	local -r dir="$1" failWhy="$2"; shift 2
+	fInImage "${dir}" "$@" || fTestFail "${failWhy}"
+	fTestPass
 }
 
 
