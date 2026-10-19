@@ -42,6 +42,19 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261014: Suggested rewrites are in `private/suggestions.md`: badges, a status note, a who-it-isn't-for section, module examples, a support section, and the About blurb and topics. Facts and spelling were fixed in place.
 		- 20261014: Asked what this meant. Explained in-session: `private/suggestions.md` has wording for the README and the GitHub About box, each for a yes or no.
 
+- The FreeBSD release has no `.pkg`.
+	- ID: 2026101410500001
+	- Type: Enhancement
+	- Status: Waiting for answers
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Target OS: FreeBSD
+	- Requirements  [Feature]:
+		- A `.pkg` beside the tarball. nfpm can't make one, so it's `pkg create` on a FreeBSD machine.
+	- Progress log:
+		- 20261019: Question: make it on vmFreeBSD over ssh during `--package`, the way the Mac files come back, or build FreeBSD's `pkg` from source in the container and run `pkg create` on Linux? The first is the native tool but needs the VM up for a release. Leaning toward the VM.
+
 - Updates to CICD script flags.
 	- ID: 2026101816243852
 	- Type: Enhancement
@@ -481,17 +494,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261019: The code is upstream, so it's fixed in convert-base-v2 and comes in with a later pin. Until then `cicd/utility/codeql-suppressions.txt` suppresses it by this ID.
 		- 20261019: Stalled with the pin move, 2026100519164742.
-
-- The FreeBSD release has no `.pkg`.
-	- ID: 2026101410500001
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Target OS: FreeBSD
-	- Requirements  [Feature]:
-		- A `.pkg` beside the tarball. nfpm can't make one, so it's `pkg create` on a FreeBSD machine.
 
 - `install.bash` stops under a Mac's stock bash for a user install.
 	- ID: 2026101410500003
