@@ -32,6 +32,8 @@ Optional. A stage that wants one skips itself with a note when it's missing, exc
 | docker, on x86_64 Linux                     | staticcheck and govulncheck, which run from the pinned image described below. govulncheck also skips offline.
 | rar                                         | the backup stage, which stops without it. `--no-backup` skips it.
 
+The conversion module in the release is built with the Go version the Dockerfile pins, whatever Go is on PATH. Go fetches that version the first time, so a release needs the network once. `GOTOOLCHAIN=local` uses the Go on PATH instead, for anything but a release.
+
 If the `zig` on PATH is older, `cicd/cicd.bash` takes the one named by `ZIG`, or a release unpacked as `~/.local/zig-<platform>-0.17.0`, and every stage uses that one.
 
 Nothing has to be installed system-wide beyond those. The WebAssembly runtime and the conversion module are fetched or built into `zig/vendor/`, which is not committed.

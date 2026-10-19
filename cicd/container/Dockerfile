@@ -22,8 +22,9 @@ RUN apt-get update \
 		libicu76 libgssapi-krb5-2 \
 	&& rm -rf /var/lib/apt/lists/*
 
-ARG GO_VER=1.26.2
-ARG GO_SHA256=990e6b4bbba816dc3ee129eaeaf4b42f17c2800b88a2166c265ac1a200262282
+# cicd.bash reads GO_VER too, and builds the shipped reactor wasm with it.
+ARG GO_VER=1.26.9
+ARG GO_SHA256=42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d
 ARG ZIG_VER=0.17.0
 ARG ZIG_SHA256=1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
 ARG NFPM_VER=2.47.0

@@ -17,6 +17,7 @@
 ##		- 20261014 JC: --gate and the pre-push hook. git and gh through gitsby when it's installed.
 ##		- 20261018 JC: --gate is --ci now. Every run cross-compiles.
 ##		- 20261019 JC: goleak, go vet on the dependencies, staticcheck and govulncheck from the image.
+##		- 20261019 JC: govulncheck fails on called stdlib advisories and scans the reactor. The reactor builds with the image's Go.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Set by --container for the run it starts inside.
@@ -1177,11 +1178,16 @@ fStage_Go_Checks(){
 		fTestPass
 	fi
 
-	fId Et9R2xb "govulncheck knows of no advisory in the third-party Go code"
+	## The reactor is scanned as the wasm it ships as, since its files are
+	## wasip1 only.
+	fId Et9R2xb "govulncheck knows of no advisory in the third-party Go code, or in Go's library where the module or reactor calls it"
 	if [[ -n "${checkerSkipWhy}" ]]; then fTestSkip "${checkerSkipWhy}"; return 0; fi
 	if [[ -z "$(command -v python3 2>/dev/null || true)" ]]; then fTestSkip "no python3 to read its report"; return 0; fi
-	local report="" rc=0
+	local report="" reactorReport="" rc=0
 	report="$(fInImage "${goDir}" govulncheck -format json ./...)" && rc=0 || rc=$?
+	if ((rc == 0)); then
+		reactorReport="$(fInImage "${goDir}" env GOOS=wasip1 GOARCH=wasm govulncheck -format json "${reactorPackage}")" && rc=0 || rc=$?
+	fi
 	if ((rc != 0)); then
 		## Same network as govulncheck had, so a failed probe means offline.
 		if ! fInImage "${goDir}" curl -fsS -m 10 -o /dev/null https://vuln.go.dev/index/db.json 2>/dev/null; then
@@ -1190,7 +1196,7 @@ fStage_Go_Checks(){
 		fi
 		fTestFail "govulncheck exited ${rc}. What it said is above."
 	fi
-	python3 "${utilityDir}/vuln-report.py" <<< "${report}" || fTestFail "govulncheck knows of an advisory in a third-party module, listed above."
+	python3 "${utilityDir}/vuln-report.py" <<< "${report}${reactorReport}" || fTestFail "govulncheck knows of an advisory, listed above. One in Go's library wants GO_VER in cicd/container/Dockerfile bumped."
 	fTestPass
 
 }
@@ -1353,6 +1359,32 @@ fStage_Go_Cross(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Sets goToolchain. The reactor ships inside the command, Go's library and
+## all, so it's built with the Go the image pins, which is the one govulncheck
+## scanned. GOTOOLCHAIN fetches it when the host's is another version. One set
+## by hand wins, but not for a release. auto is Go's default, so not by hand.
+fReactor_Toolchain(){
+	local -r pin="$(sed -n 's/^ARG GO_VER=//p' "${repoRoot}/cicd/container/Dockerfile")"
+	[[ -n "${pin}" ]] || fThrowError "No GO_VER in cicd/container/Dockerfile."  "${FUNCNAME[0]}"
+	local handSet="${GOTOOLCHAIN:-}"
+	[[ "${handSet}" != "auto" ]] || handSet=""
+	goToolchain="${handSet:-go${pin}}"
+	fId Et9luGN "the reactor wasm module builds with the Go the container image pins"
+	local used=""
+	if ! used="$(GOTOOLCHAIN="${goToolchain}" go env GOVERSION 2>&1)"; then
+		((! doPackage)) || fTestFail "Could not get ${goToolchain} for a release: ${used}"
+		fTestSkip "could not get ${goToolchain}: ${used##*$'\n'}"
+	elif [[ "${used}" == "go${pin}" ]]; then
+		fTestPass
+	elif [[ -n "${handSet}" ]] && ((! doPackage)); then
+		fTestSkip "GOTOOLCHAIN=${handSet} picks ${used}, not go${pin}"
+	else
+		fTestFail "GOTOOLCHAIN=${goToolchain} gives ${used}, not go${pin}."
+	fi
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Zig_Vendor(){
 
 	fEcho_Clean
@@ -1400,8 +1432,9 @@ fStage_Zig_Vendor(){
 	local -r wasmVendored="${vendorDir}/convert-base-reactor.wasm"
 	if command -v go &>/dev/null; then
 		local -r wasmTmp="${wasmVendored}.new"
-		local buildLog=""
-		if buildLog="$(GOOS=wasip1 GOARCH=wasm go build -C "${goDir}" -trimpath -buildmode=c-shared \
+		local buildLog="" goToolchain=""
+		fReactor_Toolchain
+		if buildLog="$(GOTOOLCHAIN="${goToolchain}" GOOS=wasip1 GOARCH=wasm go build -C "${goDir}" -trimpath -buildmode=c-shared \
 			-ldflags '-s -w' -o "${wasmTmp}" "${reactorPackage}" 2>&1)"
 		then
 			if cmp -s "${wasmTmp}" "${wasmVendored}" 2>/dev/null; then
@@ -1416,6 +1449,7 @@ fStage_Zig_Vendor(){
 			## versions. A failure that falls back to
 			## an older vendored copy has to say what went wrong.
 			rm -f "${wasmTmp}"
+			((! doPackage)) || fThrowError "Could not build the reactor wasm module for a release, and won't ship an older copy: ${buildLog}"  "${FUNCNAME[0]}"
 			[[ -f "${wasmVendored}" ]] || fThrowError "Could not build the reactor wasm module, and no vendored copy exists: ${buildLog}"  "${FUNCNAME[0]}"
 			fEcho_Clean "Reactor ....: build failed, falling back to the vendored copy"
 			fEcho_Clean "${buildLog}"
