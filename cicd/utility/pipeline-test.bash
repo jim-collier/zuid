@@ -98,11 +98,11 @@ fWantRefusal ErOjF73 "unknown argument named"                   "'--bogus'" --bo
 fWantRefusal ErgqYt2 "--allow-partial needs --publish"   "only means something with --publish" --allow-partial
 fWantRefusal ErgqYt3 "--publish with --only go"            "--publish needs the Zig side" --publish --only go
 fWantRefusal EsJ9SjI "--publish with --container"          "does not go with --container" --publish --container
-fWantRefusal EshGwj4 "--ci won't commit"                  "--ci only builds and tests" --ci --commit
-fWantRefusal EshGwj5 "--ci won't package"                 "--ci only builds and tests" --ci --package
-## --gate was renamed --ci with no alias. The bad --only after it keeps a
-## build that still took --gate from starting a real run.
-fWantRefusal Et6FB1m "--gate is gone"                   "'--gate'" --gate --only nope
+fWantRefusal EshGwj4 "--gate won't commit"                  "--gate only builds and tests" --gate --commit
+fWantRefusal EshGwj5 "--gate won't package"                 "--gate only builds and tests" --gate --package
+## --ci was renamed back to --gate with no alias. The bad --only after it keeps
+## a build that still took --ci from starting a real run.
+fWantRefusal Et6FB1m "--ci is gone"                     "'--ci'" --ci --only nope
 fWantRefusal Eshc39l "--publish with --no-package"         "does not go with --no-package" --publish --no-package
 
 fId EsJ9cHS "--container from inside one"
@@ -279,7 +279,7 @@ fInitIn(){  ## repo dir, args...
 			repoRoot="$1"; onlyToolchain=""; commitMsg=""; doQuietly=0
 			doCross=0; doQuick=0; doSync=1; doCommit=0; commitAsked=0; doPush=0; doPackage=0; noPackage=0; packageSkipWhy=""
 			doBackup=1; backupAsked=0; backupInWorktree=0; doDogfood=1; dogfoodAsked=0; doPublish=0; allowPartial=0
-			doContainer=0; inContainer=0; doCi=0; doLeakcheck=1; leakAsked=0
+			doContainer=0; inContainer=0; doGate=0; doLeakcheck=1; leakAsked=0
 		}
 		shift
 		local fn=""
@@ -318,10 +318,10 @@ if ((rc != 0)) && [[ "${out}" == *"linked worktree"* ]]
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-## The pre-push hook runs --ci inside a push, so it must not sync, install,
+## The pre-push hook runs --gate inside a push, so it must not sync, install,
 ## or push again.
-fId EshGwj6 "what --ci leaves out"
-out="$(showGate=1 fInitIn "${worktreeMain}" --ci)" && rc=0 || rc=$?
+fId EshGwj6 "what --gate leaves out"
+out="$(showGate=1 fInitIn "${worktreeMain}" --gate)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "doQuick=1 doSync=0 doBackup=0 doDogfood=0 doPackage=0" ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
@@ -330,7 +330,7 @@ fi
 ## The Go cross builds are seconds, so a quick run and the pre-push one get
 ## them as well as a full run.
 fId Et6FB1n "every run mode cross-compiles"
-out="$(showCross=1 fInitIn "${worktreeMain}"; showCross=1 fInitIn "${worktreeMain}" --quick; showCross=1 fInitIn "${worktreeMain}" --ci)" && rc=0 || rc=$?
+out="$(showCross=1 fInitIn "${worktreeMain}"; showCross=1 fInitIn "${worktreeMain}" --quick; showCross=1 fInitIn "${worktreeMain}" --gate)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == $'doCross=1\ndoCross=1\ndoCross=1' ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
@@ -338,8 +338,8 @@ fi
 
 ## The leak checks take about 10 minutes, so a full run has them and a quick or
 ## pre-push one only if asked. --no-leakcheck drops them from any run.
-fId EtAUMRF "--leakcheck is default, off for quick and ci"
-out="$(for leakArgs in "" --quick --ci; do
+fId EtAUMRF "--leakcheck is default, off for quick and gate"
+out="$(for leakArgs in "" --quick --gate; do
 	# shellcheck disable=2086  ## Empty means no argument at all.
 	showLeak=1 fInitIn "${worktreeMain}" ${leakArgs}
 	# shellcheck disable=2086
@@ -1661,6 +1661,7 @@ fLine ""
 ##		- 20261019 JC: The CodeQL report, and CodeQL's image under --container.
 ##		- 20261019 JC: --leakcheck.
 ##		- 20261019 JC: --leakcheck is default, --no-leakcheck.
+##		- 20261019 JC: --ci is --gate again.
 ##		- 20261019 JC: The vuln report.
 ##		- 20261018 JC: --gate is --ci. Every run cross-compiles.
 ##		- 20261013 JC: Fuzz cases clean up their temp folders.

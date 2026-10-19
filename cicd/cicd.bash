@@ -21,7 +21,8 @@
 ##		- 20261019 JC: The C tests under ASan, LSan and UBSan, and gcc's and clang's analyzers, from the image.
 ##		- 20261019 JC: --leakcheck: the Go and C soak tests and clang's cross-file analyzer.
 ##		- 20261019 JC: --leakcheck: CodeQL on Go and C, from an image of its own.
-##		- 20261019 JC: --leakcheck is on by default, off for --quick and --ci. --no-leakcheck.
+##		- 20261019 JC: --leakcheck is on by default, off for --quick and --gate. --no-leakcheck.
+##		- 20261019 JC: --ci is --gate again.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Set by --container for the run it starts inside.
@@ -184,7 +185,7 @@ fPrint_Help(){
 		                      packaging, plus the dogfood install. Lint, the tests,
 		                      the Go cross builds and the backup still run.
 		    --no-sync         Skip the remote refresh at the start.
-		    --ci              The pre-push check: --quick, with no sync, dogfood,
+		    --gate              The pre-push check: --quick, with no sync, dogfood,
 		                      backup, commit or push. See below.
 		    -m, --message     Commit message. Implies --commit.
 		    --commit          Commit if everything passed. Refuses on a protected
@@ -204,7 +205,7 @@ fPrint_Help(){
 		    --allow-partial   Let --publish go ahead with some platforms missing.
 		    --container       Run the build and test stages in a container. See below.
 		    --leakcheck       Add the slow leak checks. On by default, so this is for
-		                      a --quick or --ci run. See below.
+		                      a --quick or --gate run. See below.
 		    --no-leakcheck    Leave the slow leak checks out.
 		    -q, --quiet       No banner and no prompting. Without -m the commit
 		                      message is generated.
@@ -276,12 +277,12 @@ fPrint_Help(){
 		with the third-party Go it builds, and on the C tests, from an image of its
 		own built on the main one. It's about 480 MB more, so only --leakcheck
 		builds it. Its reports and the soaks' go in cicd/artifacts/leakcheck/.
-		About 10 minutes. A --quick or --ci run leaves it out unless --leakcheck
+		About 10 minutes. A --quick or --gate run leaves it out unless --leakcheck
 		is given, and --no-leakcheck leaves it out of any run.
 
 		With no options a run does every stage but --publish.
 
-		--ci is what cicd/utility/git-hooks/pre-push runs before a push to main,
+		--gate is what cicd/utility/git-hooks/pre-push runs before a push to main,
 		on the commit being pushed, in a scratch worktree. Turn the hook on once
 		per clone with: git config core.hooksPath cicd/utility/git-hooks
 		SKIP_GATE=1 skips it. A run's own backup and push skip it, since that run
@@ -395,7 +396,7 @@ fMain(){
 	local -i doPublish=0
 	local -i allowPartial=0
 	local -i doContainer=0
-	local -i doCi=0
+	local -i doGate=0
 	local -i doLeakcheck=1
 	local -i leakAsked=0
 	fInit "${@}"
@@ -409,7 +410,7 @@ fMain(){
 	readonly doPublish
 	readonly allowPartial
 	readonly doContainer
-	readonly doCi
+	readonly doGate
 	readonly doLeakcheck
 
 	## Set by the publish preflight, read by the publish stage.
@@ -522,7 +523,7 @@ fInit(){
 			--publish)    doPublish=1; doPackage=1 ;;
 			--allow-partial) allowPartial=1 ;;
 			--container)  doContainer=1 ;;
-			--ci)         doCi=1 ;;
+			--gate)         doGate=1 ;;
 			--leakcheck)  doLeakcheck=1; leakAsked=1 ;;
 			--no-leakcheck) doLeakcheck=0; leakAsked=1 ;;
 			-q|--quiet)   doQuietly=1 ;;
@@ -536,9 +537,9 @@ fInit(){
 
 	## The pre-push hook's run. Anything that writes outside the tree, or to git,
 	## would be a push inside a push.
-	if ((doCi)); then
+	if ((doGate)); then
 		if ((doCommit)) || ((doPush)) || ((backupAsked)) || ((doPackage)) || ((doContainer)) || ((dogfoodAsked)); then
-			fThrowError "--ci only builds and tests. Drop the other stage flags."  "${FUNCNAME[0]}"
+			fThrowError "--gate only builds and tests. Drop the other stage flags."  "${FUNCNAME[0]}"
 		fi
 		doQuick=1; doSync=0; doBackup=0; doDogfood=0; doQuietly=1
 	fi
