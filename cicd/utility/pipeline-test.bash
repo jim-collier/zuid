@@ -660,6 +660,71 @@ git -C "${worktreeMain}" worktree remove --force "${worktreeDir}"
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The shell stage, with a stand-in shellcheck that reports a version and
+## passes everything, and the stages it calls stubbed out.
+
+cat > "${work}/shellcheck" <<'STUB'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--version" ]]; then
+	printf 'ShellCheck - shell script analysis tool\nversion: %s\nlicense: GNU General Public License, version 3\n' "${FAKE_SC_VER}"
+fi
+STUB
+chmod +x "${work}/shellcheck"
+shellTree="${work}/shell-tree"
+mkdir -p "${shellTree}/cicd/container" "${work}/shell-bin"
+cp "${work}/shellcheck" "${work}/shell-bin/"
+printf 'FROM scratch\nARG SC_VER=0.11.0\n' > "${shellTree}/cicd/container/Dockerfile"
+
+fShellIn(){  ## version the stand-in shellcheck reports
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fEcho(){ :; }
+		# shellcheck disable=2329
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2329
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2329,2154  ## testId and testName come from the lifted fId.
+		fTestPass(){ printf '  ok ....: %s %s\n' "${testId}" "${testName}"; }
+		# shellcheck disable=2329
+		fTestSkip(){ printf '  skip ..: %s %s (%s)\n' "${testId}" "${testName}" "$*"; }
+		# shellcheck disable=2329
+		fTestFail(){ printf '  FAIL ..: %s %s\n' "${testId}" "${testName}"; fThrowError "$*"; }
+		# shellcheck disable=2329
+		fStage_TestIds(){ :; }
+		# shellcheck disable=2329
+		fStage_Shell_Pipeline(){ :; }
+		# shellcheck disable=2329
+		fStage_Shell_Installers(){ :; }
+		# shellcheck disable=2329
+		fStage_Docs(){ :; }
+		# shellcheck disable=2329
+		fContentScrub(){ :; }
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{ repoRoot="${shellTree}"; utilityDir="${shellTree}/cicd/utility" ;}
+		local fn=""
+		for fn in fId fStage_Shell; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		# shellcheck disable=2030,2031  ## Only the subshell is meant to see it.
+		export PATH="${work}/shell-bin:${PATH}" FAKE_SC_VER="$1"
+		fStage_Shell
+	) 2>&1
+}
+
+## shellcheck's warnings change between versions, so a host on another one
+## can pass what the container fails.
+fId EtB4VLJ "the shell stage says so when the host's shellcheck isn't the one the container pins"
+scOld="$(fShellIn 0.10.0)" && rc=0 || rc=$?
+scSame="$(fShellIn 0.11.0)" && rcSame=0 || rcSame=$?
+scWant="skip ..: EtB4gns the host's shellcheck is the one the container pins (shellcheck 0.10.0 here, and the container pins 0.11.0, so its warnings can differ)"
+if ((rc == 0 && rcSame == 0)) && grep -qxF "  ${scWant}" <<< "${scOld}" \
+	&& grep -qxF "  ok ....: EtB4gns the host's shellcheck is the one the container pins" <<< "${scSame}"
+	then fPass
+	else fFail "exited ${rc} and ${rcSame}, said: ${scOld//$'\n'/ | } and: ${scSame//$'\n'/ | }"
+fi
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Publishing, against scratch repos that push to a local bare remote, with gh
 ## replaced by a stub that logs what it was asked. Nothing reaches GitHub. The
 ## preflight and the stage are lifted out by name, with fConfig for the branch

@@ -897,6 +897,23 @@ fStage_Shell(){
 	fEcho_Clean
 	fEcho "Bash: lint"
 
+	## shellcheck's warnings change between versions, so a host on another one
+	## can pass what the container fails. Before the lint, which stops the run
+	## on a warning. Not fatal, the same as nfpm's.
+	fId EtB4gns "the host's shellcheck is the one the container pins"
+	local pinned="" have=""
+	pinned="$(sed -n 's/^ARG SC_VER=//p' "${repoRoot}/cicd/container/Dockerfile" || true)"
+	if [[ -z "$(command -v shellcheck 2>/dev/null || true)" ]]; then
+		fTestSkip "no shellcheck"
+	else
+		have="$(shellcheck --version 2>/dev/null | awk '$1 == "version:" { print $2; exit }' || true)"
+		if [[ -z "${pinned}" ]]; then fTestFail "no ARG SC_VER in cicd/container/Dockerfile"; fi
+		if [[ "${have}" != "${pinned}" ]]
+			then fTestSkip "shellcheck ${have:-of unknown version} here, and the container pins ${pinned}, so its warnings can differ"
+			else fTestPass
+		fi
+	fi
+
 	## Not a toolchain, so a missing shellcheck is a gap in coverage, not a failure.
 	## It used to return here and take the stages below down with it.
 	if [[ -z "$(command -v shellcheck 2>/dev/null || true)" ]]; then
