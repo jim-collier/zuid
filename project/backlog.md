@@ -331,7 +331,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ID: 2026101816474402
 	- Type: Enhancement
 	- Status: Started
-	- Needs local test suite run?: A full `cicd.bash --leakcheck` run, and a `--container --leakcheck` one. `--only go --quick --leakcheck` and `--only zig --quick --leakcheck` passed.
+	- Needs local test suite run?: A full `cicd.bash --leakcheck` run, and a `--container --only zig --leakcheck` one. `--quick --leakcheck` passed with `--only go` and `--only zig`, and with `--container --only go`. Without docker the C half skipped with a note.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261018-164744
 	- Opened by: JC
@@ -347,6 +347,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: Each gate failed first on a planted fault: a slice that only grows and a stuck goroutine in the Go module, a missing `zuid_free`, a lost buffer and a growing cache in copies of the C soak, and the cross-file pair with that mode off. A cache of one short string a round passed, being under the margin.
 		- 20261019: clang-tools and heaptrack were added to the image, 70 MB on disk and 16 MB of content. CodeQL is left, for Go and C.
 	- Branch: leakcheck
+	- Commit: 59c3e61, 516fef0
 	- Test case: EtAUMRA (the Go soak), EtAUMRB and EtAUMRE (the C soaks), EtAUMRC and EtAUMRD (the cross-file analyzer), EtAUMRF, EtAUMRG and EtAUMRH (the flag). Each failed first. CodeQL's are still to come.
 
 - PowerShell files aren't linted.
