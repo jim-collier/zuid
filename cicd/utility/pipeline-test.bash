@@ -84,28 +84,28 @@ fLine ""
 ## -h anywhere inside the joined arguments used to print help, so a commit
 ## message mentioning it got the help screen. The refusal of the bad --only
 ## after it is how this shows the message was taken as a message.
-fWantRefusal ErOjF6y "-h inside a message is not a request for help"  "after --only" -m 'fix the -h case' --only nope
+fWantRefusal ErOjF6y "-h inside a message"  "after --only" -m 'fix the -h case' --only nope
 
 ## --commit used to take an optional message, and swallowed whatever flag came
 ## next as one.
-fWantRefusal ErOjF6z "--commit does not swallow the flag after it"    "after --only" --commit --only nope
-fWantRefusal ErOjF70 "-m refuses a flag as its message"               "Expecting a value after -m" -m --quick
-fWantRefusal ErOjF71 "--backup and --commit together are refused"     "--backup already commits" --backup --commit
+fWantRefusal ErOjF6z "--commit leaves the next flag alone"    "after --only" --commit --only nope
+fWantRefusal ErOjF70 "-m won't take a flag"               "Expecting a value after -m" -m --quick
+fWantRefusal ErOjF71 "--backup with --commit"     "--backup already commits" --backup --commit
 ## Retired 20261003: --publish is implemented now, so this refusal is gone on
 ## purpose. The publish cases below cover it instead.
 # fWantRefusal ErOjF72 "--publish says it is not there yet"             "Not implemented yet" --publish
-fWantRefusal ErOjF73 "an unknown argument is named"                   "'--bogus'" --bogus
-fWantRefusal ErgqYt2 "--allow-partial without --publish is refused"   "only means something with --publish" --allow-partial
-fWantRefusal ErgqYt3 "--publish with --only go is refused"            "--publish needs the Zig side" --publish --only go
-fWantRefusal EsJ9SjI "--publish with --container is refused"          "does not go with --container" --publish --container
-fWantRefusal EshGwj4 "--ci with --commit is refused"                  "--ci only builds and tests" --ci --commit
-fWantRefusal EshGwj5 "--ci with --package is refused"                 "--ci only builds and tests" --ci --package
+fWantRefusal ErOjF73 "unknown argument named"                   "'--bogus'" --bogus
+fWantRefusal ErgqYt2 "--allow-partial needs --publish"   "only means something with --publish" --allow-partial
+fWantRefusal ErgqYt3 "--publish with --only go"            "--publish needs the Zig side" --publish --only go
+fWantRefusal EsJ9SjI "--publish with --container"          "does not go with --container" --publish --container
+fWantRefusal EshGwj4 "--ci won't commit"                  "--ci only builds and tests" --ci --commit
+fWantRefusal EshGwj5 "--ci won't package"                 "--ci only builds and tests" --ci --package
 ## --gate was renamed --ci with no alias. The bad --only after it keeps a
 ## build that still took --gate from starting a real run.
-fWantRefusal Et6FB1m "--gate is gone, with no alias"                   "'--gate'" --gate --only nope
-fWantRefusal Eshc39l "--publish with --no-package is refused"         "does not go with --no-package" --publish --no-package
+fWantRefusal Et6FB1m "--gate is gone"                   "'--gate'" --gate --only nope
+fWantRefusal Eshc39l "--publish with --no-package"         "does not go with --no-package" --publish --no-package
 
-fId EsJ9cHS "--container inside the container is refused"
+fId EsJ9cHS "--container from inside one"
 out="$(env -u ZUID_CICD_QUIET ZUID_IN_CONTAINER=1 bash "${cicd}" --container 2>&1 < /dev/null)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"Already in the container"* ]]
 	then fPass
@@ -130,7 +130,7 @@ fSection(){ :; }
 
 ## A prerelease of the floor version passed the floor, because only the
 ## release part was compared.
-fId ErOjF74 "a prerelease of the floor version is below it"
+fId ErOjF74 "prerelease is below its floor"
 if ! fLoad fVersion_AtLeast; then
 	fFail "no fVersion_AtLeast in cicd.bash"
 elif fVersion_AtLeast "0.16.0-dev.1+abc" "0.16.0"; then
@@ -139,7 +139,7 @@ else
 	fPass
 fi
 
-fId ErOjF75 "a release at or past the floor passes, and nothing below it does"
+fId ErOjF75 "version floor compare"
 versionBad=""
 if declare -F fVersion_AtLeast >/dev/null; then
 	for pair in "0.16.0 0.16.0 yes" "0.17.0-dev.3 0.16.0 yes" "1.26.2 1.24 yes" "1.24 1.24 yes" \
@@ -181,14 +181,14 @@ git init -q -b main "${scratchRepo}"
 git -C "${scratchRepo}" -c user.name=t -c user.email=t@t commit -q --allow-empty -m first
 echo change > "${scratchRepo}/file"
 
-fId ErOjF76 "a commit on main is refused"
+fId ErOjF76 "no commit on main"
 out="$(fCommitIn "${scratchRepo}" || true)"
 if [[ "${out}" == *"Refusing to commit to 'main'"* && -z "$(git -C "${scratchRepo}" log --format=%h -1 --skip 1 2>/dev/null || true)" ]]
 	then fPass
 	else fFail "said '${out}'"
 fi
 
-fId ErOjF77 "a commit on a detached HEAD is refused"
+fId ErOjF77 "no commit on a detached HEAD"
 git -C "${scratchRepo}" checkout -q --detach
 out="$(fCommitIn "${scratchRepo}" || true)"
 if [[ "${out}" == *"HEAD is detached"* ]]
@@ -229,21 +229,21 @@ git -C "${worktreeMain}" add -A
 git -C "${worktreeMain}" -c user.name=t -c user.email=t@t commit -q -m first
 git -C "${worktreeMain}" worktree add -q -b side "${worktreeDir}" 2>/dev/null
 
-fId Erm7vCh "the sync stage runs in a linked worktree"
+fId Erm7vCh "sync in a linked worktree"
 out="$(fGitCheckIn "${worktreeDir}" fStage_Sync)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == *"Remote .....: none"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId Erm7vCi "preflight runs in a linked worktree"
+fId Erm7vCi "preflight in a linked worktree"
 out="$(fGitCheckIn "${worktreeDir}" fPreflight)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == *"Branch .....: side"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId Erm7vCj "sync and preflight still refuse a folder that is not a checkout's top"
+fId Erm7vCj "sync and preflight want the checkout's top"
 notTopBad=""
 for notTop in "${worktreeMain}/testdata" "${work}"; do
 	for fn in fStage_Sync fPreflight; do
@@ -258,7 +258,7 @@ fi
 
 ## Run through a symlinked folder, the root kept the link's name, and a find
 ## started there listed only the link. The sync refusal names the root.
-fId ErqU8vW "the repo root is the real folder when cicd.bash is run through a symlink"
+fId ErqU8vW "repo root through a symlink"
 mkdir -p "${work}/linked/real/cicd"
 cp "${cicd}" "${work}/linked/real/cicd/"
 ln -s real "${work}/linked/link"
@@ -303,7 +303,7 @@ fInitIn(){  ## repo dir, args...
 	) 2>&1
 }
 
-fId Erm7vCk "the default backup steps aside in a linked worktree, and not in the main checkout"
+fId Erm7vCk "default backup skips linked worktrees"
 outWorktree="$(fInitIn "${worktreeDir}")" && rc=0 || rc=$?
 outMain="$(fInitIn "${worktreeMain}")" || rc=$?
 if ((rc == 0)) && [[ "${outWorktree}" == "doBackup=0 backupInWorktree=1" ]] && [[ "${outMain}" == "doBackup=1 backupInWorktree=0" ]]
@@ -311,7 +311,7 @@ if ((rc == 0)) && [[ "${outWorktree}" == "doBackup=0 backupInWorktree=1" ]] && [
 	else fFail "exited ${rc}, worktree said '${outWorktree}', main checkout said '${outMain}'"
 fi
 
-fId Erm7vCl "--backup by name is refused in a linked worktree"
+fId Erm7vCl "--backup refused in a linked worktree"
 out="$(fInitIn "${worktreeDir}" --backup)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"linked worktree"* ]]
 	then fPass
@@ -320,7 +320,7 @@ fi
 
 ## The pre-push hook runs --ci inside a push, so it must not sync, install,
 ## or push again.
-fId EshGwj6 "--ci is a quick run with no sync, dogfood, or backup"
+fId EshGwj6 "what --ci leaves out"
 out="$(showGate=1 fInitIn "${worktreeMain}" --ci)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "doQuick=1 doSync=0 doBackup=0 doDogfood=0 doPackage=0" ]]
 	then fPass
@@ -329,7 +329,7 @@ fi
 
 ## The Go cross builds are seconds, so a quick run and the pre-push one get
 ## them as well as a full run.
-fId Et6FB1n "a plain run, --quick and --ci all cross-compile"
+fId Et6FB1n "every run mode cross-compiles"
 out="$(showCross=1 fInitIn "${worktreeMain}"; showCross=1 fInitIn "${worktreeMain}" --quick; showCross=1 fInitIn "${worktreeMain}" --ci)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == $'doCross=1\ndoCross=1\ndoCross=1' ]]
 	then fPass
@@ -338,7 +338,7 @@ fi
 
 ## The leak checks take a minute and a half, so only asking for them runs
 ## them. Asked for, they ride along with any run, the pre-push one included.
-fId EtAUMRF "--leakcheck is off for a plain run, --quick and --ci, and on with each"
+fId EtAUMRF "--leakcheck is opt-in"
 out="$(for leakArgs in "" --quick --ci; do
 	# shellcheck disable=2086  ## Empty means no argument at all.
 	showLeak=1 fInitIn "${worktreeMain}" ${leakArgs}
@@ -350,7 +350,7 @@ if ((rc == 0)) && [[ "${out}" == $'doLeakcheck=0\ndoLeakcheck=1\ndoLeakcheck=0\n
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
 fi
 
-fId EtAUMRH "--help names --leakcheck, and says a plain run leaves it out"
+fId EtAUMRH "--help on --leakcheck"
 out="$(bash "${cicd}" --help 2>&1)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == *"--leakcheck       Add the slow leak checks"* ]] && [[ "${out}" == *"every stage but --publish and --leakcheck"* ]]
 	then fPass
@@ -376,42 +376,42 @@ fPackageIn(){  ## os, arch, with|without, args...
 	FAKE_OS="${os}" FAKE_ARCH="${arch}" fakePath="${fakeHost}/${kit}" showPackage=1 fInitIn "${worktreeMain}" "$@"
 }
 
-fId EshbzZU "a full run on Linux x86_64 with llvm-objcopy packages"
+fId EshbzZU "full Linux x86_64 run packages"
 out="$(fPackageIn Linux x86_64 with)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "doPackage=1 skip=" ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId EshbzZV "without llvm-objcopy it doesn't, and says why"
+fId EshbzZV "no llvm-objcopy, no package"
 out="$(fPackageIn Linux x86_64 without)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "doPackage=0 skip=no llvm-objcopy"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId EshbzZW "a full run on a Mac packages"
+fId EshbzZW "full Mac run packages"
 out="$(fPackageIn Darwin arm64 without)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "doPackage=1 skip=" ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId EshbzZX "a full run anywhere else doesn't, and says --package asks anyway"
+fId EshbzZX "other hosts skip packaging"
 out="$(fPackageIn FreeBSD amd64 with)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "doPackage=0 skip="*"--package"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId EshbzZY "--quick, --no-package and --only go each turn the default off"
+fId EshbzZY "what turns packaging off"
 out="$(fPackageIn Linux x86_64 with --quick; fPackageIn Linux x86_64 with --no-package; fPackageIn Linux x86_64 with --only go)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == $'doPackage=0 skip=\ndoPackage=0 skip=\ndoPackage=0 skip=' ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
 fi
 
-fId Eshc39k "--package still asks on a quick run, and where the default wouldn't"
+fId Eshc39k "--package forces it"
 out="$(fPackageIn Linux x86_64 with --quick --package; fPackageIn FreeBSD amd64 without --package)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == $'doPackage=1 skip=\ndoPackage=1 skip=' ]]
 	then fPass
@@ -451,7 +451,7 @@ echo zig-out > "${dogRoot}/repo/zig/zig-out/bin/zuid"
 chmod +x "${dogRoot}/repo/zig/zig-out/bin/zuid"
 echo stale > "${dogRoot}/linux/zuid"
 
-fId EshcCTw "packaged release files go to their platform's synced dir, over what's there"
+fId EshcCTw "dogfood copies release files"
 out="$(fDogfoodIn "${dogRoot}" 1)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "$(cat "${dogRoot}/linux/zuid" 2>/dev/null)" == "linux-release" && "$(cat "${dogRoot}/mswin/zuid.exe" 2>/dev/null)" == "windows-release" ]] \
 	&& [[ ! -e "${dogRoot}/macos" && ! -e "${dogRoot}/fallback/zuid" && "$(ls "${dogRoot}/linux")" == "zuid" ]]
@@ -459,7 +459,7 @@ if ((rc == 0)) && [[ "$(cat "${dogRoot}/linux/zuid" 2>/dev/null)" == "linux-rele
 	else fFail "exited ${rc}, said '${out//$'\n'/ | }'"
 fi
 
-fId EshcCTx "with nothing packaged, zig-out's command goes to the first fallback that exists"
+fId EshcCTx "dogfood falls back to zig-out"
 out="$(fDogfoodIn "${dogRoot}" 0)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "$(cat "${dogRoot}/fallback/zuid" 2>/dev/null)" == "zig-out" && "$(cat "${dogRoot}/linux/zuid")" == "linux-release" ]]
 	then fPass
@@ -517,7 +517,7 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 mainReal="$(cd "${worktreeMain}" && pwd -P)"
 newTag="zuid-cicd:$(echo "FROM scratch" | git hash-object --stdin | cut -c1-12)"
 
-fId EsJ9SjE "--container builds a missing image under the recipe's hash, and drops the one it replaces"
+fId EsJ9SjE "image built by recipe hash"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-main" 2>/dev/null || true)"
 if ((rc == 0)) && grep -qxF "build -t ${newTag} ${mainReal}/cicd/container" <<< "${log}" \
@@ -526,7 +526,7 @@ if ((rc == 0)) && grep -qxF "build -t ${newTag} ${mainReal}/cicd/container" <<< 
 	else fFail "exited ${rc}, asked: ${log//$'\n'/ | }; said '${out}'"
 fi
 
-fId EsJ9SjF "the container gets the repo at its own path, the cache volume and the inner flags, and no rebuild"
+fId EsJ9SjF "container run arguments"
 : > "${work}/engine-main"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-main")"
@@ -537,14 +537,14 @@ if ((rc == 0)) && grep -qxF -- "${wantRun}" <<< "${log}" && ! grep -q '^build ' 
 	else fFail "exited ${rc}, asked: ${log//$'\n'/ | }"
 fi
 
-fId EsJ9SjG "a linked worktree's container gets the main checkout's git dir too"
+fId EsJ9SjG "worktree's git dir in the container"
 out="$(fContainerIn "${worktreeDir}" "${work}/engine-wt" 0)" && rc=0 || rc=$?
 if ((rc == 0)) && grep -q -- "^run .* -v ${mainReal}/.git:${mainReal}/.git " "${work}/engine-wt"
 	then fPass
 	else fFail "exited ${rc}, asked: $(grep '^run ' "${work}/engine-wt" || true)"
 fi
 
-fId EsJ9SjH "a failed run in the container fails the stage"
+fId EsJ9SjH "container failure fails the stage"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 3)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"The run in the container failed"* ]]
 	then fPass
@@ -552,7 +552,7 @@ if ((rc != 0)) && [[ "${out}" == *"The run in the container failed"* ]]
 fi
 
 ## The run inside is a new cicd.bash, which only knows what it's handed.
-fId EtAUMRG "--container hands --leakcheck to the run inside"
+fId EtAUMRG "--container passes --leakcheck in"
 : > "${work}/engine-main"
 out="$(leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 if ((rc == 0)) && grep -q -- "^run .* --only go --quick --package --leakcheck$" "${work}/engine-main"
@@ -562,7 +562,7 @@ fi
 
 ## The image has no time zone, so the run inside stamped its files in UTC and
 ## they sorted hours away from the host's.
-fId EtB0hIu "the run in the container names its files with the stamp of the run outside"
+fId EtB0hIu "container run keeps the outer stamp"
 : > "${work}/engine-main"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 stampBad=""
@@ -592,7 +592,7 @@ fi
 ## A stage header is a blank line, a rule of dots as wide as the terminal,
 ## then the title, the way silkterm prints one. A pipe or a log has no width,
 ## so it gets silkterm's 74. The run in the container gets the outside's.
-fId EtB5PUX "a stage header is a blank line, a rule as wide as the terminal or 74 without one, and the title"
+fId EtB5PUX "stage header layout"
 sectionScript="${work}/section.bash"
 sectionBad=""
 if (
@@ -634,7 +634,7 @@ if [[ -z "${sectionBad}" ]]
 fi
 
 ## CodeQL is about 480 MB, so a run that doesn't want it never builds it.
-fId EtAj5P2 "--container --leakcheck builds CodeQL's image on the main one and runs in it, and a plain --container run never touches it"
+fId EtAj5P2 "CodeQL image only with --leakcheck"
 codeqlTag="zuid-codeql:$(echo "FROM codeql" | git hash-object --stdin | cut -c1-12)-${newTag#*:}"
 out="$(leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-codeql" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-codeql" 2>/dev/null || true)"
@@ -648,7 +648,7 @@ fi
 
 ## A public clone without docker still passes, so the checkers in the image
 ## skip rather than fail when there's nothing to run them in.
-fId Et9VtIq "the Go checkers skip with a reason when docker is missing or not answering, and use the image when it answers"
+fId Et9VtIq "Go checkers with and without docker"
 out="$(
 	# shellcheck disable=2329  ## Called by the lifted functions, not here.
 	fEcho_Clean(){ :; }
@@ -683,7 +683,7 @@ fi
 
 ## The C sanitizer builds go to a scratch dir outside the repo, which the
 ## image only sees if it's mounted.
-fId EtAHpAi "a checker run in a folder outside the repo gets that folder mounted at its own path, and one inside gets no extra mount"
+fId EtAHpAi "mounts for a folder outside the repo"
 out="$(
 	# shellcheck disable=2034  ## Read by the lifted functions.
 	{
@@ -764,12 +764,12 @@ fShellIn(){  ## version the stand-in shellcheck reports
 
 ## shellcheck's warnings change between versions, so a host on another one
 ## can pass what the container fails.
-fId EtB4VLJ "the shell stage says so when the host's shellcheck isn't the one the container pins"
+fId EtB4VLJ "shellcheck pin note"
 scOld="$(fShellIn 0.10.0)" && rc=0 || rc=$?
 scSame="$(fShellIn 0.11.0)" && rcSame=0 || rcSame=$?
-scWant="skip ..: EtB4gns the host's shellcheck is the one the container pins (shellcheck 0.10.0 here, and the container pins 0.11.0, so its warnings can differ)"
+scWant="skip ..: EtB4gns host shellcheck matches the pin (shellcheck 0.10.0 here, and the container pins 0.11.0, so its warnings can differ)"
 if ((rc == 0 && rcSame == 0)) && grep -qxF "  ${scWant}" <<< "${scOld}" \
-	&& grep -qxF "  ok ....: EtB4gns the host's shellcheck is the one the container pins" <<< "${scSame}"
+	&& grep -qxF "  ok ....: EtB4gns host shellcheck matches the pin" <<< "${scSame}"
 	then fPass
 	else fFail "exited ${rc} and ${rcSame}, said: ${scOld//$'\n'/ | } and: ${scSame//$'\n'/ | }"
 fi
@@ -806,12 +806,12 @@ fPsLintIn(){  ## skip reason, exit code for the run in the image
 
 ## Every tracked .ps1, in the image, and a finding fails it. With no docker it
 ## skips, the same as the other checkers in the image.
-fId EtB6KVG "the PowerShell lint runs on every tracked PowerShell file in the image, fails on a finding, and skips without docker"
+fId EtB6KVG "PowerShell lint stage"
 psBad=""
 : > "${work}/engine-pslint"
 out="$(fPsLintIn "" 0)" && rc=0 || rc=$?
 psLog="$(cat "${work}/engine-pslint")"
-if ((rc != 0)) || ! grep -qxF "  ok ....: EtB6KVF PSScriptAnalyzer finds nothing in the tracked PowerShell" <<< "${out}"; then psBad+=" a clean run said '${out}';"; fi
+if ((rc != 0)) || ! grep -qxF "  ok ....: EtB6KVF PSScriptAnalyzer on our PowerShell" <<< "${out}"; then psBad+=" a clean run said '${out}';"; fi
 ## The real repo. The scratch roots above were set in subshells.
 # shellcheck disable=2031
 {
@@ -826,7 +826,7 @@ out="$(fPsLintIn "" 1)" && rc=0 || rc=$?
 if ((rc == 0)) || [[ "${out}" != *"PSScriptAnalyzer found something"* ]]; then psBad+=" a finding didn't fail it: '${out}';"; fi
 : > "${work}/engine-pslint"
 out="$(fPsLintIn "no docker here" 0)" && rc=0 || rc=$?
-if ((rc != 0)) || ! grep -qxF "  skip ..: EtB6KVF PSScriptAnalyzer finds nothing in the tracked PowerShell (no docker here)" <<< "${out}" \
+if ((rc != 0)) || ! grep -qxF "  skip ..: EtB6KVF PSScriptAnalyzer on our PowerShell (no docker here)" <<< "${out}" \
 	|| [[ -s "${work}/engine-pslint" ]]; then psBad+=" without docker it said '${out}';"; fi
 if [[ -z "${psBad}" ]]
 	then fPass
@@ -961,22 +961,22 @@ fWantPublishRefusal(){  ## id, label, scratch name, text the refusal must contai
 
 fPublishRepo offmain 1.0.0-beta.1
 git -C "${work}/offmain/repo" checkout -q -b feature
-fWantPublishRefusal ErgqYt4 "--publish is refused off main" offmain "come from 'main' only" 1 0
+fWantPublishRefusal ErgqYt4 "--publish off main" offmain "come from 'main' only" 1 0
 
 fPublishRepo dirty 1.0.0-beta.1
 printf 'edit\n' > "${work}/dirty/repo/stray.txt"
-fWantPublishRefusal ErgqYt5 "--publish is refused on a dirty tree" dirty "uncommitted changes" 1 0
+fWantPublishRefusal ErgqYt5 "--publish on a dirty tree" dirty "uncommitted changes" 1 0
 
 fPublishRepo unpushed 1.0.0-beta.1
 git -C "${work}/unpushed/repo" commit -q --allow-empty -m second
-fWantPublishRefusal ErgqYt6 "--publish is refused with HEAD not pushed" unpushed "HEAD is not what origin/main has" 1 0
+fWantPublishRefusal ErgqYt6 "--publish with HEAD unpushed" unpushed "HEAD is not what origin/main has" 1 0
 
 ## On the remote only, so the remote is what is asked.
 fPublishRepo tagged 1.0.0-beta.1
 git -C "${work}/tagged/repo" tag v1.0.0-beta.1
 git -C "${work}/tagged/repo" push -q origin v1.0.0-beta.1 2>/dev/null
 git -C "${work}/tagged/repo" tag -d v1.0.0-beta.1 >/dev/null
-fId ErgqYt7 "--publish is refused when the version's tag is on the remote"
+fId ErgqYt7 "tag already on the remote"
 out="$(fPublishIn tagged 1 0 < /dev/null)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"Tag v1.0.0-beta.1 already exists"* ]] && [[ ! -e "${work}/tagged/gh-create" ]] && [[ -z "$(git -C "${work}/tagged/repo" tag -l)" ]]
 	then fPass
@@ -985,7 +985,7 @@ fi
 
 fPublishRepo gotagged 1.0.0-beta.1
 git -C "${work}/gotagged/repo" tag go/v1.0.0-beta.1
-fId ErgqYt8 "--publish is refused when the go/ tag exists here"
+fId ErgqYt8 "go/ tag already here"
 out="$(fPublishIn gotagged 1 0 < /dev/null)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"Tag go/v1.0.0-beta.1 already exists"* ]] && [[ ! -e "${work}/gotagged/gh-create" ]] && [[ -z "$(git -C "${work}/gotagged/repo" ls-remote --tags origin)" ]]
 	then fPass
@@ -994,9 +994,9 @@ fi
 
 fPublishRepo partial 1.0.0-beta.1
 rm -f "${work}/partial/repo/dist-incoming/"zuid-1.0.0-beta.1-windows-*.zip
-fWantPublishRefusal ErgqYt9 "a set missing a platform is refused without --allow-partial" partial "No asset for: zuid-1.0.0-beta.1-windows-x86_64.zip zuid-1.0.0-beta.1-windows-arm64.zip" 1 0
+fWantPublishRefusal ErgqYt9 "missing platform, no --allow-partial" partial "No asset for: zuid-1.0.0-beta.1-windows-x86_64.zip zuid-1.0.0-beta.1-windows-arm64.zip" 1 0
 
-fId ErgqYtA "--allow-partial publishes the rest and names what is missing"
+fId ErgqYtA "--allow-partial publishes the rest"
 rm -rf "${work}/partial/repo/dist/release"
 out="$(fPublishIn partial 1 1 < /dev/null)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == *"Missing ....: zuid-1.0.0-beta.1-windows-x86_64.zip zuid-1.0.0-beta.1-windows-arm64.zip"* ]] && [[ -e "${work}/partial/gh-create" ]]
@@ -1026,13 +1026,13 @@ fStaleTarball(){
 	fTarball "${work}/stale/repo/dist-incoming/zuid-1.0.0-beta.1-darwin-universal.tgz" 1.0.0-alpha.1
 }
 fStaleTarball
-fWantPublishRefusal ErgqYtH "a copied-in tarball from another version is refused" stale "built from another version" 1 0
+fWantPublishRefusal ErgqYtH "stale tarball refused" stale "built from another version" 1 0
 
 ## A remote gh cannot match to a GitHub repo, so the notes would have no
 ## links. The tags must not go out first.
 fPublishRepo norepo 1.0.0-beta.1
 export GH_STUB_NO_REPO=1
-fWantPublishRefusal ErmAuec "--publish is refused when gh cannot name the repo" norepo "gh cannot tell which GitHub repo this is" 1 0
+fWantPublishRefusal ErmAuec "gh can't name the repo" norepo "gh cannot tell which GitHub repo this is" 1 0
 unset GH_STUB_NO_REPO
 
 ## One full run, answered yes, for the cases after it to read.
@@ -1046,13 +1046,13 @@ for arg in "${betaArgs[@]}"; do
 	if [[ -f "${arg}" ]]; then betaUploads+=("${arg}"); fi
 done
 
-fId ErgqYtC "a version with a '-' is released as a prerelease"
+fId ErgqYtC "'-' in the version means prerelease"
 if ((betaRc == 0)) && [[ " ${betaArgs[*]} " == *" --prerelease "* ]] && [[ "${betaArgs[0]:-}" == "v1.0.0-beta.1" ]]
 	then fPass
 	else fFail "exited ${betaRc}, gh got '${betaArgs[*]:0:6}', said '${betaOut: -160}'"
 fi
 
-fId ErgqYtE "both tags are pushed, on HEAD"
+fId ErgqYtE "both tags pushed on HEAD"
 betaHead="$(git -C "${work}/beta/repo" rev-parse HEAD)"
 if [[ "$(fRemoteTags "${work}/beta/repo")" == "go/v1.0.0-beta.1 ${betaHead}"$'\n'"v1.0.0-beta.1 ${betaHead}" ]]
 	then fPass
@@ -1060,7 +1060,7 @@ if [[ "$(fRemoteTags "${work}/beta/repo")" == "go/v1.0.0-beta.1 ${betaHead}"$'\n
 fi
 
 ## GitHub lists a bare tag beside the releases, so its message says what it is.
-fId EsjRmx6 "the go/ tag's message names the release it goes with"
+fId EsjRmx6 "go/ tag message"
 betaGoMsg="$(git -C "${work}/beta/repo" tag -l --format='%(contents:subject)' go/v1.0.0-beta.1)"
 if [[ "${betaGoMsg}" == "Go module tag for v1.0.0-beta.1" ]]
 	then fPass
@@ -1094,7 +1094,7 @@ if [[ -z "${sumsBad}" ]]
 	else fFail "${sumsBad}"
 fi
 
-fId ErgqYtG "'~' in an asset name is uploaded and listed as '.'"
+fId ErgqYtG "'~' becomes '.' in asset names"
 tildeBad=""
 for arg in "${betaUploads[@]}"; do
 	[[ "$(basename "${arg}")" != *'~'* ]] || tildeBad+=" uploaded $(basename "${arg}");"
@@ -1106,7 +1106,7 @@ if [[ -z "${tildeBad}" ]]
 	else fFail "${tildeBad}"
 fi
 
-fId EsZni4k "nothing under dist/debug/ is uploaded or listed in checksums.txt"
+fId EsZni4k "dist/debug/ stays local"
 debugBad=""
 for arg in "${betaUploads[@]}"; do
 	case "${arg}" in */debug/*|*.debug|*.pdb) debugBad+=" uploaded $(basename "${arg}");" ;; esac
@@ -1117,7 +1117,7 @@ if [[ -z "${debugBad}" ]]
 	else fFail "${debugBad}"
 fi
 
-fId ErgqjsR "the release notes are the changelog's section for the version"
+fId ErgqjsR "release notes from the changelog"
 betaNotes=""
 for ((argIndex = 0; argIndex < ${#betaArgs[@]}; argIndex++)); do
 	if [[ "${betaArgs[argIndex]}" == "--notes" ]]; then betaNotes="${betaArgs[argIndex + 1]:-}"; fi
@@ -1127,14 +1127,14 @@ if [[ "${betaNotes}" == *"Notes for this one."* ]] && [[ "${betaNotes}" != *"old
 	else fFail "notes were '${betaNotes:0:120}'"
 fi
 
-fId EshGwj3 "the release notes start with the build number"
+fId EshGwj3 "build number tops the notes"
 if [[ "${betaNotes}" == "zuid v1.0.0-beta.1 build abc12"$'\n'* ]]
 	then fPass
 	else fFail "notes were '${betaNotes:0:120}'"
 fi
 
 fPublishRepo stable 1.0.0
-fId ErgqYtD "a version with no '-' is not a prerelease"
+fId ErgqYtD "plain version is a full release"
 out="$(fPublishIn stable 1 0 < /dev/null)" && rc=0 || rc=$?
 stableArgs=()
 if [[ -e "${work}/stable/gh-create" ]]; then mapfile -d '' -t stableArgs < "${work}/stable/gh-create"; fi
@@ -1168,7 +1168,7 @@ tableNotes="$(fNotesOf "${work}/table/gh-create")"
 tableRows=()
 mapfile -t tableRows < <(grep '^<tr>' <<< "${tableNotes}" || true)
 
-fId Erm9fTp "the download table has a row per OS and a column per CPU"
+fId Erm9fTp "download table, OS by CPU"
 tableBad=""
 tableWant=(
 	"<tr><th></th><th>x86_64</th><th>arm64</th></tr>"
@@ -1190,7 +1190,7 @@ if [[ -z "${tableBad}" ]]
 	else fFail "${tableBad} said '${tableOut: -160}'"
 fi
 
-fId Erm9fTq "the macOS universal files span both CPU columns"
+fId Erm9fTq "macOS universal spans both columns"
 macWant="<tr><th>macOS</th><td colspan=\"2\" align=\"center\">$(fLinks zuid-1.0.0-beta.1-darwin-universal.tgz zuid-1.0.0-beta.1-darwin-universal)</td></tr>"
 if [[ "${tableRows[2]:-}" == "${macWant}" ]]
 	then fPass
@@ -1198,7 +1198,7 @@ if [[ "${tableRows[2]:-}" == "${macWant}" ]]
 fi
 
 ## The partial run above left out both Windows files.
-fId Erm9fTr "a target with no file gets a dash in its cell"
+fId Erm9fTr "dash for a missing file"
 partialNotes="$(fNotesOf "${work}/partial/gh-create")"
 partialRows=()
 mapfile -t partialRows < <(grep '^<tr>' <<< "${partialNotes}" || true)
@@ -1209,7 +1209,7 @@ fi
 
 fPublishRepo nomac 1.0.0-beta.1
 rm -f "${work}/nomac/repo/dist-incoming/"zuid-1.0.0-beta.1-darwin-universal*
-fId ErmpEWr "a missing macOS file gets one dash across both columns"
+fId ErmpEWr "one dash for missing macOS"
 out="$(fPublishIn nomac 1 1 < /dev/null)" && rc=0 || rc=$?
 nomacRows=()
 mapfile -t nomacRows < <(grep '^<tr>' <<< "$(fNotesOf "${work}/nomac/gh-create")" || true)
@@ -1218,7 +1218,7 @@ if ((rc == 0)) && [[ "${nomacRows[2]:-}" == "<tr><th>macOS</th><td colspan=\"2\"
 	else fFail "exited ${rc}, rows were '${nomacRows[*]:-}'"
 fi
 
-fId Erm9fTs "the changelog comes first, then the table, then the other files and checksums.txt"
+fId Erm9fTs "release notes order"
 notesBad=""
 inTable="${tableNotes#*<table>}"; inTable="${inTable%%</table>*}"
 afterTable="${tableNotes#*</table>}"
@@ -1250,14 +1250,14 @@ fIdsNew(){ PYTHONDONTWRITEBYTECODE=1 python3 "${idsTree}/cicd/utility/test-ids.p
 mapfile -t fixtureIds <<< "$(fIdsNew -n 4 --at 2026-09-01T12:00:00+00:00 || true)"
 
 ## Python before 3.11 reads no trailing Z by itself, and stock macOS has 3.9.
-fId ErmeArM "test-ids.py new --at takes a UTC time ending in Z"
+fId ErmeArM "test-ids.py --at takes a Z time"
 out="$(fIdsNew -n 4 --at 2026-09-01T12:00:00Z)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "$(printf '%s\n' "${fixtureIds[@]}")" ]] && ((${#fixtureIds[@]} == 4))
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId ErmeArN "test-ids.py new --at refuses a bad time in one line"
+fId ErmeArN "bad --at time, one-line error"
 out="$(fIdsNew --at 2026-13-01T12:00:00Z)" && rc=0 || rc=$?
 if ((rc == 2)) && [[ "${out}" == *"--at wants an ISO 8601 time"* ]] && [[ "${out}" != *Traceback* ]]
 	then fPass
@@ -1274,7 +1274,7 @@ fIdsTree(){  ## cicd.bash body, extra Zig text
 }
 fIdsCheck(){ PYTHONDONTWRITEBYTECODE=1 python3 "${idsTree}/cicd/utility/test-ids.py" check 2>&1 ;}
 
-fId ErkRrmk "test-ids.py check passes a tree where every ID belongs to a test"
+fId ErkRrmk "test-ids.py check on a clean tree"
 fIdsTree "fId ${fixtureIds[2]} \"a check\""
 out="$(fIdsCheck)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == *"3 tests, all unique"* ]]
@@ -1284,7 +1284,7 @@ fi
 
 ## The two arm64 link checks kept their IDs in an array, so the check never saw
 ## them and would have let a duplicate through.
-fId ErkRrml "test-ids.py check refuses an ID that no test line names"
+fId ErkRrml "orphan ID caught"
 fIdsTree "fId ${fixtureIds[2]} \"a check\""$'\n'"links=(\"${fixtureIds[3]}:static\")"
 out="$(fIdsCheck)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"'${fixtureIds[3]}' looks like a test ID"* ]]
@@ -1292,7 +1292,7 @@ if ((rc != 0)) && [[ "${out}" == *"'${fixtureIds[3]}' looks like a test ID"* ]]
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId ErkRrmm "test-ids.py check refuses a test-id mark that is above no test"
+fId ErkRrmm "stray test-id mark caught"
 fIdsTree "fId ${fixtureIds[2]} \"a check\"" "// test-id: ${fixtureIds[3]}"$'\n'"fn helper() void {}"
 out="$(fIdsCheck)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"'${fixtureIds[3]}' is not directly above a test"* ]]
@@ -1300,7 +1300,7 @@ if ((rc != 0)) && [[ "${out}" == *"'${fixtureIds[3]}' is not directly above a te
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId ErkRrmn "test-ids.py check lets a retired test stay in a comment"
+fId ErkRrmn "retired test can stay commented"
 fIdsTree "fId ${fixtureIds[2]} \"a check\""$'\n'"# fWantRefusal ${fixtureIds[3]} \"retired\""
 out="$(fIdsCheck)" && rc=0 || rc=$?
 if ((rc == 0))
@@ -1308,7 +1308,7 @@ if ((rc == 0))
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId ErkRrmo "test-ids.py fuzzers lists only the Zig tests that fuzz"
+fId ErkRrmo "test-ids.py fuzzers lists fuzz tests only"
 fIdsTree "fId ${fixtureIds[2]} \"a check\""
 out="$(PYTHONDONTWRITEBYTECODE=1 python3 "${idsTree}/cicd/utility/test-ids.py" fuzzers 2>&1)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "${fixtureIds[0]}"$'\t'"a fuzz test" ]]
@@ -1325,7 +1325,7 @@ fi
 ## Each value as "<value>|<what zig should see>|<1 if a note is wanted>".
 epochCases=("|unset|0" "  |unset|0" "soon|unset|1" "1700000000|1700000000|0")
 
-fId ErmER3z "cicd.bash drops an empty or non-numeric SOURCE_DATE_EPOCH before running zig"
+fId ErmER3z "cicd.bash drops a bad SOURCE_DATE_EPOCH"
 epochBad=""
 if ! fLoad fDropBadEpoch; then
 	epochBad=" no fDropBadEpoch in cicd.bash;"
@@ -1366,7 +1366,7 @@ exit 1
 EOF
 chmod +x "${work}/pkgbin/zig"
 
-fId ErmER40 "package.bash drops an empty or non-numeric SOURCE_DATE_EPOCH before running zig"
+fId ErmER40 "package.bash drops it too"
 epochBad=""
 for epochCase in "${epochCases[@]}"; do
 	IFS='|' read -r epochIn epochWant epochNote <<< "${epochCase}"
@@ -1449,7 +1449,7 @@ fFuzzIn(){  ## mode, name of the test that finds
 fuzzLines=()
 for fuzzLine in "${fuzzList[@]}"; do fuzzLines+=("${fuzzLine%%$'\t'*} ${fuzzLine#*$'\t'}"); done
 
-fId ErkRrmp "a clean fuzz run prints an ok line for each fuzz test, under its own ID"
+fId ErkRrmp "clean fuzz run, one ok line each"
 out="$(fFuzzIn clean)" && rc=0 || rc=$?
 fuzzBad=""
 ((${#fuzzLines[@]} >= 2)) || fuzzBad=" found ${#fuzzLines[@]} fuzz tests, wanted at least 2;"
@@ -1462,7 +1462,7 @@ if ((rc == 0)) && [[ -z "${fuzzBad}" ]]
 fi
 
 ## Before 20261004 the two shared one line, so a find could not say whose it was.
-fId ErkRrmq "a fuzz find fails the test that found it and keeps the input"
+fId ErkRrmq "a fuzz find fails its own test"
 out="" rc=0 fuzzBad=""
 if ((${#fuzzLines[@]} < 2)); then
 	fuzzBad=" found ${#fuzzLines[@]} fuzz tests, wanted at least 2;"
@@ -1477,7 +1477,7 @@ if ((rc != 0)) && [[ -z "${fuzzBad}" ]]
 	else fFail "exited ${rc},${fuzzBad} said '${out}'"
 fi
 
-fId ErkRrmr "a fuzz run that breaks without a find fails every fuzz test"
+fId ErkRrmr "broken fuzz run fails them all"
 out="$(fFuzzIn broken)" && rc=0 || rc=$?
 fuzzBad=""
 ((${#fuzzLines[@]} >= 2)) || fuzzBad=" found ${#fuzzLines[@]} fuzz tests, wanted at least 2;"
@@ -1491,7 +1491,7 @@ fi
 
 ## Each case above left its fuzz.log folder in the temp dir, 2 a run, since
 ## nothing cleaned up after the subshell.
-fId EscPGS5 "the fuzz stage leaves nothing in TMPDIR, passed or failed"
+fId EscPGS5 "fuzz stage cleans TMPDIR"
 fuzzLeft="$(find "${fuzzTmp}" -mindepth 1 -maxdepth 1 2>&1 | tr '\n' ' ' || true)"
 if [[ -z "${fuzzLeft}" ]]
 	then fPass
@@ -1500,7 +1500,7 @@ fi
 
 ## Cleanup used to remove only what sat under /tmp, so with TMPDIR elsewhere
 ## every scratch folder stayed. It still takes nothing mktemp -d did not make.
-fId EscPGS6 "scratch cleanup removes tmp.* folders in TMPDIR and nothing else"
+fId EscPGS6 "scratch cleanup takes only tmp.*"
 cleanTmp="${work}/clean-tmp"
 mkdir -p "${cleanTmp}/tmp.mine" "${cleanTmp}/keep" "${work}/clean-other/tmp.elsewhere" "${work}/clean-target"
 ln -s "${work}/clean-target" "${cleanTmp}/tmp.link"
@@ -1538,7 +1538,7 @@ cat > "${work}/flame/flame_20260101-000000_go.svg" <<'SVG'
 <g><title>github.com/jim-collier/zuid/go/zuid.(*Generator).Generate (60 samples, 60%)</title><rect x="40%" y="84" width="60%" height="15" fg:x="40" fg:w="60"/></g>
 </svg>
 SVG
-fId ErsspWK "the profile report counts what runs under NewRegistry as registry time"
+fId ErsspWK "NewRegistry counts as registry time"
 out="$(python3 "${flameReport}" --dir "${work}/flame" 2>&1)" || true
 if grep -q 'registry construction.*40\.0%' <<< "${out}"
 	then fPass
@@ -1558,21 +1558,21 @@ fVulnFinding(){  ## osv, module, package, function or empty
 fVulnReport(){ python3 "${utilityDir}/vuln-report.py" 2>&1 ;}
 vulnConfig='{"config": {"go_version": "go1.0.1"}}'
 
-fId Et9luGK "the vuln report fails on a stdlib advisory in code that's called"
+fId Et9luGK "called stdlib advisory fails"
 out="$( { printf '%s\n' "${vulnConfig}"; fVulnFinding GO-0000-0001 stdlib net LookupCNAME; } | fVulnReport)" && rc=0 || rc=$?
 if ((rc == 1)) && [[ "${out}" == *"GO-0000-0001 in go1.0.1, called from net.LookupCNAME"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId Et9luGL "the vuln report only counts a stdlib advisory in code that isn't called"
+fId Et9luGL "uncalled stdlib advisory is counted"
 out="$( { printf '%s\n' "${vulnConfig}"; fVulnFinding GO-0000-0002 stdlib net ""; } | fVulnReport)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == *"1 advisories for go1.0.1 in code we don't call"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId Et9luGM "the vuln report fails on a third-party advisory, even one that isn't called"
+fId Et9luGM "any third-party advisory fails"
 out="$( { printf '%s\n' "${vulnConfig}"; fVulnFinding GO-0000-0003 example.com/x example.com/x ""; } | fVulnReport)" && rc=0 || rc=$?
 if ((rc == 1)) && [[ "${out}" == *"GO-0000-0003 in example.com/x@v1.0.0"* ]]
 	then fPass
@@ -1602,14 +1602,14 @@ fCodeqlReport(){  ## suppressions file, file:rule...
 }
 : > "${work}/no-suppressions"
 
-fId EtAj5P3 "the CodeQL report fails on any finding in our own code, style ones too"
+fId EtAj5P3 "CodeQL: any finding in our code fails"
 out="$(fCodeqlReport "${work}/no-suppressions" zuid/a.go:x/style)" && rc=0 || rc=$?
 if ((rc == 1)) && [[ "${out}" == *"x/style at zuid/a.go:3: made up"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
 fi
 
-fId EtAj5P4 "the CodeQL report counts only security and correctness findings in third-party code"
+fId EtAj5P4 "CodeQL: third-party bugs only"
 out="$(fCodeqlReport "${work}/no-suppressions" vendor/m/a.go:x/style)" && rc=0 || rc=$?
 out2="$(fCodeqlReport "${work}/no-suppressions" vendor/m/a.go:x/bug)" && rc2=0 || rc2=$?
 if ((rc == 0 && rc2 == 1)) && [[ "${out}" == *"1 style findings in third-party code"* && "${out2}" == *"x/bug at vendor/m/a.go:3"* ]]
@@ -1617,7 +1617,7 @@ if ((rc == 0 && rc2 == 1)) && [[ "${out}" == *"1 style findings in third-party c
 	else fFail "exited ${rc} and ${rc2}, and said '${out//$'\n'/ | }' and '${out2//$'\n'/ | }'"
 fi
 
-fId EtAj5P5 "a CodeQL suppression hides its rule in its file only, one that matches nothing fails, and one without a backlog ID is refused"
+fId EtAj5P5 "CodeQL suppressions"
 printf '## made up\ngo 2026101911183280 x/bug vendor/m/a.go\nc 2026101911183281 x/bug test/a.c\n' > "${work}/suppressions"
 printf 'go x/bug vendor/m/a.go\n' > "${work}/suppressions-bad"
 out="$(fCodeqlReport "${work}/suppressions" vendor/m/a.go:x/bug)" && rc=0 || rc=$?
@@ -1631,7 +1631,7 @@ if ((rc == 0 && rc2 == 1 && rc3 != 0 && rc4 == 1)) && [[ "${out}" == *"Suppresse
 	else fFail "exited ${rc}, ${rc2}, ${rc3} and ${rc4}, and said '${out//$'\n'/ | }', '${out2//$'\n'/ | }', '${out3}' and '${out4//$'\n'/ | }'"
 fi
 
-fId EtAj5P6 "the CodeQL coverage check fails when a file the build compiled isn't in the database"
+fId EtAj5P6 "CodeQL coverage check"
 mkdir -p "${work}/cov/db"
 : > "${work}/cov/in.c"; : > "${work}/cov/out.c"
 python3 -c 'import os, sys, zipfile; zipfile.ZipFile(sys.argv[1], "w").writestr(os.path.realpath(sys.argv[2]).lstrip("/"), "")' \
