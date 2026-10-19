@@ -487,8 +487,9 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Shorten the labels in `cli-test.bash`, `installer-test.bash`, `pipeline-test.bash`, and `cicd.bash`. The IDs stay. The Zig names were done in 2026101410495992.
 	- Progress log:
 		- 20261019: About 220 labels shortened across the 4 files, the C checks, `--leakcheck`, CodeQL, PSScriptAnalyzer and the version resource checks included. IDs and failure messages are unchanged. The fuzz labels still end in ", fuzzed for", since `pipeline-test.bash` matches on it, and labels that were already short were left alone.
-	- Swept: every old label across `repo/`, `.claude/` and the private notes. Only `pipeline-test.bash` matched on cicd.bash's labels, for the shellcheck pin and PSScriptAnalyzer, and both sides changed together. No new label has "warning" in it. The only other hits are pasted run logs in `td_zuid.txt` and `private/td.txt`, which were left as they are.
+	- Swept: every old label across the repo and the notes outside it. Only `pipeline-test.bash` matched on cicd.bash's labels, for the shellcheck pin and PSScriptAnalyzer, and both sides changed together. No new label has "warning" in it. The only other hits are old pasted run logs, left as they are.
 	- Branch: labels
+	- Commit: bf0c2b0
 	- Test case: none, labels only. `cicd.bash --ci -q --no-backup --no-dogfood`, `installer-test.bash`, `pipeline-test.bash` and `test-ids.py check` all passed, and `lint-report.bash --check` is clean.
 
 - `install.bash` stops under a Mac's stock bash for a user install.
