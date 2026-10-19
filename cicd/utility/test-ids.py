@@ -249,6 +249,9 @@ def fCmd_Go(_args):
 	ids = fIdsByName("go")
 	output = {}
 	failed = 0
+	## goleak runs in TestMain after the last test, and only once they all
+	## passed, so its verdict is the package's own pass or fail.
+	ran, testFailed = set(), set()
 	for raw in sys.stdin:
 		try:
 			event = json.loads(raw)
@@ -266,10 +269,22 @@ def fCmd_Go(_args):
 		if action in ("build-output",):
 			print(event.get("Output", ""), end="")
 			continue
+		pkg = event.get("Package", "")
+		if not test and action in ("pass", "fail") and pkg in ran and "TestMain" in ids:
+			if action == "pass":
+				fLine("pass", ids["TestMain"], "TestMain")
+			elif pkg in testFailed:
+				fLine("skip", ids["TestMain"], "TestMain (a test failed, so no leak check)")
+			else:
+				fLine("fail", ids["TestMain"], "TestMain")
+				print(f"    {pkg} failed after its tests passed. A goroutine leak is named above.")
 		if not test or "/" in test or action not in ("pass", "fail", "skip"):
 			if action == "fail" and not test:
 				failed += 1
 			continue
+		ran.add(pkg)
+		if action == "fail":
+			testFailed.add(pkg)
 		ident = ids.get(test)
 		fLine(action, ident, test)
 		if action == "fail" or ident is None:
@@ -362,3 +377,4 @@ if __name__ == "__main__":
 ##		- 20260930 JC: Created.
 ##		- 20261004 JC: check also flags an ID no test line names. Added fuzzers.
 ##		- 20261004 JC: --at takes a trailing Z on python 3.9.
+##		- 20261019 JC: go reports TestMain, where goleak runs, from the package result.

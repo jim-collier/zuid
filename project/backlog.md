@@ -276,13 +276,32 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - Go leak, race, and lint checks in CICD.
 	- ID: 2026101816474400
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and so did a quick `--container` run of the Go side. A full run adds nothing new, since every new check runs on quick runs too.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261018-164744
 	- Opened by: JC
 	- Parent ID: 2026101816243853
+	- Related IDs: 2026101410495995
 	- Requirements  [Feature]:
 		- The parent's Go requirements, less the soak test: goleak in every package's tests, `-race` on a full run, `go vet` and `staticcheck`, and `govulncheck`. Covers 2026101410495995.
+	- Progress log:
+		- 20261019: Every run, quick and `--ci` included, runs goleak, the tests under `-race`, `go vet` and staticcheck on the module and on convertbase, and govulncheck. None is slow enough to be full-run only: `-race` adds about 6 s, and the rest take about 5 s together.
+		- 20261019: staticcheck and govulncheck are pinned in the container's Dockerfile, not in `fConfig` as 2026101410495995 asked, per the decision below.
+		- 20261019: `-race` needs cgo on Linux. Without cgo the tests run without it, and Et9R2xW skips with a note.
+		- 20261019: The third-party code checked is what a user of the module builds, convertbase and shcl. It gets `go vet` and staticcheck's bug checks, not its style ones. goleak is only in the tests, so it's left out.
+		- 20261019: govulncheck fails on any advisory in a third-party module, called or not. Advisories in Go's own library are only counted, since they belong to whichever Go builds the module. The container's Go 1.26.2 has 3 of them, fixed in 1.26.6. This is the reading that needs signoff.
+		- 20261019: Each gate failed first on a planted fault: a leaked goroutine, a data race, a missing leak check, a copied lock, an unused value, and the same 2 plus an old `golang.org/x/text` in a copy of convertbase. A style-only finding there passed. Offline, govulncheck skipped. Without docker, all 3 image checks skipped.
+	- Decisions:
+		- 20261018: The checker tools are pinned and run from the container image (`cicd/container/Dockerfile`), never installed on the host. A host run starts the pinned image for a stage that needs one. With no docker that stage skips with a note, so a public clone still passes. Inside a `--container` run the tools are called directly. The Go toolchain's own `go vet` and `go test -race` may run on the host's Go.
+		- 20261018: `-race`, staticcheck and govulncheck are full-run only if they're slow. A quick or `--ci` run keeps what's quick.
+		- 20261018: govulncheck skips offline with a note.
+		- 20261018: goleak goes in as `go.uber.org/goleak`, pinned in `go/go.mod`, with `VerifyTestMain` in every package's tests. The `go 1.24` directive stays.
+		- 20261018: The module needs no cgo. If `-race` needs cgo here, it's handled per the parent's traps.
+		- 20261018: Each gate is watched to fail on a planted fault before it's trusted.
+	- Swept: every `go test` call in `cicd.bash`. The fuzz and benchmark runs pass with goleak in. The tests also compile for Windows and macOS with the new `TestMain`.
+	- Branch: leakgate
+	- Test case: Et9R2xU (goleak), Et9R2xV (every package has it), Et9R2xW (`-race`), Et9R2xX and Et9R2xY (`go vet`), Et9R2xZ and Et9R2xa (staticcheck), Et9R2xb (govulncheck), Et9VtIq (the skip without docker). Each failed first.
 
 - C sanitizer and analyzer checks in CICD.
 	- ID: 2026101816474401
@@ -321,12 +340,19 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - No vulnerability check on the Go dependencies.
 	- ID: 2026101410495995
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261014-105000
 	- Opened by: JC
+	- Related IDs: 2026101816474400
 	- Requirements  [Feature]:
 		- govulncheck at a pinned version, skipped offline, with the pin in `fConfig`.
+	- Progress log:
+		- 20261019: Done under 2026101816474400. The pin is in the container's Dockerfile rather than `fConfig`, per that item's 20261018 decision.
+	- Branch: leakgate
+	- Test case: Et9R2xb.
+	- Acceptance signoff: Self-closed: covered by 2026101816474400.
+	- Closed: 20261019-062109
 
 - The host's shellcheck isn't checked against the container's pin.
 	- ID: 2026101410495996

@@ -16,6 +16,7 @@
 ##		- 20261010 JC: --container.
 ##		- 20261014 JC: --gate and the pre-push hook. git and gh through gitsby when it's installed.
 ##		- 20261018 JC: --gate is --ci now. Every run cross-compiles.
+##		- 20261019 JC: goleak, go vet on the dependencies, staticcheck and govulncheck from the image.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Set by --container for the run it starts inside.
@@ -246,6 +247,11 @@ fPrint_Help(){
 		downloads by OS and CPU. What was uploaded stays in dist/release/ until the
 		next --package.
 
+		staticcheck and govulncheck are pinned in the --container image below, and
+		every run calls them from it, building it first when it's missing. Without
+		docker on x86_64 Linux they skip with a note. govulncheck also skips when
+		offline.
+
 		--container runs preflight through package in a Debian image with every tool
 		pinned, built from cicd/container/Dockerfile the first time it is needed.
 		The sync, demo, dogfood and backup stay on this machine, since they need its
@@ -322,6 +328,9 @@ fMain(){
 	local -ri keepMonthly="${default_keepMonthly}"
 	local -r  containerImage="${default_containerImage}"
 	local -r  containerVolume="${default_containerVolume}"
+	local -r  containerEngine="${ZUID_DOCKER:-docker}"
+	## Set by fContainer_Image.
+	local containerTag=""
 
 	## Layout. This script lives in the repo's cicd/, so the repo root is one up.
 	## Physical, since find does not descend a symlink it is handed as a start.
@@ -703,32 +712,10 @@ fStage_Container(){
 	fEcho_Clean
 	fEcho "Container"
 
-	local -r engine="${ZUID_DOCKER:-docker}"
-	_fMustBeInPath "${engine}"
-	local -r recipe="${repoRoot}/cicd/container/Dockerfile"
-	[[ -f "${recipe}" ]] || fThrowError "Missing the container recipe: '${recipe}'."  "${FUNCNAME[0]}"
+	fContainer_Image
 
-	## Tagged by the recipe's hash, so an edited recipe can't run on the old image.
-	local -r image="${containerImage}:$(git hash-object "${recipe}" | cut -c1-12)"
-	if "${engine}" image inspect "${image}" &>/dev/null; then
-		fEcho_Clean "Image ......: ${image}"
-	else
-		fEcho_Clean "Image ......: building ${image}"
-		"${engine}" build -t "${image}" "$(dirname "${recipe}")" || fThrowError "Could not build '${image}'."  "${FUNCNAME[0]}"
-		## What it replaces is a couple of GB nobody runs again.
-		local old=""
-		while IFS= read -r old; do
-			if [[ -z "${old}" ]] || [[ "${old}" == "${image}" ]]; then continue; fi
-			if "${engine}" rmi "${old}" >/dev/null 2>&1
-				then fEcho_Clean "Removed ....: ${old}"
-				else fEcho_Clean "Kept .......: ${old} (in use)"
-			fi
-		done < <("${engine}" image ls "${containerImage}" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
-	fi
-
-	local -a mounts=(-v "${repoRoot}:${repoRoot}" -v "${containerVolume}:/cache")
-	local -r gitCommon="$(git -C "${repoRoot}" rev-parse --path-format=absolute --git-common-dir)"
-	if [[ "${gitCommon}" != "${repoRoot}/"* ]]; then mounts+=(-v "${gitCommon}:${gitCommon}"); fi
+	local -a runArgs=()
+	fContainer_RunArgs runArgs
 
 	local -a innerEnv=(-e ZUID_IN_CONTAINER=1 -e "USER=${USER:-builder}")
 	if [[ -n "${SOURCE_DATE_EPOCH+set}" ]]; then innerEnv+=(-e "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"); fi
@@ -739,10 +726,50 @@ fStage_Container(){
 	if ((doPackage)); then innerArgs+=(--package); fi
 	fEcho_Clean "Runs .......: cicd.bash ${innerArgs[*]}"
 
-	"${engine}" run --rm --init --user "$(id -u):$(id -g)" "${mounts[@]}" "${innerEnv[@]}" -w "${repoRoot}" \
-		"${image}" bash "${repoRoot}/cicd/cicd.bash" "${innerArgs[@]}" \
+	"${containerEngine}" run "${runArgs[@]}" "${innerEnv[@]}" -w "${repoRoot}" \
+		"${containerTag}" bash "${repoRoot}/cicd/cicd.bash" "${innerArgs[@]}" \
 		|| fThrowError "The run in the container failed; its output is above."  "${FUNCNAME[0]}"
 
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Sets containerTag, building the image first if it isn't there yet.
+fContainer_Image(){
+
+	_fMustBeInPath "${containerEngine}"
+	local -r recipe="${repoRoot}/cicd/container/Dockerfile"
+	[[ -f "${recipe}" ]] || fThrowError "Missing the container recipe: '${recipe}'."  "${FUNCNAME[0]}"
+
+	## Tagged by the recipe's hash, so an edited recipe can't run on the old image.
+	containerTag="${containerImage}:$(git hash-object "${recipe}" | cut -c1-12)"
+	if "${containerEngine}" image inspect "${containerTag}" &>/dev/null; then
+		fEcho_Clean "Image ......: ${containerTag}"
+		return 0
+	fi
+	fEcho_Clean "Image ......: building ${containerTag}"
+	"${containerEngine}" build -t "${containerTag}" "$(dirname "${recipe}")" || fThrowError "Could not build '${containerTag}'."  "${FUNCNAME[0]}"
+	## What it replaces is a couple of GB nobody runs again.
+	local old=""
+	while IFS= read -r old; do
+		if [[ -z "${old}" ]] || [[ "${old}" == "${containerTag}" ]]; then continue; fi
+		if "${containerEngine}" rmi "${old}" >/dev/null 2>&1
+			then fEcho_Clean "Removed ....: ${old}"
+			else fEcho_Clean "Kept .......: ${old} (in use)"
+		fi
+	done < <("${containerEngine}" image ls "${containerImage}" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The repo at its own path as the caller's uid, the caches volume, and a
+## linked worktree's main .git.
+fContainer_RunArgs(){  ## array to fill
+	local -n runArgs_k4w="$1"
+	runArgs_k4w=(--rm --init --user "$(id -u):$(id -g)" -v "${repoRoot}:${repoRoot}" -v "${containerVolume}:/cache")
+	local -r gitCommon="$(git -C "${repoRoot}" rev-parse --path-format=absolute --git-common-dir)"
+	if [[ "${gitCommon}" != "${repoRoot}/"* ]]; then runArgs_k4w+=(-v "${gitCommon}:${gitCommon}"); fi
 }
 
 
@@ -1051,7 +1078,6 @@ fStage_Go(){
 	fTestPass
 
 	go build -p "${buildJobs}" ./...
-	go vet ./...
 
 	## gofmt is silent on success and lists offenders on failure, so it needs the
 	## test. Its own exit code is checked too - a missing gofmt would otherwise
@@ -1062,15 +1088,36 @@ fStage_Go(){
 		fThrowError "gofmt would rewrite: ${unformatted//$'\n'/, }"  "${FUNCNAME[0]}"
 	fi
 
+	## Each package's TestMain fails the run on a goroutine left behind. A
+	## package without one would let that through unseen.
+	fId Et9R2xV "every Go package's tests check for leaked goroutines"
+	local pkgDir="" noLeakCheck=""
+	local -i pkgCount=0
+	while IFS= read -r pkgDir; do
+		if [[ -z "${pkgDir}" ]]; then continue; fi
+		pkgCount=$((pkgCount + 1))
+		grep -qF 'goleak.VerifyTestMain(' "${pkgDir}"/*_test.go || noLeakCheck+=" ${pkgDir#"${goDir}/"}"
+	done < <(go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.Dir}}{{end}}' ./...)
+	if ((pkgCount == 0)); then fTestFail "go list found no Go package with tests."; fi
+	if [[ -n "${noLeakCheck}" ]]; then fTestFail "no goleak.VerifyTestMain in the tests of:${noLeakCheck}"; fi
+	fTestPass
+
 	## The race detector is the only thing defending the documented promise that
-	## Generate is safe to call concurrently. The JSON stream is what gives one
-	## line per test, with its ID.
+	## Generate is safe to call concurrently. It costs about 6 s, so quick runs
+	## keep it. It needs cgo, which the module itself doesn't. -count=1 since a
+	## cached pass would skip goleak and the race detector both. The JSON stream
+	## is what gives one line per test, with its ID.
+	local -a testFlags=(-p "${buildJobs}" -count=1)
+	local raceSkipWhy=""
+	if [[ "$(go env CGO_ENABLED)" == "1" ]]; then testFlags+=(-race); else raceSkipWhy="cgo is off here, and -race needs it"; fi
 	if [[ -n "$(command -v python3 2>/dev/null || true)" ]]; then
-		go test -p "${buildJobs}" -race -json ./... | python3 "${utilityDir}/test-ids.py" go
+		go test "${testFlags[@]}" -json ./... | python3 "${utilityDir}/test-ids.py" go
 	else
 		fEcho_Clean "IDs ........: skipped, no python3"
-		go test -p "${buildJobs}" -race ./...
+		go test "${testFlags[@]}" ./...
 	fi
+	fId Et9R2xW "the Go tests ran under the race detector"
+	if [[ -n "${raceSkipWhy}" ]]; then fTestSkip "${raceSkipWhy}"; else fTestPass; fi
 
 	## The module promises it needs no cgo, which is what keeps a static cross
 	## build possible. fStage_Go_Cross checks the other targets.
@@ -1078,6 +1125,7 @@ fStage_Go(){
 	CGO_ENABLED=0 go build -p "${buildJobs}" ./... || fTestFail "the Go module needs cgo."
 	fTestPass
 
+	fStage_Go_Checks
 	fStage_Go_Consumer
 	if ((! doQuick)); then fStage_Go_Fuzz; fi
 
@@ -1085,6 +1133,97 @@ fStage_Go(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Correctness checks on the module and on the third-party code it brings
+## along. Third-party packages get vet and staticcheck's own bug checks, not its
+## style ones, since their style isn't ours to fix. staticcheck and govulncheck
+## are pinned in the container image and run from there, never from the host.
+## Each takes a second or two warm, so quick runs keep them.
+fStage_Go_Checks(){
+
+	fEcho_Clean
+	fEcho "Go: vet, staticcheck, govulncheck"
+
+	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
+
+	## What a user of the module builds, so not goleak, which only the tests use.
+	local -a thirdParty=()
+	mapfile -t thirdParty < <(go list -deps -f '{{with .Module}}{{if not .Main}}{{$.ImportPath}}{{end}}{{end}}' ./... | sort -u)
+
+	fId Et9R2xX "go vet passes on the Go module"
+	go vet ./... || fTestFail "go vet found something in the module."
+	fTestPass
+
+	fId Et9R2xY "go vet passes on the third-party Go packages"
+	if ((${#thirdParty[@]} == 0)); then fTestFail "go list found no third-party packages, so this would vet nothing."; fi
+	go vet "${thirdParty[@]}" || fTestFail "go vet found something in: ${thirdParty[*]}"
+	fTestPass
+
+	local checkerSkipWhy=""
+	fGoCheckers_Ready
+
+	fId Et9R2xZ "staticcheck passes on the Go module"
+	if [[ -n "${checkerSkipWhy}" ]]; then
+		fTestSkip "${checkerSkipWhy}"
+	else
+		fInImage "${goDir}" staticcheck ./... || fTestFail "staticcheck found something in the module."
+		fTestPass
+	fi
+
+	fId Et9R2xa "staticcheck's bug checks pass on the third-party Go packages"
+	if [[ -n "${checkerSkipWhy}" ]]; then
+		fTestSkip "${checkerSkipWhy}"
+	else
+		fInImage "${goDir}" staticcheck -tests=false -checks 'SA*' "${thirdParty[@]}" || fTestFail "staticcheck found something in: ${thirdParty[*]}"
+		fTestPass
+	fi
+
+	fId Et9R2xb "govulncheck knows of no advisory in the third-party Go code"
+	if [[ -n "${checkerSkipWhy}" ]]; then fTestSkip "${checkerSkipWhy}"; return 0; fi
+	if [[ -z "$(command -v python3 2>/dev/null || true)" ]]; then fTestSkip "no python3 to read its report"; return 0; fi
+	local report="" rc=0
+	report="$(fInImage "${goDir}" govulncheck -format json ./...)" && rc=0 || rc=$?
+	if ((rc != 0)); then
+		## Same network as govulncheck had, so a failed probe means offline.
+		if ! fInImage "${goDir}" curl -fsS -m 10 -o /dev/null https://vuln.go.dev/index/db.json 2>/dev/null; then
+			fTestSkip "offline, no answer from vuln.go.dev"
+			return 0
+		fi
+		fTestFail "govulncheck exited ${rc}. What it said is above."
+	fi
+	python3 "${utilityDir}/vuln-report.py" <<< "${report}" || fTestFail "govulncheck knows of an advisory in a third-party module, listed above."
+	fTestPass
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Sets checkerSkipWhy when the image's tools can't run here. Builds the image
+## when it's missing, so the first run after a Dockerfile edit takes minutes.
+fGoCheckers_Ready(){
+	checkerSkipWhy=""
+	if ((inContainer)); then return 0; fi
+	if [[ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]]; then checkerSkipWhy="the checkers' image is Linux x86_64 only"; return 0; fi
+	if [[ -z "$(command -v "${containerEngine}" 2>/dev/null || true)" ]]; then checkerSkipWhy="no ${containerEngine} to run the pinned checkers in"; return 0; fi
+	if ! "${containerEngine}" info >/dev/null 2>&1; then checkerSkipWhy="${containerEngine} isn't answering"; return 0; fi
+	fContainer_Image
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## One of the image's pinned tools, run in a folder of the repo. Inside the
+## container that's a plain call.
+fInImage(){  ## folder, command...
+	local -r dir="$1"; shift
+	if ((inContainer)); then
+		(cd "${dir}" && "$@")
+		return
+	fi
+	local -a runArgs=()
+	fContainer_RunArgs runArgs
+	"${containerEngine}" run "${runArgs[@]}" -w "${dir}" "${containerTag}" "$@"
+}
+
+
 ## A program that imports the module, built the way somebody following README
 ## would. Its own tests import by relative package path and so prove nothing
 ## about that.
