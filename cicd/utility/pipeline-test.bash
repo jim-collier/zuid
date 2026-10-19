@@ -552,6 +552,30 @@ if ((rc == 0)) && grep -qxF "missing=no ${work}/no-such-engine to run the pinned
 	else fFail "exited ${rc} and said: ${out//$'\n'/ | }"
 fi
 
+## The C sanitizer builds go to a scratch dir outside the repo, which the
+## image only sees if it's mounted.
+fId EtAHpAi "a checker run in a folder outside the repo gets that folder mounted at its own path, and one inside gets no extra mount"
+out="$(
+	# shellcheck disable=2034  ## Read by the lifted functions.
+	{
+		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerVolume="zuid-cicd-cache"; inContainer=0
+		containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine"
+	}
+	for fn in fInImage fContainer_RunArgs; do
+		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+	done
+	mkdir -p "${work}/outside"
+	ENGINE_LOG="${work}/engine-inimage" fInImage "${work}/outside" true
+	ENGINE_LOG="${work}/engine-inimage" fInImage "${repoRoot}/go" true
+)" && rc=0 || rc=$?
+log="$(cat "${work}/engine-inimage" 2>/dev/null || true)"
+if ((rc == 0)) && [[ "$(grep -c '^run ' <<< "${log}")" == "2" ]] \
+	&& grep -qF -- "-v ${work}/outside:${work}/outside -w ${work}/outside zuid-cicd:t3st true" <<< "${log}" \
+	&& grep -- "-w ${mainReal}/go " <<< "${log}" | grep -qvF -- "-v ${mainReal}/go:"
+	then fPass
+	else fFail "exited ${rc}, said '${out}', asked: ${log//$'\n'/ | }"
+fi
+
 git -C "${worktreeMain}" worktree remove --force "${worktreeDir}"
 
 

@@ -13,11 +13,13 @@ FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d
 # these little, and the toolchains that matter come from tarballs below.
 # llvm is for llvm-ar, llvm-readobj and llvm-pdbutil. rpm, rpm2cpio, cpio and dpkg
 # only read what nfpm writes. libicu and libgssapi are for pwsh. Shellcheck comes from
-# upstream, since trixie has 0.10 and its warnings differ.
+# upstream, since trixie has 0.10 and its warnings differ. gcc's sanitizers and
+# analyzer and clang's analyzer are the C checks, which a host run calls from here.
+# clang is named by major so a new base can't move it without the build failing.
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
 		bash ca-certificates curl git xz-utils zstd zip unzip file \
-		gcc libc6-dev binutils llvm \
+		gcc libc6-dev binutils llvm clang-19 \
 		python3 rpm rpm2cpio cpio \
 		libicu76 libgssapi-krb5-2 \
 	&& rm -rf /var/lib/apt/lists/*

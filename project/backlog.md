@@ -130,6 +130,28 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: a64c88c
 	- Test case: Et9R2xU (goleak), Et9R2xV (every package has it), Et9R2xW (`-race`), Et9R2xX and Et9R2xY (`go vet`), Et9R2xZ and Et9R2xa (staticcheck), Et9R2xb (govulncheck), Et9VtIq (the skip without docker). Et9luGK, Et9luGL and Et9luGM for how the report reads govulncheck. Each failed first.
 
+- C sanitizer and analyzer checks in CICD.
+	- ID: 2026101816474401
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and so did a quick `--container` run of the Zig side. A full run adds nothing new, since every new check runs on quick runs too.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261018-164744
+	- Opened by: JC
+	- Parent ID: 2026101816243853
+	- Requirements  [Feature]:
+		- The parent's C requirements, less the `--leakcheck` part: the C tests under ASan, LSan, and UBSan, and gcc's `-fanalyzer` and the clang analyzer over every first-party .c file.
+	- Progress log:
+		- 20261019: Every run, quick and `--ci` included, builds the C tests with gcc's ASan, LSan and UBSan and runs them: `capi_smoke.c` against both libraries, and `capi_interpose.c`. gcc's `-fanalyzer` and clang's analyzer check every tracked .c file. It all takes about 15 s on a busy box, most of it starting the image 5 times.
+		- 20261019: The compilers are the container image's, the same as the Go checkers, so a host run starts the image and a run without docker skips with a note. clang 19 was added to the image for its analyzer.
+		- 20261019: Wasmtime isn't instrumented, but its mallocs go through ASan's. A missing `zuid_free` shows up as about 11 KB of Wasmtime leaks. There are none today, so nothing is suppressed.
+		- 20261019: clang's analyzer gave up on every path at the 200-turn loop in `capi_smoke.c`, so a fault after it went unseen. It widens loops now. gcc's analyzer doesn't report a leak inside `main`, so the planted leaks went in a helper.
+		- 20261019: Each gate failed first on a planted fault: a leak, a null dereference, a signed overflow, a heap overflow, a missing `zuid_free`, and a leak in `capi_interpose.c`. Both analyzers caught the leaks and the null dereference. Neither can see a missing `zuid_free`. The growing-heap loop belongs to the soak test, 2026101816474402.
+	- Swept: every C build in `cicd.bash`. The Windows, FreeBSD and arm64 links of `capi_smoke.c` are for targets that can't run here, so they stay as plain link checks. The Go checks also call the image, from folders inside the repo, so they get no extra mount.
+	- Branch: csan
+	- Commit: d6dcb7c
+	- Test case: EtAHpAd, EtAHpAe and EtAHpAf (the sanitizers), EtAHpAg (gcc's analyzer), EtAHpAh (clang's), and EtAHpAi (the scratch dir is mounted into the image). Each failed first. The skip without docker is Et9VtIq's.
+
 - A Windows install leaves `PATH` to the user.
 	- ID: 2026101410495985
 	- Type: Enhancement
@@ -304,17 +326,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 				- ASan's allocator hides the heap from glibc's own stats, such as `mallinfo2`. A test that reads them should exit as skipped under ASan, not pass.
 	- Progress log:
 		- 20261018: Split into 2026101816474400 for Go, 2026101816474401 for C, and 2026101816474402 for `--leakcheck`. This one closes when they do.
-
-- C sanitizer and analyzer checks in CICD.
-	- ID: 2026101816474401
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261018-164744
-	- Opened by: JC
-	- Parent ID: 2026101816243853
-	- Requirements  [Feature]:
-		- The parent's C requirements, less the `--leakcheck` part: the C tests under ASan, LSan, and UBSan, and gcc's `-fanalyzer` and the clang analyzer over every first-party .c file.
 
 - A `--leakcheck` flag for the slow checks.
 	- ID: 2026101816474402

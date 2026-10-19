@@ -29,7 +29,7 @@ Optional. A stage that wants one skips itself with a note when it's missing, exc
 | python3 3.11 or newer with pillow, gifsicle | rendering the demo animation
 | perf, inferno                               | profiling the command
 | PSScriptAnalyzer, under pwsh                | checking `install.ps1` against Windows PowerShell 5.1
-| docker, on x86_64 Linux                     | staticcheck and govulncheck, which run from the pinned image described below. govulncheck also skips offline.
+| docker, on x86_64 Linux                     | staticcheck, govulncheck, and the C sanitizer and analyzer checks, which run from the pinned image described below. govulncheck also skips offline.
 | rar                                         | the backup stage, which stops without it. `--no-backup` skips it.
 
 The conversion module in the release is built with the Go version the Dockerfile pins, whatever Go is on PATH. Go fetches that version the first time, so a release needs the network once. `GOTOOLCHAIN=local` uses the Go on PATH instead, for anything but a release.

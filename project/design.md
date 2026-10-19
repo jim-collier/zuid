@@ -179,7 +179,7 @@ The 0.16 and 0.17 behavior, which is narrower than it looks:
 
 That gap is the strongest argument for the first rule rather than an argument against it. Since nothing will catch a dangling pointer in Zig, the defense that works is not having one: a core that never takes an allocator has no freeable pointer to dangle, and an arena has no individual free to get wrong.
 
-For the vendored Wasmtime, which is C and allocates on its own, a sanitizer run would have to use the system clang or gcc rather than `zig cc`, and both catch heap-use-after-free correctly. No stage runs one: what gets vendored is a prebuilt archive, so there is no Wasmtime source in this tree to instrument. It is worth doing if the runtime is ever built from source here.
+For the vendored Wasmtime, which is C and allocates on its own, a sanitizer run would have to use the system clang or gcc rather than `zig cc`, and both catch heap-use-after-free correctly. What gets vendored is a prebuilt archive, so there is no Wasmtime source in this tree to instrument. It is worth doing if the runtime is ever built from source here. The C tests themselves do run under gcc's ASan, LSan and UBSan. Only the test code is instrumented, but Wasmtime's allocations still go through the sanitizer's malloc, so a runtime object that `zuid_free` leaves behind is reported as a leak.
 
 One to keep an eye on, without planning around it: an accepted Zig proposal (ziglang/zig#36237) adds a Fil-C-inspired `fil` target ABI - complete memory safety with no escape hatch, at roughly a 1-6x cost. It is a target choice rather than a source change, so if it arrives it becomes a build flag. Nothing above conflicts with it.
 
