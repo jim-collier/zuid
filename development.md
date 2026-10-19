@@ -42,10 +42,10 @@ On x86_64 Linux with docker, `cicd/cicd.bash --container` needs only git and doc
 `cicd/cicd.bash` drives everything and is what to run before merging.
 
 ~~~bash
-cicd/cicd.bash                      # build and test both sides, and package where it can
+cicd/cicd.bash                      # every stage but --publish: build, test, cross-compile, and package where it can
 cicd/cicd.bash --quick              # skip fuzzing, profiling, the demo, packaging and the dogfood install
+cicd/cicd.bash --ci                 # what the pre-push hook runs: --quick, without the sync, dogfood or backup
 cicd/cicd.bash --only go            # one toolchain, so only that one has to exist
-cicd/cicd.bash --cross              # add the Go cross-compile checks
 cicd/cicd.bash --container          # build and test in the pinned image instead
 cicd/cicd.bash --package            # build the release files into dist/, even on a quick run
 cicd/cicd.bash --no-package         # a full run without them

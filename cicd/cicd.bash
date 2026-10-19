@@ -15,6 +15,7 @@
 ##		- 20261004 JC: Runs in a linked worktree, minus the backup.
 ##		- 20261010 JC: --container.
 ##		- 20261014 JC: --gate and the pre-push hook. git and gh through gitsby when it's installed.
+##		- 20261018 JC: --gate is --ci now. Every run cross-compiles.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Set by --container for the run it starts inside.
@@ -44,9 +45,10 @@ fConfig(){ :;
 	default_minVer_Go="1.24"
 	default_minVer_Zig="0.17.0"
 
-	## Cross targets for --cross, as GOOS/GOARCH. Go builds these with cgo off, as
-	## compile checks. The Zig side does not use this list. Its macOS arm64 build is
-	## half of the universal release, which package.bash makes on a Mac.
+	## Cross targets, as GOOS/GOARCH. Go builds these with cgo off, as compile
+	## checks, on every run. The Zig side does not use this list; its cross builds
+	## come with --package. Its macOS arm64 build is half of the universal
+	## release, which package.bash makes on a Mac.
 	default_crossTargets=("linux/arm64" "windows/amd64" "darwin/arm64")
 
 	## Merge targets, never places to commit.
@@ -168,12 +170,13 @@ fPrint_Help(){
 		Options:
 		    --only <go|zig>   Drive one toolchain instead of both. Only that one has
 		                      to be installed.
-		    --cross           Also cross-compile for: ${crossTargets[*]}
+		    --cross           Kept for old command lines. Every run cross-compiles the
+		                      Go module now, for ${crossTargets[*]}
 		    --quick           Skip the slow stages: fuzzing, profiling, the demo and
-		                      packaging, plus the dogfood install. The backup and
-		                      everything that gates a merge still run.
+		                      packaging, plus the dogfood install. Lint, the tests,
+		                      the Go cross builds and the backup still run.
 		    --no-sync         Skip the remote refresh at the start.
-		    --gate            The pre-push check: --quick, with no sync, dogfood,
+		    --ci              The pre-push check: --quick, with no sync, dogfood,
 		                      backup, commit or push. See below.
 		    -m, --message     Commit message. Implies --commit.
 		    --commit          Commit if everything passed. Refuses on a protected
@@ -249,7 +252,9 @@ fPrint_Help(){
 		git keys, fonts and paths. It needs docker, or ZUID_DOCKER naming another
 		program that takes docker's arguments. x86_64 only. Not with --publish.
 
-		--gate is what cicd/utility/git-hooks/pre-push runs before a push to main,
+		With no options a run does every stage but --publish.
+
+		--ci is what cicd/utility/git-hooks/pre-push runs before a push to main,
 		on the commit being pushed, in a scratch worktree. Turn the hook on once
 		per clone with: git config core.hooksPath cicd/utility/git-hooks
 		SKIP_GATE=1 skips it. A run's own backup and push skip it, since that run
@@ -357,7 +362,7 @@ fMain(){
 	local -i doPublish=0
 	local -i allowPartial=0
 	local -i doContainer=0
-	local -i doGate=0
+	local -i doCi=0
 	fInit "${@}"
 	readonly onlyToolchain
 	readonly doCross
@@ -369,7 +374,7 @@ fMain(){
 	readonly doPublish
 	readonly allowPartial
 	readonly doContainer
-	readonly doGate
+	readonly doCi
 
 	## Set by the publish preflight, read by the publish stage.
 	local publishVersion="" publishRemote="" publishHead="" publishRepoUrl=""
@@ -480,7 +485,7 @@ fInit(){
 			--publish)    doPublish=1; doPackage=1 ;;
 			--allow-partial) allowPartial=1 ;;
 			--container)  doContainer=1 ;;
-			--gate)       doGate=1 ;;
+			--ci)         doCi=1 ;;
 			-q|--quiet)   doQuietly=1 ;;
 
 			## ¯\_(:/)_/¯
@@ -492,12 +497,16 @@ fInit(){
 
 	## The pre-push hook's run. Anything that writes outside the tree, or to git,
 	## would be a push inside a push.
-	if ((doGate)); then
+	if ((doCi)); then
 		if ((doCommit)) || ((doPush)) || ((backupAsked)) || ((doPackage)) || ((doContainer)) || ((dogfoodAsked)); then
-			fThrowError "--gate only builds and tests. Drop the other stage flags."  "${FUNCNAME[0]}"
+			fThrowError "--ci only builds and tests. Drop the other stage flags."  "${FUNCNAME[0]}"
 		fi
 		doQuick=1; doSync=0; doBackup=0; doDogfood=0; doQuietly=1
 	fi
+
+	## The Go cross builds take a few seconds each from cold, so quick runs get
+	## them too. The Zig ones take about 20 s a target and come with --package.
+	doCross=1
 
 	## The backup helper does its own commit and push, so pairing it with either of
 	## ours would commit the same work twice. Asked for together that is a mistake and
@@ -726,7 +735,6 @@ fStage_Container(){
 
 	local -a innerArgs=(-q --no-sync --no-backup --no-dogfood)
 	if [[ -n "${onlyToolchain}" ]]; then innerArgs+=(--only "${onlyToolchain}"); fi
-	if ((doCross));   then innerArgs+=(--cross);   fi
 	if ((doQuick));   then innerArgs+=(--quick);   fi
 	if ((doPackage)); then innerArgs+=(--package); fi
 	fEcho_Clean "Runs .......: cicd.bash ${innerArgs[*]}"
@@ -1065,7 +1073,7 @@ fStage_Go(){
 	fi
 
 	## The module promises it needs no cgo, which is what keeps a static cross
-	## build possible. --cross checks the other targets; this is every run.
+	## build possible. fStage_Go_Cross checks the other targets.
 	fId ErOgfbn "the Go module builds with cgo off"
 	CGO_ENABLED=0 go build -p "${buildJobs}" ./... || fTestFail "the Go module needs cgo."
 	fTestPass
