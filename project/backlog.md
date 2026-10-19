@@ -322,6 +322,34 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 3fbe497
 	- Test case: EtB5PUX. A pipe gets 74, a 123-wide terminal gets 123, the run inside the container takes the width it's handed and a host run doesn't, and `--container` hands it in. It failed before the change, and fails with the terminal read taken out.
 
+- The Windows exe has no version resource or icon.
+	- ID: 2026101410495999
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Done. See Verified.
+	- Needs external testing: Explorer's Properties tab on a Windows box, for `zuid.exe` and `zuid.dll` from the x86_64 zip.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Related IDs: 2026101305595483
+	- Target OS: Windows
+	- Requirements  [Feature]:
+		- An ASCII VERSIONINFO for the Windows targets, in the plain copyright form. The icon waits on a logo.
+		- Recheck that the exe still builds the same on 2 machines, apart from the known PDB paths.
+	- Progress log:
+		- 20261019: `zuid.exe` and `zuid.dll` have a version resource on both Windows targets. `build.zig` writes it from the line `--version` prints, and the year from `--about`. `libzuid.a` gets none, since it would end up inside the program that links it.
+		- 20261019: No icon yet. It waits on a logo.
+	- Decisions:
+		- 20261019: The copyright is `Copyright (C) <year> Jim Collier`, with no ID and no license. The license differs between the exe and the dll, and `--about` has it.
+		- 20261019: FILEVERSION is the release's 3 numbers and a 0. A prerelease sets the prerelease flag instead, and the text fields have the full version with the build number. The 4th number can't hold the build number, and any prerelease number there would sort a beta above its release. Noted in design.md.
+		- 20261019: FileDescription is `zuid` for the exe, which is what Task Manager shows, and `zuid C library` for the dll.
+	- Swept: every Windows file in the zips. `wasmtime.dll` is Wasmtime's own, and the test and smoke programs aren't shipped.
+	- Verified: 20261019, `cicd.bash --package` passed, then `--container --package`, and both again with `--quick` after the last change. Between b23 and the container every Windows exe and dll differs only in the time stamp and PDB ID of 2026101305595483, and the resources are identical. The other release files matched, apart from the `.deb` and `.rpm`, which differ by nfpm version as before.
+	- Verified: a build with no build number, a Debug build and a build of a version with no prerelease tag each gave the resource they should.
+	- Branch: winres
+	- Commit: 7df2b13
+	- Test case: EtBCCRm and EtBCCRn, one per Windows target, hold both files' resource to `--version` and `--about`, in ASCII with no time stamp. EtBCCRm failed with the resource left out.
+
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -436,18 +464,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261019: The code is upstream, so it's fixed in convert-base-v2 and comes in with a later pin. Until then `cicd/utility/codeql-suppressions.txt` suppresses it by this ID.
 		- 20261019: Stalled with the pin move, 2026100519164742.
-
-- The Windows exe has no version resource or icon.
-	- ID: 2026101410495999
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Target OS: Windows
-	- Requirements  [Feature]:
-		- An ASCII VERSIONINFO for the Windows targets, in the plain copyright form. The icon waits on a logo.
-		- Recheck that the exe still builds the same on 2 machines, apart from the known PDB paths.
 
 - The FreeBSD release has no `.pkg`.
 	- ID: 2026101410500001
