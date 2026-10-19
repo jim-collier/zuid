@@ -273,7 +273,7 @@ fInitIn(){  ## repo dir, args...
 			repoRoot="$1"; onlyToolchain=""; commitMsg=""; doQuietly=0
 			doCross=0; doQuick=0; doSync=1; doCommit=0; commitAsked=0; doPush=0; doPackage=0; noPackage=0; packageSkipWhy=""
 			doBackup=1; backupAsked=0; backupInWorktree=0; doDogfood=1; dogfoodAsked=0; doPublish=0; allowPartial=0
-			doContainer=0; inContainer=0; doCi=0
+			doContainer=0; inContainer=0; doCi=0; doLeakcheck=0
 		}
 		shift
 		local fn=""
@@ -285,6 +285,8 @@ fInitIn(){  ## repo dir, args...
 		fInit "$@"
 		if [[ "${showCross:-0}" == "1" ]]; then
 			printf 'doCross=%s\n' "${doCross}"
+		elif [[ "${showLeak:-0}" == "1" ]]; then
+			printf 'doLeakcheck=%s\n' "${doLeakcheck}"
 		elif [[ "${showGate:-0}" == "1" ]]; then
 			printf 'doQuick=%s doSync=%s doBackup=%s doDogfood=%s doPackage=%s\n' "${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}" "${doPackage}"
 		elif [[ "${showPackage:-0}" == "1" ]]; then
@@ -326,6 +328,27 @@ out="$(showCross=1 fInitIn "${worktreeMain}"; showCross=1 fInitIn "${worktreeMai
 if ((rc == 0)) && [[ "${out}" == $'doCross=1\ndoCross=1\ndoCross=1' ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+## The leak checks take a minute and a half, so only asking for them runs
+## them. Asked for, they ride along with any run, the pre-push one included.
+fId EtAUMRF "--leakcheck is off for a plain run, --quick and --ci, and on with each"
+out="$(for leakArgs in "" --quick --ci; do
+	# shellcheck disable=2086  ## Empty means no argument at all.
+	showLeak=1 fInitIn "${worktreeMain}" ${leakArgs}
+	# shellcheck disable=2086
+	showLeak=1 fInitIn "${worktreeMain}" ${leakArgs} --leakcheck
+done)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == $'doLeakcheck=0\ndoLeakcheck=1\ndoLeakcheck=0\ndoLeakcheck=1\ndoLeakcheck=0\ndoLeakcheck=1' ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+fId EtAUMRH "--help names --leakcheck, and says a plain run leaves it out"
+out="$(bash "${cicd}" --help 2>&1)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == *"--leakcheck       Add the slow leak checks"* ]] && [[ "${out}" == *"every stage but --publish and --leakcheck"* ]]
+	then fPass
+	else fFail "exited ${rc}, and the help has no --leakcheck line or plain-run note"
 fi
 
 ## A full run packages where --package is known to work: Linux x86_64 or a Mac,
@@ -463,7 +486,7 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 		# shellcheck disable=2034  ## Read by the lifted fStage_Container.
 		{
 			repoRoot="$(cd "$1" && pwd -P)"; containerImage="zuid-cicd"; containerVolume="zuid-cicd-cache"
-			onlyToolchain="go"; doQuick=1; doPackage=1
+			onlyToolchain="go"; doQuick=1; doPackage=1; doLeakcheck="${leakcheck:-0}"
 		}
 		local fn=""
 		for fn in _fMustBeInPath fStage_Container fContainer_Image fContainer_RunArgs; do
@@ -515,6 +538,15 @@ out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 3)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"The run in the container failed"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
+fi
+
+## The run inside is a new cicd.bash, which only knows what it's handed.
+fId EtAUMRG "--container hands --leakcheck to the run inside"
+: > "${work}/engine-main"
+out="$(leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
+if ((rc == 0)) && grep -q -- "^run .* --only go --quick --package --leakcheck$" "${work}/engine-main"
+	then fPass
+	else fFail "exited ${rc}, asked: $(grep '^run ' "${work}/engine-main" || true)"
 fi
 
 ## A public clone without docker still passes, so the checkers in the image
@@ -1331,6 +1363,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261019 JC: --leakcheck.
 ##		- 20261019 JC: The vuln report.
 ##		- 20261018 JC: --gate is --ci. Every run cross-compiles.
 ##		- 20261013 JC: Fuzz cases clean up their temp folders.

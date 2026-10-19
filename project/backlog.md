@@ -330,13 +330,24 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - A `--leakcheck` flag for the slow checks.
 	- ID: 2026101816474402
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
+	- Needs local test suite run?: A full `cicd.bash --leakcheck` run, and a `--container --leakcheck` one. `--only go --quick --leakcheck` and `--only zig --quick --leakcheck` passed.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261018-164744
 	- Opened by: JC
 	- Parent ID: 2026101816243853
 	- Requirements  [Feature]:
 		- CodeQL for Go and C, the Go and C soak tests, and the clang analyzer in CTU mode, per the parent.
+	- Progress log:
+		- 20261019: `--leakcheck` adds to any run, `--ci` and `--container` included. A plain run leaves it out. It takes about a minute.
+		- 20261019: The Go soak runs every vector, the refusals, and live identifiers from 4 goroutines through new generators, 80 rounds and then 80 more. The heap has to stay within 128 KB and the goroutine count can't grow. Both heap profiles are kept in `cicd/artifacts/leakcheck/`.
+		- 20261019: The C soak has 2 parts, with an 8 KB margin. One context's calls run 100 rounds and 100 more under heaptrack, whose report is kept. Whole contexts run 8 and 8 more without it, since `zuid_new` compiles the module and heaptrack's own memory then grew about 70 MB a round. With glibc's per-thread cache off, both held to the byte.
+		- 20261019: heaptrack's leak list names compile buffers that the heap reading shows freed, so it isn't a verdict.
+		- 20261019: clang's analyzer runs in cross-file mode over the C tests. None of them calls into another, so a pair of files with a null dereference only that mode can see runs first, every time.
+		- 20261019: Each gate failed first on a planted fault: a slice that only grows and a stuck goroutine in the Go module, a missing `zuid_free`, a lost buffer and a growing cache in copies of the C soak, and the cross-file pair with that mode off. A cache of one short string a round passed, being under the margin.
+		- 20261019: clang-tools and heaptrack were added to the image, 70 MB on disk and 16 MB of content. CodeQL is left, for Go and C.
+	- Branch: leakcheck
+	- Test case: EtAUMRA (the Go soak), EtAUMRB and EtAUMRE (the C soaks), EtAUMRC and EtAUMRD (the cross-file analyzer), EtAUMRF, EtAUMRG and EtAUMRH (the flag). Each failed first. CodeQL's are still to come.
 
 - PowerShell files aren't linted.
 	- ID: 2026101410495993

@@ -29,7 +29,7 @@ Optional. A stage that wants one skips itself with a note when it's missing, exc
 | python3 3.11 or newer with pillow, gifsicle | rendering the demo animation
 | perf, inferno                               | profiling the command
 | PSScriptAnalyzer, under pwsh                | checking `install.ps1` against Windows PowerShell 5.1
-| docker, on x86_64 Linux                     | staticcheck, govulncheck, and the C sanitizer and analyzer checks, which run from the pinned image described below. govulncheck also skips offline.
+| docker, on x86_64 Linux                     | staticcheck, govulncheck, the C sanitizer and analyzer checks, and the C half of `--leakcheck`, which run from the pinned image described below. govulncheck also skips offline.
 | rar                                         | the backup stage, which stops without it. `--no-backup` skips it.
 
 The conversion module in the release is built with the Go version the Dockerfile pins, whatever Go is on PATH. Go fetches that version the first time, so a release needs the network once. `GOTOOLCHAIN=local` uses the Go on PATH instead, for anything but a release.
@@ -45,11 +45,12 @@ On x86_64 Linux with docker, `cicd/cicd.bash --container` needs only git and doc
 `cicd/cicd.bash` drives everything and is what to run before merging.
 
 ~~~bash
-cicd/cicd.bash                      # every stage but --publish: build, test, cross-compile, and package where it can
+cicd/cicd.bash                      # every stage but --publish and --leakcheck: build, test, cross-compile, and package where it can
 cicd/cicd.bash --quick              # skip fuzzing, profiling, the demo, packaging and the dogfood install
 cicd/cicd.bash --ci                 # what the pre-push hook runs: --quick, without the sync, dogfood or backup
 cicd/cicd.bash --only go            # one toolchain, so only that one has to exist
 cicd/cicd.bash --container          # build and test in the pinned image instead
+cicd/cicd.bash --leakcheck          # add the soak tests and the cross-file C analyzer to the run
 cicd/cicd.bash --package            # build the release files into dist/, even on a quick run
 cicd/cicd.bash --no-package         # a full run without them
 cicd/cicd.bash --no-backup          # skip the archive, commit, and push
@@ -61,6 +62,8 @@ Underneath it's only `cd go && go build ./...` and `cd zig && zig build`. The Zi
 Both sides have to reproduce every row of `testdata/vectors.tsv` before anything merges. That file is the specification in executable form, so a change to the identifier format means regenerating it and re-running both.
 
 Run logs, profiles, and demo renders go under `cicd/artifacts/`, which is rotated and not committed.
+
+`--leakcheck` is never on by default. It soaks each side: the same calls a caller makes, round after round, failing when the heap after round 2N is bigger than after round N by more than a margin. The Go soak runs on the Go on PATH and keeps 2 heap profiles, and `go tool pprof -base` on them shows what grew. The C soak runs in the image, under heaptrack, and keeps heaptrack's report. Both go in `cicd/artifacts/leakcheck/`. It also runs clang's analyzer in cross-file mode over the C tests, so it follows a call from one file into another. All of it takes about a minute.
 
 ## House style
 
