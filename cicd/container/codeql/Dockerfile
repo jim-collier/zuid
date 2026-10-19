@@ -1,6 +1,6 @@
 # check=skip=InvalidDefaultArgInFrom
 # CodeQL for 'cicd.bash --leakcheck', on top of the main image. It's about
-# 480 MB, so it lives here, and only a --leakcheck run builds or starts it.
+# 480 MB, so it lives here, and only a run with leak checks builds or starts it.
 #
 # The tag is this file's git hash plus the main image's, so an edit to either
 # means a new one.

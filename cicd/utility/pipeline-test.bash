@@ -279,7 +279,7 @@ fInitIn(){  ## repo dir, args...
 			repoRoot="$1"; onlyToolchain=""; commitMsg=""; doQuietly=0
 			doCross=0; doQuick=0; doSync=1; doCommit=0; commitAsked=0; doPush=0; doPackage=0; noPackage=0; packageSkipWhy=""
 			doBackup=1; backupAsked=0; backupInWorktree=0; doDogfood=1; dogfoodAsked=0; doPublish=0; allowPartial=0
-			doContainer=0; inContainer=0; doCi=0; doLeakcheck=0
+			doContainer=0; inContainer=0; doCi=0; doLeakcheck=1; leakAsked=0
 		}
 		shift
 		local fn=""
@@ -336,23 +336,25 @@ if ((rc == 0)) && [[ "${out}" == $'doCross=1\ndoCross=1\ndoCross=1' ]]
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
 fi
 
-## The leak checks take a minute and a half, so only asking for them runs
-## them. Asked for, they ride along with any run, the pre-push one included.
-fId EtAUMRF "--leakcheck is opt-in"
+## The leak checks take about 10 minutes, so a full run has them and a quick or
+## pre-push one only if asked. --no-leakcheck drops them from any run.
+fId EtAUMRF "--leakcheck is default, off for quick and ci"
 out="$(for leakArgs in "" --quick --ci; do
 	# shellcheck disable=2086  ## Empty means no argument at all.
 	showLeak=1 fInitIn "${worktreeMain}" ${leakArgs}
 	# shellcheck disable=2086
 	showLeak=1 fInitIn "${worktreeMain}" ${leakArgs} --leakcheck
+	# shellcheck disable=2086
+	showLeak=1 fInitIn "${worktreeMain}" ${leakArgs} --no-leakcheck
 done)" && rc=0 || rc=$?
-if ((rc == 0)) && [[ "${out}" == $'doLeakcheck=0\ndoLeakcheck=1\ndoLeakcheck=0\ndoLeakcheck=1\ndoLeakcheck=0\ndoLeakcheck=1' ]]
+if ((rc == 0)) && [[ "${out}" == $'doLeakcheck=1\ndoLeakcheck=1\ndoLeakcheck=0\ndoLeakcheck=0\ndoLeakcheck=1\ndoLeakcheck=0\ndoLeakcheck=0\ndoLeakcheck=1\ndoLeakcheck=0' ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
 fi
 
 fId EtAUMRH "--help on --leakcheck"
 out="$(bash "${cicd}" --help 2>&1)" && rc=0 || rc=$?
-if ((rc == 0)) && [[ "${out}" == *"--leakcheck       Add the slow leak checks"* ]] && [[ "${out}" == *"every stage but --publish and --leakcheck"* ]]
+if ((rc == 0)) && [[ "${out}" == *"--leakcheck       Add the slow leak checks"* ]] && [[ "${out}" == *"every stage but --publish."* ]] && [[ "${out}" == *"--no-leakcheck    Leave"* ]]
 	then fPass
 	else fFail "exited ${rc}, and the help has no --leakcheck line or plain-run note"
 fi
@@ -531,7 +533,7 @@ fId EsJ9SjF "container run arguments"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-main")"
 wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder} -e ZUID_RUN_STAMP=20261019-101112 -e ZUID_COLUMNS=123"
-wantRun+=" -w ${mainReal} ${newTag} bash ${mainReal}/cicd/cicd.bash -q --no-sync --no-backup --no-dogfood --only go --quick --package"
+wantRun+=" -w ${mainReal} ${newTag} bash ${mainReal}/cicd/cicd.bash -q --no-sync --no-backup --no-dogfood --only go --quick --package --no-leakcheck"
 if ((rc == 0)) && grep -qxF -- "${wantRun}" <<< "${log}" && ! grep -q '^build ' <<< "${log}"
 	then fPass
 	else fFail "exited ${rc}, asked: ${log//$'\n'/ | }"
@@ -555,7 +557,10 @@ fi
 fId EtAUMRG "--container passes --leakcheck in"
 : > "${work}/engine-main"
 out="$(leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
-if ((rc == 0)) && grep -q -- "^run .* --only go --quick --package --leakcheck$" "${work}/engine-main"
+: > "${work}/engine-noleak"
+fContainerIn "${worktreeMain}" "${work}/engine-noleak" 0 >/dev/null 2>&1 || true
+if ((rc == 0)) && grep -q -- "^run .* --only go --quick --package --leakcheck$" "${work}/engine-main" \
+	&& grep -q -- "^run .* --only go --quick --package --no-leakcheck$" "${work}/engine-noleak"
 	then fPass
 	else fFail "exited ${rc}, asked: $(grep '^run ' "${work}/engine-main" || true)"
 fi
@@ -1655,6 +1660,7 @@ fLine ""
 ##	History:
 ##		- 20261019 JC: The CodeQL report, and CodeQL's image under --container.
 ##		- 20261019 JC: --leakcheck.
+##		- 20261019 JC: --leakcheck is default, --no-leakcheck.
 ##		- 20261019 JC: The vuln report.
 ##		- 20261018 JC: --gate is --ci. Every run cross-compiles.
 ##		- 20261013 JC: Fuzz cases clean up their temp folders.

@@ -21,6 +21,7 @@
 ##		- 20261019 JC: The C tests under ASan, LSan and UBSan, and gcc's and clang's analyzers, from the image.
 ##		- 20261019 JC: --leakcheck: the Go and C soak tests and clang's cross-file analyzer.
 ##		- 20261019 JC: --leakcheck: CodeQL on Go and C, from an image of its own.
+##		- 20261019 JC: --leakcheck is on by default, off for --quick and --ci. --no-leakcheck.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Set by --container for the run it starts inside.
@@ -202,8 +203,9 @@ fPrint_Help(){
 		                      zig/lib/src/core.zig. Implies --package. See below.
 		    --allow-partial   Let --publish go ahead with some platforms missing.
 		    --container       Run the build and test stages in a container. See below.
-		    --leakcheck       Add the slow leak checks to whatever else runs. See
-		                      below.
+		    --leakcheck       Add the slow leak checks. On by default, so this is for
+		                      a --quick or --ci run. See below.
+		    --no-leakcheck    Leave the slow leak checks out.
 		    -q, --quiet       No banner and no prompting. Without -m the commit
 		                      message is generated.
 		    -h, --help        This.
@@ -266,7 +268,7 @@ fPrint_Help(){
 		git keys, fonts and paths. It needs docker, or ZUID_DOCKER naming another
 		program that takes docker's arguments. x86_64 only. Not with --publish.
 
-		--leakcheck adds a soak test of each side, clang's cross-file analyzer, and
+		--leakcheck is a soak test of each side, clang's cross-file analyzer, and
 		CodeQL. The soaks repeat what a caller does and fail when the heap after
 		round 2N is bigger than after round N by more than a margin: the Go one on
 		this machine's Go, with 2 heap profiles kept, and the C one under heaptrack
@@ -274,9 +276,10 @@ fPrint_Help(){
 		with the third-party Go it builds, and on the C tests, from an image of its
 		own built on the main one. It's about 480 MB more, so only --leakcheck
 		builds it. Its reports and the soaks' go in cicd/artifacts/leakcheck/.
-		About 2 minutes.
+		About 10 minutes. A --quick or --ci run leaves it out unless --leakcheck
+		is given, and --no-leakcheck leaves it out of any run.
 
-		With no options a run does every stage but --publish and --leakcheck.
+		With no options a run does every stage but --publish.
 
 		--ci is what cicd/utility/git-hooks/pre-push runs before a push to main,
 		on the commit being pushed, in a scratch worktree. Turn the hook on once
@@ -393,7 +396,8 @@ fMain(){
 	local -i allowPartial=0
 	local -i doContainer=0
 	local -i doCi=0
-	local -i doLeakcheck=0
+	local -i doLeakcheck=1
+	local -i leakAsked=0
 	fInit "${@}"
 	readonly onlyToolchain
 	readonly doCross
@@ -519,7 +523,8 @@ fInit(){
 			--allow-partial) allowPartial=1 ;;
 			--container)  doContainer=1 ;;
 			--ci)         doCi=1 ;;
-			--leakcheck)  doLeakcheck=1 ;;
+			--leakcheck)  doLeakcheck=1; leakAsked=1 ;;
+			--no-leakcheck) doLeakcheck=0; leakAsked=1 ;;
 			-q|--quiet)   doQuietly=1 ;;
 
 			## ¯\_(:/)_/¯
@@ -537,6 +542,9 @@ fInit(){
 		fi
 		doQuick=1; doSync=0; doBackup=0; doDogfood=0; doQuietly=1
 	fi
+
+	## Leak checks are 10 minutes more, so a quick run only has them if asked.
+	if ((doQuick)) && ((! leakAsked)); then doLeakcheck=0; fi
 
 	## The Go cross builds take a few seconds each from cold, so quick runs get
 	## them too. The Zig ones take about 20 s a target and come with --package.
@@ -750,7 +758,7 @@ fStage_Container(){
 	if [[ -n "${onlyToolchain}" ]]; then innerArgs+=(--only "${onlyToolchain}"); fi
 	if ((doQuick));   then innerArgs+=(--quick);   fi
 	if ((doPackage)); then innerArgs+=(--package); fi
-	if ((doLeakcheck)); then innerArgs+=(--leakcheck); fi
+	if ((doLeakcheck)); then innerArgs+=(--leakcheck); else innerArgs+=(--no-leakcheck); fi
 	fEcho_Clean "Runs .......: cicd.bash ${innerArgs[*]}"
 
 	"${containerEngine}" run "${runArgs[@]}" "${innerEnv[@]}" -w "${repoRoot}" \
