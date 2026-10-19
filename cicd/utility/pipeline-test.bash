@@ -490,7 +490,7 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 		# shellcheck disable=2034  ## Read by the lifted fStage_Container.
 		{
 			repoRoot="$(cd "$1" && pwd -P)"; containerImage="zuid-cicd"; containerVolume="zuid-cicd-cache"; codeqlImage="zuid-codeql"
-			onlyToolchain="go"; doQuick=1; doPackage=1; doLeakcheck="${leakcheck:-0}"
+			onlyToolchain="go"; doQuick=1; doPackage=1; doLeakcheck="${leakcheck:-0}"; runStamp="20261019-101112"
 		}
 		local fn=""
 		for fn in _fMustBeInPath fStage_Container fContainer_Image fCodeql_Image fContainer_DropOthers fContainer_RunArgs; do
@@ -525,7 +525,7 @@ fId EsJ9SjF "the container gets the repo at its own path, the cache volume and t
 : > "${work}/engine-main"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-main")"
-wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder}"
+wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder} -e ZUID_RUN_STAMP=20261019-101112"
 wantRun+=" -w ${mainReal} ${newTag} bash ${mainReal}/cicd/cicd.bash -q --no-sync --no-backup --no-dogfood --only go --quick --package"
 if ((rc == 0)) && grep -qxF -- "${wantRun}" <<< "${log}" && ! grep -q '^build ' <<< "${log}"
 	then fPass
@@ -553,6 +553,35 @@ out="$(leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && r
 if ((rc == 0)) && grep -q -- "^run .* --only go --quick --package --leakcheck$" "${work}/engine-main"
 	then fPass
 	else fFail "exited ${rc}, asked: $(grep '^run ' "${work}/engine-main" || true)"
+fi
+
+## The image has no time zone, so the run inside stamped its files in UTC and
+## they sorted hours away from the host's.
+fId EtB0hIu "the run in the container names its files with the stamp of the run outside"
+: > "${work}/engine-main"
+out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
+stampBad=""
+grep -q -- "^run .* -e ZUID_RUN_STAMP=20261019-101112 .* bash " "${work}/engine-main" || stampBad+=" the stamp wasn't handed in;"
+stampOut="$(
+	if ! fLoad fRunStamp; then echo "no fRunStamp in cicd.bash"; exit 0; fi
+	# shellcheck disable=2034  ## Read by the lifted fRunStamp.
+	inContainer=1
+	printf 'in=%s\n' "$(ZUID_RUN_STAMP=20261019-101112 fRunStamp)"
+	printf 'junk=%s\n' "$(ZUID_RUN_STAMP='20261019-101112;x' fRunStamp)"
+	# shellcheck disable=2034
+	inContainer=0
+	printf 'host=%s\n' "$(ZUID_RUN_STAMP=20261019-101112 fRunStamp)"
+)"
+grep -qxF "in=20261019-101112" <<< "${stampOut}" || stampBad+=" inside, it didn't take the stamp;"
+if ! grep -qE '^junk=[0-9]{8}-[0-9]{6}$' <<< "${stampOut}" || grep -q '^junk=20261019-101112' <<< "${stampOut}"; then
+	stampBad+=" inside, it took a malformed stamp;"
+fi
+if ! grep -qE '^host=[0-9]{8}-[0-9]{6}$' <<< "${stampOut}" || grep -q '^host=20261019-101112' <<< "${stampOut}"; then
+	stampBad+=" on the host, it took one from the environment;"
+fi
+if ((rc == 0)) && [[ -z "${stampBad}" ]]
+	then fPass
+	else fFail "exited ${rc},${stampBad} asked: $(grep '^run ' "${work}/engine-main" || true); said: ${stampOut//$'\n'/ | }"
 fi
 
 ## CodeQL is about 480 MB, so a run that doesn't want it never builds it.

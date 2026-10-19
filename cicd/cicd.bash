@@ -366,7 +366,7 @@ fMain(){
 	local -r artifactDir="${repoRoot}/cicd/artifacts"
 	local -r utilityDir="${repoRoot}/cicd/utility"
 	local -r incomingDir="${repoRoot}/dist-incoming"
-	local -r runStamp="$(date +%Y%m%d-%H%M%S)"
+	local -r runStamp="$(fRunStamp)"
 
 	## No single stage gets the whole machine. Half the cores, at least one.
 	local -ri buildJobs="$(fHalfTheCores)"
@@ -745,7 +745,7 @@ fStage_Container(){
 	local -a runArgs=()
 	fContainer_RunArgs runArgs
 
-	local -a innerEnv=(-e ZUID_IN_CONTAINER=1 -e "USER=${USER:-builder}")
+	local -a innerEnv=(-e ZUID_IN_CONTAINER=1 -e "USER=${USER:-builder}" -e "ZUID_RUN_STAMP=${runStamp}")
 	if [[ -n "${SOURCE_DATE_EPOCH+set}" ]]; then innerEnv+=(-e "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"); fi
 
 	local -a innerArgs=(-q --no-sync --no-backup --no-dogfood)
@@ -4006,6 +4006,15 @@ fStage_Push(){
 ##	Artifacts. Everything under cicd/artifacts/ is gitignored; this keeps it
 ##	from growing without bound.
 ##
+
+## The image has no time zone, so a stamp made inside was UTC and sorted
+## hours away from the host's. The run inside takes the one from outside.
+fRunStamp(){
+	if ((inContainer)) && [[ "${ZUID_RUN_STAMP:-}" =~ ^[0-9]{8}-[0-9]{6}$ ]]
+		then printf '%s\n' "${ZUID_RUN_STAMP}"
+		else date +%Y%m%d-%H%M%S
+	fi
+}
 
 ## Tees the whole run to a dated log, so lint-report.bash has something to read
 ## and a failure can be looked at after the fact.
