@@ -327,7 +327,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Type: Enhancement
 	- Status: Waiting on signoff
 	- Needs local test suite run?: Done. See Verified.
-	- Needs external testing: Explorer's Properties tab on a Windows box, for `zuid.exe` and `zuid.dll` from the x86_64 zip.
+	- Needs external testing: Done. Windows reads both files' version info as built, on b29w.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261014-105000
 	- Opened by: JC
@@ -339,6 +339,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261019: `zuid.exe` and `zuid.dll` have a version resource on both Windows targets. `build.zig` writes it from the line `--version` prints, and the year from `--about`. `libzuid.a` gets none, since it would end up inside the program that links it.
 		- 20261019: No icon yet. It waits on a logo.
+		- 20261019: On b29w, `Get-Item` gave both files the description, version, copyright and file name in the resource, with the prerelease flag set, and the exe's `--version` matched. That's the same version info Explorer's Properties tab shows.
 	- Decisions:
 		- 20261019: The copyright is `Copyright (C) <year> Jim Collier`, with no ID and no license. The license differs between the exe and the dll, and `--about` has it.
 		- 20261019: FILEVERSION is the release's 3 numbers and a 0. A prerelease sets the prerelease flag instead, and the text fields have the full version with the build number. The 4th number can't hold the build number, and any prerelease number there would sort a beta above its release. Noted in design.md.
