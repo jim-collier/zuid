@@ -123,6 +123,11 @@ fLoad(){  ## function name
 	eval "${body}"
 }
 
+## The lifted stages start with a header, which no case here reads but
+## EtB5PUX.
+# shellcheck disable=2329  ## Called by the lifted functions.
+fSection(){ :; }
+
 ## A prerelease of the floor version passed the floor, because only the
 ## release part was compared.
 fId ErOjF74 "a prerelease of the floor version is below it"
@@ -490,7 +495,7 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 		# shellcheck disable=2034  ## Read by the lifted fStage_Container.
 		{
 			repoRoot="$(cd "$1" && pwd -P)"; containerImage="zuid-cicd"; containerVolume="zuid-cicd-cache"; codeqlImage="zuid-codeql"
-			onlyToolchain="go"; doQuick=1; doPackage=1; doLeakcheck="${leakcheck:-0}"; runStamp="20261019-101112"
+			onlyToolchain="go"; doQuick=1; doPackage=1; doLeakcheck="${leakcheck:-0}"; runStamp="20261019-101112"; _sectionWidth="123"
 		}
 		local fn=""
 		for fn in _fMustBeInPath fStage_Container fContainer_Image fCodeql_Image fContainer_DropOthers fContainer_RunArgs; do
@@ -525,7 +530,7 @@ fId EsJ9SjF "the container gets the repo at its own path, the cache volume and t
 : > "${work}/engine-main"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-main")"
-wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder} -e ZUID_RUN_STAMP=20261019-101112"
+wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder} -e ZUID_RUN_STAMP=20261019-101112 -e ZUID_COLUMNS=123"
 wantRun+=" -w ${mainReal} ${newTag} bash ${mainReal}/cicd/cicd.bash -q --no-sync --no-backup --no-dogfood --only go --quick --package"
 if ((rc == 0)) && grep -qxF -- "${wantRun}" <<< "${log}" && ! grep -q '^build ' <<< "${log}"
 	then fPass
@@ -582,6 +587,50 @@ fi
 if ((rc == 0)) && [[ -z "${stampBad}" ]]
 	then fPass
 	else fFail "exited ${rc},${stampBad} asked: $(grep '^run ' "${work}/engine-main" || true); said: ${stampOut//$'\n'/ | }"
+fi
+
+## A stage header is a blank line, a rule of dots as wide as the terminal,
+## then the title, the way silkterm prints one. A pipe or a log has no width,
+## so it gets silkterm's 74. The run in the container gets the outside's.
+fId EtB5PUX "a stage header is a blank line, a rule as wide as the terminal or 74 without one, and the title"
+sectionScript="${work}/section.bash"
+sectionBad=""
+if (
+	for fn in fEcho_Clean fSection_Init fSection; do
+		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+	done
+	# shellcheck disable=2329  ## Called by the lifted fSection.
+	fEcho(){ fEcho_Clean "[ $* ]"; }
+	# shellcheck disable=2016  ## Expanded by the script, not here.
+	{
+		printf '%s\n' 'set -Eeuo pipefail' 'declare -i _wasLastEchoBlank=0' 'inContainer="${1:-0}"' '_sectionRule="" _sectionWidth=""'
+		declare -f fEcho_Clean fEcho fSection_Init fSection
+		printf '%s\n' 'fEcho_Clean "before"' 'fSection "A stage"' 'printf "width=%s\n" "${_sectionWidth}"'
+	} > "${sectionScript}"
+) > "${work}/section.out" 2>&1; then
+	printf -v rule74 '%*s' 74 ''; rule74="${rule74// /•}"
+	printf -v rule101 '%*s' 101 ''; rule101="${rule101// /•}"
+	printf -v rule123 '%*s' 123 ''; rule123="${rule123// /•}"
+	got="$(bash "${sectionScript}" 0 | cat)"
+	[[ "${got}" == "before"$'\n'$'\n'"${rule74}"$'\n'"[ A stage ]"$'\n'"width=74" ]] || sectionBad+=" in a pipe it said '${got}';"
+	got="$(ZUID_COLUMNS=101 bash "${sectionScript}" 1 | cat)"
+	[[ "${got}" == *$'\n'"${rule101}"$'\n'"[ A stage ]"$'\n'"width=101" ]] || sectionBad+=" in the container it didn't take 101: '${got}';"
+	got="$(ZUID_COLUMNS=101 bash "${sectionScript}" 0 | cat)"
+	[[ "${got}" == *"width=74" ]] || sectionBad+=" on the host it took the container's width: '${got}';"
+	## A terminal, from util-linux's script, sized by hand.
+	if script --version 2>/dev/null | grep -q util-linux; then
+		got="$(script -qec "stty cols 123 rows 40; bash '${sectionScript}' 0" /dev/null < /dev/null | tr -d '\r')"
+		[[ "${got}" == *$'\n'"${rule123}"$'\n'"[ A stage ]"$'\n'"width=123"* ]] || sectionBad+=" in a 123-wide terminal it said '${got}';"
+	fi
+else
+	sectionBad+=" $(cat "${work}/section.out");"
+fi
+: > "${work}/engine-main"
+fContainerIn "${worktreeMain}" "${work}/engine-main" 0 >/dev/null 2>&1 || true
+grep -q -- "^run .* -e ZUID_COLUMNS=123 .* bash " "${work}/engine-main" || sectionBad+=" the container wasn't handed the width;"
+if [[ -z "${sectionBad}" ]]
+	then fPass
+	else fFail "${sectionBad}"
 fi
 
 ## CodeQL is about 480 MB, so a run that doesn't want it never builds it.

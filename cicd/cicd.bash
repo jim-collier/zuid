@@ -367,6 +367,7 @@ fMain(){
 	local -r utilityDir="${repoRoot}/cicd/utility"
 	local -r incomingDir="${repoRoot}/dist-incoming"
 	local -r runStamp="$(fRunStamp)"
+	fSection_Init
 
 	## No single stage gets the whole machine. Half the cores, at least one.
 	local -ri buildJobs="$(fHalfTheCores)"
@@ -656,8 +657,7 @@ fAskForCommitMessage(){
 		return 0
 	fi
 
-	fEcho_Clean
-	fEcho "Commit message"
+	fSection "Commit message"
 	fEcho_Clean "CTRL+C to abort."
 	fEcho_Clean
 	read -r -p "  Message: " commitMsg || fThrowError "No commit message given."  "${FUNCNAME[0]}"
@@ -672,8 +672,7 @@ fAskForCommitMessage(){
 ## built here.
 fStage_Sync(){
 
-	fEcho_Clean
-	fEcho "Remote sync"
+	fSection "Remote sync"
 
 	## Asks git, since a linked worktree has a .git file, not a directory.
 	[[ "$(git -C "${repoRoot}" rev-parse --show-cdup 2>/dev/null || echo no)" == "" ]] || fThrowError "Not a git repo: '${repoRoot}'."  "${FUNCNAME[0]}"
@@ -733,8 +732,7 @@ fStage_Sync(){
 ## something.
 fStage_Container(){
 
-	fEcho_Clean
-	fEcho "Container"
+	fSection "Container"
 
 	fContainer_Image
 	## The run inside can't start another container, so CodeQL's image is the
@@ -745,7 +743,7 @@ fStage_Container(){
 	local -a runArgs=()
 	fContainer_RunArgs runArgs
 
-	local -a innerEnv=(-e ZUID_IN_CONTAINER=1 -e "USER=${USER:-builder}" -e "ZUID_RUN_STAMP=${runStamp}")
+	local -a innerEnv=(-e ZUID_IN_CONTAINER=1 -e "USER=${USER:-builder}" -e "ZUID_RUN_STAMP=${runStamp}" -e "ZUID_COLUMNS=${_sectionWidth}")
 	if [[ -n "${SOURCE_DATE_EPOCH+set}" ]]; then innerEnv+=(-e "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"); fi
 
 	local -a innerArgs=(-q --no-sync --no-backup --no-dogfood)
@@ -834,8 +832,7 @@ fContainer_RunArgs(){  ## array to fill
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fPreflight(){
 
-	fEcho_Clean
-	fEcho "Preflight"
+	fSection "Preflight"
 
 	## Asks git, since a linked worktree has a .git file, not a directory.
 	[[ "$(git -C "${repoRoot}" rev-parse --show-cdup 2>/dev/null || echo no)" == "" ]] || fThrowError "Not a git repo: '${repoRoot}'."  "${FUNCNAME[0]}"
@@ -894,8 +891,7 @@ fTestFail(){ fEcho_Clean "  FAIL ..: ${testId} ${testName}"; fThrowError "$*"  "
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Shell(){
 
-	fEcho_Clean
-	fEcho "Bash: lint"
+	fSection "Bash: lint"
 
 	## shellcheck's warnings change between versions, so a host on another one
 	## can pass what the container fails. Before the lint, which stops the run
@@ -943,8 +939,7 @@ fStage_Shell(){
 fContentScrub(){
 	local -r scrub="${repoRoot}/../private/hooks/scrub.bash"
 	[[ -x "${scrub}" ]] || return 0
-	fEcho_Clean
-	fEcho "Content scrub"
+	fSection "Content scrub"
 	"${scrub}" "${repoRoot}" || fThrowError "The content scrub found something."  "${FUNCNAME[0]}"
 }
 
@@ -954,8 +949,7 @@ fContentScrub(){
 ## here rather than printing a line nobody can refer to.
 fStage_TestIds(){
 
-	fEcho_Clean
-	fEcho "Test IDs"
+	fSection "Test IDs"
 
 	if [[ -z "$(command -v python3 2>/dev/null || true)" ]]; then
 		fEcho_Clean "Skipped ....: python3 not installed."
@@ -971,8 +965,7 @@ fStage_TestIds(){
 ## linter counts. design.md said "four things" above five bullets.
 fStage_Docs(){
 
-	fEcho_Clean
-	fEcho "Docs: claims that can be counted"
+	fSection "Docs: claims that can be counted"
 
 	## Both style guides were written and then pointed at from two places. A
 	## guide nothing links to is one nobody reads, which is how the CLI one came
@@ -1093,8 +1086,7 @@ fStage_Docs(){
 ## notice them going wrong until the wrong commit had been made.
 fStage_Shell_Pipeline(){
 
-	fEcho_Clean
-	fEcho "Pipeline"
+	fSection "Pipeline"
 
 	local -r runner="${utilityDir}/pipeline-test.bash"
 	if [[ ! -f "${runner}" ]]; then
@@ -1112,8 +1104,7 @@ fStage_Shell_Pipeline(){
 ## anything outside its own scratch tree.
 fStage_Shell_Installers(){
 
-	fEcho_Clean
-	fEcho "Installers"
+	fSection "Installers"
 
 	local -r runner="${utilityDir}/installer-test.bash"
 	if [[ ! -f "${runner}" ]]; then
@@ -1135,8 +1126,7 @@ fStage_Shell_Installers(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Go(){
 
-	fEcho_Clean
-	fEcho "Go: build, vet, format, test"
+	fSection "Go: build, vet, format, test"
 
 	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
 
@@ -1215,8 +1205,7 @@ fStage_Go(){
 ## Each takes a second or two warm, so quick runs keep them.
 fStage_Go_Checks(){
 
-	fEcho_Clean
-	fEcho "Go: vet, staticcheck, govulncheck"
+	fSection "Go: vet, staticcheck, govulncheck"
 
 	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
 
@@ -1312,8 +1301,7 @@ fInImage(){  ## folder, command...
 ## about that.
 fStage_Go_Consumer(){
 
-	fEcho_Clean
-	fEcho "Go: a consumer of the module"
+	fSection "Go: a consumer of the module"
 
 	## The docs' command has to name the package, not the module root. On the root
 	## go get adds the module without what its package needs, and the build stops
@@ -1381,8 +1369,7 @@ fStage_Go_Consumer(){
 ## fuzz tests, which fStage_Zig_Fuzz runs in fuzz mode.
 fStage_Go_Fuzz(){
 
-	fEcho_Clean
-	fEcho "Go: fuzz"
+	fSection "Go: fuzz"
 
 	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
 
@@ -1417,8 +1404,7 @@ fStage_Go_Fuzz(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Go_Cross(){
 
-	fEcho_Clean
-	fEcho "Go: cross-compile"
+	fSection "Go: cross-compile"
 
 	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
 
@@ -1464,8 +1450,7 @@ fReactor_Toolchain(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Zig_Vendor(){
 
-	fEcho_Clean
-	fEcho "Zig: vendor"
+	fSection "Zig: vendor"
 
 	local -r vendorDir="${zigDir}/vendor"
 	mkdir -p "${vendorDir}"
@@ -1654,8 +1639,7 @@ fStage_Zig(){
 
 	fStage_Zig_Vendor
 
-	fEcho_Clean
-	fEcho "Zig: build and test"
+	fSection "Zig: build and test"
 
 	cd "${zigDir}" || fThrowError "Missing the Zig tree: '${zigDir}'."  "${FUNCNAME[0]}"
 
@@ -1731,8 +1715,7 @@ fStage_Zig(){
 ## build. A find still exits 0, so the output is read for it.
 fStage_Zig_Fuzz(){
 
-	fEcho_Clean
-	fEcho "Zig: fuzz"
+	fSection "Zig: fuzz"
 
 	local -r fuzzLimit="50K"
 
@@ -1828,8 +1811,7 @@ fStage_Zig_Fuzz(){
 ## it exits with, is only checked here.
 fStage_Zig_Cli(){
 
-	fEcho_Clean
-	fEcho "Zig: command surface"
+	fSection "Zig: command surface"
 
 	local -r runner="${utilityDir}/cli-test.bash"
 	if [[ ! -f "${runner}" ]]; then
@@ -1953,8 +1935,7 @@ fExportProblems(){  ## exported names, one per line
 ## be able to use it. Deliberately not 'zig cc' - that would prove nothing.
 fStage_Zig_CApi(){
 
-	fEcho_Clean
-	fEcho "Zig: C module from a system compiler"
+	fSection "Zig: C module from a system compiler"
 
 	local systemCc=""
 	if   command -v gcc   &>/dev/null; then systemCc="gcc"
@@ -2103,8 +2084,7 @@ fStage_Zig_CApi(){
 ## image 5 times, so quick runs keep it.
 fStage_Zig_CChecks(){
 
-	fEcho_Clean
-	fEcho "Zig: C sanitizers and analyzers"
+	fSection "Zig: C sanitizers and analyzers"
 
 	local checkerSkipWhy=""
 	fGoCheckers_Ready
@@ -2169,8 +2149,7 @@ fCCheck(){  ## folder, why it failed, command...
 ## never 0 against N. What they find goes in cicd/artifacts/leakcheck/.
 fStage_Leakcheck(){
 
-	fEcho_Clean
-	fEcho "Leak check: soak tests, cross-file analysis and CodeQL"
+	fSection "Leak check: soak tests, cross-file analysis and CodeQL"
 
 	local -r leakDir="${artifactDir}/leakcheck"
 	mkdir -p "${leakDir}"
@@ -2309,8 +2288,7 @@ fLeakcheck_CodeQL(){  ## artifact dir
 ## Go module through its own benchmarks, and the command itself through perf.
 fStage_Profile(){
 
-	fEcho_Clean
-	fEcho "Profile"
+	fSection "Profile"
 
 	local -r profileDir="${artifactDir}/profiling"
 	mkdir -p "${profileDir}"
@@ -2396,8 +2374,7 @@ fProfile_Cli(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Demo(){
 
-	fEcho_Clean
-	fEcho "Demo"
+	fSection "Demo"
 
 	local -r generator="${utilityDir}/gen-demo-gif.py"
 	local -r scenario="${repoRoot}/cicd/demo-scenario.toml"
@@ -2445,8 +2422,7 @@ fStage_Demo(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Package(){
 
-	fEcho_Clean
-	fEcho "Package"
+	fSection "Package"
 
 	local -r packager="${utilityDir}/package.bash"
 	[[ -x "${packager}" ]] || fThrowError "Missing the packager: '${packager}'."  "${FUNCNAME[0]}"
@@ -3649,8 +3625,7 @@ fPublish_Preflight(){
 ## until the plan has been shown and agreed to.
 fStage_Publish(){
 
-	fEcho_Clean
-	fEcho "Publish"
+	fSection "Publish"
 
 	local -r tag="v${publishVersion}"
 	local -r goTag="go/v${publishVersion}"
@@ -3885,8 +3860,7 @@ fPublish_Downloads(){  ## download URL, asset...
 ## none of those dirs still built and tested fine.
 fStage_Dogfood(){
 
-	fEcho_Clean
-	fEcho "Dogfood"
+	fSection "Dogfood"
 
 	local -i placed=0
 	local entry="" file="" name="" dir=""
@@ -3941,8 +3915,7 @@ fDogfoodCopy(){  ## from, to
 ## --commit and --push are refused alongside it.
 fStage_Backup(){
 
-	fEcho_Clean
-	fEcho "Backup and publish"
+	fSection "Backup and publish"
 
 	local -r helper="${utilityDir}/n8git_backup-and-publish"
 	[[ -x "${helper}" ]] || fThrowError "Missing the backup helper: '${helper}'."  "${FUNCNAME[0]}"
@@ -3974,8 +3947,7 @@ fStage_Backup(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Commit(){
 
-	fEcho_Clean
-	fEcho "Commit"
+	fSection "Commit"
 
 	local -r branch="$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD)"
 	if [[ "${branch}" == "HEAD" ]]; then
@@ -4003,8 +3975,7 @@ fStage_Commit(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Push(){
 
-	fEcho_Clean
-	fEcho "Push"
+	fSection "Push"
 
 	local -r remote="$(git -C "${repoRoot}" remote | head -n1)"
 	[[ -n "${remote}" ]] || fThrowError "No remote to push to."  "${FUNCNAME[0]}"
@@ -4204,6 +4175,27 @@ function fEcho()                   { if [[ -n "${*:-}" ]]; then fEcho_Clean "[ $
 function fEcho_Force()             { fEcho_ResetBlankCounter; fEcho "${*:-}";                              }
 function fEcho_Clean_Force()       { fEcho_ResetBlankCounter; fEcho_Clean "${*:-}";                        }
 function fEcho_ResetBlankCounter() { _wasLastEchoBlank=0;                                                  }
+
+## A stage header is a blank line, a rule as wide as the terminal, then the
+## title, the way silkterm's fSection prints one. A log or a pipe has no width,
+## so it gets silkterm's 74. Set before the run log's tee, since after it
+## nothing is a terminal. The run in the container is handed the width.
+declare _sectionRule="" _sectionWidth=""
+function fSection_Init(){
+	local width=""
+	if [[ -t 1 ]]; then width="$(stty size 2>/dev/null < /dev/tty || true)"; width="${width#* }"; fi
+	if ((inContainer)) && [[ -z "${width}" ]]; then width="${ZUID_COLUMNS:-}"; fi
+	[[ "${width}" =~ ^[1-9][0-9]{0,3}$ ]] || width=74
+	_sectionWidth="${width}"
+	printf -v _sectionRule '%*s' "${width}" ''
+	_sectionRule="${_sectionRule// /•}"
+}
+function fSection(){
+	[[ -n "${_sectionRule}" ]] || fSection_Init
+	fEcho_Clean
+	fEcho_Clean "${_sectionRule}"
+	fEcho "$*"
+}
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
