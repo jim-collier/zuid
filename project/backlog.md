@@ -459,7 +459,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: FILEVERSION is the release's 3 numbers and a 0. A prerelease sets the prerelease flag instead, and the text fields have the full version with the build number. The 4th number can't hold the build number, and any prerelease number there would sort a beta above its release. Noted in design.md.
 		- 20261019: FileDescription is `zuid` for the exe, which is what Task Manager shows, and `zuid C library` for the dll.
 	- Swept: every Windows file in the zips. `wasmtime.dll` is Wasmtime's own, and the test and smoke programs aren't shipped.
+	- Verified: 20261019, `cicd.bash --package` passed, then `--container --package`, and both again with `--quick` after the last change. Between b23 and the container every Windows exe and dll differs only in the time stamp and PDB ID of 2026101305595483, and the resources are identical. The other release files matched, apart from the `.deb` and `.rpm`, which differ by nfpm version as before.
+	- Verified: a build with no build number, a Debug build and a build of a version with no prerelease tag each gave the resource they should.
 	- Branch: winres
+	- Commit: 7df2b13
 	- Test case: EtBCCRm and EtBCCRn, one per Windows target, hold both files' resource to `--version` and `--about`, in ASCII with no time stamp. EtBCCRm failed with the resource left out.
 
 - The FreeBSD release has no `.pkg`.
