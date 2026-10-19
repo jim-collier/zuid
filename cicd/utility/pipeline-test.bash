@@ -447,6 +447,7 @@ case "$1 ${2:-}" in
 	"build "*)       : > "${ENGINE_LOG}.built" ;;
 	"image ls")      printf 'zuid-cicd:0ld0ld0ld0ld\n%s\n' "${ENGINE_NEW}" ;;
 	"run "*)         exit "${ENGINE_RUN_RC:-0}" ;;
+	"info "*)        exit "${ENGINE_INFO_RC:-0}" ;;
 esac
 STUB
 chmod +x "${work}/engine"
@@ -465,14 +466,17 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 			onlyToolchain="go"; doQuick=1; doPackage=1
 		}
 		local fn=""
-		for fn in _fMustBeInPath fStage_Container; do
+		for fn in _fMustBeInPath fStage_Container fContainer_Image fContainer_RunArgs; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		mkdir -p "${repoRoot}/cicd/container"
 		echo "FROM scratch" > "${repoRoot}/cicd/container/Dockerfile"
+		# shellcheck disable=2030  ## Each case sets its own.
 		export ZUID_DOCKER="${work}/engine" ENGINE_LOG="$2" ENGINE_RUN_RC="$3"
 		ENGINE_NEW="zuid-cicd:$(git hash-object "${repoRoot}/cicd/container/Dockerfile" | cut -c1-12)"
 		export ENGINE_NEW
+		# shellcheck disable=2034  ## Read by the lifted fContainer_Image.
+		containerEngine="${ZUID_DOCKER}" containerTag=""
 		fStage_Container
 	) 2>&1
 }
@@ -511,6 +515,41 @@ out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 3)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"The run in the container failed"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
+fi
+
+## A public clone without docker still passes, so the checkers in the image
+## skip rather than fail when there's nothing to run them in.
+fId Et9VtIq "the Go checkers skip with a reason when docker is missing or not answering, and use the image when it answers"
+out="$(
+	# shellcheck disable=2329  ## Called by the lifted functions, not here.
+	fEcho_Clean(){ :; }
+	# shellcheck disable=2329
+	fThrowError(){ printf '%s\n' "$1"; exit 1; }
+	# shellcheck disable=2329
+	uname(){ case "$1" in -s) echo Linux ;; -m) echo x86_64 ;; esac; }
+	# shellcheck disable=2034  ## Read by the lifted functions.
+	{
+		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerImage="zuid-cicd"; inContainer=0; containerTag=""; checkerSkipWhy=""
+	}
+	for fn in _fMustBeInPath fGoCheckers_Ready fContainer_Image; do
+		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+	done
+	# shellcheck disable=2031  ## The stub reads it; the earlier subshell's copy is gone.
+	export ENGINE_LOG="${work}/engine-checkers"
+	# shellcheck disable=2034  ## Read by the lifted functions.
+	containerEngine="${work}/no-such-engine"
+	fGoCheckers_Ready; printf 'missing=%s\n' "${checkerSkipWhy}"
+	# shellcheck disable=2034
+	containerEngine="${work}/engine"
+	export ENGINE_INFO_RC=1
+	fGoCheckers_Ready; printf 'silent=%s\n' "${checkerSkipWhy}"
+	export ENGINE_INFO_RC=0
+	fGoCheckers_Ready; printf 'ready=%s tag=%s\n' "${checkerSkipWhy}" "${containerTag}"
+)" && rc=0 || rc=$?
+if ((rc == 0)) && grep -qxF "missing=no ${work}/no-such-engine to run the pinned checkers in" <<< "${out}" \
+	&& grep -qxF "silent=${work}/engine isn't answering" <<< "${out}" && grep -qxF "ready= tag=${newTag}" <<< "${out}"
+	then fPass
+	else fFail "exited ${rc} and said: ${out//$'\n'/ | }"
 fi
 
 git -C "${worktreeMain}" worktree remove --force "${worktreeDir}"

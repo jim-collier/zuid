@@ -53,6 +53,15 @@ RUN curl -fsSLo go.tgz "https://go.dev/dl/go${GO_VER}.linux-amd64.tar.gz" \
 	&& ln -s /opt/pwsh/pwsh /usr/local/bin/pwsh \
 	&& cd / && rm -rf /tmp/dl
 
+# The Go checkers, which a host run calls from here too. go install checks each
+# module against Go's checksum database, which stands in for a sha256.
+ARG STATICCHECK_VER=v0.8.2
+ARG GOVULNCHECK_VER=v1.9.0
+RUN export GOBIN=/usr/local/bin GOPATH=/tmp/gopath GOCACHE=/tmp/gocache GOTOOLCHAIN=local CGO_ENABLED=0 GOFLAGS=-trimpath \
+	&& /opt/go/bin/go install "honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VER}" \
+	&& /opt/go/bin/go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VER}" \
+	&& rm -rf /tmp/gopath /tmp/gocache
+
 # Runs as the caller's uid, which has no passwd entry here. /cache is where the
 # named volume goes, and a new volume takes this dir's mode, so anyone can write.
 RUN mkdir -m 1777 /cache /cache/home

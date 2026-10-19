@@ -29,6 +29,7 @@ Optional. A stage that wants one skips itself with a note when it's missing, exc
 | python3 3.11 or newer with pillow, gifsicle | rendering the demo animation
 | perf, inferno                               | profiling the command
 | PSScriptAnalyzer, under pwsh                | checking `install.ps1` against Windows PowerShell 5.1
+| docker, on x86_64 Linux                     | staticcheck and govulncheck, which run from the pinned image described below. govulncheck also skips offline.
 | rar                                         | the backup stage, which stops without it. `--no-backup` skips it.
 
 If the `zig` on PATH is older, `cicd/cicd.bash` takes the one named by `ZIG`, or a release unpacked as `~/.local/zig-<platform>-0.17.0`, and every stage uses that one.
