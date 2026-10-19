@@ -346,9 +346,32 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: clang's analyzer runs in cross-file mode over the C tests. None of them calls into another, so a pair of files with a null dereference only that mode can see runs first, every time.
 		- 20261019: Each gate failed first on a planted fault: a slice that only grows and a stuck goroutine in the Go module, a missing `zuid_free`, a lost buffer and a growing cache in copies of the C soak, and the cross-file pair with that mode off. A cache of one short string a round passed, being under the margin.
 		- 20261019: clang-tools and heaptrack were added to the image, 70 MB on disk and 16 MB of content. CodeQL is left, for Go and C.
+		- 20261019: CodeQL 2.27.2 runs from an image of its own, built on the main one, from GitHub's C and Go bundles pinned by sha256. It's about 480 MB more, so only `--leakcheck` builds or starts it. Under `--container --leakcheck` the whole run is in that image. It takes about 25 s a language.
+		- 20261019: GitHub's CodeQL terms allow it here, since the code is under OSI licenses and on GitHub.com.
+		- 20261019: Go: the module is copied to a scratch folder and vendored there, so convertbase and shcl are under the database's root. So is the reactor, since the command runs it, and it's built for wasm the way the release builds it. Our code gets the whole security and quality suite, and third-party code only its security and correctness queries.
+		- 20261019: C: every tracked .c file is compiled fresh while CodeQL watches. Zig isn't a language CodeQL reads, so the C module's own code isn't in the database, only its header through the C tests. There's no third-party C.
+		- 20261019: Both fail if a file the build compiled isn't in the database. A C build that compiles nothing is refused by CodeQL itself. Go's extractor read every file even with a warm build cache, but the cache is fresh anyway.
+		- 20261019: The one finding is upstream, in shcl: a 32-bit number turned into an `int`. It's 2026101911183280, suppressed by that ID. A suppression nothing matches fails the run, so it comes out with the fix.
+		- 20261019: CodeQL has no Go query for a lost cancel. `go vet`'s `lostcancel` runs on every run already.
+		- 20261019: Each CodeQL gate failed first on a planted fault: a tainted path and a style finding in our Go, a security finding in a copy of convertbase, a use after free and a null check after a dereference in a copy of the C tests, and the vendored files left out of the database. A style finding in the convertbase copy passed. The plainest use after free never reached CodeQL, since gcc's `-Werror` refused it.
+	- Swept: every `fInImage` call outside the CodeQL stage still gets the main image. Both images drop their old tags through one helper, and both pipeline tests that lift the image code lift it too. A plain `--container` run never builds or starts the CodeQL image.
 	- Branch: leakcheck
 	- Commit: 59c3e61, 516fef0
-	- Test case: EtAUMRA (the Go soak), EtAUMRB and EtAUMRE (the C soaks), EtAUMRC and EtAUMRD (the cross-file analyzer), EtAUMRF, EtAUMRG and EtAUMRH (the flag). Each failed first. CodeQL's are still to come.
+	- Test case: EtAUMRA (the Go soak), EtAUMRB and EtAUMRE (the C soaks), EtAUMRC and EtAUMRD (the cross-file analyzer), EtAUMRF, EtAUMRG and EtAUMRH (the flag), EtAUMRI and EtAUMRJ (CodeQL on Go and C), EtAj5P2 (CodeQL's image), EtAj5P3 to EtAj5P6 (how its report is read). Each failed first.
+
+- convertbase's config parser turns a 32-bit number into an `int`, which can wrap on a 32-bit build.
+	- ID: 2026101911183280
+	- Type: Bug
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261019-111832
+	- Opened by: JC
+	- Related IDs: 2026101816474402, 2026100519164742
+	- Incorrect behavior [Bug]: `parseU32` in convert-base-v2's `lib/shcl/shcl.go`, at the pinned `lib/v0.1.0`, parses up to 4294967295 and returns it as an `int`. On a 32-bit build anything over 2147483647 wraps negative. CodeQL's `go/incorrect-integer-conversion` found it.
+	- Expected behavior [Bug]: Nothing past the `int` range comes back as an `int`.
+	- Reproduced [Bug]: No. Read only. Its one caller reads a day of the month and refuses anything outside 1 to 31, which a wrapped value is, so no wrong result was found. zuid never loads a config.
+	- Progress log:
+		- 20261019: The code is upstream, so it's fixed in convert-base-v2 and comes in with a later pin. Until then `cicd/utility/codeql-suppressions.txt` suppresses it by this ID.
 
 - PowerShell files aren't linted.
 	- ID: 2026101410495993

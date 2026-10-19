@@ -20,6 +20,7 @@
 ##		- 20261019 JC: govulncheck fails on called stdlib advisories and scans the reactor. The reactor builds with the image's Go.
 ##		- 20261019 JC: The C tests under ASan, LSan and UBSan, and gcc's and clang's analyzers, from the image.
 ##		- 20261019 JC: --leakcheck: the Go and C soak tests and clang's cross-file analyzer.
+##		- 20261019 JC: --leakcheck: CodeQL on Go and C, from an image of its own.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Set by --container for the run it starts inside.
@@ -133,6 +134,8 @@ fConfig(){ :;
 	## Caches live in a named volume, out of the tree and its backups.
 	default_containerImage="zuid-cicd"
 	default_containerVolume="zuid-cicd-cache"
+	## --leakcheck's CodeQL, built on that image from cicd/container/codeql/.
+	default_codeqlImage="zuid-codeql"
 
 }
 
@@ -263,12 +266,15 @@ fPrint_Help(){
 		git keys, fonts and paths. It needs docker, or ZUID_DOCKER naming another
 		program that takes docker's arguments. x86_64 only. Not with --publish.
 
-		--leakcheck adds a soak test of each side and clang's cross-file analyzer.
-		The soaks repeat what a caller does and fail when the heap after round 2N
-		is bigger than after round N by more than a margin: the Go one on this
-		machine's Go, with 2 heap profiles kept, and the C one under heaptrack
-		from the image, with heaptrack's report kept. Both go in
-		cicd/artifacts/leakcheck/. About a minute.
+		--leakcheck adds a soak test of each side, clang's cross-file analyzer, and
+		CodeQL. The soaks repeat what a caller does and fail when the heap after
+		round 2N is bigger than after round N by more than a margin: the Go one on
+		this machine's Go, with 2 heap profiles kept, and the C one under heaptrack
+		from the image, with heaptrack's report kept. CodeQL runs on the Go module
+		with the third-party Go it builds, and on the C tests, from an image of its
+		own built on the main one. It's about 480 MB more, so only --leakcheck
+		builds it. Its reports and the soaks' go in cicd/artifacts/leakcheck/.
+		About 2 minutes.
 
 		With no options a run does every stage but --publish and --leakcheck.
 
@@ -320,6 +326,7 @@ fMain(){
 	local -i default_keepMonthly=0
 	local    default_containerImage=""
 	local    default_containerVolume=""
+	local    default_codeqlImage=""
 	fConfig
 	local -r minVer_Go="${default_minVer_Go}"
 	local -r minVer_Zig="${default_minVer_Zig}"
@@ -340,9 +347,10 @@ fMain(){
 	local -ri keepMonthly="${default_keepMonthly}"
 	local -r  containerImage="${default_containerImage}"
 	local -r  containerVolume="${default_containerVolume}"
+	local -r  codeqlImage="${default_codeqlImage}"
 	local -r  containerEngine="${ZUID_DOCKER:-docker}"
-	## Set by fContainer_Image.
-	local containerTag=""
+	## Set by fContainer_Image and fCodeql_Image.
+	local containerTag="" codeqlTag=""
 
 	## Layout. This script lives in the repo's cicd/, so the repo root is one up.
 	## Physical, since find does not descend a symlink it is handed as a start.
@@ -729,6 +737,10 @@ fStage_Container(){
 	fEcho "Container"
 
 	fContainer_Image
+	## The run inside can't start another container, so CodeQL's image is the
+	## one it runs in. It's the main image with CodeQL added.
+	local runTag="${containerTag}"
+	if ((doLeakcheck)); then fCodeql_Image; runTag="${codeqlTag}"; fi
 
 	local -a runArgs=()
 	fContainer_RunArgs runArgs
@@ -744,7 +756,7 @@ fStage_Container(){
 	fEcho_Clean "Runs .......: cicd.bash ${innerArgs[*]}"
 
 	"${containerEngine}" run "${runArgs[@]}" "${innerEnv[@]}" -w "${repoRoot}" \
-		"${containerTag}" bash "${repoRoot}/cicd/cicd.bash" "${innerArgs[@]}" \
+		"${runTag}" bash "${repoRoot}/cicd/cicd.bash" "${innerArgs[@]}" \
 		|| fThrowError "The run in the container failed; its output is above."  "${FUNCNAME[0]}"
 
 }
@@ -766,16 +778,45 @@ fContainer_Image(){
 	fi
 	fEcho_Clean "Image ......: building ${containerTag}"
 	"${containerEngine}" build -t "${containerTag}" "$(dirname "${recipe}")" || fThrowError "Could not build '${containerTag}'."  "${FUNCNAME[0]}"
-	## What it replaces is a couple of GB nobody runs again.
+	fContainer_DropOthers "${containerImage}" "${containerTag}"
+
+}
+
+
+## Sets codeqlTag, building CodeQL's image on the main one if it isn't there
+## yet. Only --leakcheck wants it, so a plain run never pulls the bundle.
+## Needs containerTag set.
+fCodeql_Image(){
+
+	local -r recipe="${repoRoot}/cicd/container/codeql/Dockerfile"
+	[[ -f "${recipe}" ]] || fThrowError "Missing CodeQL's container recipe: '${recipe}'."  "${FUNCNAME[0]}"
+
+	## A new main image means a new CodeQL one, so both hashes are in the tag.
+	codeqlTag="${codeqlImage}:$(git hash-object "${recipe}" | cut -c1-12)-${containerTag##*:}"
+	if "${containerEngine}" image inspect "${codeqlTag}" &>/dev/null; then
+		fEcho_Clean "CodeQL .....: ${codeqlTag}"
+		return 0
+	fi
+	fEcho_Clean "CodeQL .....: building ${codeqlTag}"
+	"${containerEngine}" build --build-arg "BASE=${containerTag}" -t "${codeqlTag}" "$(dirname "${recipe}")" \
+		|| fThrowError "Could not build '${codeqlTag}'."  "${FUNCNAME[0]}"
+	fContainer_DropOthers "${codeqlImage}" "${codeqlTag}"
+
+}
+
+
+## What a new image replaces is a couple of GB nobody runs again. A plain rmi,
+## so one a container still uses stays.
+fContainer_DropOthers(){  ## image, tag to keep
+	local -r image="$1" keep="$2"
 	local old=""
 	while IFS= read -r old; do
-		if [[ -z "${old}" ]] || [[ "${old}" == "${containerTag}" ]]; then continue; fi
+		if [[ -z "${old}" ]] || [[ "${old}" == "${keep}" ]]; then continue; fi
 		if "${containerEngine}" rmi "${old}" >/dev/null 2>&1
 			then fEcho_Clean "Removed ....: ${old}"
 			else fEcho_Clean "Kept .......: ${old} (in use)"
 		fi
-	done < <("${containerEngine}" image ls "${containerImage}" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
-
+	done < <("${containerEngine}" image ls "${image}" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
 }
 
 
@@ -2112,17 +2153,18 @@ fCCheck(){  ## folder, why it failed, command...
 fStage_Leakcheck(){
 
 	fEcho_Clean
-	fEcho "Leak check: soak tests and cross-file analysis"
+	fEcho "Leak check: soak tests, cross-file analysis and CodeQL"
 
 	local -r leakDir="${artifactDir}/leakcheck"
 	mkdir -p "${leakDir}"
 	local prefix=""
-	for prefix in go-soak-n_ go-soak-2n_ c-soak-report_ c-soak-data_; do
+	for prefix in go-soak-n_ go-soak-2n_ c-soak-report_ c-soak-data_ codeql-go_ codeql-c_; do
 		fRotate_Artifacts "${leakDir}" "${prefix}"
 	done
 
 	if ((doGo));  then fLeakcheck_Go "${leakDir}"; fi
 	if ((doZig)); then fLeakcheck_C  "${leakDir}"; fi
+	fLeakcheck_CodeQL "${leakDir}"
 
 }
 
@@ -2203,6 +2245,44 @@ fLeakcheck_C(){  ## artifact dir
 		bash "${cChecks}" clang-ctu "${cWarn[@]}" -I "${zigDir}/lib/include" -- "${cFiles[@]}"
 
 	rm -rf "${buildDir}"
+
+}
+
+
+## From CodeQL's own image, so with no docker these skip like the C checks.
+## Each builds its database from scratch and fails if a file that compiled
+## isn't in it. About 25 s each.
+fLeakcheck_CodeQL(){  ## artifact dir
+
+	local -r leakDir="$1"
+	local checkerSkipWhy=""
+	fGoCheckers_Ready
+	if [[ -z "${checkerSkipWhy}" ]] && ((! inContainer)); then fCodeql_Image; fi
+	## fInImage starts whatever containerTag names.
+	local containerTag="${codeqlTag:-${containerTag}}"
+
+	local -r runner="${utilityDir}/codeql.bash"
+	local workDir=""
+	workDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	_scratchDirs+=("${workDir}")
+
+	if ((doGo)); then
+		fId EtAUMRI "CodeQL finds nothing in the Go module or the third-party Go it builds"
+		fCCheck "${workDir}" "CodeQL found something, or didn't see every file compile. What it said is above." \
+			bash "${runner}" go "${goDir}" "${workDir}/go" "${leakDir}/codeql-go_${runStamp}.sarif" "${reactorPackage}"
+	fi
+
+	if ((doZig)); then
+		local -a cFiles=()
+		mapfile -t cFiles < <(git -C "${repoRoot}" ls-files --full-name '*.c' | sed "s|^|${repoRoot}/|")
+		fId EtAUMRJ "CodeQL finds nothing in the first-party C"
+		if ((${#cFiles[@]} == 0)); then fTestFail "git ls-files found no .c files, so this would analyze nothing."; fi
+		fCCheck "${workDir}" "CodeQL found something, or didn't see every file compile. What it said is above." \
+			bash "${runner}" c "${repoRoot}" "${workDir}/c" "${leakDir}/codeql-c_${runStamp}.sarif" \
+			-std=c99 -Wall -Wextra -Wpedantic -Werror -I "${zigDir}/lib/include" -- "${cFiles[@]}"
+	fi
+
+	rm -rf "${workDir}"
 
 }
 

@@ -1,0 +1,7 @@
+## CodeQL findings left in place for now, read by codeql-report.py. Each names
+## the backlog item for its fix. A line that matches nothing fails the run, so
+## it comes out when the fix is in.
+##
+## <language> <backlog ID> <rule> <file, from the database's root>
+
+go 2026101911183280 go/incorrect-integer-conversion vendor/github.com/jim-collier/convert-base-v2/lib/shcl/shcl.go
