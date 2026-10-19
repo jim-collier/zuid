@@ -330,8 +330,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - A `--leakcheck` flag for the slow checks.
 	- ID: 2026101816474402
 	- Type: Enhancement
-	- Status: Started
-	- Needs local test suite run?: A full `cicd.bash --leakcheck` run, and a `--container --only zig --leakcheck` one. `--quick --leakcheck` passed with `--only go` and `--only zig`, and with `--container --only go`. Without docker the C half skipped with a note.
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Done. A full `cicd.bash --leakcheck` run passed, and so did `--container --only zig --leakcheck`. `--quick --leakcheck` passed with `--only go` and `--only zig`, and with `--container --only go`. Without docker the C half skipped with a note.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261018-164744
 	- Opened by: JC
@@ -354,9 +354,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: The one finding is upstream, in shcl: a 32-bit number turned into an `int`. It's 2026101911183280, suppressed by that ID. A suppression nothing matches fails the run, so it comes out with the fix.
 		- 20261019: CodeQL has no Go query for a lost cancel. `go vet`'s `lostcancel` runs on every run already.
 		- 20261019: Each CodeQL gate failed first on a planted fault: a tainted path and a style finding in our Go, a security finding in a copy of convertbase, a use after free and a null check after a dereference in a copy of the C tests, and the vendored files left out of the database. A style finding in the convertbase copy passed. The plainest use after free never reached CodeQL, since gcc's `-Werror` refused it.
+		- 20261019: A full `--leakcheck` run passed in 13 minutes, and `--container --only zig --leakcheck` in 11.
+		- 20261019: Left for signoff, since the context soak runs without heaptrack where the requirement asked for it, and CodeQL's separate image was a judgment call.
 	- Swept: every `fInImage` call outside the CodeQL stage still gets the main image. Both images drop their old tags through one helper, and both pipeline tests that lift the image code lift it too. A plain `--container` run never builds or starts the CodeQL image.
 	- Branch: leakcheck
-	- Commit: 59c3e61, 516fef0
+	- Commit: 59c3e61, 516fef0, 51c712d
 	- Test case: EtAUMRA (the Go soak), EtAUMRB and EtAUMRE (the C soaks), EtAUMRC and EtAUMRD (the cross-file analyzer), EtAUMRF, EtAUMRG and EtAUMRH (the flag), EtAUMRI and EtAUMRJ (CodeQL on Go and C), EtAj5P2 (CodeQL's image), EtAj5P3 to EtAj5P6 (how its report is read). Each failed first.
 
 - convertbase's config parser turns a 32-bit number into an `int`, which can wrap on a 32-bit build.
