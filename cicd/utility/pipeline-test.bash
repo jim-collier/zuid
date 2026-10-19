@@ -12,7 +12,7 @@
 ##		test-ids.py runs against a scratch tree, and the Zig fuzz stage's
 ##		report against a stand-in zig. So does package.bash, to see what
 ##		SOURCE_DATE_EPOCH it hands on. The profile report reads a made-up
-##		flamegraph.
+##		flamegraph, and the vuln report made-up govulncheck output.
 ##	Syntax:
 ##		pipeline-test.bash
 ##	History: At bottom.
@@ -1266,6 +1266,40 @@ if grep -q 'registry construction.*40\.0%' <<< "${out}"
 	else fFail "said: $(grep 'registry' <<< "${out}" || echo nothing)"
 fi
 
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## vuln-report.py, on made-up govulncheck streams: indented objects back to
+## back, as govulncheck writes them.
+
+fVulnFinding(){  ## osv, module, package, function or empty
+	printf '{\n  "osv": {"id": "%s", "summary": "made up"}\n}\n' "$1"
+	printf '{\n  "finding": {\n    "osv": "%s",\n    "trace": [{"module": "%s", "version": "v1.0.0", "package": "%s"%s}]\n  }\n}\n' \
+		"$1" "$2" "$3" "${4:+, \"function\": \"$4\"}"
+}
+fVulnReport(){ python3 "${utilityDir}/vuln-report.py" 2>&1 ;}
+vulnConfig='{"config": {"go_version": "go1.0.1"}}'
+
+fId Et9luGK "the vuln report fails on a stdlib advisory in code that's called"
+out="$( { printf '%s\n' "${vulnConfig}"; fVulnFinding GO-0000-0001 stdlib net LookupCNAME; } | fVulnReport)" && rc=0 || rc=$?
+if ((rc == 1)) && [[ "${out}" == *"GO-0000-0001 in go1.0.1, called from net.LookupCNAME"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+fId Et9luGL "the vuln report only counts a stdlib advisory in code that isn't called"
+out="$( { printf '%s\n' "${vulnConfig}"; fVulnFinding GO-0000-0002 stdlib net ""; } | fVulnReport)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == *"1 advisories for go1.0.1 in code we don't call"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+fId Et9luGM "the vuln report fails on a third-party advisory, even one that isn't called"
+out="$( { printf '%s\n' "${vulnConfig}"; fVulnFinding GO-0000-0003 example.com/x example.com/x ""; } | fVulnReport)" && rc=0 || rc=$?
+if ((rc == 1)) && [[ "${out}" == *"GO-0000-0003 in example.com/x@v1.0.0"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
 fLine ""
@@ -1273,6 +1307,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261019 JC: The vuln report.
 ##		- 20261018 JC: --gate is --ci. Every run cross-compiles.
 ##		- 20261013 JC: Fuzz cases clean up their temp folders.
 ##		- 20261010 JC: --container.

@@ -98,6 +98,38 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: c286dfe
 	- Test case: EshFEjt, EshFEjv, EshFEjw, EshFEjx, EshFEjy, EshFEjz, EshFEk0, EshFEk1, EshFEk2. `--arch`'s missing-value case, Eq9oNBi, is retired with the flag.
 
+- Go leak, race, and lint checks in CICD.
+	- ID: 2026101816474400
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and so did a quick `--container` run of the Go side. A full run adds nothing new, since every new check runs on quick runs too.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261018-164744
+	- Opened by: JC
+	- Parent ID: 2026101816243853
+	- Related IDs: 2026101410495995
+	- Requirements  [Feature]:
+		- The parent's Go requirements, less the soak test: goleak in every package's tests, `-race` on a full run, `go vet` and `staticcheck`, and `govulncheck`. Covers 2026101410495995.
+	- Progress log:
+		- 20261019: Every run, quick and `--ci` included, runs goleak, the tests under `-race`, `go vet` and staticcheck on the module and on convertbase, and govulncheck. None is slow enough to be full-run only: `-race` adds about 6 s, and the rest take about 5 s together.
+		- 20261019: staticcheck and govulncheck are pinned in the container's Dockerfile, not in `fConfig` as 2026101410495995 asked, per the decision below.
+		- 20261019: `-race` needs cgo on Linux. Without cgo the tests run without it, and Et9R2xW skips with a note.
+		- 20261019: The third-party code checked is what a user of the module builds, convertbase and shcl. It gets `go vet` and staticcheck's bug checks, not its style ones. goleak is only in the tests, so it's left out.
+		- 20261019: govulncheck fails on any advisory in a third-party module, called or not. It also fails on one in Go's own library that the module or the reactor calls. One in code nothing calls is only counted. The reactor is scanned as wasip1, the way it ships.
+		- 20261019: Each gate failed first on a planted fault: a leaked goroutine, a data race, a missing leak check, a copied lock, an unused value, and the same 2 plus an old `golang.org/x/text` in a copy of convertbase. A style-only finding there passed. Offline, govulncheck skipped. Without docker, all 3 image checks skipped.
+	- Decisions:
+		- 20261018: The checker tools are pinned and run from the container image (`cicd/container/Dockerfile`), never installed on the host. A host run starts the pinned image for a stage that needs one. With no docker that stage skips with a note, so a public clone still passes. Inside a `--container` run the tools are called directly. The Go toolchain's own `go vet` and `go test -race` may run on the host's Go.
+		- 20261018: `-race`, staticcheck and govulncheck are full-run only if they're slow. A quick or `--ci` run keeps what's quick.
+		- 20261018: govulncheck skips offline with a note.
+		- 20261018: goleak goes in as `go.uber.org/goleak`, pinned in `go/go.mod`, with `VerifyTestMain` in every package's tests. The `go 1.24` directive stays.
+		- 20261018: The module needs no cgo. If `-race` needs cgo here, it's handled per the parent's traps.
+		- 20261018: Each gate is watched to fail on a planted fault before it's trusted.
+		- 20261019: A Go library advisory in code we call fails the run. The Go that's scanned builds the reactor that ships in the command, so it has to stay current. The fix is a `GO_VER` bump, 2026101907263616.
+	- Swept: every `go test` call in `cicd.bash`. The fuzz and benchmark runs pass with goleak in. The tests also compile for Windows and macOS with the new `TestMain`.
+	- Branch: leakgate
+	- Commit: a64c88c
+	- Test case: Et9R2xU (goleak), Et9R2xV (every package has it), Et9R2xW (`-race`), Et9R2xX and Et9R2xY (`go vet`), Et9R2xZ and Et9R2xa (staticcheck), Et9R2xb (govulncheck), Et9VtIq (the skip without docker). Et9luGK, Et9luGL and Et9luGM for how the report reads govulncheck. Each failed first.
+
 - A Windows install leaves `PATH` to the user.
 	- ID: 2026101410495985
 	- Type: Enhancement
@@ -273,37 +305,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261018: Split into 2026101816474400 for Go, 2026101816474401 for C, and 2026101816474402 for `--leakcheck`. This one closes when they do.
 
-- Go leak, race, and lint checks in CICD.
-	- ID: 2026101816474400
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and so did a quick `--container` run of the Go side. A full run adds nothing new, since every new check runs on quick runs too.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261018-164744
-	- Opened by: JC
-	- Parent ID: 2026101816243853
-	- Related IDs: 2026101410495995
-	- Requirements  [Feature]:
-		- The parent's Go requirements, less the soak test: goleak in every package's tests, `-race` on a full run, `go vet` and `staticcheck`, and `govulncheck`. Covers 2026101410495995.
-	- Progress log:
-		- 20261019: Every run, quick and `--ci` included, runs goleak, the tests under `-race`, `go vet` and staticcheck on the module and on convertbase, and govulncheck. None is slow enough to be full-run only: `-race` adds about 6 s, and the rest take about 5 s together.
-		- 20261019: staticcheck and govulncheck are pinned in the container's Dockerfile, not in `fConfig` as 2026101410495995 asked, per the decision below.
-		- 20261019: `-race` needs cgo on Linux. Without cgo the tests run without it, and Et9R2xW skips with a note.
-		- 20261019: The third-party code checked is what a user of the module builds, convertbase and shcl. It gets `go vet` and staticcheck's bug checks, not its style ones. goleak is only in the tests, so it's left out.
-		- 20261019: govulncheck fails on any advisory in a third-party module, called or not. Advisories in Go's own library are only counted, since they belong to whichever Go builds the module. The container's Go 1.26.2 has 3 of them, fixed in 1.26.6. This is the reading that needs signoff.
-		- 20261019: Each gate failed first on a planted fault: a leaked goroutine, a data race, a missing leak check, a copied lock, an unused value, and the same 2 plus an old `golang.org/x/text` in a copy of convertbase. A style-only finding there passed. Offline, govulncheck skipped. Without docker, all 3 image checks skipped.
-	- Decisions:
-		- 20261018: The checker tools are pinned and run from the container image (`cicd/container/Dockerfile`), never installed on the host. A host run starts the pinned image for a stage that needs one. With no docker that stage skips with a note, so a public clone still passes. Inside a `--container` run the tools are called directly. The Go toolchain's own `go vet` and `go test -race` may run on the host's Go.
-		- 20261018: `-race`, staticcheck and govulncheck are full-run only if they're slow. A quick or `--ci` run keeps what's quick.
-		- 20261018: govulncheck skips offline with a note.
-		- 20261018: goleak goes in as `go.uber.org/goleak`, pinned in `go/go.mod`, with `VerifyTestMain` in every package's tests. The `go 1.24` directive stays.
-		- 20261018: The module needs no cgo. If `-race` needs cgo here, it's handled per the parent's traps.
-		- 20261018: Each gate is watched to fail on a planted fault before it's trusted.
-	- Swept: every `go test` call in `cicd.bash`. The fuzz and benchmark runs pass with goleak in. The tests also compile for Windows and macOS with the new `TestMain`.
-	- Branch: leakgate
-	- Commit: a64c88c
-	- Test case: Et9R2xU (goleak), Et9R2xV (every package has it), Et9R2xW (`-race`), Et9R2xX and Et9R2xY (`go vet`), Et9R2xZ and Et9R2xa (staticcheck), Et9R2xb (govulncheck), Et9VtIq (the skip without docker). Each failed first.
-
 - C sanitizer and analyzer checks in CICD.
 	- ID: 2026101816474401
 	- Type: Enhancement
@@ -337,24 +338,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Run PSScriptAnalyzer on `install.ps1` and `cicd/utility/run-latest.ps1` when it's installed, and fail on a finding. `install.ps1` is clean as of 20261014.
 	- Progress log:
 		- 20261014: `installer-test.bash` checks `install.ps1` against the 5.1 profile when PSScriptAnalyzer is installed (EshaOju). The general lint is still open.
-
-- No vulnerability check on the Go dependencies.
-	- ID: 2026101410495995
-	- Type: Enhancement
-	- Status: Done
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Related IDs: 2026101816474400
-	- Requirements  [Feature]:
-		- govulncheck at a pinned version, skipped offline, with the pin in `fConfig`.
-	- Progress log:
-		- 20261019: Done under 2026101816474400. The pin is in the container's Dockerfile rather than `fConfig`, per that item's 20261018 decision.
-	- Branch: leakgate
-	- Commit: a64c88c
-	- Test case: Et9R2xb.
-	- Acceptance signoff: Self-closed: covered by 2026101816474400.
-	- Closed: 20261019-062109
 
 - The host's shellcheck isn't checked against the container's pin.
 	- ID: 2026101410495996
@@ -980,6 +963,26 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: `ErOkWfZ`, `ErOkWfb`.
 	- Closed: 20260930-155553
 
+- The container's Go has known bugs in code the Go module calls.
+	- ID: 2026101907263616
+	- Type: Task
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261019-072636
+	- Opened by: JC
+	- Related IDs: 2026101816474400
+	- Requirements  [Feature]:
+		- Bump `GO_VER` in `cicd/container/Dockerfile` to 1.26.6 or later, which fixes the 3 `net` advisories govulncheck found.
+	- Progress log:
+		- 20261019: `GO_VER` is 1.26.9. All 3 advisories came through `net.LookupCNAME`, which `%f` calls, and they're gone from the report.
+		- 20261019: The reactor wasm now builds with the same Go, fetched through `GOTOOLCHAIN` when the host has another version. A release refuses any other Go, and won't fall back to an older vendored copy.
+	- Decisions:
+		- 20261019: 1.26.9 over 1.27.2. A patch release changes the least, and 1.26 still gets security fixes.
+	- Branch: govuln
+	- Commit: ca65cae
+	- Test case: Et9R2xb fails on 1.26.2 and passes on 1.26.9. Et9luGN checks which Go builds the reactor.
+	- Closed: 20261019
+
 - A pre-push gate for main.
 	- ID: 2026101410495991
 	- Type: Enhancement
@@ -1479,6 +1482,24 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Verified: 20261004 on b26, at 12d2b2d: ErmYT8R passed in the full `--package` run, and the macOS tarball lists `share/LICENSE-wasmtime.txt`, which is the Apache 2.0 text. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
 	- Acceptance signoff: Self-closed: every release has the license, and its tests pass.
 	- Closed: 20261004-175611
+
+- No vulnerability check on the Go dependencies.
+	- ID: 2026101410495995
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Related IDs: 2026101816474400
+	- Requirements  [Feature]:
+		- govulncheck at a pinned version, skipped offline, with the pin in `fConfig`.
+	- Progress log:
+		- 20261019: Done under 2026101816474400. The pin is in the container's Dockerfile rather than `fConfig`, per that item's 20261018 decision.
+	- Branch: leakgate
+	- Commit: a64c88c
+	- Test case: Et9R2xb.
+	- Acceptance signoff: Self-closed: covered by 2026101816474400.
+	- Closed: 20261019-062109
 
 - The `go/` tag reads as a second release on GitHub.
 	- ID: 2026101419205100
