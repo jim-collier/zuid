@@ -123,6 +123,11 @@ fLoad(){  ## function name
 	eval "${body}"
 }
 
+## The lifted stages start with a header, which no case here reads but
+## EtB5PUX.
+# shellcheck disable=2329  ## Called by the lifted functions.
+fSection(){ :; }
+
 ## A prerelease of the floor version passed the floor, because only the
 ## release part was compared.
 fId ErOjF74 "a prerelease of the floor version is below it"
@@ -490,7 +495,7 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 		# shellcheck disable=2034  ## Read by the lifted fStage_Container.
 		{
 			repoRoot="$(cd "$1" && pwd -P)"; containerImage="zuid-cicd"; containerVolume="zuid-cicd-cache"; codeqlImage="zuid-codeql"
-			onlyToolchain="go"; doQuick=1; doPackage=1; doLeakcheck="${leakcheck:-0}"
+			onlyToolchain="go"; doQuick=1; doPackage=1; doLeakcheck="${leakcheck:-0}"; runStamp="20261019-101112"; _sectionWidth="123"
 		}
 		local fn=""
 		for fn in _fMustBeInPath fStage_Container fContainer_Image fCodeql_Image fContainer_DropOthers fContainer_RunArgs; do
@@ -525,7 +530,7 @@ fId EsJ9SjF "the container gets the repo at its own path, the cache volume and t
 : > "${work}/engine-main"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-main")"
-wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder}"
+wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder} -e ZUID_RUN_STAMP=20261019-101112 -e ZUID_COLUMNS=123"
 wantRun+=" -w ${mainReal} ${newTag} bash ${mainReal}/cicd/cicd.bash -q --no-sync --no-backup --no-dogfood --only go --quick --package"
 if ((rc == 0)) && grep -qxF -- "${wantRun}" <<< "${log}" && ! grep -q '^build ' <<< "${log}"
 	then fPass
@@ -553,6 +558,79 @@ out="$(leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && r
 if ((rc == 0)) && grep -q -- "^run .* --only go --quick --package --leakcheck$" "${work}/engine-main"
 	then fPass
 	else fFail "exited ${rc}, asked: $(grep '^run ' "${work}/engine-main" || true)"
+fi
+
+## The image has no time zone, so the run inside stamped its files in UTC and
+## they sorted hours away from the host's.
+fId EtB0hIu "the run in the container names its files with the stamp of the run outside"
+: > "${work}/engine-main"
+out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
+stampBad=""
+grep -q -- "^run .* -e ZUID_RUN_STAMP=20261019-101112 .* bash " "${work}/engine-main" || stampBad+=" the stamp wasn't handed in;"
+stampOut="$(
+	if ! fLoad fRunStamp; then echo "no fRunStamp in cicd.bash"; exit 0; fi
+	# shellcheck disable=2034  ## Read by the lifted fRunStamp.
+	inContainer=1
+	printf 'in=%s\n' "$(ZUID_RUN_STAMP=20261019-101112 fRunStamp)"
+	printf 'junk=%s\n' "$(ZUID_RUN_STAMP='20261019-101112;x' fRunStamp)"
+	# shellcheck disable=2034
+	inContainer=0
+	printf 'host=%s\n' "$(ZUID_RUN_STAMP=20261019-101112 fRunStamp)"
+)"
+grep -qxF "in=20261019-101112" <<< "${stampOut}" || stampBad+=" inside, it didn't take the stamp;"
+if ! grep -qE '^junk=[0-9]{8}-[0-9]{6}$' <<< "${stampOut}" || grep -q '^junk=20261019-101112' <<< "${stampOut}"; then
+	stampBad+=" inside, it took a malformed stamp;"
+fi
+if ! grep -qE '^host=[0-9]{8}-[0-9]{6}$' <<< "${stampOut}" || grep -q '^host=20261019-101112' <<< "${stampOut}"; then
+	stampBad+=" on the host, it took one from the environment;"
+fi
+if ((rc == 0)) && [[ -z "${stampBad}" ]]
+	then fPass
+	else fFail "exited ${rc},${stampBad} asked: $(grep '^run ' "${work}/engine-main" || true); said: ${stampOut//$'\n'/ | }"
+fi
+
+## A stage header is a blank line, a rule of dots as wide as the terminal,
+## then the title, the way silkterm prints one. A pipe or a log has no width,
+## so it gets silkterm's 74. The run in the container gets the outside's.
+fId EtB5PUX "a stage header is a blank line, a rule as wide as the terminal or 74 without one, and the title"
+sectionScript="${work}/section.bash"
+sectionBad=""
+if (
+	for fn in fEcho_Clean fSection_Init fSection; do
+		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+	done
+	# shellcheck disable=2329  ## Called by the lifted fSection.
+	fEcho(){ fEcho_Clean "[ $* ]"; }
+	# shellcheck disable=2016  ## Expanded by the script, not here.
+	{
+		printf '%s\n' 'set -Eeuo pipefail' 'declare -i _wasLastEchoBlank=0' 'inContainer="${1:-0}"' '_sectionRule="" _sectionWidth=""'
+		declare -f fEcho_Clean fEcho fSection_Init fSection
+		printf '%s\n' 'fEcho_Clean "before"' 'fSection "A stage"' 'printf "width=%s\n" "${_sectionWidth}"'
+	} > "${sectionScript}"
+) > "${work}/section.out" 2>&1; then
+	printf -v rule74 '%*s' 74 ''; rule74="${rule74// /•}"
+	printf -v rule101 '%*s' 101 ''; rule101="${rule101// /•}"
+	printf -v rule123 '%*s' 123 ''; rule123="${rule123// /•}"
+	got="$(bash "${sectionScript}" 0 | cat)"
+	[[ "${got}" == "before"$'\n'$'\n'"${rule74}"$'\n'"[ A stage ]"$'\n'"width=74" ]] || sectionBad+=" in a pipe it said '${got}';"
+	got="$(ZUID_COLUMNS=101 bash "${sectionScript}" 1 | cat)"
+	[[ "${got}" == *$'\n'"${rule101}"$'\n'"[ A stage ]"$'\n'"width=101" ]] || sectionBad+=" in the container it didn't take 101: '${got}';"
+	got="$(ZUID_COLUMNS=101 bash "${sectionScript}" 0 | cat)"
+	[[ "${got}" == *"width=74" ]] || sectionBad+=" on the host it took the container's width: '${got}';"
+	## A terminal, from util-linux's script, sized by hand.
+	if script --version 2>/dev/null | grep -q util-linux; then
+		got="$(script -qec "stty cols 123 rows 40; bash '${sectionScript}' 0" /dev/null < /dev/null | tr -d '\r')"
+		[[ "${got}" == *$'\n'"${rule123}"$'\n'"[ A stage ]"$'\n'"width=123"* ]] || sectionBad+=" in a 123-wide terminal it said '${got}';"
+	fi
+else
+	sectionBad+=" $(cat "${work}/section.out");"
+fi
+: > "${work}/engine-main"
+fContainerIn "${worktreeMain}" "${work}/engine-main" 0 >/dev/null 2>&1 || true
+grep -q -- "^run .* -e ZUID_COLUMNS=123 .* bash " "${work}/engine-main" || sectionBad+=" the container wasn't handed the width;"
+if [[ -z "${sectionBad}" ]]
+	then fPass
+	else fFail "${sectionBad}"
 fi
 
 ## CodeQL is about 480 MB, so a run that doesn't want it never builds it.
@@ -585,7 +663,7 @@ out="$(
 	for fn in _fMustBeInPath fGoCheckers_Ready fContainer_Image fContainer_DropOthers; do
 		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 	done
-	# shellcheck disable=2031  ## The stub reads it; the earlier subshell's copy is gone.
+	# shellcheck disable=2030,2031  ## The stub reads it; the earlier subshell's copy is gone.
 	export ENGINE_LOG="${work}/engine-checkers"
 	# shellcheck disable=2034  ## Read by the lifted functions.
 	containerEngine="${work}/no-such-engine"
@@ -628,6 +706,132 @@ if ((rc == 0)) && [[ "$(grep -c '^run ' <<< "${log}")" == "2" ]] \
 fi
 
 git -C "${worktreeMain}" worktree remove --force "${worktreeDir}"
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The shell stage, with a stand-in shellcheck that reports a version and
+## passes everything, and the stages it calls stubbed out.
+
+cat > "${work}/shellcheck" <<'STUB'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--version" ]]; then
+	printf 'ShellCheck - shell script analysis tool\nversion: %s\nlicense: GNU General Public License, version 3\n' "${FAKE_SC_VER}"
+fi
+STUB
+chmod +x "${work}/shellcheck"
+shellTree="${work}/shell-tree"
+mkdir -p "${shellTree}/cicd/container" "${work}/shell-bin"
+cp "${work}/shellcheck" "${work}/shell-bin/"
+printf 'FROM scratch\nARG SC_VER=0.11.0\n' > "${shellTree}/cicd/container/Dockerfile"
+
+fShellIn(){  ## version the stand-in shellcheck reports
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fEcho(){ :; }
+		# shellcheck disable=2329
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2329
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2329,2154  ## testId and testName come from the lifted fId.
+		fTestPass(){ printf '  ok ....: %s %s\n' "${testId}" "${testName}"; }
+		# shellcheck disable=2329
+		fTestSkip(){ printf '  skip ..: %s %s (%s)\n' "${testId}" "${testName}" "$*"; }
+		# shellcheck disable=2329
+		fTestFail(){ printf '  FAIL ..: %s %s\n' "${testId}" "${testName}"; fThrowError "$*"; }
+		# shellcheck disable=2329
+		fStage_TestIds(){ :; }
+		# shellcheck disable=2329
+		fStage_Shell_PowerShell(){ :; }
+		# shellcheck disable=2329
+		fStage_Shell_Pipeline(){ :; }
+		# shellcheck disable=2329
+		fStage_Shell_Installers(){ :; }
+		# shellcheck disable=2329
+		fStage_Docs(){ :; }
+		# shellcheck disable=2329
+		fContentScrub(){ :; }
+		# shellcheck disable=2034,2030  ## Read by the lifted functions, in this subshell only.
+		{ repoRoot="${shellTree}"; utilityDir="${shellTree}/cicd/utility" ;}
+		local fn=""
+		for fn in fId fStage_Shell; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		# shellcheck disable=2030,2031  ## Only the subshell is meant to see it.
+		export PATH="${work}/shell-bin:${PATH}" FAKE_SC_VER="$1"
+		fStage_Shell
+	) 2>&1
+}
+
+## shellcheck's warnings change between versions, so a host on another one
+## can pass what the container fails.
+fId EtB4VLJ "the shell stage says so when the host's shellcheck isn't the one the container pins"
+scOld="$(fShellIn 0.10.0)" && rc=0 || rc=$?
+scSame="$(fShellIn 0.11.0)" && rcSame=0 || rcSame=$?
+scWant="skip ..: EtB4gns the host's shellcheck is the one the container pins (shellcheck 0.10.0 here, and the container pins 0.11.0, so its warnings can differ)"
+if ((rc == 0 && rcSame == 0)) && grep -qxF "  ${scWant}" <<< "${scOld}" \
+	&& grep -qxF "  ok ....: EtB4gns the host's shellcheck is the one the container pins" <<< "${scSame}"
+	then fPass
+	else fFail "exited ${rc} and ${rcSame}, said: ${scOld//$'\n'/ | } and: ${scSame//$'\n'/ | }"
+fi
+
+## The PowerShell lint, against this repo's own file list, with the stand-in
+## docker. Each run is "<checkerSkipWhy>|<exit code of the run in the image>".
+fPsLintIn(){  ## skip reason, exit code for the run in the image
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fEcho(){ :; }
+		# shellcheck disable=2329
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2329
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2329,2154  ## testId and testName come from the lifted fId.
+		fTestPass(){ printf '  ok ....: %s %s\n' "${testId}" "${testName}"; }
+		# shellcheck disable=2329
+		fTestSkip(){ printf '  skip ..: %s %s (%s)\n' "${testId}" "${testName}" "$*"; }
+		# shellcheck disable=2329
+		fTestFail(){ printf '  FAIL ..: %s %s\n' "${testId}" "${testName}"; fThrowError "$*"; }
+		# shellcheck disable=2329,2034  ## Called by the lifted stage, and checkerSkipWhy is its local.
+		fGoCheckers_Ready(){ checkerSkipWhy="${PS_SKIP}"; }
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{ containerVolume="zuid-cicd-cache"; inContainer=0; containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine" ;}
+		local fn=""
+		for fn in fId fInImage fContainer_RunArgs fStage_Shell_PowerShell; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		# shellcheck disable=2030,2031  ## Only the subshell is meant to see them.
+		export PS_SKIP="$1" ENGINE_RUN_RC="$2" ENGINE_LOG="${work}/engine-pslint"
+		fStage_Shell_PowerShell
+	) 2>&1
+}
+
+## Every tracked .ps1, in the image, and a finding fails it. With no docker it
+## skips, the same as the other checkers in the image.
+fId EtB6KVG "the PowerShell lint runs on every tracked PowerShell file in the image, fails on a finding, and skips without docker"
+psBad=""
+: > "${work}/engine-pslint"
+out="$(fPsLintIn "" 0)" && rc=0 || rc=$?
+psLog="$(cat "${work}/engine-pslint")"
+if ((rc != 0)) || ! grep -qxF "  ok ....: EtB6KVF PSScriptAnalyzer finds nothing in the tracked PowerShell" <<< "${out}"; then psBad+=" a clean run said '${out}';"; fi
+## The real repo. The scratch roots above were set in subshells.
+# shellcheck disable=2031
+{
+	mapfile -t psFiles < <(git -C "${repoRoot}" ls-files --full-name '*.ps1' '*.psm1' '*.psd1')
+	((${#psFiles[@]})) || psBad+=" this repo has no PowerShell files to check against;"
+	for psFile in "${psFiles[@]}"; do
+		grep -qF "${repoRoot}/${psFile}" <<< "${psLog}" || psBad+=" ${psFile} wasn't linted;"
+	done
+}
+grep -q -- "^run .* zuid-cicd:t3st env ZUID_PS_FILES=" <<< "${psLog}" || psBad+=" it didn't run in the image: '${psLog}';"
+out="$(fPsLintIn "" 1)" && rc=0 || rc=$?
+if ((rc == 0)) || [[ "${out}" != *"PSScriptAnalyzer found something"* ]]; then psBad+=" a finding didn't fail it: '${out}';"; fi
+: > "${work}/engine-pslint"
+out="$(fPsLintIn "no docker here" 0)" && rc=0 || rc=$?
+if ((rc != 0)) || ! grep -qxF "  skip ..: EtB6KVF PSScriptAnalyzer finds nothing in the tracked PowerShell (no docker here)" <<< "${out}" \
+	|| [[ -s "${work}/engine-pslint" ]]; then psBad+=" without docker it said '${out}';"; fi
+if [[ -z "${psBad}" ]]
+	then fPass
+	else fFail "${psBad}"
+fi
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
