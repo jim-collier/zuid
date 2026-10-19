@@ -282,6 +282,46 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: aaa915c
 	- Test case: none. Wording only. The tests that read messages still pass.
 
+- PowerShell files aren't linted.
+	- ID: 2026101410495993
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and so did `--container --only go --quick`.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Run PSScriptAnalyzer on `install.ps1` and `cicd/utility/run-latest.ps1` when it's installed, and fail on a finding. `install.ps1` is clean as of 20261014.
+	- Progress log:
+		- 20261014: `installer-test.bash` checks `install.ps1` against the 5.1 profile when PSScriptAnalyzer is installed (EshaOju). The general lint is still open.
+		- 20261019: PSScriptAnalyzer 1.25.0 is pinned in the container image, from the PowerShell Gallery package by version and sha256. The gallery's own SHA512 for it matched the download. A new "PowerShell: lint" stage runs its default rules on every tracked PowerShell file, `install.ps1` and `run-latest.ps1` today, from the image like the Go checkers. Any finding fails it, and with no docker it skips with a note. Both files are clean. About 7 s on a busy box.
+		- 20261019: Unpacked it's about 300 MB, nearly all of it the compatibility profiles EshaOju's rules read. The image grew 310 MB on disk and 15 MB in content. Leaving the profiles out would change what those rules flag, since they compare against all of them together, so the package goes in whole.
+		- 20261019: With PSScriptAnalyzer in the image, EshaOju runs under `--container` now, where it used to skip. A host run still checks it with the host's PSScriptAnalyzer, when there is one.
+		- 20261019: Question: the style guide names `PSUseConsistentIndentation` with tabs, in a `PSScriptAnalyzerSettings.psd1`. On `install.ps1` it flags the 2 continuation lines of one pipeline, 565 and 566. Not added, since it means picking how a pipeline is indented. Say if it should be.
+	- Branch: cicdtidy
+	- Commit: b79038c
+	- Test case: EtB6KVF is the check. It failed on an unused variable planted in `install.ps1` and a syntax error planted in `run-latest.ps1`, and on the old image, which has no PSScriptAnalyzer. EtB6KVG runs the stage with a stand-in docker: every tracked PowerShell file is handed in, a finding fails it, and with no docker it skips.
+
+- Stage headers have no full-width rule above them.
+	- ID: 2026101410495998
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and `lint-report.bash` reads its log as clean.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- A blank line, a full-width rule of `•`, then the title, as silkterm's `fSection` does. About 27 headers. Check `lint-report.bash` and `pipeline-test.bash` don't match on the header lines.
+	- Progress log:
+		- 20261019: Every stage header in `cicd.bash` goes through one `fSection`, like silkterm's. That's 30 headers, with the commit message prompt. "Passed." and the interrupt line are status lines, so they stayed as they were.
+		- 20261019: silkterm's rule is always 74 wide. Here it's the terminal's width when the run starts in one, and 74 in a pipe or a log. The width is read before the run log's tee, since after it nothing is a terminal, so the log gets the rule the screen got. `--container` hands its width to the run inside, which has no terminal.
+		- 20261019: Nothing reads the header lines. `lint-report.bash` looks for warning words, the rule has none, and the titles didn't change. `pipeline-test.bash` stubs the header out of the stages it lifts. `test-ids.py` reads test output only, and the pre-push hook reads none.
+		- 20261019: Question: `install.bash` has headers of its own ("Plan", "Downloading"), with no rule. Left alone, since that's what people see while installing. Say if they should get one too.
+	- Swept: the other bash scripts. The 3 test harnesses and `package.bash` print a status line or two, not stages. In the source, the new functions are inside existing `#•••` sections, and the new `pipeline-test.bash` section has that file's rule.
+	- Branch: cicdtidy
+	- Commit: 3fbe497
+	- Test case: EtB5PUX. A pipe gets 74, a 123-wide terminal gets 123, the run inside the container takes the width it's handed and a host run doesn't, and `--container` hands it in. It failed before the change, and fails with the terminal read taken out.
+
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -311,6 +351,25 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: none. The fault is in the kernel, and 80 runs did not bring it back.
 	- Acceptance signoff: Closed as asked, 20261005.
 	- Closed: 20261005-102900
+
+- A run with a missing docker leaves an empty `tmp.*` file in TMPDIR.
+	- ID: 2026101912130117
+	- Type: Bug
+	- Status: Can't reproduce
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261019-121301
+	- Opened by: JC
+	- Related IDs: 2026101816474402
+	- Steps to reproduce [Bug]:
+		- Run `cicd.bash --quick --leakcheck` with `ZUID_DOCKER` naming a program that doesn't exist.
+	- Incorrect behavior [Bug]: An empty `tmp.*` file is left behind in TMPDIR.
+	- Expected behavior [Bug]: Every temp file the run makes is gone when it ends.
+	- Reproduced [Bug]: Seen once, 20261019. Not traced.
+	- Progress log:
+		- 20261019: The filed command, `ZUID_DOCKER=no-such-docker cicd.bash --only zig --quick --leakcheck`, left nothing in a TMPDIR of its own. Neither did a run of both sides with a missing docker named by path, or a run that failed partway. A watch on the folder saw no plain `tmp.*` file made at its top level in any of them, even for a moment. Every `tmp.*` folder was gone at the end.
+		- 20261019: Every `mktemp` in the tree is a `mktemp -d` that goes on the cleanup list. Nothing calls a plain `mktemp`. The file seen was in the temp root every session on this box shares, and was tied to the run only by its time, about 34 s after the run started.
+	- Branch: cicdtidy
+	- Test case: none. Nothing reproduced it, so there's no failure for a test to pin. EscPGS5 and EscPGS6 already pin the cleanup of scratch folders.
 
 - Move `convertbase` to `lib/v0.2.0` once it is tagged.
 	- ID: 2026100519164742
@@ -366,7 +425,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - convertbase's config parser turns a 32-bit number into an `int`, which can wrap on a 32-bit build.
 	- ID: 2026101911183280
 	- Type: Bug
-	- Status: Queued
+	- Status: Stalled
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261019-111832
 	- Opened by: JC
@@ -376,103 +435,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced [Bug]: No. Read only. Its one caller reads a day of the month and refuses anything outside 1 to 31, which a wrapped value is, so no wrong result was found. zuid never loads a config.
 	- Progress log:
 		- 20261019: The code is upstream, so it's fixed in convert-base-v2 and comes in with a later pin. Until then `cicd/utility/codeql-suppressions.txt` suppresses it by this ID.
-
-- Container runs stamp artifacts in UTC, so they sort apart from host runs.
-	- ID: 2026101912130116
-	- Type: Bug
-	- Status: Done
-	- Needs local test suite run?: Done. `cicd.bash --container --only go --quick --leakcheck` passed, and the soak profile made inside has the same stamp as the host's run log.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261019-121301
-	- Opened by: JC
-	- Related IDs: 2026101816474402
-	- Incorrect behavior [Bug]: Inside `--container` the run stamp is UTC, so leakcheck reports and profiles from a container run are named hours off from a host run's and sort out of order.
-	- Expected behavior [Bug]: One clock for every run's file names.
-	- Reproduced [Bug]: Seen in the `--leakcheck` work, 20261019. EtB0hIu failed on the tree before the fix.
-	- Actual cause [Bug]: The image has no time zone data and gets no `TZ`, so `date` inside reads UTC. The host has no `TZ` either, since its zone comes from `/etc/localtime`, so handing a zone name in wouldn't have helped.
-	- Actual fix [Bug]: The run outside hands its own stamp to the run inside, which names every file with it. A malformed one is ignored, and so is one in the environment of a host run.
-	- Swept: every use of the run stamp in `cicd.bash`: the run log, the sync stash, the Zig crash copy, the leak checks, CodeQL, the profiles and the demo. They all read the one stamp. `package.bash` dates from `SOURCE_DATE_EPOCH`, which was already handed in, and `test-ids.py` is UTC on purpose.
-	- Branch: cicdtidy
-	- Commit: 04a10ae
-	- Test case: EtB0hIu. It failed before the fix and passes after, and fails again with either guard taken out. EsJ9SjF's expected `docker run` line has the stamp in it now.
-	- Acceptance signoff: Self-closed: its test failed before the fix and passes after.
-	- Closed: 20261019-124500
-
-- A run with a missing docker leaves an empty `tmp.*` file in TMPDIR.
-	- ID: 2026101912130117
-	- Type: Bug
-	- Status: Can't reproduce
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261019-121301
-	- Opened by: JC
-	- Related IDs: 2026101816474402
-	- Steps to reproduce [Bug]:
-		- Run `cicd.bash --quick --leakcheck` with `ZUID_DOCKER` naming a program that doesn't exist.
-	- Incorrect behavior [Bug]: An empty `tmp.*` file is left behind in TMPDIR.
-	- Expected behavior [Bug]: Every temp file the run makes is gone when it ends.
-	- Reproduced [Bug]: Seen once, 20261019. Not traced.
-	- Progress log:
-		- 20261019: The filed command, `ZUID_DOCKER=no-such-docker cicd.bash --only zig --quick --leakcheck`, left nothing in a TMPDIR of its own. Neither did a run of both sides with a missing docker named by path, or a run that failed partway. A watch on the folder saw no plain `tmp.*` file made at its top level in any of them, even for a moment. Every `tmp.*` folder was gone at the end.
-		- 20261019: Every `mktemp` in the tree is a `mktemp -d` that goes on the cleanup list. Nothing calls a plain `mktemp`. The file seen was in the temp root every session on this box shares, and was tied to the run only by its time, about 34 s after the run started.
-	- Branch: cicdtidy
-	- Test case: none. Nothing reproduced it, so there's no failure for a test to pin. EscPGS5 and EscPGS6 already pin the cleanup of scratch folders.
-
-- PowerShell files aren't linted.
-	- ID: 2026101410495993
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and so did `--container --only go --quick`.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- Run PSScriptAnalyzer on `install.ps1` and `cicd/utility/run-latest.ps1` when it's installed, and fail on a finding. `install.ps1` is clean as of 20261014.
-	- Progress log:
-		- 20261014: `installer-test.bash` checks `install.ps1` against the 5.1 profile when PSScriptAnalyzer is installed (EshaOju). The general lint is still open.
-		- 20261019: PSScriptAnalyzer 1.25.0 is pinned in the container image, from the PowerShell Gallery package by version and sha256. The gallery's own SHA512 for it matched the download. A new "PowerShell: lint" stage runs its default rules on every tracked PowerShell file, `install.ps1` and `run-latest.ps1` today, from the image like the Go checkers. Any finding fails it, and with no docker it skips with a note. Both files are clean. About 7 s on a busy box.
-		- 20261019: Unpacked it's about 300 MB, nearly all of it the compatibility profiles EshaOju's rules read. The image grew 310 MB on disk and 15 MB in content. Leaving the profiles out would change what those rules flag, since they compare against all of them together, so the package goes in whole.
-		- 20261019: With PSScriptAnalyzer in the image, EshaOju runs under `--container` now, where it used to skip. A host run still checks it with the host's PSScriptAnalyzer, when there is one.
-		- 20261019: Question: the style guide names `PSUseConsistentIndentation` with tabs, in a `PSScriptAnalyzerSettings.psd1`. On `install.ps1` it flags the 2 continuation lines of one pipeline, 565 and 566. Not added, since it means picking how a pipeline is indented. Say if it should be.
-	- Branch: cicdtidy
-	- Commit: b79038c
-	- Test case: EtB6KVF is the check. It failed on an unused variable planted in `install.ps1` and a syntax error planted in `run-latest.ps1`, and on the old image, which has no PSScriptAnalyzer. EtB6KVG runs the stage with a stand-in docker: every tracked PowerShell file is handed in, a finding fails it, and with no docker it skips.
-
-- The host's shellcheck isn't checked against the container's pin.
-	- ID: 2026101410495996
-	- Type: Enhancement
-	- Status: Done
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- Say so when the host's shellcheck isn't the Dockerfile's `SC_VER`, the way EsbF9Jy does for nfpm.
-	- Progress log:
-		- 20261019: The Bash lint now starts with EtB4gns, worded and built like EsbF9Jy. It skips with a note when the host's shellcheck isn't the pinned one, and when there's no shellcheck at all. It runs before the lint, since a lint warning stops the run and would hide the note.
-	- Branch: cicdtidy
-	- Commit: 37527ce
-	- Test case: EtB4gns is the check. EtB4VLJ runs the shell stage with a stand-in shellcheck at 0.10.0 and at 0.11.0, and wants the skip line and the pass line. It failed before the check was there.
-	- Acceptance signoff: Self-closed: the item asked for one check in an existing form, and its test passes.
-	- Closed: 20261019-125300
-
-- Stage headers have no full-width rule above them.
-	- ID: 2026101410495998
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and `lint-report.bash` reads its log as clean.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- A blank line, a full-width rule of `•`, then the title, as silkterm's `fSection` does. About 27 headers. Check `lint-report.bash` and `pipeline-test.bash` don't match on the header lines.
-	- Progress log:
-		- 20261019: Every stage header in `cicd.bash` goes through one `fSection`, like silkterm's. That's 30 headers, with the commit message prompt. "Passed." and the interrupt line are status lines, so they stayed as they were.
-		- 20261019: silkterm's rule is always 74 wide. Here it's the terminal's width when the run starts in one, and 74 in a pipe or a log. The width is read before the run log's tee, since after it nothing is a terminal, so the log gets the rule the screen got. `--container` hands its width to the run inside, which has no terminal.
-		- 20261019: Nothing reads the header lines. `lint-report.bash` looks for warning words, the rule has none, and the titles didn't change. `pipeline-test.bash` stubs the header out of the stages it lifts. `test-ids.py` reads test output only, and the pre-push hook reads none.
-		- 20261019: Question: `install.bash` has headers of its own ("Plan", "Downloading"), with no rule. Left alone, since that's what people see while installing. Say if they should get one too.
-	- Swept: the other bash scripts. The 3 test harnesses and `package.bash` print a status line or two, not stages. In the source, the new functions are inside existing `#•••` sections, and the new `pipeline-test.bash` section has that file's rule.
-	- Branch: cicdtidy
-	- Commit: 3fbe497
-	- Test case: EtB5PUX. A pipe gets 74, a 123-wide terminal gets 123, the run inside the container takes the width it's handed and a host run doesn't, and `--container` hands it in. It failed before the change, and fails with the terminal read taken out.
+		- 20261019: Stalled with the pin move, 2026100519164742.
 
 - The Windows exe has no version resource or icon.
 	- ID: 2026101410495999
@@ -1364,6 +1327,27 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Acceptance signoff: Self-closed: the update check and the retest ran.
 	- Closed: 20261004-183600
 
+- Container runs stamp artifacts in UTC, so they sort apart from host runs.
+	- ID: 2026101912130116
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: Done. `cicd.bash --container --only go --quick --leakcheck` passed, and the soak profile made inside has the same stamp as the host's run log.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261019-121301
+	- Opened by: JC
+	- Related IDs: 2026101816474402
+	- Incorrect behavior [Bug]: Inside `--container` the run stamp is UTC, so leakcheck reports and profiles from a container run are named hours off from a host run's and sort out of order.
+	- Expected behavior [Bug]: One clock for every run's file names.
+	- Reproduced [Bug]: Seen in the `--leakcheck` work, 20261019. EtB0hIu failed on the tree before the fix.
+	- Actual cause [Bug]: The image has no time zone data and gets no `TZ`, so `date` inside reads UTC. The host has no `TZ` either, since its zone comes from `/etc/localtime`, so handing a zone name in wouldn't have helped.
+	- Actual fix [Bug]: The run outside hands its own stamp to the run inside, which names every file with it. A malformed one is ignored, and so is one in the environment of a host run.
+	- Swept: every use of the run stamp in `cicd.bash`: the run log, the sync stash, the Zig crash copy, the leak checks, CodeQL, the profiles and the demo. They all read the one stamp. `package.bash` dates from `SOURCE_DATE_EPOCH`, which was already handed in, and `test-ids.py` is UTC on purpose.
+	- Branch: cicdtidy
+	- Commit: 04a10ae
+	- Test case: EtB0hIu. It failed before the fix and passes after, and fails again with either guard taken out. EsJ9SjF's expected `docker run` line has the stamp in it now.
+	- Acceptance signoff: Self-closed: its test failed before the fix and passes after.
+	- Closed: 20261019-124500
+
 - A hand-copied `zuid` of the same version reads as already installed.
 	- ID: 2026101410500006
 	- Type: Bug
@@ -1597,6 +1581,23 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Verified: 20261004 on b26, at 12d2b2d: ErmYT8R passed in the full `--package` run, and the macOS tarball lists `share/LICENSE-wasmtime.txt`, which is the Apache 2.0 text. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
 	- Acceptance signoff: Self-closed: every release has the license, and its tests pass.
 	- Closed: 20261004-175611
+
+- The host's shellcheck isn't checked against the container's pin.
+	- ID: 2026101410495996
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Say so when the host's shellcheck isn't the Dockerfile's `SC_VER`, the way EsbF9Jy does for nfpm.
+	- Progress log:
+		- 20261019: The Bash lint now starts with EtB4gns, worded and built like EsbF9Jy. It skips with a note when the host's shellcheck isn't the pinned one, and when there's no shellcheck at all. It runs before the lint, since a lint warning stops the run and would hide the note.
+	- Branch: cicdtidy
+	- Commit: 37527ce
+	- Test case: EtB4gns is the check. EtB4VLJ runs the shell stage with a stand-in shellcheck at 0.10.0 and at 0.11.0, and wants the skip line and the pass line. It failed before the check was there.
+	- Acceptance signoff: Self-closed: the item asked for one check in an existing form, and its test passes.
+	- Closed: 20261019-125300
 
 - No vulnerability check on the Go dependencies.
 	- ID: 2026101410495995
