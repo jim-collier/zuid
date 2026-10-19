@@ -350,6 +350,22 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 7df2b13
 	- Test case: EtBCCRm and EtBCCRn, one per Windows target, hold both files' resource to `--version` and `--about`, in ASCII with no time stamp. EtBCCRm failed with the resource left out.
 
+- Most harness labels are full sentences in one pattern.
+	- ID: 2026101410500002
+	- Type: Task
+	- Status: Waiting on signoff
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Shorten the labels in `cli-test.bash`, `installer-test.bash`, `pipeline-test.bash`, and `cicd.bash`. The IDs stay. The Zig names were done in 2026101410495992.
+	- Progress log:
+		- 20261019: About 220 labels shortened across the 4 files, the C checks, `--leakcheck`, CodeQL, PSScriptAnalyzer and the version resource checks included. IDs and failure messages are unchanged. The fuzz labels still end in ", fuzzed for", since `pipeline-test.bash` matches on it, and labels that were already short were left alone.
+	- Swept: every old label across the repo and the notes outside it. Only `pipeline-test.bash` matched on cicd.bash's labels, for the shellcheck pin and PSScriptAnalyzer, and both sides changed together. No new label has "warning" in it. The only other hits are old pasted run logs, left as they are.
+	- Branch: labels
+	- Commit: bf0c2b0
+	- Test case: none, labels only. `cicd.bash --ci -q --no-backup --no-dogfood`, `installer-test.bash`, `pipeline-test.bash` and `test-ids.py check` all passed, and `lint-report.bash --check` is clean.
+
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -475,22 +491,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Target OS: FreeBSD
 	- Requirements  [Feature]:
 		- A `.pkg` beside the tarball. nfpm can't make one, so it's `pkg create` on a FreeBSD machine.
-
-- Most harness labels are full sentences in one pattern.
-	- ID: 2026101410500002
-	- Type: Task
-	- Status: Waiting on signoff
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- Shorten the labels in `cli-test.bash`, `installer-test.bash`, `pipeline-test.bash`, and `cicd.bash`. The IDs stay. The Zig names were done in 2026101410495992.
-	- Progress log:
-		- 20261019: About 220 labels shortened across the 4 files, the C checks, `--leakcheck`, CodeQL, PSScriptAnalyzer and the version resource checks included. IDs and failure messages are unchanged. The fuzz labels still end in ", fuzzed for", since `pipeline-test.bash` matches on it, and labels that were already short were left alone.
-	- Swept: every old label across the repo and the notes outside it. Only `pipeline-test.bash` matched on cicd.bash's labels, for the shellcheck pin and PSScriptAnalyzer, and both sides changed together. No new label has "warning" in it. The only other hits are old pasted run logs, left as they are.
-	- Branch: labels
-	- Commit: bf0c2b0
-	- Test case: none, labels only. `cicd.bash --ci -q --no-backup --no-dogfood`, `installer-test.bash`, `pipeline-test.bash` and `test-ids.py check` all passed, and `lint-report.bash --check` is clean.
 
 - `install.bash` stops under a Mac's stock bash for a user install.
 	- ID: 2026101410500003
