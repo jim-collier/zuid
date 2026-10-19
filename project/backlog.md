@@ -152,6 +152,101 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: d6dcb7c
 	- Test case: EtAHpAd, EtAHpAe and EtAHpAf (the sanitizers), EtAHpAg (gcc's analyzer), EtAHpAh (clang's), and EtAHpAi (the scratch dir is mounted into the image). Each failed first. The skip without docker is Et9VtIq's.
 
+- Leak, memory, and correctness checks in CICD.
+	- ID: 2026101816243853
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261018-162438
+	- Opened by: JC
+	- Related IDs: 2026101410495995
+	- Requirements  [Feature]:
+		- Only for code in use, that end users of this project use. That's the Go module, and the C API through its C tests. The Python scripts are pipeline tooling, and there's no Rust or C++ of ours.
+		- For all code:
+			- The checks cover first-party and third-party code. Vendored code is included.
+				- On third-party code, run the leak, memory, and correctness checks named here, not style lints. Style findings in someone else's crate or module aren't ours to fix.
+				- CodeQL reports only on source inside the database's root. For its run, vendor the dependencies into the tree first (`go mod vendor`).
+			- Any report fails the test that made it.
+			- Any leak is fixed. If the fix has to wait, it gets a backlog item, and the test that shows it turns the check off with that item's ID beside it.
+			- A `--leakcheck` flag adds the slow checks:
+				- CodeQL, from a pinned CLI run locally. No hosted service.
+				- A soak test. It loops through the program's main actions headless, and fails if the heap at round 2N is larger than at round N by more than a set margin. The heap report is kept as a pipeline artifact.
+			- Every tool is pinned and runs in the build container or lint image, never installed on the host.
+			- Each new gate is watched to fail before it's trusted, by planting the leak it's meant to catch and seeing it go red.
+			- Known-advisory scans run on every full run: `govulncheck`. They cover third-party code only, which is the point.
+		- For Go:
+			- Go leaks are goroutines that never exit, and references held too long: a map or slice that only grows, or a small slice keeping a big backing array alive.
+			- Every package's tests run `goleak.VerifyTestMain(m)` from `go.uber.org/goleak`, pinned in go.mod. A goroutine still running after the tests fails the run, whether our code or a dependency started it.
+			- Every full run runs the whole test suite with `-race`.
+			- If the code uses cgo, every full run also runs the tests with `-asan`, in a build dir of its own.
+			- Every full run runs `go vet` and `staticcheck`. `go vet`'s `lostcancel` and `copylocks` checks are the leak-related ones.
+			- The soak test reads `runtime.MemStats.HeapInuse` and `runtime.NumGoroutine()` at round N and 2N, after `runtime.GC()`. Its heap profile (`pprof`) is kept as the artifact, and `go tool pprof -base` shows what grew.
+			- Traps:
+				- `goleak.VerifyNone` per test doesn't work with `t.Parallel()`. Use `VerifyTestMain`.
+				- goleak ignores by function name. That's the only form of suppression allowed.
+				- `go test` caches a pass. Run with `-count=1`.
+				- One `runtime.GC()` can leave garbage behind. Call it twice before reading the stats, or the margin has to be wide enough to hide a real leak.
+				- `-race` needs cgo on some platforms. A job with `CGO_ENABLED=0` fails to build it or skips it, so check the job's env.
+				- `-race` is 2 to 20 times slower and uses 5 to 10 times the memory. Size the job's timeout for it.
+		- For C:
+			- Every full run builds the whole test suite with AddressSanitizer, LeakSanitizer, and UndefinedBehaviorSanitizer, in a build dir of its own.
+				- Any report fails the test that made it.
+				- Any leak is fixed. If the fix has to wait, it gets a backlog item, and the test that shows it turns leak detection off with that item's ID beside it.
+				- For a full leak stack, rerun the test with `ASAN_OPTIONS=fast_unwind_on_malloc=0`.
+			- Every full run also runs gcc's `-fanalyzer` and the clang static analyzer over every first-party .c file.
+				- Before the gate goes live, every existing finding is fixed, or suppressed at the line with a one-line reason. There's no baseline file.
+				- They move behind a flag only if a full run measures too slow.
+			- A `--leakcheck` flag adds the slow checks:
+				- CodeQL, from a pinned CLI run locally. No hosted service.
+				- The clang analyzer in cross-file (CTU) mode, so it follows calls across .c files.
+				- A heaptrack soak test. It loops through the program's main actions headless, and fails if the heap at round 2N is larger than at round N by more than a set margin. The heaptrack report is kept as a pipeline artifact.
+			- Coverity Scan and Infer aren't used. Coverity uploads the build to a third party.
+			- Every tool is pinned and runs in the build container or lint image, never installed on the host.
+			- Each new gate is watched to fail before it's trusted: plant a leak, a null dereference, and a loop that grows the heap, and see each one go red.
+			- Traps:
+				- `-fanalyzer` does nothing under `-fsyntax-only`. Compile with `-c -o /dev/null`.
+				- With `-Werror`, analyzer findings print as `error: ... [-Werror=analyzer-*]`, not `warning:`. A parser that only looks for warnings counts 0.
+				- heaptrack and ASan can't share a build. The soak test uses a plain build.
+				- ASan's allocator hides the heap from glibc's own stats, such as `mallinfo2`. A test that reads them should exit as skipped under ASan, not pass.
+	- Progress log:
+		- 20261018: Split into 2026101816474400 for Go, 2026101816474401 for C, and 2026101816474402 for `--leakcheck`. This one closes when they do.
+		- 20261019: All 3 children are in and waiting on signoff.
+	- Test case: the children's.
+
+- A `--leakcheck` flag for the slow checks.
+	- ID: 2026101816474402
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Done. A full `cicd.bash --leakcheck` run passed, and so did `--container --only zig --leakcheck`. `--quick --leakcheck` passed with `--only go` and `--only zig`, and with `--container --only go`. Without docker the C half skipped with a note.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261018-164744
+	- Opened by: JC
+	- Parent ID: 2026101816243853
+	- Requirements  [Feature]:
+		- CodeQL for Go and C, the Go and C soak tests, and the clang analyzer in CTU mode, per the parent.
+	- Progress log:
+		- 20261019: `--leakcheck` adds to any run, `--ci` and `--container` included. A plain run leaves it out. It takes about a minute.
+		- 20261019: The Go soak runs every vector, the refusals, and live identifiers from 4 goroutines through new generators, 80 rounds and then 80 more. The heap has to stay within 128 KB and the goroutine count can't grow. Both heap profiles are kept in `cicd/artifacts/leakcheck/`.
+		- 20261019: The C soak has 2 parts, with an 8 KB margin. One context's calls run 100 rounds and 100 more under heaptrack, whose report is kept. Whole contexts run 8 and 8 more without it, since `zuid_new` compiles the module and heaptrack's own memory then grew about 70 MB a round. With glibc's per-thread cache off, both held to the byte.
+		- 20261019: heaptrack's leak list names compile buffers that the heap reading shows freed, so it isn't a verdict.
+		- 20261019: clang's analyzer runs in cross-file mode over the C tests. None of them calls into another, so a pair of files with a null dereference only that mode can see runs first, every time.
+		- 20261019: Each gate failed first on a planted fault: a slice that only grows and a stuck goroutine in the Go module, a missing `zuid_free`, a lost buffer and a growing cache in copies of the C soak, and the cross-file pair with that mode off. A cache of one short string a round passed, being under the margin.
+		- 20261019: clang-tools and heaptrack were added to the image, 70 MB on disk and 16 MB of content. CodeQL is left, for Go and C.
+		- 20261019: CodeQL 2.27.2 runs from an image of its own, built on the main one, from GitHub's C and Go bundles pinned by sha256. It's about 480 MB more, so only `--leakcheck` builds or starts it. Under `--container --leakcheck` the whole run is in that image. It takes about 25 s a language.
+		- 20261019: GitHub's CodeQL terms allow it here, since the code is under OSI licenses and on GitHub.com.
+		- 20261019: Go: the module is copied to a scratch folder and vendored there, so convertbase and shcl are under the database's root. So is the reactor, since the command runs it, and it's built for wasm the way the release builds it. Our code gets the whole security and quality suite, and third-party code only its security and correctness queries.
+		- 20261019: C: every tracked .c file is compiled fresh while CodeQL watches. Zig isn't a language CodeQL reads, so the C module's own code isn't in the database, only its header through the C tests. There's no third-party C.
+		- 20261019: Both fail if a file the build compiled isn't in the database. A C build that compiles nothing is refused by CodeQL itself. Go's extractor read every file even with a warm build cache, but the cache is fresh anyway.
+		- 20261019: The one finding is upstream, in shcl: a 32-bit number turned into an `int`. It's 2026101911183280, suppressed by that ID. A suppression nothing matches fails the run, so it comes out with the fix.
+		- 20261019: CodeQL has no Go query for a lost cancel. `go vet`'s `lostcancel` runs on every run already.
+		- 20261019: Each CodeQL gate failed first on a planted fault: a tainted path and a style finding in our Go, a security finding in a copy of convertbase, a use after free and a null check after a dereference in a copy of the C tests, and the vendored files left out of the database. A style finding in the convertbase copy passed. The plainest use after free never reached CodeQL, since gcc's `-Werror` refused it.
+		- 20261019: A full `--leakcheck` run passed in 13 minutes, and `--container --only zig --leakcheck` in 11.
+		- 20261019: Left for signoff, since the context soak runs without heaptrack where the requirement asked for it, and CodeQL's separate image was a judgment call.
+	- Swept: every `fInImage` call outside the CodeQL stage still gets the main image. Both images drop their old tags through one helper, and both pipeline tests that lift the image code lift it too. A plain `--container` run never builds or starts the CodeQL image.
+	- Branch: leakcheck
+	- Commit: 59c3e61, 516fef0, 51c712d
+	- Test case: EtAUMRA (the Go soak), EtAUMRB and EtAUMRE (the C soaks), EtAUMRC and EtAUMRD (the cross-file analyzer), EtAUMRF, EtAUMRG and EtAUMRH (the flag), EtAUMRI and EtAUMRJ (CodeQL on Go and C), EtAj5P2 (CodeQL's image), EtAj5P3 to EtAj5P6 (how its report is read). Each failed first.
+
 - A Windows install leaves `PATH` to the user.
 	- ID: 2026101410495985
 	- Type: Enhancement
@@ -268,75 +363,45 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261013: Split from 2026100416052036 and the old packaging and C module items. Both builds pass their static checks, and the Windows one passed under Wine on vmDebARM64.
 		- 20261013: Stalled. There is no arm64 Windows machine or Apple Silicon Mac here. A Windows ARM64 guest under emulation on b23 is too slow for more than a launch check.
 
-- Leak, memory, and correctness checks in CICD.
-	- ID: 2026101816243853
-	- Type: Enhancement
+- convertbase's config parser turns a 32-bit number into an `int`, which can wrap on a 32-bit build.
+	- ID: 2026101911183280
+	- Type: Bug
 	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261018-162438
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261019-111832
 	- Opened by: JC
-	- Related IDs: 2026101410495995
-	- Requirements  [Feature]:
-		- Only for code in use, that end users of this project use. That's the Go module, and the C API through its C tests. The Python scripts are pipeline tooling, and there's no Rust or C++ of ours.
-		- For all code:
-			- The checks cover first-party and third-party code. Vendored code is included.
-				- On third-party code, run the leak, memory, and correctness checks named here, not style lints. Style findings in someone else's crate or module aren't ours to fix.
-				- CodeQL reports only on source inside the database's root. For its run, vendor the dependencies into the tree first (`go mod vendor`).
-			- Any report fails the test that made it.
-			- Any leak is fixed. If the fix has to wait, it gets a backlog item, and the test that shows it turns the check off with that item's ID beside it.
-			- A `--leakcheck` flag adds the slow checks:
-				- CodeQL, from a pinned CLI run locally. No hosted service.
-				- A soak test. It loops through the program's main actions headless, and fails if the heap at round 2N is larger than at round N by more than a set margin. The heap report is kept as a pipeline artifact.
-			- Every tool is pinned and runs in the build container or lint image, never installed on the host.
-			- Each new gate is watched to fail before it's trusted, by planting the leak it's meant to catch and seeing it go red.
-			- Known-advisory scans run on every full run: `govulncheck`. They cover third-party code only, which is the point.
-		- For Go:
-			- Go leaks are goroutines that never exit, and references held too long: a map or slice that only grows, or a small slice keeping a big backing array alive.
-			- Every package's tests run `goleak.VerifyTestMain(m)` from `go.uber.org/goleak`, pinned in go.mod. A goroutine still running after the tests fails the run, whether our code or a dependency started it.
-			- Every full run runs the whole test suite with `-race`.
-			- If the code uses cgo, every full run also runs the tests with `-asan`, in a build dir of its own.
-			- Every full run runs `go vet` and `staticcheck`. `go vet`'s `lostcancel` and `copylocks` checks are the leak-related ones.
-			- The soak test reads `runtime.MemStats.HeapInuse` and `runtime.NumGoroutine()` at round N and 2N, after `runtime.GC()`. Its heap profile (`pprof`) is kept as the artifact, and `go tool pprof -base` shows what grew.
-			- Traps:
-				- `goleak.VerifyNone` per test doesn't work with `t.Parallel()`. Use `VerifyTestMain`.
-				- goleak ignores by function name. That's the only form of suppression allowed.
-				- `go test` caches a pass. Run with `-count=1`.
-				- One `runtime.GC()` can leave garbage behind. Call it twice before reading the stats, or the margin has to be wide enough to hide a real leak.
-				- `-race` needs cgo on some platforms. A job with `CGO_ENABLED=0` fails to build it or skips it, so check the job's env.
-				- `-race` is 2 to 20 times slower and uses 5 to 10 times the memory. Size the job's timeout for it.
-		- For C:
-			- Every full run builds the whole test suite with AddressSanitizer, LeakSanitizer, and UndefinedBehaviorSanitizer, in a build dir of its own.
-				- Any report fails the test that made it.
-				- Any leak is fixed. If the fix has to wait, it gets a backlog item, and the test that shows it turns leak detection off with that item's ID beside it.
-				- For a full leak stack, rerun the test with `ASAN_OPTIONS=fast_unwind_on_malloc=0`.
-			- Every full run also runs gcc's `-fanalyzer` and the clang static analyzer over every first-party .c file.
-				- Before the gate goes live, every existing finding is fixed, or suppressed at the line with a one-line reason. There's no baseline file.
-				- They move behind a flag only if a full run measures too slow.
-			- A `--leakcheck` flag adds the slow checks:
-				- CodeQL, from a pinned CLI run locally. No hosted service.
-				- The clang analyzer in cross-file (CTU) mode, so it follows calls across .c files.
-				- A heaptrack soak test. It loops through the program's main actions headless, and fails if the heap at round 2N is larger than at round N by more than a set margin. The heaptrack report is kept as a pipeline artifact.
-			- Coverity Scan and Infer aren't used. Coverity uploads the build to a third party.
-			- Every tool is pinned and runs in the build container or lint image, never installed on the host.
-			- Each new gate is watched to fail before it's trusted: plant a leak, a null dereference, and a loop that grows the heap, and see each one go red.
-			- Traps:
-				- `-fanalyzer` does nothing under `-fsyntax-only`. Compile with `-c -o /dev/null`.
-				- With `-Werror`, analyzer findings print as `error: ... [-Werror=analyzer-*]`, not `warning:`. A parser that only looks for warnings counts 0.
-				- heaptrack and ASan can't share a build. The soak test uses a plain build.
-				- ASan's allocator hides the heap from glibc's own stats, such as `mallinfo2`. A test that reads them should exit as skipped under ASan, not pass.
+	- Related IDs: 2026101816474402, 2026100519164742
+	- Incorrect behavior [Bug]: `parseU32` in convert-base-v2's `lib/shcl/shcl.go`, at the pinned `lib/v0.1.0`, parses up to 4294967295 and returns it as an `int`. On a 32-bit build anything over 2147483647 wraps negative. CodeQL's `go/incorrect-integer-conversion` found it.
+	- Expected behavior [Bug]: Nothing past the `int` range comes back as an `int`.
+	- Reproduced [Bug]: No. Read only. Its one caller reads a day of the month and refuses anything outside 1 to 31, which a wrapped value is, so no wrong result was found. zuid never loads a config.
 	- Progress log:
-		- 20261018: Split into 2026101816474400 for Go, 2026101816474401 for C, and 2026101816474402 for `--leakcheck`. This one closes when they do.
+		- 20261019: The code is upstream, so it's fixed in convert-base-v2 and comes in with a later pin. Until then `cicd/utility/codeql-suppressions.txt` suppresses it by this ID.
 
-- A `--leakcheck` flag for the slow checks.
-	- ID: 2026101816474402
-	- Type: Enhancement
+- Container runs stamp artifacts in UTC, so they sort apart from host runs.
+	- ID: 2026101912130116
+	- Type: Bug
 	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261018-164744
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261019-121301
 	- Opened by: JC
-	- Parent ID: 2026101816243853
-	- Requirements  [Feature]:
-		- CodeQL for Go and C, the Go and C soak tests, and the clang analyzer in CTU mode, per the parent.
+	- Related IDs: 2026101816474402
+	- Incorrect behavior [Bug]: Inside `--container` the run stamp is UTC, so leakcheck reports and profiles from a container run are named hours off from a host run's and sort out of order.
+	- Expected behavior [Bug]: One clock for every run's file names.
+	- Reproduced [Bug]: Seen in the `--leakcheck` work, 20261019. Not pinned by a test yet.
+
+- A run with a missing docker leaves an empty `tmp.*` file in TMPDIR.
+	- ID: 2026101912130117
+	- Type: Bug
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261019-121301
+	- Opened by: JC
+	- Related IDs: 2026101816474402
+	- Steps to reproduce [Bug]:
+		- Run `cicd.bash --quick --leakcheck` with `ZUID_DOCKER` naming a program that doesn't exist.
+	- Incorrect behavior [Bug]: An empty `tmp.*` file is left behind in TMPDIR.
+	- Expected behavior [Bug]: Every temp file the run makes is gone when it ends.
+	- Reproduced [Bug]: Seen once, 20261019. Not traced.
 
 - PowerShell files aren't linted.
 	- ID: 2026101410495993

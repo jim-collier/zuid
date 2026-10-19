@@ -16,10 +16,12 @@ FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d
 # upstream, since trixie has 0.10 and its warnings differ. gcc's sanitizers and
 # analyzer and clang's analyzer are the C checks, which a host run calls from here.
 # clang is named by major so a new base can't move it without the build failing.
+# clang-tools has analyze-build and clang-extdef-mapping, for the cross-file
+# analyzer, and heaptrack is for the C soak. Both are --leakcheck only.
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
 		bash ca-certificates curl git xz-utils zstd zip unzip file \
-		gcc libc6-dev binutils llvm clang-19 \
+		gcc libc6-dev binutils llvm clang-19 clang-tools-19 heaptrack \
 		python3 rpm rpm2cpio cpio \
 		libicu76 libgssapi-krb5-2 \
 	&& rm -rf /var/lib/apt/lists/*

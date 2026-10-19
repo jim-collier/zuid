@@ -12,7 +12,8 @@
 ##		test-ids.py runs against a scratch tree, and the Zig fuzz stage's
 ##		report against a stand-in zig. So does package.bash, to see what
 ##		SOURCE_DATE_EPOCH it hands on. The profile report reads a made-up
-##		flamegraph, and the vuln report made-up govulncheck output.
+##		flamegraph, the vuln report made-up govulncheck output, and the CodeQL
+##		report made-up SARIF.
 ##	Syntax:
 ##		pipeline-test.bash
 ##	History: At bottom.
@@ -273,7 +274,7 @@ fInitIn(){  ## repo dir, args...
 			repoRoot="$1"; onlyToolchain=""; commitMsg=""; doQuietly=0
 			doCross=0; doQuick=0; doSync=1; doCommit=0; commitAsked=0; doPush=0; doPackage=0; noPackage=0; packageSkipWhy=""
 			doBackup=1; backupAsked=0; backupInWorktree=0; doDogfood=1; dogfoodAsked=0; doPublish=0; allowPartial=0
-			doContainer=0; inContainer=0; doCi=0
+			doContainer=0; inContainer=0; doCi=0; doLeakcheck=0
 		}
 		shift
 		local fn=""
@@ -285,6 +286,8 @@ fInitIn(){  ## repo dir, args...
 		fInit "$@"
 		if [[ "${showCross:-0}" == "1" ]]; then
 			printf 'doCross=%s\n' "${doCross}"
+		elif [[ "${showLeak:-0}" == "1" ]]; then
+			printf 'doLeakcheck=%s\n' "${doLeakcheck}"
 		elif [[ "${showGate:-0}" == "1" ]]; then
 			printf 'doQuick=%s doSync=%s doBackup=%s doDogfood=%s doPackage=%s\n' "${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}" "${doPackage}"
 		elif [[ "${showPackage:-0}" == "1" ]]; then
@@ -326,6 +329,27 @@ out="$(showCross=1 fInitIn "${worktreeMain}"; showCross=1 fInitIn "${worktreeMai
 if ((rc == 0)) && [[ "${out}" == $'doCross=1\ndoCross=1\ndoCross=1' ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+## The leak checks take a minute and a half, so only asking for them runs
+## them. Asked for, they ride along with any run, the pre-push one included.
+fId EtAUMRF "--leakcheck is off for a plain run, --quick and --ci, and on with each"
+out="$(for leakArgs in "" --quick --ci; do
+	# shellcheck disable=2086  ## Empty means no argument at all.
+	showLeak=1 fInitIn "${worktreeMain}" ${leakArgs}
+	# shellcheck disable=2086
+	showLeak=1 fInitIn "${worktreeMain}" ${leakArgs} --leakcheck
+done)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == $'doLeakcheck=0\ndoLeakcheck=1\ndoLeakcheck=0\ndoLeakcheck=1\ndoLeakcheck=0\ndoLeakcheck=1' ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+fId EtAUMRH "--help names --leakcheck, and says a plain run leaves it out"
+out="$(bash "${cicd}" --help 2>&1)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == *"--leakcheck       Add the slow leak checks"* ]] && [[ "${out}" == *"every stage but --publish and --leakcheck"* ]]
+	then fPass
+	else fFail "exited ${rc}, and the help has no --leakcheck line or plain-run note"
 fi
 
 ## A full run packages where --package is known to work: Linux x86_64 or a Mac,
@@ -443,9 +467,12 @@ cat > "${work}/engine" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${ENGINE_LOG}"
 case "$1 ${2:-}" in
-	"image inspect") [[ -f "${ENGINE_LOG}.built" ]] ;;
-	"build "*)       : > "${ENGINE_LOG}.built" ;;
-	"image ls")      printf 'zuid-cicd:0ld0ld0ld0ld\n%s\n' "${ENGINE_NEW}" ;;
+	"image inspect") [[ -f "${ENGINE_LOG}.built-${3//[:\/]/_}" ]] ;;
+	"build "*)       while (($#)) && [[ "$1" != "-t" ]]; do shift; done; : > "${ENGINE_LOG}.built-${2//[:\/]/_}" ;;
+	"image ls")      if [[ "$3" == "zuid-codeql" ]]
+		then printf 'zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld\n%s\n' "${ENGINE_NEW_CODEQL:-}"
+		else printf 'zuid-cicd:0ld0ld0ld0ld\n%s\n' "${ENGINE_NEW}"
+		fi ;;
 	"run "*)         exit "${ENGINE_RUN_RC:-0}" ;;
 	"info "*)        exit "${ENGINE_INFO_RC:-0}" ;;
 esac
@@ -462,21 +489,23 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 		fThrowError(){ printf '%s\n' "$1"; exit 1; }
 		# shellcheck disable=2034  ## Read by the lifted fStage_Container.
 		{
-			repoRoot="$(cd "$1" && pwd -P)"; containerImage="zuid-cicd"; containerVolume="zuid-cicd-cache"
-			onlyToolchain="go"; doQuick=1; doPackage=1
+			repoRoot="$(cd "$1" && pwd -P)"; containerImage="zuid-cicd"; containerVolume="zuid-cicd-cache"; codeqlImage="zuid-codeql"
+			onlyToolchain="go"; doQuick=1; doPackage=1; doLeakcheck="${leakcheck:-0}"
 		}
 		local fn=""
-		for fn in _fMustBeInPath fStage_Container fContainer_Image fContainer_RunArgs; do
+		for fn in _fMustBeInPath fStage_Container fContainer_Image fCodeql_Image fContainer_DropOthers fContainer_RunArgs; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
-		mkdir -p "${repoRoot}/cicd/container"
+		mkdir -p "${repoRoot}/cicd/container/codeql"
 		echo "FROM scratch" > "${repoRoot}/cicd/container/Dockerfile"
+		echo "FROM codeql" > "${repoRoot}/cicd/container/codeql/Dockerfile"
 		# shellcheck disable=2030  ## Each case sets its own.
 		export ZUID_DOCKER="${work}/engine" ENGINE_LOG="$2" ENGINE_RUN_RC="$3"
 		ENGINE_NEW="zuid-cicd:$(git hash-object "${repoRoot}/cicd/container/Dockerfile" | cut -c1-12)"
-		export ENGINE_NEW
+		ENGINE_NEW_CODEQL="zuid-codeql:$(git hash-object "${repoRoot}/cicd/container/codeql/Dockerfile" | cut -c1-12)-${ENGINE_NEW#*:}"
+		export ENGINE_NEW ENGINE_NEW_CODEQL
 		# shellcheck disable=2034  ## Read by the lifted fContainer_Image.
-		containerEngine="${ZUID_DOCKER}" containerTag=""
+		containerEngine="${ZUID_DOCKER}" containerTag="" codeqlTag=""
 		fStage_Container
 	) 2>&1
 }
@@ -517,6 +546,28 @@ if ((rc != 0)) && [[ "${out}" == *"The run in the container failed"* ]]
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
+## The run inside is a new cicd.bash, which only knows what it's handed.
+fId EtAUMRG "--container hands --leakcheck to the run inside"
+: > "${work}/engine-main"
+out="$(leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
+if ((rc == 0)) && grep -q -- "^run .* --only go --quick --package --leakcheck$" "${work}/engine-main"
+	then fPass
+	else fFail "exited ${rc}, asked: $(grep '^run ' "${work}/engine-main" || true)"
+fi
+
+## CodeQL is about 480 MB, so a run that doesn't want it never builds it.
+fId EtAj5P2 "--container --leakcheck builds CodeQL's image on the main one and runs in it, and a plain --container run never touches it"
+codeqlTag="zuid-codeql:$(echo "FROM codeql" | git hash-object --stdin | cut -c1-12)-${newTag#*:}"
+out="$(leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-codeql" 0)" && rc=0 || rc=$?
+log="$(cat "${work}/engine-codeql" 2>/dev/null || true)"
+plainOut="$(fContainerIn "${worktreeMain}" "${work}/engine-plain" 0)" && plainRc=0 || plainRc=$?
+if ((rc == 0)) && grep -qxF "build --build-arg BASE=${newTag} -t ${codeqlTag} ${mainReal}/cicd/container/codeql" <<< "${log}" \
+	&& grep -q -- "^run .* ${codeqlTag} bash .* --leakcheck$" <<< "${log}" && grep -qxF "rmi zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld" <<< "${log}" \
+	&& ! grep -qxF "rmi ${codeqlTag}" <<< "${log}" && ((plainRc == 0)) && ! grep -q 'codeql' "${work}/engine-plain"
+	then fPass
+	else fFail "exited ${rc} and ${plainRc}, asked: ${log//$'\n'/ | }; said '${out}' and '${plainOut}'"
+fi
+
 ## A public clone without docker still passes, so the checkers in the image
 ## skip rather than fail when there's nothing to run them in.
 fId Et9VtIq "the Go checkers skip with a reason when docker is missing or not answering, and use the image when it answers"
@@ -531,7 +582,7 @@ out="$(
 	{
 		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerImage="zuid-cicd"; inContainer=0; containerTag=""; checkerSkipWhy=""
 	}
-	for fn in _fMustBeInPath fGoCheckers_Ready fContainer_Image; do
+	for fn in _fMustBeInPath fGoCheckers_Ready fContainer_Image fContainer_DropOthers; do
 		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 	done
 	# shellcheck disable=2031  ## The stub reads it; the earlier subshell's copy is gone.
@@ -1324,6 +1375,73 @@ if ((rc == 1)) && [[ "${out}" == *"GO-0000-0003 in example.com/x@v1.0.0"* ]]
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## codeql-report.py, on made-up SARIF with one rule tagged as a bug and one as
+## style. CodeQL puts a query pack's rules under extensions, not the driver.
+
+fSarif(){  ## file:rule...
+	local sep="" pair=""
+	printf '{"runs": [{"tool": {"driver": {"name": "CodeQL", "rules": []}, "extensions": [{"name": "made-up", "rules": ['
+	printf '{"id": "x/bug", "properties": {"tags": ["security"]}}, {"id": "x/style", "properties": {"tags": ["maintainability"]}}]}]}, "results": ['
+	for pair in "$@"; do
+		printf '%s{"ruleId": "%s", "message": {"text": "made up"}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": "%s"}, "region": {"startLine": 3}}}]}' \
+			"${sep}" "${pair#*:}" "${pair%%:*}"
+		sep=", "
+	done
+	printf ']}]}\n'
+}
+fCodeqlReport(){  ## suppressions file, file:rule...
+	local -r suppressions="$1"; shift
+	fSarif "$@" > "${work}/made-up.sarif"
+	python3 "${utilityDir}/codeql-report.py" report "${work}/made-up.sarif" go "${suppressions}" 2>&1
+}
+: > "${work}/no-suppressions"
+
+fId EtAj5P3 "the CodeQL report fails on any finding in our own code, style ones too"
+out="$(fCodeqlReport "${work}/no-suppressions" zuid/a.go:x/style)" && rc=0 || rc=$?
+if ((rc == 1)) && [[ "${out}" == *"x/style at zuid/a.go:3: made up"* ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+fId EtAj5P4 "the CodeQL report counts only security and correctness findings in third-party code"
+out="$(fCodeqlReport "${work}/no-suppressions" vendor/m/a.go:x/style)" && rc=0 || rc=$?
+out2="$(fCodeqlReport "${work}/no-suppressions" vendor/m/a.go:x/bug)" && rc2=0 || rc2=$?
+if ((rc == 0 && rc2 == 1)) && [[ "${out}" == *"1 style findings in third-party code"* && "${out2}" == *"x/bug at vendor/m/a.go:3"* ]]
+	then fPass
+	else fFail "exited ${rc} and ${rc2}, and said '${out//$'\n'/ | }' and '${out2//$'\n'/ | }'"
+fi
+
+fId EtAj5P5 "a CodeQL suppression hides its rule in its file only, one that matches nothing fails, and one without a backlog ID is refused"
+printf '## made up\ngo 2026101911183280 x/bug vendor/m/a.go\nc 2026101911183281 x/bug test/a.c\n' > "${work}/suppressions"
+printf 'go x/bug vendor/m/a.go\n' > "${work}/suppressions-bad"
+out="$(fCodeqlReport "${work}/suppressions" vendor/m/a.go:x/bug)" && rc=0 || rc=$?
+out2="$(fCodeqlReport "${work}/suppressions" vendor/m/b.go:x/bug)" && rc2=0 || rc2=$?
+out3="$(fCodeqlReport "${work}/suppressions-bad" vendor/m/a.go:x/bug)" && rc3=0 || rc3=$?
+out4="$(fCodeqlReport "${work}/suppressions")" && rc4=0 || rc4=$?
+if ((rc == 0 && rc2 == 1 && rc3 != 0 && rc4 == 1)) && [[ "${out}" == *"Suppressed .: 1 of x/bug in vendor/m/a.go, until 2026101911183280"* ]] \
+	&& [[ "${out2}" == *"x/bug at vendor/m/b.go:3"* && "${out2}" == *"2026101911183280 in suppressions matched nothing"* ]] \
+	&& [[ "${out2}" != *2026101911183281* && "${out3}" == *"suppressions-bad:1: wants"* && "${out4}" == *"2026101911183280 in suppressions matched nothing"* ]]
+	then fPass
+	else fFail "exited ${rc}, ${rc2}, ${rc3} and ${rc4}, and said '${out//$'\n'/ | }', '${out2//$'\n'/ | }', '${out3}' and '${out4//$'\n'/ | }'"
+fi
+
+fId EtAj5P6 "the CodeQL coverage check fails when a file the build compiled isn't in the database"
+mkdir -p "${work}/cov/db"
+: > "${work}/cov/in.c"; : > "${work}/cov/out.c"
+python3 -c 'import os, sys, zipfile; zipfile.ZipFile(sys.argv[1], "w").writestr(os.path.realpath(sys.argv[2]).lstrip("/"), "")' \
+	"${work}/cov/db/src.zip" "${work}/cov/in.c"
+fCoverage(){ python3 "${utilityDir}/codeql-report.py" coverage "$@" 2>&1 ;}
+out="$(fCoverage "${work}/cov/db" "${work}/cov/in.c")" && rc=0 || rc=$?
+out2="$(fCoverage "${work}/cov/db" "${work}/cov/in.c" "${work}/cov/out.c")" && rc2=0 || rc2=$?
+out3="$(fCoverage "${work}/cov" "${work}/cov/in.c")" && rc3=0 || rc3=$?
+if ((rc == 0 && rc2 == 1 && rc3 == 1)) && [[ "${out2}" == *"Not in the database: ${work}/cov/out.c"* && "${out2}" != *"database: ${work}/cov/in.c"* ]] \
+	&& [[ "${out3}" == *"has no source in it"* ]]
+	then fPass
+	else fFail "exited ${rc}, ${rc2} and ${rc3}, and said '${out}', '${out2//$'\n'/ | }' and '${out3}'"
+fi
+
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
 fLine ""
@@ -1331,6 +1449,8 @@ fLine ""
 
 
 ##	History:
+##		- 20261019 JC: The CodeQL report, and CodeQL's image under --container.
+##		- 20261019 JC: --leakcheck.
 ##		- 20261019 JC: The vuln report.
 ##		- 20261018 JC: --gate is --ci. Every run cross-compiles.
 ##		- 20261013 JC: Fuzz cases clean up their temp folders.

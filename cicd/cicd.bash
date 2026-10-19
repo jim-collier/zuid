@@ -19,6 +19,8 @@
 ##		- 20261019 JC: goleak, go vet on the dependencies, staticcheck and govulncheck from the image.
 ##		- 20261019 JC: govulncheck fails on called stdlib advisories and scans the reactor. The reactor builds with the image's Go.
 ##		- 20261019 JC: The C tests under ASan, LSan and UBSan, and gcc's and clang's analyzers, from the image.
+##		- 20261019 JC: --leakcheck: the Go and C soak tests and clang's cross-file analyzer.
+##		- 20261019 JC: --leakcheck: CodeQL on Go and C, from an image of its own.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Set by --container for the run it starts inside.
@@ -132,6 +134,8 @@ fConfig(){ :;
 	## Caches live in a named volume, out of the tree and its backups.
 	default_containerImage="zuid-cicd"
 	default_containerVolume="zuid-cicd-cache"
+	## --leakcheck's CodeQL, built on that image from cicd/container/codeql/.
+	default_codeqlImage="zuid-codeql"
 
 }
 
@@ -198,6 +202,8 @@ fPrint_Help(){
 		                      zig/lib/src/core.zig. Implies --package. See below.
 		    --allow-partial   Let --publish go ahead with some platforms missing.
 		    --container       Run the build and test stages in a container. See below.
+		    --leakcheck       Add the slow leak checks to whatever else runs. See
+		                      below.
 		    -q, --quiet       No banner and no prompting. Without -m the commit
 		                      message is generated.
 		    -h, --help        This.
@@ -260,7 +266,17 @@ fPrint_Help(){
 		git keys, fonts and paths. It needs docker, or ZUID_DOCKER naming another
 		program that takes docker's arguments. x86_64 only. Not with --publish.
 
-		With no options a run does every stage but --publish.
+		--leakcheck adds a soak test of each side, clang's cross-file analyzer, and
+		CodeQL. The soaks repeat what a caller does and fail when the heap after
+		round 2N is bigger than after round N by more than a margin: the Go one on
+		this machine's Go, with 2 heap profiles kept, and the C one under heaptrack
+		from the image, with heaptrack's report kept. CodeQL runs on the Go module
+		with the third-party Go it builds, and on the C tests, from an image of its
+		own built on the main one. It's about 480 MB more, so only --leakcheck
+		builds it. Its reports and the soaks' go in cicd/artifacts/leakcheck/.
+		About 2 minutes.
+
+		With no options a run does every stage but --publish and --leakcheck.
 
 		--ci is what cicd/utility/git-hooks/pre-push runs before a push to main,
 		on the commit being pushed, in a scratch worktree. Turn the hook on once
@@ -310,6 +326,7 @@ fMain(){
 	local -i default_keepMonthly=0
 	local    default_containerImage=""
 	local    default_containerVolume=""
+	local    default_codeqlImage=""
 	fConfig
 	local -r minVer_Go="${default_minVer_Go}"
 	local -r minVer_Zig="${default_minVer_Zig}"
@@ -330,9 +347,10 @@ fMain(){
 	local -ri keepMonthly="${default_keepMonthly}"
 	local -r  containerImage="${default_containerImage}"
 	local -r  containerVolume="${default_containerVolume}"
+	local -r  codeqlImage="${default_codeqlImage}"
 	local -r  containerEngine="${ZUID_DOCKER:-docker}"
-	## Set by fContainer_Image.
-	local containerTag=""
+	## Set by fContainer_Image and fCodeql_Image.
+	local containerTag="" codeqlTag=""
 
 	## Layout. This script lives in the repo's cicd/, so the repo root is one up.
 	## Physical, since find does not descend a symlink it is handed as a start.
@@ -374,6 +392,7 @@ fMain(){
 	local -i allowPartial=0
 	local -i doContainer=0
 	local -i doCi=0
+	local -i doLeakcheck=0
 	fInit "${@}"
 	readonly onlyToolchain
 	readonly doCross
@@ -386,6 +405,7 @@ fMain(){
 	readonly allowPartial
 	readonly doContainer
 	readonly doCi
+	readonly doLeakcheck
 
 	## Set by the publish preflight, read by the publish stage.
 	local publishVersion="" publishRemote="" publishHead="" publishRepoUrl=""
@@ -428,6 +448,7 @@ fMain(){
 		if ((doGo));                   then fStage_Go;        fi
 		if ((doZig));                  then fStage_Zig;       fi
 		if ((doCross)) && ((doGo));    then fStage_Go_Cross;  fi
+		if ((doLeakcheck));            then fStage_Leakcheck; fi
 		if ((! doQuick));              then fStage_Profile;   fi
 	fi
 	## The demo draws with this machine's fonts, so a container never renders it.
@@ -497,6 +518,7 @@ fInit(){
 			--allow-partial) allowPartial=1 ;;
 			--container)  doContainer=1 ;;
 			--ci)         doCi=1 ;;
+			--leakcheck)  doLeakcheck=1 ;;
 			-q|--quiet)   doQuietly=1 ;;
 
 			## ¯\_(:/)_/¯
@@ -715,6 +737,10 @@ fStage_Container(){
 	fEcho "Container"
 
 	fContainer_Image
+	## The run inside can't start another container, so CodeQL's image is the
+	## one it runs in. It's the main image with CodeQL added.
+	local runTag="${containerTag}"
+	if ((doLeakcheck)); then fCodeql_Image; runTag="${codeqlTag}"; fi
 
 	local -a runArgs=()
 	fContainer_RunArgs runArgs
@@ -726,10 +752,11 @@ fStage_Container(){
 	if [[ -n "${onlyToolchain}" ]]; then innerArgs+=(--only "${onlyToolchain}"); fi
 	if ((doQuick));   then innerArgs+=(--quick);   fi
 	if ((doPackage)); then innerArgs+=(--package); fi
+	if ((doLeakcheck)); then innerArgs+=(--leakcheck); fi
 	fEcho_Clean "Runs .......: cicd.bash ${innerArgs[*]}"
 
 	"${containerEngine}" run "${runArgs[@]}" "${innerEnv[@]}" -w "${repoRoot}" \
-		"${containerTag}" bash "${repoRoot}/cicd/cicd.bash" "${innerArgs[@]}" \
+		"${runTag}" bash "${repoRoot}/cicd/cicd.bash" "${innerArgs[@]}" \
 		|| fThrowError "The run in the container failed; its output is above."  "${FUNCNAME[0]}"
 
 }
@@ -751,16 +778,45 @@ fContainer_Image(){
 	fi
 	fEcho_Clean "Image ......: building ${containerTag}"
 	"${containerEngine}" build -t "${containerTag}" "$(dirname "${recipe}")" || fThrowError "Could not build '${containerTag}'."  "${FUNCNAME[0]}"
-	## What it replaces is a couple of GB nobody runs again.
+	fContainer_DropOthers "${containerImage}" "${containerTag}"
+
+}
+
+
+## Sets codeqlTag, building CodeQL's image on the main one if it isn't there
+## yet. Only --leakcheck wants it, so a plain run never pulls the bundle.
+## Needs containerTag set.
+fCodeql_Image(){
+
+	local -r recipe="${repoRoot}/cicd/container/codeql/Dockerfile"
+	[[ -f "${recipe}" ]] || fThrowError "Missing CodeQL's container recipe: '${recipe}'."  "${FUNCNAME[0]}"
+
+	## A new main image means a new CodeQL one, so both hashes are in the tag.
+	codeqlTag="${codeqlImage}:$(git hash-object "${recipe}" | cut -c1-12)-${containerTag##*:}"
+	if "${containerEngine}" image inspect "${codeqlTag}" &>/dev/null; then
+		fEcho_Clean "CodeQL .....: ${codeqlTag}"
+		return 0
+	fi
+	fEcho_Clean "CodeQL .....: building ${codeqlTag}"
+	"${containerEngine}" build --build-arg "BASE=${containerTag}" -t "${codeqlTag}" "$(dirname "${recipe}")" \
+		|| fThrowError "Could not build '${codeqlTag}'."  "${FUNCNAME[0]}"
+	fContainer_DropOthers "${codeqlImage}" "${codeqlTag}"
+
+}
+
+
+## What a new image replaces is a couple of GB nobody runs again. A plain rmi,
+## so one a container still uses stays.
+fContainer_DropOthers(){  ## image, tag to keep
+	local -r image="$1" keep="$2"
 	local old=""
 	while IFS= read -r old; do
-		if [[ -z "${old}" ]] || [[ "${old}" == "${containerTag}" ]]; then continue; fi
+		if [[ -z "${old}" ]] || [[ "${old}" == "${keep}" ]]; then continue; fi
 		if "${containerEngine}" rmi "${old}" >/dev/null 2>&1
 			then fEcho_Clean "Removed ....: ${old}"
 			else fEcho_Clean "Kept .......: ${old} (in use)"
 		fi
-	done < <("${containerEngine}" image ls "${containerImage}" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
-
+	done < <("${containerEngine}" image ls "${image}" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
 }
 
 
@@ -2086,6 +2142,148 @@ fCCheck(){  ## folder, why it failed, command...
 	local -r dir="$1" failWhy="$2"; shift 2
 	fInImage "${dir}" "$@" || fTestFail "${failWhy}"
 	fTestPass
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The slow checks, --leakcheck only. The soaks repeat what a caller does,
+## round after round, and fail when the heap after round 2N is bigger than
+## after round N by more than a margin. The first rounds fill caches, so it's
+## never 0 against N. What they find goes in cicd/artifacts/leakcheck/.
+fStage_Leakcheck(){
+
+	fEcho_Clean
+	fEcho "Leak check: soak tests, cross-file analysis and CodeQL"
+
+	local -r leakDir="${artifactDir}/leakcheck"
+	mkdir -p "${leakDir}"
+	local prefix=""
+	for prefix in go-soak-n_ go-soak-2n_ c-soak-report_ c-soak-data_ codeql-go_ codeql-c_; do
+		fRotate_Artifacts "${leakDir}" "${prefix}"
+	done
+
+	if ((doGo));  then fLeakcheck_Go "${leakDir}"; fi
+	if ((doZig)); then fLeakcheck_C  "${leakDir}"; fi
+	fLeakcheck_CodeQL "${leakDir}"
+
+}
+
+
+## On this machine's Go, since the soak reads Go's own runtime stats. About
+## 20 s. Not under -race, which would be measuring the race detector's heap.
+fLeakcheck_Go(){  ## artifact dir
+
+	local -r leakDir="$1"
+	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
+	local soakDir=""
+	soakDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	_scratchDirs+=("${soakDir}")
+
+	## TestSoak skips without ZUID_SOAK_DIR. Its exit is held until the profiles
+	## are moved, since a failed run is when they're wanted.
+	local -i rc=0
+	if [[ -n "$(command -v python3 2>/dev/null || true)" ]]; then
+		ZUID_SOAK_DIR="${soakDir}" go test -count=1 -run '^TestSoak$' -json ./zuid | python3 "${utilityDir}/test-ids.py" go || rc=$?
+	else
+		fEcho_Clean "IDs ........: skipped, no python3"
+		ZUID_SOAK_DIR="${soakDir}" go test -count=1 -run '^TestSoak$' -v ./zuid || rc=$?
+	fi
+
+	local -r profileN="${leakDir}/go-soak-n_${runStamp}.pprof" profile2N="${leakDir}/go-soak-2n_${runStamp}.pprof"
+	if [[ -f "${soakDir}/summary.txt" ]]; then
+		local line=""
+		while IFS= read -r line; do fEcho_Clean "  ${line}"; done < "${soakDir}/summary.txt"
+	fi
+	if [[ -f "${soakDir}/heap-n.pprof" ]] && [[ -f "${soakDir}/heap-2n.pprof" ]]; then
+		mv "${soakDir}/heap-n.pprof" "${profileN}"
+		mv "${soakDir}/heap-2n.pprof" "${profile2N}"
+		fEcho_Clean "Profiles ...: go tool pprof -top -base ${profileN} ${profile2N}"
+	fi
+	rm -rf "${soakDir}"
+	((rc == 0)) || fThrowError "The Go soak test failed. What it said is above."  "${FUNCNAME[0]}"
+
+}
+
+
+## The image's gcc, heaptrack and clang, like the other C checks, so with no
+## docker these skip with a note. About 40 s.
+fLeakcheck_C(){  ## artifact dir
+
+	local -r leakDir="$1"
+	local checkerSkipWhy=""
+	fGoCheckers_Ready
+
+	local -r cChecks="${utilityDir}/c-checks.bash"
+	local -r soakSrc="${zigDir}/lib/test/capi_soak.c" incDir="${zigDir}/zig-out/include" libDir="${zigDir}/zig-out/lib"
+	local -ra cWarn=(-std=c99 -Wall -Wextra -Wpedantic -Werror)
+	local buildDir=""
+	buildDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	_scratchDirs+=("${buildDir}")
+
+	## heaptrack's data file is kept only on a failure. It runs to about 25 MB.
+	fId EtAUMRB "the C API's calls don't grow the heap, soaked under heaptrack"
+	fCCheck "${buildDir}" "the heap grew, or a call failed. What it said is above, and heaptrack's report is in ${leakDir}." \
+		bash "${cChecks}" soak-calls soak "${leakDir}/c-soak-report_${runStamp}.txt" "${leakDir}/c-soak-data_${runStamp}.zst" \
+		"${cWarn[@]}" -I "${incDir}" "${soakSrc}" -L "${libDir}" -lzuid -Wl,-rpath,"${libDir}"
+
+	## A missing zuid_free shows here, at about 13 MB a round.
+	fId EtAUMRE "creating and freeing C contexts doesn't grow the heap"
+	fCCheck "${buildDir}" "the heap grew, or a call failed. What it said is above." \
+		bash "${cChecks}" soak-contexts soak "${cWarn[@]}" -I "${incDir}" "${soakSrc}" -L "${libDir}" -lzuid -Wl,-rpath,"${libDir}"
+
+	## No first-party .c file calls into another yet, so on its own the next
+	## check can't show it follows calls across files. This one does.
+	fId EtAUMRC "clang's cross-file analyzer finds a null dereference planted across 2 files"
+	fCCheck "${buildDir}" "the cross-file analysis isn't following calls between files. What it said is above." \
+		bash "${cChecks}" ctu-canary
+
+	local -a cFiles=()
+	mapfile -t cFiles < <(git -C "${repoRoot}" ls-files --full-name '*.c' | sed "s|^|${repoRoot}/|")
+	fId EtAUMRD "clang's cross-file analyzer finds nothing in the first-party C"
+	if ((${#cFiles[@]} == 0)); then fTestFail "git ls-files found no .c files, so this would analyze nothing."; fi
+	fCCheck "${buildDir}" "the analyzer found something. What it said is above." \
+		bash "${cChecks}" clang-ctu "${cWarn[@]}" -I "${zigDir}/lib/include" -- "${cFiles[@]}"
+
+	rm -rf "${buildDir}"
+
+}
+
+
+## From CodeQL's own image, so with no docker these skip like the C checks.
+## Each builds its database from scratch and fails if a file that compiled
+## isn't in it. About 25 s each.
+fLeakcheck_CodeQL(){  ## artifact dir
+
+	local -r leakDir="$1"
+	local checkerSkipWhy=""
+	fGoCheckers_Ready
+	if [[ -z "${checkerSkipWhy}" ]] && ((! inContainer)); then fCodeql_Image; fi
+	## fInImage starts whatever containerTag names.
+	local containerTag="${codeqlTag:-${containerTag}}"
+
+	local -r runner="${utilityDir}/codeql.bash"
+	local workDir=""
+	workDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	_scratchDirs+=("${workDir}")
+
+	if ((doGo)); then
+		fId EtAUMRI "CodeQL finds nothing in the Go module or the third-party Go it builds"
+		fCCheck "${workDir}" "CodeQL found something, or didn't see every file compile. What it said is above." \
+			bash "${runner}" go "${goDir}" "${workDir}/go" "${leakDir}/codeql-go_${runStamp}.sarif" "${reactorPackage}"
+	fi
+
+	if ((doZig)); then
+		local -a cFiles=()
+		mapfile -t cFiles < <(git -C "${repoRoot}" ls-files --full-name '*.c' | sed "s|^|${repoRoot}/|")
+		fId EtAUMRJ "CodeQL finds nothing in the first-party C"
+		if ((${#cFiles[@]} == 0)); then fTestFail "git ls-files found no .c files, so this would analyze nothing."; fi
+		fCCheck "${workDir}" "CodeQL found something, or didn't see every file compile. What it said is above." \
+			bash "${runner}" c "${repoRoot}" "${workDir}/c" "${leakDir}/codeql-c_${runStamp}.sarif" \
+			-std=c99 -Wall -Wextra -Wpedantic -Werror -I "${zigDir}/lib/include" -- "${cFiles[@]}"
+	fi
+
+	rm -rf "${workDir}"
+
 }
 
 
