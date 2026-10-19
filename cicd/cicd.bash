@@ -924,11 +924,45 @@ fStage_Shell(){
 		fEcho_Clean "Clean."
 	fi
 
+	fStage_Shell_PowerShell
 	fStage_TestIds
 	fStage_Shell_Pipeline
 	fStage_Shell_Installers
 	fStage_Docs
 	fContentScrub
+
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## PSScriptAnalyzer's default rules on every tracked PowerShell file. It's
+## pinned in the image, like the Go checkers, so with no docker it skips.
+## installer-test.bash checks install.ps1 against Windows PowerShell 5.1 too.
+fStage_Shell_PowerShell(){
+
+	fSection "PowerShell: lint"
+
+	local checkerSkipWhy=""
+	fGoCheckers_Ready
+
+	local -a psFiles=()
+	mapfile -t psFiles < <(git -C "${repoRoot}" ls-files --full-name '*.ps1' '*.psm1' '*.psd1' | sed "s|^|${repoRoot}/|")
+
+	fId EtB6KVF "PSScriptAnalyzer finds nothing in the tracked PowerShell"
+	if [[ -n "${checkerSkipWhy}" ]]; then fTestSkip "${checkerSkipWhy}"; return 0; fi
+	if ((${#psFiles[@]} == 0)); then fTestFail "git ls-files found no PowerShell files, so this would lint nothing."; fi
+	local fileList=""
+	printf -v fileList '%s\n' "${psFiles[@]}"
+	## A missing file throws, which fails it too.
+	# shellcheck disable=2016  ## PowerShell's own variables.
+	fInImage "${repoRoot}" env "ZUID_PS_FILES=${fileList%$'\n'}" pwsh -NoProfile -NonInteractive -Command '
+		$ErrorActionPreference = "Stop"
+		if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { "PSScriptAnalyzer is not installed."; exit 2 }
+		$found = @(foreach ($file in ($env:ZUID_PS_FILES -split "`n")) { Invoke-ScriptAnalyzer -Path $file })
+		foreach ($finding in $found) { "{0}:{1}: {2}: {3}" -f $finding.ScriptPath, $finding.Line, $finding.RuleName, $finding.Message }
+		if ($found.Count) { exit 1 }' \
+		|| fTestFail "PSScriptAnalyzer found something, or couldn't run. What it said is above."
+	fTestPass
 
 }
 

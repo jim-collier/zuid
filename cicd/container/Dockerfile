@@ -67,6 +67,18 @@ RUN export GOBIN=/usr/local/bin GOPATH=/tmp/gopath GOCACHE=/tmp/gocache GOTOOLCH
 	&& /opt/go/bin/go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VER}" \
 	&& rm -rf /tmp/gopath /tmp/gocache
 
+# PSScriptAnalyzer for the PowerShell lint, which a host run calls from here
+# too. The PowerShell Gallery package, unpacked where pwsh looks for modules.
+# The gallery's own SHA512 for it matched the download, 20261019.
+ARG PSSA_VER=1.25.0
+ARG PSSA_SHA256=14e634c828eb98efb9f40b2918ba90f139ed5eccdf663a2a747736d996995d60
+RUN curl -fsSLo /tmp/pssa.nupkg "https://www.powershellgallery.com/api/v2/package/PSScriptAnalyzer/${PSSA_VER}" \
+	&& echo "${PSSA_SHA256}  /tmp/pssa.nupkg" | sha256sum -c - \
+	&& mkdir -p "/opt/pwsh/Modules/PSScriptAnalyzer/${PSSA_VER}" \
+	&& unzip -q /tmp/pssa.nupkg -d "/opt/pwsh/Modules/PSScriptAnalyzer/${PSSA_VER}" \
+		-x '_rels/*' 'package/*' '\[Content_Types\].xml' '*.nuspec' \
+	&& rm /tmp/pssa.nupkg
+
 # Runs as the caller's uid, which has no passwd entry here. /cache is where the
 # named volume goes, and a new volume takes this dir's mode, so anyone can write.
 RUN mkdir -m 1777 /cache /cache/home

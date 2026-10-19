@@ -663,7 +663,7 @@ out="$(
 	for fn in _fMustBeInPath fGoCheckers_Ready fContainer_Image fContainer_DropOthers; do
 		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 	done
-	# shellcheck disable=2031  ## The stub reads it; the earlier subshell's copy is gone.
+	# shellcheck disable=2030,2031  ## The stub reads it; the earlier subshell's copy is gone.
 	export ENGINE_LOG="${work}/engine-checkers"
 	# shellcheck disable=2034  ## Read by the lifted functions.
 	containerEngine="${work}/no-such-engine"
@@ -741,6 +741,8 @@ fShellIn(){  ## version the stand-in shellcheck reports
 		# shellcheck disable=2329
 		fStage_TestIds(){ :; }
 		# shellcheck disable=2329
+		fStage_Shell_PowerShell(){ :; }
+		# shellcheck disable=2329
 		fStage_Shell_Pipeline(){ :; }
 		# shellcheck disable=2329
 		fStage_Shell_Installers(){ :; }
@@ -748,7 +750,7 @@ fShellIn(){  ## version the stand-in shellcheck reports
 		fStage_Docs(){ :; }
 		# shellcheck disable=2329
 		fContentScrub(){ :; }
-		# shellcheck disable=2034  ## Read by the lifted functions.
+		# shellcheck disable=2034,2030  ## Read by the lifted functions, in this subshell only.
 		{ repoRoot="${shellTree}"; utilityDir="${shellTree}/cicd/utility" ;}
 		local fn=""
 		for fn in fId fStage_Shell; do
@@ -770,6 +772,65 @@ if ((rc == 0 && rcSame == 0)) && grep -qxF "  ${scWant}" <<< "${scOld}" \
 	&& grep -qxF "  ok ....: EtB4gns the host's shellcheck is the one the container pins" <<< "${scSame}"
 	then fPass
 	else fFail "exited ${rc} and ${rcSame}, said: ${scOld//$'\n'/ | } and: ${scSame//$'\n'/ | }"
+fi
+
+## The PowerShell lint, against this repo's own file list, with the stand-in
+## docker. Each run is "<checkerSkipWhy>|<exit code of the run in the image>".
+fPsLintIn(){  ## skip reason, exit code for the run in the image
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fEcho(){ :; }
+		# shellcheck disable=2329
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2329
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2329,2154  ## testId and testName come from the lifted fId.
+		fTestPass(){ printf '  ok ....: %s %s\n' "${testId}" "${testName}"; }
+		# shellcheck disable=2329
+		fTestSkip(){ printf '  skip ..: %s %s (%s)\n' "${testId}" "${testName}" "$*"; }
+		# shellcheck disable=2329
+		fTestFail(){ printf '  FAIL ..: %s %s\n' "${testId}" "${testName}"; fThrowError "$*"; }
+		# shellcheck disable=2329,2034  ## Called by the lifted stage, and checkerSkipWhy is its local.
+		fGoCheckers_Ready(){ checkerSkipWhy="${PS_SKIP}"; }
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{ containerVolume="zuid-cicd-cache"; inContainer=0; containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine" ;}
+		local fn=""
+		for fn in fId fInImage fContainer_RunArgs fStage_Shell_PowerShell; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		# shellcheck disable=2030,2031  ## Only the subshell is meant to see them.
+		export PS_SKIP="$1" ENGINE_RUN_RC="$2" ENGINE_LOG="${work}/engine-pslint"
+		fStage_Shell_PowerShell
+	) 2>&1
+}
+
+## Every tracked .ps1, in the image, and a finding fails it. With no docker it
+## skips, the same as the other checkers in the image.
+fId EtB6KVG "the PowerShell lint runs on every tracked PowerShell file in the image, fails on a finding, and skips without docker"
+psBad=""
+: > "${work}/engine-pslint"
+out="$(fPsLintIn "" 0)" && rc=0 || rc=$?
+psLog="$(cat "${work}/engine-pslint")"
+if ((rc != 0)) || ! grep -qxF "  ok ....: EtB6KVF PSScriptAnalyzer finds nothing in the tracked PowerShell" <<< "${out}"; then psBad+=" a clean run said '${out}';"; fi
+## The real repo. The scratch roots above were set in subshells.
+# shellcheck disable=2031
+{
+	mapfile -t psFiles < <(git -C "${repoRoot}" ls-files --full-name '*.ps1' '*.psm1' '*.psd1')
+	((${#psFiles[@]})) || psBad+=" this repo has no PowerShell files to check against;"
+	for psFile in "${psFiles[@]}"; do
+		grep -qF "${repoRoot}/${psFile}" <<< "${psLog}" || psBad+=" ${psFile} wasn't linted;"
+	done
+}
+grep -q -- "^run .* zuid-cicd:t3st env ZUID_PS_FILES=" <<< "${psLog}" || psBad+=" it didn't run in the image: '${psLog}';"
+out="$(fPsLintIn "" 1)" && rc=0 || rc=$?
+if ((rc == 0)) || [[ "${out}" != *"PSScriptAnalyzer found something"* ]]; then psBad+=" a finding didn't fail it: '${out}';"; fi
+: > "${work}/engine-pslint"
+out="$(fPsLintIn "no docker here" 0)" && rc=0 || rc=$?
+if ((rc != 0)) || ! grep -qxF "  skip ..: EtB6KVF PSScriptAnalyzer finds nothing in the tracked PowerShell (no docker here)" <<< "${out}" \
+	|| [[ -s "${work}/engine-pslint" ]]; then psBad+=" without docker it said '${out}';"; fi
+if [[ -z "${psBad}" ]]
+	then fPass
+	else fFail "${psBad}"
 fi
 
 
