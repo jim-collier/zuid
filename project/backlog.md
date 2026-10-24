@@ -446,6 +446,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- `cicd.bash -q --quick --package --only zig --no-sync --no-backup --no-dogfood`: passed, 377 ok and no failures. EtaWcMt and EtaWcMu passed in it, and so did the Windows resource checks and Esa8LVS.
 		- 20261023, run 40063604025 on `macos-15` at 1942bb2: passed, with EtaWcMt, EtaWcMu and ErOiQba ok, and `cli-test.bash` 89 of 89 on the universal release.
 		- The full Linux run at 1942bb2 passed, with EtaWcMt, EtaWcMu and ErOiQba in it.
+	- Hand test build: b23's `zuid` on PATH is `1.0.0-beta.1 (build ddytm)`, from 20261014, which doesn't have this change. Asked in questions.md whether to dogfood main's build.
 	- Swept: every `--version` reader. The installers take the first word. The publish notes, the Windows resource check and the Mac slice check read a release build. The test stand-ins print fixed lines.
 	- Branch: round1023
 	- Commit: 3c898d6
