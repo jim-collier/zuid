@@ -53,6 +53,7 @@ cicd/cicd.bash --container          # build and test in the pinned image instead
 cicd/cicd.bash --quick --leakcheck  # add the soak tests, the cross-file C analyzer, and CodeQL back to a quick run
 cicd/cicd.bash --package            # build the release files into dist/, even on a quick run
 cicd/cicd.bash --no-package         # a full run without them
+cicd/cicd.bash --no-demo            # a full run that leaves assets/demo.gif alone. --no-fuzz and --no-profile work the same way
 cicd/cicd.bash --no-backup          # skip the archive, commit, and push
 cicd/cicd.bash --commit -m "message"  # commit too, refusing on main and dev
 ~~~

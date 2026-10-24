@@ -49,6 +49,8 @@ while (($#)); do case "$1" in
 esac; done
 
 [[ -x "${bin}" ]] || fDie "not executable: ${bin}. Build the Zig side first."
+## Some cases run it from another dir.
+[[ "${bin}" == /* ]] || bin="${PWD}/${bin}"
 
 ## The command keeps its compiled module under the user's cache dir. Point that
 ## somewhere of our own, so a run neither reads nor leaves anything in the real
@@ -433,11 +435,12 @@ fi
 ## Per the XDG spec, a relative XDG_CACHE_HOME is ignored.
 if [[ "$(uname -s)" != Darwin ]]; then
 	fId Ersmdcu "a relative XDG_CACHE_HOME falls back to ~/.cache"
-	(cd "${work}" && XDG_CACHE_HOME=relative "${bin}" >/dev/null 2>&1) || true
+	relRc=0
+	(cd "${work}" && XDG_CACHE_HOME=relative "${bin}" >/dev/null 2>&1) || relRc=$?
 	relCached=("${HOME}"/.cache/zuid/module-*.cwasm)
-	if [[ -s "${relCached[0]}" && ! -e "${work}/relative" ]]
+	if ((relRc == 0)) && [[ -s "${relCached[0]}" && ! -e "${work}/relative" ]]
 		then fPass
-		else fFail "nothing under ${HOME}/.cache/zuid"
+		else fFail "exited ${relRc}, and nothing under ${HOME}/.cache/zuid"
 	fi
 fi
 
@@ -463,3 +466,4 @@ fLine ""
 ##		- 20260917 JC: --count, its refusals, and the closed-pipe case.
 ##		- 20260930 JC: Test IDs. Precision, attached values, --version, --about, --donate, help.
 ##		- 20261005 JC: Module cache, and a scratch HOME so the real cache is left alone.
+##		- 20261023 JC: A relative --bin.

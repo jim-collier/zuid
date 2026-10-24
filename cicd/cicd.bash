@@ -23,6 +23,7 @@
 ##		- 20261019 JC: --leakcheck: CodeQL on Go and C, from an image of its own.
 ##		- 20261019 JC: --leakcheck is on by default, off for --quick and --gate. --no-leakcheck.
 ##		- 20261019 JC: --ci is --gate again.
+##		- 20261023 JC: --no-fuzz, --no-profile, --no-demo.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Set by --container for the run it starts inside.
@@ -184,6 +185,9 @@ fPrint_Help(){
 		    --quick           Skip the slow stages: fuzzing, profiling, the demo and
 		                      packaging, plus the dogfood install. Lint, the tests,
 		                      the Go cross builds and the backup still run.
+		    --no-fuzz         Leave the Go and Zig fuzzing out of a full run.
+		    --no-profile      Leave the profile out of a full run.
+		    --no-demo         Leave the demo out, so assets/demo.gif stays as it is.
 		    --no-sync         Skip the remote refresh at the start.
 		    --gate              The pre-push check: --quick, with no sync, dogfood,
 		                      backup, commit or push. See below.
@@ -399,6 +403,9 @@ fMain(){
 	local -i doGate=0
 	local -i doLeakcheck=1
 	local -i leakAsked=0
+	local -i doFuzz=1
+	local -i doProfile=1
+	local -i doDemo=1
 	fInit "${@}"
 	readonly onlyToolchain
 	readonly doCross
@@ -412,6 +419,9 @@ fMain(){
 	readonly doContainer
 	readonly doGate
 	readonly doLeakcheck
+	readonly doFuzz
+	readonly doProfile
+	readonly doDemo
 
 	## Set by the publish preflight, read by the publish stage.
 	local publishVersion="" publishRemote="" publishHead="" publishRepoUrl=""
@@ -455,10 +465,10 @@ fMain(){
 		if ((doZig));                  then fStage_Zig;       fi
 		if ((doCross)) && ((doGo));    then fStage_Go_Cross;  fi
 		if ((doLeakcheck));            then fStage_Leakcheck; fi
-		if ((! doQuick));              then fStage_Profile;   fi
+		if ((doProfile));              then fStage_Profile;   fi
 	fi
 	## The demo draws with this machine's fonts, so a container never renders it.
-	if ((! doQuick)) && ((! inContainer)); then fStage_Demo; fi
+	if ((doDemo)) && ((! inContainer)); then fStage_Demo; fi
 	if ((doPackage)) && ((! doContainer)); then fStage_Package; fi
 	if [[ -n "${packageSkipWhy}" ]]; then fEcho_Clean; fEcho_Clean "Package ....: skipped, ${packageSkipWhy}"; fi
 	if ((doPublish));              then fStage_Publish;   fi
@@ -526,6 +536,9 @@ fInit(){
 			--gate)         doGate=1 ;;
 			--leakcheck)  doLeakcheck=1; leakAsked=1 ;;
 			--no-leakcheck) doLeakcheck=0; leakAsked=1 ;;
+			--no-fuzz)    doFuzz=0    ;;
+			--no-profile) doProfile=0 ;;
+			--no-demo)    doDemo=0    ;;
 			-q|--quiet)   doQuietly=1 ;;
 
 			## ¯\_(:/)_/¯
@@ -546,6 +559,7 @@ fInit(){
 
 	## Leak checks are 10 minutes more, so a quick run only has them if asked.
 	if ((doQuick)) && ((! leakAsked)); then doLeakcheck=0; fi
+	if ((doQuick)); then doFuzz=0; doProfile=0; doDemo=0; fi
 
 	## The Go cross builds take a few seconds each from cold, so quick runs get
 	## them too. The Zig ones take about 20 s a target and come with --package.
@@ -760,6 +774,9 @@ fStage_Container(){
 	if ((doQuick));   then innerArgs+=(--quick);   fi
 	if ((doPackage)); then innerArgs+=(--package); fi
 	if ((doLeakcheck)); then innerArgs+=(--leakcheck); else innerArgs+=(--no-leakcheck); fi
+	## --quick already says these. The demo stays out here anyway.
+	if ((! doQuick)) && ((! doFuzz));    then innerArgs+=(--no-fuzz);    fi
+	if ((! doQuick)) && ((! doProfile)); then innerArgs+=(--no-profile); fi
 	fEcho_Clean "Runs .......: cicd.bash ${innerArgs[*]}"
 
 	"${containerEngine}" run "${runArgs[@]}" "${innerEnv[@]}" -w "${repoRoot}" \
@@ -1241,7 +1258,7 @@ fStage_Go(){
 
 	fStage_Go_Checks
 	fStage_Go_Consumer
-	if ((! doQuick)); then fStage_Go_Fuzz; fi
+	if ((doFuzz)); then fStage_Go_Fuzz; fi
 
 }
 
@@ -1779,10 +1796,11 @@ fStage_Zig_Fuzz(){
 	((${#fuzzIds[@]} > 0)) || fThrowError "No Zig test calls std.testing.fuzz, so there is nothing to fuzz."  "${FUNCNAME[0]}"
 
 	local -i i=0
-	if ((doQuick)); then
+	if ((! doFuzz)); then
+		local skipWhy="--no-fuzz"; if ((doQuick)); then skipWhy="a quick run"; fi
 		for i in "${!fuzzIds[@]}"; do
 			fId "${fuzzIds[i]}" "${fuzzNames[i]}, fuzzed for ${fuzzLimit} iterations"
-			fTestSkip "a quick run"
+			fTestSkip "${skipWhy}"
 		done
 		return 0
 	fi

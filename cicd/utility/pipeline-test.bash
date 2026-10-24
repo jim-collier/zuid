@@ -280,6 +280,7 @@ fInitIn(){  ## repo dir, args...
 			doCross=0; doQuick=0; doSync=1; doCommit=0; commitAsked=0; doPush=0; doPackage=0; noPackage=0; packageSkipWhy=""
 			doBackup=1; backupAsked=0; backupInWorktree=0; doDogfood=1; dogfoodAsked=0; doPublish=0; allowPartial=0
 			doContainer=0; inContainer=0; doGate=0; doLeakcheck=1; leakAsked=0
+			doFuzz=1; doProfile=1; doDemo=1
 		}
 		shift
 		local fn=""
@@ -293,6 +294,8 @@ fInitIn(){  ## repo dir, args...
 			printf 'doCross=%s\n' "${doCross}"
 		elif [[ "${showLeak:-0}" == "1" ]]; then
 			printf 'doLeakcheck=%s\n' "${doLeakcheck}"
+		elif [[ "${showSlow:-0}" == "1" ]]; then
+			printf 'doFuzz=%s doProfile=%s doDemo=%s\n' "${doFuzz}" "${doProfile}" "${doDemo}"
 		elif [[ "${showGate:-0}" == "1" ]]; then
 			printf 'doQuick=%s doSync=%s doBackup=%s doDogfood=%s doPackage=%s\n' "${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}" "${doPackage}"
 		elif [[ "${showPackage:-0}" == "1" ]]; then
@@ -350,6 +353,32 @@ done)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == $'doLeakcheck=1\ndoLeakcheck=1\ndoLeakcheck=0\ndoLeakcheck=0\ndoLeakcheck=1\ndoLeakcheck=0\ndoLeakcheck=0\ndoLeakcheck=1\ndoLeakcheck=0' ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+## Each slow stage can be left out of a full run alone, so a failure in one
+## doesn't stop a run that's testing something else. Quick drops them all.
+fId Etab8wo "--no-fuzz, --no-profile, --no-demo"
+out="$(for slowArgs in "" --no-fuzz --no-profile --no-demo "--no-fuzz --no-profile --no-demo" --quick --gate "--quick --no-demo"; do
+	# shellcheck disable=2086  ## Empty means no argument at all.
+	showSlow=1 fInitIn "${worktreeMain}" ${slowArgs}
+done)" && rc=0 || rc=$?
+wantSlow="doFuzz=1 doProfile=1 doDemo=1"$'\n'"doFuzz=0 doProfile=1 doDemo=1"$'\n'"doFuzz=1 doProfile=0 doDemo=1"$'\n'"doFuzz=1 doProfile=1 doDemo=0"
+for _ in 1 2 3 4; do wantSlow+=$'\n'"doFuzz=0 doProfile=0 doDemo=0"; done
+if ((rc == 0)) && [[ "${out}" == "${wantSlow}" ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+fId Etab8wp "the stage calls follow the flags"
+## Read from fMain and the two fuzz call sites, so a stage that goes back to
+## keying on doQuick fails here.
+mainBody="$(sed -n '/^fMain(){/,/^}/p' "${cicd}")"
+goBody="$(sed -n '/^fStage_Go(){/,/^}/p' "${cicd}")"
+zigFuzzBody="$(sed -n '/^fStage_Zig_Fuzz(){/,/^}/p' "${cicd}")"
+if grep -q 'if ((doProfile)); *then fStage_Profile;' <<< "${mainBody}" && grep -q 'if ((doDemo)) && ((! inContainer)); then fStage_Demo;' <<< "${mainBody}" \
+	&& grep -q 'if ((doFuzz)); then fStage_Go_Fuzz;' <<< "${goBody}" && grep -q 'if ((! doFuzz)); then' <<< "${zigFuzzBody}"
+	then fPass
+	else fFail "a slow stage isn't keyed on its own flag in cicd.bash"
 fi
 
 fId EtAUMRH "--help on --leakcheck"
@@ -497,7 +526,8 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 		# shellcheck disable=2034  ## Read by the lifted fStage_Container.
 		{
 			repoRoot="$(cd "$1" && pwd -P)"; containerImage="zuid-cicd"; containerVolume="zuid-cicd-cache"; codeqlImage="zuid-codeql"
-			onlyToolchain="go"; doQuick=1; doPackage=1; doLeakcheck="${leakcheck:-0}"; runStamp="20261019-101112"; _sectionWidth="123"
+			onlyToolchain="go"; doQuick="${quick:-1}"; doPackage=1; doLeakcheck="${leakcheck:-0}"; runStamp="20261019-101112"; _sectionWidth="123"
+			doFuzz="${fuzz:-0}"; doProfile="${profile:-0}"
 		}
 		local fn=""
 		for fn in _fMustBeInPath fStage_Container fContainer_Image fCodeql_Image fContainer_DropOthers fContainer_RunArgs; do
@@ -563,6 +593,17 @@ if ((rc == 0)) && grep -q -- "^run .* --only go --quick --package --leakcheck$" 
 	&& grep -q -- "^run .* --only go --quick --package --no-leakcheck$" "${work}/engine-noleak"
 	then fPass
 	else fFail "exited ${rc}, asked: $(grep '^run ' "${work}/engine-main" || true)"
+fi
+
+## A full run's --no-fuzz and --no-profile go in too. A quick one's --quick
+## already covers them.
+fId Etab8wq "--container passes --no-fuzz, --no-profile in"
+: > "${work}/engine-slow"
+out="$(quick=0 fuzz=0 profile=1 fContainerIn "${worktreeMain}" "${work}/engine-slow" 0; quick=0 fuzz=1 profile=0 fContainerIn "${worktreeMain}" "${work}/engine-slow" 0; quick=0 fuzz=1 profile=1 fContainerIn "${worktreeMain}" "${work}/engine-slow" 0)" && rc=0 || rc=$?
+runs="$(grep '^run ' "${work}/engine-slow" | sed 's/.* --only go //' || true)"
+if ((rc == 0)) && [[ "${runs}" == $'--package --no-leakcheck --no-fuzz\n--package --no-leakcheck --no-profile\n--package --no-leakcheck' ]]
+	then fPass
+	else fFail "exited ${rc}, asked: ${runs//$'\n'/ | }"
 fi
 
 ## The image has no time zone, so the run inside stamped its files in UTC and
@@ -1463,7 +1504,7 @@ fFuzzIn(){  ## mode, name of the test that finds
 		done
 		# shellcheck disable=2034  ## Read by the lifted functions.
 		{
-			doQuick=0; zigDir="${dir}/zig"; buildJobs=1
+			doQuick=0; doFuzz=1; zigDir="${dir}/zig"; buildJobs=1
 			_scratchDirs=(); artifactDir="${dir}/artifacts"; runStamp="pipeline-test"
 		}
 		## The script's own exit cleanup. A failed case leaves through exit 1,
@@ -1676,6 +1717,30 @@ if ((rc == 0 && rc2 == 1 && rc3 == 1)) && [[ "${out2}" == *"Not in the database:
 	else fFail "exited ${rc}, ${rc2} and ${rc3}, and said '${out}', '${out2//$'\n'/ | }' and '${out3}'"
 fi
 
+## cli-test.bash ran a relative --bin after a cd, so Ersmdcu ran nothing and
+## failed (2026102321183047). The stand-in only keeps a module the way the
+## command does, so every other case there fails, and only this one is read.
+fId Etab8wr "cli-test.bash takes a relative --bin"
+if [[ "$(uname -s)" == Darwin ]]; then
+	printf '  skip ..: %s %s (%s)\n' "${curId}" "${curName}" "cli-test.bash has no Ersmdcu on a Mac"; curId=""
+else
+	mkdir -p "${work}/relbin/stand-in"
+	cat > "${work}/relbin/stand-in/zuid" <<- 'STUB'
+		#!/usr/bin/env bash
+		cacheRoot="${XDG_CACHE_HOME:-}"; [[ "${cacheRoot}" == /* ]] || cacheRoot="${HOME}/.cache"
+		mkdir -p "${cacheRoot}/zuid"
+		find "${cacheRoot}/zuid" -name 'module-*.cwasm' ! -name module-1111111111111111.cwasm -delete
+		echo module > "${cacheRoot}/zuid/module-1111111111111111.cwasm"
+		echo abcdef
+	STUB
+	chmod +x "${work}/relbin/stand-in/zuid"
+	out="$(cd "${work}/relbin" && bash "${utilityDir}/cli-test.bash" --bin stand-in/zuid 2>&1 || true)"
+	if grep -qxF "  ok ....: Ersmdcu a relative XDG_CACHE_HOME falls back to ~/.cache" <<< "${out}"
+		then fPass
+		else fFail "$(grep -m1 -e 'Ersmdcu' -e 'cli-test:' <<< "${out}" || echo 'no Ersmdcu line')"
+	fi
+fi
+
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
 fLine ""
@@ -1683,6 +1748,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261023 JC: --no-fuzz, --no-profile, --no-demo. cli-test.bash with a relative --bin.
 ##		- 20261019 JC: The CodeQL report, and CodeQL's image under --container.
 ##		- 20261019 JC: --leakcheck.
 ##		- 20261019 JC: --leakcheck is default, --no-leakcheck.
