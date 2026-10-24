@@ -2633,7 +2633,7 @@ fStage_Package(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Runs each slice of the macOS release this Mac can run: its own, plus x86_64
 ## under Rosetta on Apple Silicon. Then capi_smoke.c against the tarball's
-## libraries, per slice. Nothing here is Apple Silicon, so the arm64 slice runs
+## libraries, per slice. No box here is Apple Silicon, so the arm64 slice runs
 ## only on the hosted macOS runner.
 fStage_Package_MacRun(){  ## scratch dir, release, version
 	local -r scratchDir="$1" release="$2" version="$3"
@@ -3274,7 +3274,18 @@ fStage_Package_Stripped(){  ## scratch dir
 	local -a grepArgs=(-e "${repoRoot}" -e ".zig-cache/")
 	if [[ -n "${zigLib}" ]];                    then grepArgs+=(-e "$(dirname "${zigLib}")"); fi
 	if [[ -n "${zigCache}" ]];                  then grepArgs+=(-e "${zigCache}");            fi
-	if [[ -n "${HOME:-}" && "${HOME}" != "/" ]]; then grepArgs+=(-e "${HOME}");                fi
+	## Wasmtime is built on GitHub's runners, and its build paths stay in
+	## every binary that links it. A runner's home is a prefix of those, so
+	## there it can't tell our paths from theirs. The checkout still can.
+	local homeIsTheirs=""
+	for candidate in "${zigDir}"/vendor/wasmtime*/lib/libwasmtime.a; do
+		if [[ -n "${HOME:-}" && -f "${candidate}" ]] && LC_ALL=C grep -qaF "${HOME}/" "${candidate}"; then homeIsTheirs="${candidate}"; break; fi
+	done
+	if [[ -n "${homeIsTheirs}" ]]; then
+		fEcho_Clean "Home .......: ${HOME} is in ${homeIsTheirs#"${zigDir}"/}, so only the checkout and Zig paths are looked for"
+	elif [[ -n "${HOME:-}" && "${HOME}" != "/" ]]; then
+		grepArgs+=(-e "${HOME}")
+	fi
 
 	fId EsZni4i "no local paths or debug info in the release"
 	if [[ -z "${lister}" ]]; then
