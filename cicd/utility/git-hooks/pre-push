@@ -1,5 +1,5 @@
 #!/bin/sh
-# Local merge gate. Before a push that updates main, run cicd.bash --ci on the
+# Local merge gate. Before a push that updates main, run cicd.bash --gate on the
 # commit being pushed, in a scratch worktree, since the working tree often has
 # edits that aren't in it. Feature branches aren't gated; they're tested before
 # they merge.
@@ -36,7 +36,7 @@ fi
 
 [ -n "${mainSha}" ] || exit 0
 
-echo "pre-push: gating the push to main with cicd.bash --ci (SKIP_GATE=1 skips)" >&2
+echo "pre-push: gating the push to main with cicd.bash --gate (SKIP_GATE=1 skips)" >&2
 gateDir="$(mktemp -d "${TMPDIR:-/tmp}/zuid-gate.XXXXXX")"
 tree="${gateDir}/tree"
 fCleanup() {
@@ -54,8 +54,9 @@ if [ -d "${top}/zig/vendor" ]; then
 fi
 ZIG_LOCAL_CACHE_DIR="${ZIG_LOCAL_CACHE_DIR:-${top}/zig/.zig-cache}"
 export ZIG_LOCAL_CACHE_DIR
-"${tree}/cicd/cicd.bash" --ci
+"${tree}/cicd/cicd.bash" --gate
 
 ##	History:
 ##		- 20261014: Created, from silkterm's.
 ##		- 20261018: --gate is --ci.
+##		- 20261019: --ci is --gate again.

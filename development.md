@@ -45,14 +45,15 @@ On x86_64 Linux with docker, `cicd/cicd.bash --container` needs only git and doc
 `cicd/cicd.bash` drives everything and is what to run before merging.
 
 ~~~bash
-cicd/cicd.bash                      # every stage but --publish and --leakcheck: build, test, cross-compile, and package where it can
+cicd/cicd.bash                      # every stage but --publish: build, test, cross-compile, and package where it can
 cicd/cicd.bash --quick              # skip fuzzing, profiling, the demo, packaging and the dogfood install
-cicd/cicd.bash --ci                 # what the pre-push hook runs: --quick, without the sync, dogfood or backup
+cicd/cicd.bash --gate                 # what the pre-push hook runs: --quick, without the sync, dogfood or backup
 cicd/cicd.bash --only go            # one toolchain, so only that one has to exist
 cicd/cicd.bash --container          # build and test in the pinned image instead
-cicd/cicd.bash --leakcheck          # add the soak tests, the cross-file C analyzer, and CodeQL to the run
+cicd/cicd.bash --quick --leakcheck  # add the soak tests, the cross-file C analyzer, and CodeQL back to a quick run
 cicd/cicd.bash --package            # build the release files into dist/, even on a quick run
 cicd/cicd.bash --no-package         # a full run without them
+cicd/cicd.bash --no-demo            # a full run that leaves assets/demo.gif alone. --no-fuzz and --no-profile work the same way
 cicd/cicd.bash --no-backup          # skip the archive, commit, and push
 cicd/cicd.bash --commit -m "message"  # commit too, refusing on main and dev
 ~~~
@@ -63,7 +64,7 @@ Both sides have to reproduce every row of `testdata/vectors.tsv` before anything
 
 Run logs, profiles, and demo renders go under `cicd/artifacts/`, which is rotated and not committed.
 
-`--leakcheck` is never on by default. It soaks each side: the same calls a caller makes, round after round, failing when the heap after round 2N is bigger than after round N by more than a margin. The Go soak runs on the Go on PATH and keeps 2 heap profiles, and `go tool pprof -base` on them shows what grew. The C soak runs in the image, under heaptrack, and keeps heaptrack's report. Both go in `cicd/artifacts/leakcheck/`. It also runs clang's analyzer in cross-file mode over the C tests, so it follows a call from one file into another. All of it takes about 2 minutes.
+`--leakcheck` is on for a full run, and off for `--quick` and `--gate` unless it's asked for. `--no-leakcheck` leaves it out of any run. It soaks each side: the same calls a caller makes, round after round, failing when the heap after round 2N is bigger than after round N by more than a margin. The Go soak runs on the Go on PATH and keeps 2 heap profiles, and `go tool pprof -base` on them shows what grew. The C soak runs in the image, under heaptrack, and keeps heaptrack's report. Both go in `cicd/artifacts/leakcheck/`. It also runs clang's analyzer in cross-file mode over the C tests, so it follows a call from one file into another. All of it takes about 10 minutes.
 
 `--leakcheck` also runs CodeQL, on the Go module and on the C tests. It comes from a second image, built from `cicd/container/codeql/Dockerfile` on top of the first one the first time `--leakcheck` asks for it, about 480 MB more. The Go module is copied to a scratch folder and its dependencies vendored there, since CodeQL only reports on code inside the folder it was given. Any finding in our own code fails the run, and so does a security or correctness finding in third-party code. One that has to wait for a fix upstream goes in `cicd/utility/codeql-suppressions.txt` with its backlog item. The reports go in `cicd/artifacts/leakcheck/` too, as SARIF. Zig isn't a language CodeQL reads, so the C module itself is covered only through its header and the C tests. GitHub's terms for CodeQL allow it on code under an OSI license, so check them before running it on a fork that isn't.
 

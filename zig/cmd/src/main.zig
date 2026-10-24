@@ -46,7 +46,37 @@ const curated_list = blk: {
 /// same line.
 const version_line = build_options.version_line;
 
-const about_text = "zuid " ++ version_line ++ "\n" ++
+// lib/c/clock.h, translated by build.zig.
+const c = @import("c_clock");
+
+/// " (2026-10-23)", the day the build number's minute fell on where the
+/// command runs. The build machine's time zone isn't the viewer's, so it's
+/// worked out here. Empty for a release or an unstamped build.
+fn buildDate(buf: *[16]u8) []const u8 {
+    const secs = build_options.dated_from orelse return "";
+    var tm: c.struct_tm = undefined;
+    if (builtin.os.tag == .windows) {
+        const t: c.__time64_t = secs;
+        if (c._localtime64_s(&tm, &t) != 0) return "";
+    } else {
+        const t: c.time_t = @intCast(secs);
+        if (c.localtime_r(&t, &tm) == null) return "";
+    }
+    const year = std.math.cast(u32, tm.tm_year + 1900) orelse return "";
+    const month = std.math.cast(u32, tm.tm_mon + 1) orelse return "";
+    const day = std.math.cast(u32, tm.tm_mday) orelse return "";
+    return std.fmt.bufPrint(buf, " ({d:0>4}-{d:0>2}-{d:0>2})", .{ year, month, day }) catch "";
+}
+
+/// version_line plus the build date, as --version, --about and --help start.
+fn writeVersion(w: *std.Io.Writer) std.Io.Writer.Error!void {
+    var date_buf: [16]u8 = undefined;
+    try w.writeAll(version_line);
+    try w.writeAll(buildDate(&date_buf));
+}
+
+// After "zuid <version>".
+const about_text = "\n" ++
     \\Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ].
     \\Project: https://github.com/jim-collier/zuid
     \\License GPLv2+: GNU GPL version 2 or later, full text at:
@@ -132,7 +162,8 @@ const help_tail =
 
 // Help, about, and donate stand clear of the prompt with a blank line either side.
 // --version stays bare, since scripts capture it.
-const help_text = "\nzuid " ++ version_line ++ "\n\n" ++ help_head ++ curated_list ++ help_tail ++ "\n";
+// After "\nzuid <version>".
+const help_text = "\n\n" ++ help_head ++ curated_list ++ help_tail ++ "\n";
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
@@ -170,17 +201,22 @@ pub fn main(init: std.process.Init) !void {
 
         if (std.mem.eql(u8, name, "-h") or std.mem.eql(u8, name, "--help")) {
             vals.rejectAttached(name);
+            stdout.writeAll("\nzuid ") catch stdoutFailed(&stdout_fw, stderr);
+            writeVersion(stdout) catch stdoutFailed(&stdout_fw, stderr);
             stdout.writeAll(help_text) catch stdoutFailed(&stdout_fw, stderr);
             stdout.flush() catch stdoutFailed(&stdout_fw, stderr);
             return;
         } else if (std.mem.eql(u8, name, "-v") or std.mem.eql(u8, name, "--version")) {
             vals.rejectAttached(name);
-            stdout.writeAll(version_line ++ "\n") catch stdoutFailed(&stdout_fw, stderr);
+            writeVersion(stdout) catch stdoutFailed(&stdout_fw, stderr);
+            stdout.writeAll("\n") catch stdoutFailed(&stdout_fw, stderr);
             stdout.flush() catch stdoutFailed(&stdout_fw, stderr);
             return;
         } else if (std.mem.eql(u8, name, "--about")) {
             vals.rejectAttached(name);
-            stdout.writeAll("\n" ++ about_text ++ "\n") catch stdoutFailed(&stdout_fw, stderr);
+            stdout.writeAll("\nzuid ") catch stdoutFailed(&stdout_fw, stderr);
+            writeVersion(stdout) catch stdoutFailed(&stdout_fw, stderr);
+            stdout.writeAll(about_text ++ "\n") catch stdoutFailed(&stdout_fw, stderr);
             stdout.flush() catch stdoutFailed(&stdout_fw, stderr);
             return;
         } else if (std.mem.eql(u8, name, "--donate")) {

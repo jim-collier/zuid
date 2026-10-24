@@ -113,6 +113,8 @@ No color, no bold, no box drawing. The help has to read the same in a terminal, 
 
 That is so a script can take `head -n1` of it, which both installers do.
 
+A build that isn't for a release adds the date of its build number, in the local time zone of whoever runs it: `1.0.0-beta.1 (build debmp) (2026-10-23)`. The build number is a UTC minute, so the date is worked out when the command runs, not when it's built. `--about` and `--help` show the same line. `package.bash` builds with `-Drelease`, which leaves the date off.
+
 `--about` is the longer form: version, copyright, project URL, both licenses, the no-warranty line, and a two-line description. The copyright lives here and nowhere else - not in `--help`, and not in the banner.
 
 `--donate` says how to support the project and stops. Nothing else ever mentions donating.

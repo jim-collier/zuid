@@ -31,6 +31,19 @@ Going forward, new issues in the new template at the bottom of this file, will g
 ## Issues
 
 
+- Zig's build caches grow without limit.
+	- ID: 2026102320181236
+	- Type: Enhancement
+	- Status: Waiting for answers
+		- Waits on the 2026102320181236 question in `questions.md`: whether to cap the caches, and how.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261023-201812
+	- Opened by: JC
+	- Parent ID: 2026101916041200
+	- Requirements  [Feature]:
+		- Zig never prunes its cache. On b23 `zig/.zig-cache` reached 711 MB in 5 days, and the Zig cache in the `zuid-cicd-cache` volume 336 MB. Go's build cache trims itself.
+		- Zig's global cache in `~/.cache/zig` is shared with other projects and Zig versions, so it isn't ours to prune.
+
 - README and GitHub About wording.
 	- ID: 2026101410495988
 	- Type: Task
@@ -380,6 +393,64 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: bf0c2b0
 	- Test case: none, labels only. `cicd.bash --ci -q --no-backup --no-dogfood`, `installer-test.bash`, `pipeline-test.bash` and `test-ids.py check` all passed, and `lint-report.bash --check` is clean.
 
+- Builds leave stale artifacts and side-effects behind.
+	- ID: 2026101916041200
+	- Type: Enhancement
+	- Status: Waiting on signoff
+		- Stays open until its child 2026102320181236 closes.
+	- Needs local test suite run?: Done. The full run passed at 1942bb2, and after it `docker images zuid-codeql` listed only `zuid-codeql:de7763196c93-856cd00870eb`, on the current `zuid-cicd:856cd00870eb`.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261019-160412
+	- Opened by: JC
+	- Related IDs: 2026101912130117, 2026101816474402
+	- Requirements  [Feature]:
+		- Do next, before the next cut.
+		- Verify or ensure that builds clean up stale artifacts and side-effects after they're done: caches, container cruft, tmp files, etc.
+	- Progress log:
+		- 20261023: A `--gate` run with a TMPDIR of its own left nothing behind. The TMPDIR was empty, nothing new was in `/tmp`, `/mnt/tmpfs/tmp` or `~/.cache`, and no zuid container, image or volume was added.
+		- 20261023: Every `mktemp -d` in `cicd.bash` is on the exit cleanup list, and each harness removes its own work dir on exit. Containers run with `--rm --init`.
+		- 20261023: `cicd/artifacts/` already rotates, and `dist/` is emptied before each package run. Fuzz finds are kept on purpose.
+		- 20261023: Found: a CodeQL image built on an older main image stayed until the next `--leakcheck` run. On b23 that was `zuid-codeql:953bf12e36c5-98809c2ceb21`, about 750 MB of its own. Every run that uses the main image now drops it, ahead of the old main tag. A quick Go run removed it on b23.
+		- 20261023: EtAj5P2's plain-run clause was "no mention of codeql at all". It's now "no CodeQL build or run", as its comment says, since a plain run removes a stale one now.
+		- 20261023: Zig's caches never shrink. Split off as 2026102320181236, waiting on a question.
+		- 20261023: Docker's build cache is shared with sister projects, and their steps can't be told from ours. So it stays with the hand prune after a build.
+		- 20261023: Full run `cicd.bash -q --no-sync --no-dogfood --no-backup --no-demo` at 1942bb2 passed in 17 minutes, 439 ok, 13 skips, no failures. It built the CodeQL image fresh, since none was left from before. EtaIbeg passed in it. Nothing of the run's was left in its TMPDIR, `/tmp`, `/mnt/tmpfs/tmp` or `~/.cache`, no zuid container or process was left, and no volume was added. `assets/demo.gif` was unchanged.
+	- Swept: the only 2 image builds are the main and CodeQL ones. Both lifts of `fContainer_Image` in `pipeline-test.bash` set `codeqlImage`. The run inside the container never calls it.
+	- Branch: round1023
+	- Commit: 0562b45
+	- Test case: EtaIbeg. It failed before the fix, keeping the stale CodeQL image, and passes after.
+
+- Non-release builds don't show their build date.
+	- ID: 2026102318361186
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs external testing: Done. The `macos` workflow passed at 1942bb2, run 40063604025, with EtaWcMt and EtaWcMu in it.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261023-183527
+	- Opened by: JC
+	- Related IDs: 2026102321183047
+	- Requirements  [Feature]:
+		- For non-release builds, include " (YYYY-mm-DD)" after the build number.
+			- Report the date as the local date of whoever views the version.
+	- Progress log:
+		- 20261023: The date has to be worked out when `--version` runs, from the minutes in the build number, since the build machine's time zone isn't the viewer's.
+		- 20261023: Done. A non-release build prints `1.0.0-beta.1 (build debmp) (2026-10-23)`. The command takes the build number's minute and asks libc for the local date, so `TZ` and the system zone both count.
+		- 20261023: ErOiQba's pattern now allows the date. Old: ends in `\(build [0-9a-z]+\)$`. New: the same, then an optional ` \([0-9]{4}-[0-9]{2}-[0-9]{2}\)`.
+	- Decisions:
+		- 20261023: A release build is one made with `-Drelease`, which only `package.bash` passes. The dogfood build and the release are both ReleaseSafe, and the tag doesn't exist yet when a release is packaged, so neither could tell them apart.
+		- 20261023: The date is its own pair of parens after the build number's, `(build debmp) (2026-10-23)`, rather than inside it.
+		- 20261023: `--about` and `--help` show the same line as `--version`. The Windows version resource stays without the date, since it's fixed at build time.
+	- Verified: `--version` gave 2026-10-23 in PDT and at UTC-12, and 2026-10-24 at UTC and UTC+14, for a commit at 2026-10-24 04:06 UTC. A `-Drelease` build has no date, and its `--about` differs only in that. The x86_64 Windows build gave the same dates with `TZ` unset and at UTC+14. Windows x86_64 and arm64 and FreeBSD cross-build, and `clock.h` gives `localtime_r` for both macOS slices.
+		- `cli-test.bash` passed 90 of 90 on both builds, and the old ErOiQba failed on the dated one.
+		- EtaWcMt passed on a dated build and failed on a `-Drelease` one, and EtaWcMu the other way round.
+		- `cicd.bash -q --quick --package --only zig --no-sync --no-backup --no-dogfood`: passed, 377 ok and no failures. EtaWcMt and EtaWcMu passed in it, and so did the Windows resource checks and Esa8LVS.
+		- 20261023, run 40063604025 on `macos-15` at 1942bb2: passed, with EtaWcMt, EtaWcMu and ErOiQba ok, and `cli-test.bash` 89 of 89 on the universal release.
+		- The full Linux run at 1942bb2 passed, with EtaWcMt, EtaWcMu and ErOiQba in it.
+	- Swept: every `--version` reader. The installers take the first word. The publish notes, the Windows resource check and the Mac slice check read a release build. The test stand-ins print fixed lines.
+	- Branch: round1023
+	- Commit: 3c898d6
+	- Test case: EtaWcMt builds with SOURCE_DATE_EPOCH=1700000000 and wants 2023-11-14 at UTC and 2023-11-15 at UTC+14. EtaWcMu wants no date from the release `package.bash` built. ErOiQba takes either form.
+
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -494,6 +565,87 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261019: The code is upstream, so it's fixed in convert-base-v2 and comes in with a later pin. Until then `cicd/utility/codeql-suppressions.txt` suppresses it by this ID.
 		- 20261019: Stalled with the pin move, 2026100519164742.
+
+- Run CICD on GitHub's free arm64 macOS runners.
+	- ID: 2026102318361185
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs external testing: No. The `macos` workflow passed at 878f5b9, run 40059817674.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261023-183527
+	- Opened by: JC
+	- Related IDs: 2026101312344407
+	- Target OS: macOS
+	- Requirements  [Feature]:
+		- Build, run the tests, and smoke-test the CLI on the built binary.
+	- Progress log:
+		- 20261023: It would be the first run of the arm64 slice on Apple Silicon, which 2026101312344407 is stalled on.
+		- 20261023: `.github/workflows/macos.yml` runs `cicd.bash --quick --package` on `macos-15`, then `cli-test.bash` on the universal release. It runs on a push to any branch, skipping docs-only pushes, or by hand.
+		- 20261023: `--package` on a Mac now runs each slice it can, the x86_64 one under Rosetta on Apple Silicon, and links and runs `capi_smoke.c` against the tarball, static and shared, per slice. An Intel Mac links the arm64 one and skips running it.
+		- 20261023: The runner needed the Dockerfile's exact Go. setup-go turns off toolchain downloads, and the release check refuses any other Go for the reactor.
+		- 20261023: Found there: EsZni4i failed on `/Users/runner` in the release. Wasmtime is built on GitHub's runners, and its build paths stay in every binary that links it, so a runner's home matches them. When a vendored Wasmtime archive already has the home in it, only the checkout and Zig paths are looked for now. The run before the fix failed on it, and the one after passed.
+		- 20261023: Waits on signoff for the trigger: a push to any branch, docs-only pushes skipped. The arm64 macOS half of 2026101312344407 ran in this run.
+	- Verified:
+		- 20261023, run 40059817674 on `macos-15` at 878f5b9: `cicd.bash -q --quick --package --no-sync --no-backup --no-dogfood` passed, 473 ok, no failures. `cli-test.bash` passed 89 on the universal release, the arm64 slice natively.
+		- Locally: shellcheck, `test-ids.py check` (442, all unique), `pipeline-test.bash` 94 passed, the content scrub.
+		- Not verified: the new checks were not watched to fail.
+	- Decisions:
+		- 20261023: `macos-15`, not M4. GitHub's free arm64 runners are M1 class, and M4 is not offered free. 15 is the free arm64 image closest to the release's macOS 13.0 floor.
+		- 20261023: Zig comes from ziglang.org, checked against a pinned sha256 and cached between runs. No third-party setup action.
+		- 20261023: Lint, the Go checkers and the leak checks stay on Linux. The runner has no docker, and shellcheck there would not match the pinned one.
+	- Swept: every `${HOME}` leak pattern in `cicd.bash` and `package.bash`. EsZni4i is the only one.
+	- Branch: round1023
+	- Commit: 878f5b9
+	- Test case: EtaL127 and EtaL128 run each slice, EtaL129 to EtaL12C link and run `capi_smoke.c` against the tarball per slice and link kind. EsZni4i failed on the runner before its fix and passed after.
+
+- `cli-test.bash` fails Ersmdcu when `--bin` is a relative path.
+	- ID: 2026102321183047
+	- Type: Bug
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261023-211830
+	- Opened by: JC
+	- Related IDs: 2026102318361186
+	- Steps to reproduce [Bug]:
+		- From `repo/`, run `bash cicd/utility/cli-test.bash --bin zig/zig-out/bin/zuid`.
+	- Incorrect behavior [Bug]: Ersmdcu fails with "nothing under .../home/.cache/zuid", 89 of 90.
+	- Expected behavior [Bug]: 90 of 90, as with the same build's absolute path.
+	- Reproduced [Bug]: Yes, 20261023 on b23, 3 runs of 3. The absolute path passed.
+	- Possible cause [Bug]: The test runs `${bin}` after `cd "${work}"`, so a relative path names nothing there, and its `|| true` hides that. The round settings in memory.md give the relative form.
+	- Actual cause [Bug]:
+		- As guessed. A relative `--bin` named nothing after the `cd`, and `|| true` hid the failed run.
+	- Actual fix [Bug]: `cli-test.bash` makes `--bin` absolute before any case runs. Ersmdcu also fails on the run's exit code now, and says it.
+	- Verified: `--bin zig/zig-out/bin/zuid` from `repo/` failed 89 of 90 before the fix and passed 90 of 90 after. So did `./zig-out/bin/zuid` from `zig/`, and the absolute path still passed. Etab8wr failed against the old `cli-test.bash` and passes with the fix.
+	- Swept: every `cd` in `cli-test.bash`; Ersmdcu is the only case that runs the command from another dir. The `macos` workflow passes a relative `--bin` too, but Ersmdcu skips on a Mac.
+	- Branch: round1023
+	- Commit: faef0ac
+	- Test case: Etab8wr, in `pipeline-test.bash`, runs `cli-test.bash` with a relative `--bin` to a stand-in that keeps a module the way the command does, and wants Ersmdcu to pass. It skips on a Mac.
+	- Acceptance signoff: Self-closed: mechanical fix, and the test failed before it and passes after.
+	- Closed: 20261023-214307
+
+- A full run rewrites `assets/demo.gif`, with no flag to stop it.
+	- ID: 2026102320065988
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261023-200659
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- A `--no-demo` flag, so a full test run leaves the tracked gif alone.
+		- A `--no-` flag for the other full-run stages that have none, such as fuzz and profile, so a failure in one doesn't stop a run that's testing something else.
+	- Estimated effort: Low
+	- Progress log:
+		- 20261023: Done. `--no-fuzz` drops the Go and Zig fuzzing, `--no-profile` the profile and `--no-demo` the demo, each on its own. `--quick` still drops all three. `--container` passes `--no-fuzz` and `--no-profile` in; the demo never runs in there.
+		- 20261023: Packaging, the leak checks and dogfood already had a `--no-` flag. Every other full-run stage also runs on a quick run.
+	- Decisions:
+		- 20261023: No positive `--fuzz`, `--profile` or `--demo` to add them back to `--quick`, since nothing asked for it.
+	- Verified: `pipeline-test.bash` passed 98 of 98, and Etab8wo, Etab8wp and Etab8wq failed against the old `cicd.bash`. `cicd.bash -q --no-sync --no-backup --no-dogfood --no-leakcheck --no-fuzz --no-profile --no-demo` passed with `--only go`, and with `--only zig --no-package`. Neither ran the fuzz, profile or demo stages, the Zig fuzz tests showed as skipped for `--no-fuzz`, and `assets/demo.gif` was unchanged.
+	- Swept: every `doQuick` in `cicd.bash`. The fuzz, profile and demo call sites read their own flags now, and `fStage_Container` passes the two that apply. Help and `development.md` list the flags.
+	- Branch: round1023
+	- Commit: faef0ac
+	- Test case: Etab8wo (the flags, alone and with `--quick` and `--gate`), Etab8wp (each stage call reads its own flag), Etab8wq (`--container` passes them in).
+	- Acceptance signoff: Self-closed: clear intent, and its tests pass.
+	- Closed: 20261023-214307
 
 - `install.bash` stops under a Mac's stock bash for a user install.
 	- ID: 2026101410500003
@@ -2976,10 +3128,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 	- The ID is the local time to the hundredth of a second. Opened is when it was written down, which may differ. (Use a keyboard macro and possibly something like project 'zuid' to generate.)
 
-	- Status values meaning: Testing means the fix is in and checks are running or still to run. Waiting on signoff means automated testing passed. Moot means something else changed that made it irrelevant. Canceled means it still applies but was decided against. Waiting for testing means the fix is in and waits on a long CI run or an outside test host. Can't reproduce means a real attempt to reproduce it failed.
+	- Status values meaning: Testing means the fix is in and checks are running or still to run. Waiting on signoff means automated testing passed. Moot means something else changed that made it irrelevant. Canceled means it still applies but was decided against. Waiting on automated testing means the fix is in and an agent's test run is next. Waiting on a partial CICD run means it needs a narrowed run, such as `--quick` or `--only`, by a person or an agent. Waiting on a full CICD run is the same for a full run. Waiting on UAT means a person has to try it. Can't reproduce means a real attempt to reproduce it failed.
 
 	- As issues are worked, and statuses change, place them in correct sorting order within the list:
-		- First by status: Waiting for answers, Waiting on signoff, Testing, Waiting for testing, Can't reproduce, Stalled, Started, Queued, Done, Deferred, Canceled, Moot
+		- First by status: Waiting for answers, Waiting on signoff, Testing, Waiting on automated testing, Waiting on a partial CICD run, Waiting on a full CICD run, Waiting on UAT, Can't reproduce, Stalled, Started, Queued, Done, Deferred, Canceled, Moot
 		- Then by severity|priority: Critical, High, Avg, Low
 		- Then by type: Bugs, [not bugs together]
 
@@ -2990,7 +3142,7 @@ Template:
 - Title
 	- ID: YYYYmmDDHHMMSSNN
 	- Type: [Bug|Feature|Enhancement|Task]
-	- Status: [Queued|Waiting for answers|Waiting on signoff|Waiting for testing|Started|Testing|Stalled|Can't reproduce|Moot|Canceled|Deferred|Done]
+	- Status: [Queued|Waiting for answers|Waiting on signoff|Waiting on automated testing|Waiting on a partial CICD run|Waiting on a full CICD run|Waiting on UAT|Started|Testing|Stalled|Can't reproduce|Moot|Canceled|Deferred|Done]
 	- Needs local test suite run?:
 	- Needs external testing:
 	- Priority [Feature|Enhancement] | Severity [Bug]: [Critical|High|Avg|Low]

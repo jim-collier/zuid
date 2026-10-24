@@ -49,6 +49,8 @@ while (($#)); do case "$1" in
 esac; done
 
 [[ -x "${bin}" ]] || fDie "not executable: ${bin}. Build the Zig side first."
+## Some cases run it from another dir.
+[[ "${bin}" == /* ]] || bin="${PWD}/${bin}"
 
 ## The command keeps its compiled module under the user's cache dir. Point that
 ## somewhere of our own, so a run neither reads nor leaves anything in the real
@@ -370,7 +372,8 @@ fWantFailure ErOiQbY "zero --rand-chars" "out of range for --rand-chars" --rand-
 ## --version is one bare line for scripts and the installers' head -n1. The
 ## copyright lives in --about.
 fWantLines ErOiQbZ "--version is one line"                  1 --version
-fWantMatch ErOiQba "--version is the version and build"     '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)? \(build [0-9a-z]+\)$' --version
+## A build that isn't for a release adds the date.
+fWantMatch ErOiQba "--version is the version and build"     '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)? \(build [0-9a-z]+\)( \([0-9]{4}-[0-9]{2}-[0-9]{2}\))?$' --version
 fWantAbsent ErOiQbb "--version has no copyright"            "Copyright" --version
 fWantContains ErOiQbc "--about has the copyright"           "Copyright ©" --about
 fWantContains ErOiQbd "--about names both licenses"         "The Go module and the C library are Apache-2.0." --about
@@ -432,11 +435,12 @@ fi
 ## Per the XDG spec, a relative XDG_CACHE_HOME is ignored.
 if [[ "$(uname -s)" != Darwin ]]; then
 	fId Ersmdcu "a relative XDG_CACHE_HOME falls back to ~/.cache"
-	(cd "${work}" && XDG_CACHE_HOME=relative "${bin}" >/dev/null 2>&1) || true
+	relRc=0
+	(cd "${work}" && XDG_CACHE_HOME=relative "${bin}" >/dev/null 2>&1) || relRc=$?
 	relCached=("${HOME}"/.cache/zuid/module-*.cwasm)
-	if [[ -s "${relCached[0]}" && ! -e "${work}/relative" ]]
+	if ((relRc == 0)) && [[ -s "${relCached[0]}" && ! -e "${work}/relative" ]]
 		then fPass
-		else fFail "nothing under ${HOME}/.cache/zuid"
+		else fFail "exited ${relRc}, and nothing under ${HOME}/.cache/zuid"
 	fi
 fi
 
@@ -462,3 +466,4 @@ fLine ""
 ##		- 20260917 JC: --count, its refusals, and the closed-pipe case.
 ##		- 20260930 JC: Test IDs. Precision, attached values, --version, --about, --donate, help.
 ##		- 20261005 JC: Module cache, and a scratch HOME so the real cache is left alone.
+##		- 20261023 JC: A relative --bin.

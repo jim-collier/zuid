@@ -21,6 +21,9 @@
 ##		- 20261019 JC: The C tests under ASan, LSan and UBSan, and gcc's and clang's analyzers, from the image.
 ##		- 20261019 JC: --leakcheck: the Go and C soak tests and clang's cross-file analyzer.
 ##		- 20261019 JC: --leakcheck: CodeQL on Go and C, from an image of its own.
+##		- 20261019 JC: --leakcheck is on by default, off for --quick and --gate. --no-leakcheck.
+##		- 20261019 JC: --ci is --gate again.
+##		- 20261023 JC: --no-fuzz, --no-profile, --no-demo.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Set by --container for the run it starts inside.
@@ -182,8 +185,11 @@ fPrint_Help(){
 		    --quick           Skip the slow stages: fuzzing, profiling, the demo and
 		                      packaging, plus the dogfood install. Lint, the tests,
 		                      the Go cross builds and the backup still run.
+		    --no-fuzz         Leave the Go and Zig fuzzing out of a full run.
+		    --no-profile      Leave the profile out of a full run.
+		    --no-demo         Leave the demo out, so assets/demo.gif stays as it is.
 		    --no-sync         Skip the remote refresh at the start.
-		    --ci              The pre-push check: --quick, with no sync, dogfood,
+		    --gate              The pre-push check: --quick, with no sync, dogfood,
 		                      backup, commit or push. See below.
 		    -m, --message     Commit message. Implies --commit.
 		    --commit          Commit if everything passed. Refuses on a protected
@@ -202,8 +208,9 @@ fPrint_Help(){
 		                      zig/lib/src/core.zig. Implies --package. See below.
 		    --allow-partial   Let --publish go ahead with some platforms missing.
 		    --container       Run the build and test stages in a container. See below.
-		    --leakcheck       Add the slow leak checks to whatever else runs. See
-		                      below.
+		    --leakcheck       Add the slow leak checks. On by default, so this is for
+		                      a --quick or --gate run. See below.
+		    --no-leakcheck    Leave the slow leak checks out.
 		    -q, --quiet       No banner and no prompting. Without -m the commit
 		                      message is generated.
 		    -h, --help        This.
@@ -266,7 +273,7 @@ fPrint_Help(){
 		git keys, fonts and paths. It needs docker, or ZUID_DOCKER naming another
 		program that takes docker's arguments. x86_64 only. Not with --publish.
 
-		--leakcheck adds a soak test of each side, clang's cross-file analyzer, and
+		--leakcheck is a soak test of each side, clang's cross-file analyzer, and
 		CodeQL. The soaks repeat what a caller does and fail when the heap after
 		round 2N is bigger than after round N by more than a margin: the Go one on
 		this machine's Go, with 2 heap profiles kept, and the C one under heaptrack
@@ -274,11 +281,12 @@ fPrint_Help(){
 		with the third-party Go it builds, and on the C tests, from an image of its
 		own built on the main one. It's about 480 MB more, so only --leakcheck
 		builds it. Its reports and the soaks' go in cicd/artifacts/leakcheck/.
-		About 2 minutes.
+		About 10 minutes. A --quick or --gate run leaves it out unless --leakcheck
+		is given, and --no-leakcheck leaves it out of any run.
 
-		With no options a run does every stage but --publish and --leakcheck.
+		With no options a run does every stage but --publish.
 
-		--ci is what cicd/utility/git-hooks/pre-push runs before a push to main,
+		--gate is what cicd/utility/git-hooks/pre-push runs before a push to main,
 		on the commit being pushed, in a scratch worktree. Turn the hook on once
 		per clone with: git config core.hooksPath cicd/utility/git-hooks
 		SKIP_GATE=1 skips it. A run's own backup and push skip it, since that run
@@ -392,8 +400,12 @@ fMain(){
 	local -i doPublish=0
 	local -i allowPartial=0
 	local -i doContainer=0
-	local -i doCi=0
-	local -i doLeakcheck=0
+	local -i doGate=0
+	local -i doLeakcheck=1
+	local -i leakAsked=0
+	local -i doFuzz=1
+	local -i doProfile=1
+	local -i doDemo=1
 	fInit "${@}"
 	readonly onlyToolchain
 	readonly doCross
@@ -405,8 +417,11 @@ fMain(){
 	readonly doPublish
 	readonly allowPartial
 	readonly doContainer
-	readonly doCi
+	readonly doGate
 	readonly doLeakcheck
+	readonly doFuzz
+	readonly doProfile
+	readonly doDemo
 
 	## Set by the publish preflight, read by the publish stage.
 	local publishVersion="" publishRemote="" publishHead="" publishRepoUrl=""
@@ -450,10 +465,10 @@ fMain(){
 		if ((doZig));                  then fStage_Zig;       fi
 		if ((doCross)) && ((doGo));    then fStage_Go_Cross;  fi
 		if ((doLeakcheck));            then fStage_Leakcheck; fi
-		if ((! doQuick));              then fStage_Profile;   fi
+		if ((doProfile));              then fStage_Profile;   fi
 	fi
 	## The demo draws with this machine's fonts, so a container never renders it.
-	if ((! doQuick)) && ((! inContainer)); then fStage_Demo; fi
+	if ((doDemo)) && ((! inContainer)); then fStage_Demo; fi
 	if ((doPackage)) && ((! doContainer)); then fStage_Package; fi
 	if [[ -n "${packageSkipWhy}" ]]; then fEcho_Clean; fEcho_Clean "Package ....: skipped, ${packageSkipWhy}"; fi
 	if ((doPublish));              then fStage_Publish;   fi
@@ -518,8 +533,12 @@ fInit(){
 			--publish)    doPublish=1; doPackage=1 ;;
 			--allow-partial) allowPartial=1 ;;
 			--container)  doContainer=1 ;;
-			--ci)         doCi=1 ;;
-			--leakcheck)  doLeakcheck=1 ;;
+			--gate)         doGate=1 ;;
+			--leakcheck)  doLeakcheck=1; leakAsked=1 ;;
+			--no-leakcheck) doLeakcheck=0; leakAsked=1 ;;
+			--no-fuzz)    doFuzz=0    ;;
+			--no-profile) doProfile=0 ;;
+			--no-demo)    doDemo=0    ;;
 			-q|--quiet)   doQuietly=1 ;;
 
 			## ¯\_(:/)_/¯
@@ -531,12 +550,16 @@ fInit(){
 
 	## The pre-push hook's run. Anything that writes outside the tree, or to git,
 	## would be a push inside a push.
-	if ((doCi)); then
+	if ((doGate)); then
 		if ((doCommit)) || ((doPush)) || ((backupAsked)) || ((doPackage)) || ((doContainer)) || ((dogfoodAsked)); then
-			fThrowError "--ci only builds and tests. Drop the other stage flags."  "${FUNCNAME[0]}"
+			fThrowError "--gate only builds and tests. Drop the other stage flags."  "${FUNCNAME[0]}"
 		fi
 		doQuick=1; doSync=0; doBackup=0; doDogfood=0; doQuietly=1
 	fi
+
+	## Leak checks are 10 minutes more, so a quick run only has them if asked.
+	if ((doQuick)) && ((! leakAsked)); then doLeakcheck=0; fi
+	if ((doQuick)); then doFuzz=0; doProfile=0; doDemo=0; fi
 
 	## The Go cross builds take a few seconds each from cold, so quick runs get
 	## them too. The Zig ones take about 20 s a target and come with --package.
@@ -750,7 +773,10 @@ fStage_Container(){
 	if [[ -n "${onlyToolchain}" ]]; then innerArgs+=(--only "${onlyToolchain}"); fi
 	if ((doQuick));   then innerArgs+=(--quick);   fi
 	if ((doPackage)); then innerArgs+=(--package); fi
-	if ((doLeakcheck)); then innerArgs+=(--leakcheck); fi
+	if ((doLeakcheck)); then innerArgs+=(--leakcheck); else innerArgs+=(--no-leakcheck); fi
+	## --quick already says these. The demo stays out here anyway.
+	if ((! doQuick)) && ((! doFuzz));    then innerArgs+=(--no-fuzz);    fi
+	if ((! doQuick)) && ((! doProfile)); then innerArgs+=(--no-profile); fi
 	fEcho_Clean "Runs .......: cicd.bash ${innerArgs[*]}"
 
 	"${containerEngine}" run "${runArgs[@]}" "${innerEnv[@]}" -w "${repoRoot}" \
@@ -770,13 +796,18 @@ fContainer_Image(){
 
 	## Tagged by the recipe's hash, so an edited recipe can't run on the old image.
 	containerTag="${containerImage}:$(git hash-object "${recipe}" | cut -c1-12)"
+	local -i built=0
 	if "${containerEngine}" image inspect "${containerTag}" &>/dev/null; then
 		fEcho_Clean "Image ......: ${containerTag}"
-		return 0
+	else
+		fEcho_Clean "Image ......: building ${containerTag}"
+		"${containerEngine}" build -t "${containerTag}" "$(dirname "${recipe}")" || fThrowError "Could not build '${containerTag}'."  "${FUNCNAME[0]}"
+		built=1
 	fi
-	fEcho_Clean "Image ......: building ${containerTag}"
-	"${containerEngine}" build -t "${containerTag}" "$(dirname "${recipe}")" || fThrowError "Could not build '${containerTag}'."  "${FUNCNAME[0]}"
-	fContainer_DropOthers "${containerImage}" "${containerTag}"
+	## A CodeQL image on an older main one is never run again, and it holds
+	## that image's layers, so it goes first. Only --leakcheck rebuilds it.
+	fContainer_DropOthers "${codeqlImage}" "" "-${containerTag##*:}"
+	if ((built)); then fContainer_DropOthers "${containerImage}" "${containerTag}"; fi
 
 }
 
@@ -805,11 +836,12 @@ fCodeql_Image(){
 
 ## What a new image replaces is a couple of GB nobody runs again. A plain rmi,
 ## so one a container still uses stays.
-fContainer_DropOthers(){  ## image, tag to keep
-	local -r image="$1" keep="$2"
+fContainer_DropOthers(){  ## image, tag to keep, [and any tag ending in this]
+	local -r image="$1" keep="$2" keepEnd="${3:-}"
 	local old=""
 	while IFS= read -r old; do
 		if [[ -z "${old}" ]] || [[ "${old}" == "${keep}" ]]; then continue; fi
+		if [[ -n "${keepEnd}" && "${old}" == *"${keepEnd}" ]]; then continue; fi
 		if "${containerEngine}" rmi "${old}" >/dev/null 2>&1
 			then fEcho_Clean "Removed ....: ${old}"
 			else fEcho_Clean "Kept .......: ${old} (in use)"
@@ -1226,7 +1258,7 @@ fStage_Go(){
 
 	fStage_Go_Checks
 	fStage_Go_Consumer
-	if ((! doQuick)); then fStage_Go_Fuzz; fi
+	if ((doFuzz)); then fStage_Go_Fuzz; fi
 
 }
 
@@ -1764,10 +1796,11 @@ fStage_Zig_Fuzz(){
 	((${#fuzzIds[@]} > 0)) || fThrowError "No Zig test calls std.testing.fuzz, so there is nothing to fuzz."  "${FUNCNAME[0]}"
 
 	local -i i=0
-	if ((doQuick)); then
+	if ((! doFuzz)); then
+		local skipWhy="--no-fuzz"; if ((doQuick)); then skipWhy="a quick run"; fi
 		for i in "${!fuzzIds[@]}"; do
 			fId "${fuzzIds[i]}" "${fuzzNames[i]}, fuzzed for ${fuzzLimit} iterations"
-			fTestSkip "a quick run"
+			fTestSkip "${skipWhy}"
 		done
 		return 0
 	fi
@@ -1927,6 +1960,16 @@ fStage_Zig_BuildStamp(){
 	if [[ "${restamped}" != *"(build bz4zn)"* ]]; then
 		fTestFail "--version said '${restamped}', so the build kept an old epoch."
 	fi
+	fTestPass
+
+	## bz4zn is 2023-11-14 22:13 UTC, already the 15th at UTC+14. A date fixed
+	## at build time would be the same in both.
+	fId EtaWcMt "build date is the viewer's local date"
+	local dated=""
+	dated="$(TZ=UTC0 "${stampDir}/again/bin/zuid" --version 2>&1 || true)"
+	[[ "${dated}" == *"(build bz4zn) (2023-11-14)" ]] || fTestFail "with TZ=UTC0, --version said '${dated}', not the 2023-11-14 build date."
+	dated="$(TZ=XXX-14 "${stampDir}/again/bin/zuid" --version 2>&1 || true)"
+	[[ "${dated}" == *"(build bz4zn) (2023-11-15)" ]] || fTestFail "at UTC+14, --version said '${dated}', not the 2023-11-15 build date."
 	fTestPass
 
 	rm -rf "${stampDir}"
@@ -2478,6 +2521,18 @@ fStage_Package(){
 	local -i haveObjdump=0
 	if command -v objdump >/dev/null 2>&1; then haveObjdump=1; fi
 
+	## Only a build for a release leaves the date off. The publish stage reads
+	## the build number from --version, and the Windows resource is held to it.
+	fId EtaWcMu "release --version has no build date"
+	local releaseSaid=""
+	if ! releaseSaid="$("${release}" --version 2>/dev/null)"; then
+		fTestSkip "this host can't run ${release##*/}"
+	elif [[ "${releaseSaid}" =~ ^[^\ ]+\ \(build\ [0-9a-z]+\)$ ]]; then
+		fTestPass
+	else
+		fTestFail "--version said '${releaseSaid}'. package.bash has to build with -Drelease."
+	fi
+
 	## The macOS checks read one slice at a time. The x86_64 scan means nothing on
 	## arm64, and the minimum macOS has to be right for both.
 	local thinDir=""
@@ -2608,8 +2663,66 @@ fStage_Package(){
 		fTestPass
 	fi
 
+	fStage_Package_MacRun "${thinDir}" "${release}" "${packageVersion}"
+
 	rm -rf "${thinDir}"
 
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Runs each slice of the macOS release this Mac can run: its own, plus x86_64
+## under Rosetta on Apple Silicon. Then capi_smoke.c against the tarball's
+## libraries, per slice. No box here is Apple Silicon, so the arm64 slice runs
+## only on the hosted macOS runner.
+fStage_Package_MacRun(){  ## scratch dir, release, version
+	local -r scratchDir="$1" release="$2" version="$3"
+	local -i isMac=0
+	if [[ "$(uname -s)" == "Darwin" ]]; then isMac=1; fi
+	local macLib=""
+	if ((isMac)); then macLib="$(find "${scratchDir}/tgz" -type f -name 'libzuid.a' -print -quit)"; macLib="${macLib%/*}"; fi
+	local -r smokeSrc="${zigDir}/lib/test/capi_smoke.c"
+	local -ra cWarn=(-std=c99 -Wall -Wextra -Wpedantic -Werror)
+	## Its own cache, so the real one is never read or written.
+	local -r runHome="${scratchDir}/run-home"
+	mkdir -p "${runHome}"
+	local slice="" said="" linkKind="" smokeExe=""
+	local -i canRun=0
+	local -a linkFlags=()
+	for slice in x86_64 arm64; do
+		canRun=0
+		if ((isMac)) && arch -"${slice}" /usr/bin/true 2>/dev/null; then canRun=1; fi
+
+		fId "${slice}" x86_64=EtaL127 arm64=EtaL128 "macOS release, ${slice} slice runs"
+		if ((! isMac)); then
+			fTestSkip "macOS only"
+		elif ((! canRun)); then
+			fTestSkip "this Mac can't run ${slice}"
+		else
+			said="$(HOME="${runHome}" XDG_CACHE_HOME="${runHome}/cache" arch -"${slice}" "${release}" --version 2>&1)" || fTestFail "--version failed: ${said}"
+			[[ "${said}" == "${version} (build "*")" ]] || fTestFail "--version said '${said}', not ${version}."
+			said="$(HOME="${runHome}" XDG_CACHE_HOME="${runHome}/cache" arch -"${slice}" "${release}" 2>&1)" || fTestFail "a default identifier failed: ${said}"
+			[[ -n "${said}" && "${said}" != *$'\n'* ]] || fTestFail "a default identifier came out as '${said}'."
+			fTestPass
+		fi
+
+		for linkKind in static shared; do
+			fId "${slice}-${linkKind}" x86_64-static=EtaL129 x86_64-shared=EtaL12A arm64-static=EtaL12B arm64-shared=EtaL12C "capi_smoke.c, macOS ${slice} ${linkKind}"
+			if ((! isMac)); then fTestSkip "macOS only"; continue; fi
+			[[ -n "${macLib}" ]] || fTestFail "the tarball has no libzuid.a."
+			## Named as files, since -lzuid takes the dylib beside the archive.
+			if [[ "${linkKind}" == "static" ]]
+				then linkFlags=("${macLib}/libzuid.a" "${macLib}/libwasmtime.a" -lpthread -ldl -lm)
+				else linkFlags=(-L "${macLib}" -lzuid "-Wl,-rpath,${macLib}")
+			fi
+			smokeExe="${scratchDir}/smoke-mac-${slice}-${linkKind}"
+			MACOSX_DEPLOYMENT_TARGET="13.0" clang -arch "${slice}" "${cWarn[@]}" -I "${macLib}/../include" "${smokeSrc}" "${linkFlags[@]}" \
+				-o "${smokeExe}" || fTestFail "did not link."
+			if ((! canRun)); then fTestSkip "linked, but this Mac can't run ${slice}"; continue; fi
+			arch -"${slice}" "${smokeExe}" || fTestFail "the smoke test failed."
+			fTestPass
+		done
+	done
 }
 
 
@@ -3201,7 +3314,18 @@ fStage_Package_Stripped(){  ## scratch dir
 	local -a grepArgs=(-e "${repoRoot}" -e ".zig-cache/")
 	if [[ -n "${zigLib}" ]];                    then grepArgs+=(-e "$(dirname "${zigLib}")"); fi
 	if [[ -n "${zigCache}" ]];                  then grepArgs+=(-e "${zigCache}");            fi
-	if [[ -n "${HOME:-}" && "${HOME}" != "/" ]]; then grepArgs+=(-e "${HOME}");                fi
+	## Wasmtime is built on GitHub's runners, and its build paths stay in
+	## every binary that links it. A runner's home is a prefix of those, so
+	## there it can't tell our paths from theirs. The checkout still can.
+	local homeIsTheirs=""
+	for candidate in "${zigDir}"/vendor/wasmtime*/lib/libwasmtime.a; do
+		if [[ -n "${HOME:-}" && -f "${candidate}" ]] && LC_ALL=C grep -qaF "${HOME}/" "${candidate}"; then homeIsTheirs="${candidate}"; break; fi
+	done
+	if [[ -n "${homeIsTheirs}" ]]; then
+		fEcho_Clean "Home .......: ${HOME} is in ${homeIsTheirs#"${zigDir}"/}, so only the checkout and Zig paths are looked for"
+	elif [[ -n "${HOME:-}" && "${HOME}" != "/" ]]; then
+		grepArgs+=(-e "${HOME}")
+	fi
 
 	fId EsZni4i "no local paths or debug info in the release"
 	if [[ -z "${lister}" ]]; then
