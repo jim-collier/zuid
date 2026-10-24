@@ -42,58 +42,12 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261014: Suggested rewrites are in `private/suggestions.md`: badges, a status note, a who-it-isn't-for section, module examples, a support section, and the About blurb and topics. Facts and spelling were fixed in place.
 		- 20261014: Asked what this meant. Explained in-session: `private/suggestions.md` has wording for the README and the GitHub About box, each for a yes or no.
 
-- The FreeBSD release has no `.pkg`.
-	- ID: 2026101410500001
-	- Type: Enhancement
-	- Status: Waiting for answers
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Target OS: FreeBSD
-	- Requirements  [Feature]:
-		- A `.pkg` beside the tarball. nfpm can't make one, so it's `pkg create` on a FreeBSD machine.
-	- Progress log:
-		- 20261019: Question: make it on vmFreeBSD over ssh during `--package`, the way the Mac files come back, or build FreeBSD's `pkg` from source in the container and run `pkg create` on Linux? The first is the native tool but needs the VM up for a release. Leaning toward the VM.
-
-- Updates to CICD script flags.
-	- ID: 2026101816243852
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: Done. `pipeline-test.bash` 76 of 76, and `cicd.bash --ci -q` passed in 143 s with the 3 Go cross checks in it.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261018-162438
-	- Opened by: JC
-	- Related IDs: 2026101410495991
-	- Requirements  [Feature]:
-		- Do next, before the next cut.
-		- `--ci`: Rename `--gate`.
-		- `--quick`:
-			- Should run whatever linting, validation, and testing steps are very quick.
-			- Cross-compile whatever is fast; e.g. maybe skip slow arm64.
-			- Skip anything requiring an external host.
-		- No flags, by default, should do everything.
-		- The other existing flags can stay.
-	- Progress log:
-		- 20261018: `--gate` is `--ci` in `cicd.bash`, its help, the pre-push hook, `pipeline-test.bash` and `development.md`. Every run cross-compiles the Go module now, quick ones and `--ci` too.
-		- 20261018: Timed the cross builds. Go takes about 4 s a target cold and almost nothing warm, and arm64 is no slower. Zig's release targets take about 20 s each cold, so they stay with packaging.
-		- 20261018: Nothing in the pipeline needs an outside host today, so there was nothing for `--quick` to skip. The sync and backup talk to the git remote and go on without it, the first run downloads Wasmtime once, and `--publish` needs GitHub.
-		- Note: a checkout whose hook predates this still runs `--gate`, which the new `cicd.bash` refuses, so its push to `main` stops. A pull, or `SKIP_GATE=1` once, gets past it.
-	- Swept: `--gate` and `doGate` across `repo/` and the private notes. What's left is in history lines and item 2026101410495991. `SKIP_GATE` keeps its name, since the hook is still a gate.
-	- Decisions:
-		- 20261018: A plain run does every stage, cross included, except `--publish` and the future `--leakcheck` (2026101816474402). It already packaged.
-		- 20261018: `--gate` is renamed `--ci`, with no alias.
-		- 20261018: `--quick` runs every quick lint, check and test, plus the Go cross builds. It skips the Zig cross builds, which come with packaging, since they'd make `--ci` about 1.5 min longer.
-		- 20261018: `--cross` stays and changes nothing now. The other flags stay too.
-	- Branch: ciflags
-	- Commit: 36fe700
-	- Test case: Et6FB1m (`--gate` is refused), Et6FB1n (a plain run, `--quick` and `--ci` all cross-compile). EshGwj4, EshGwj5 and EshGwj6 moved to `--ci`. Both new ones failed first.
-
 - Installer options and messages per the house installer rules.
 	- ID: 2026101410495989
 	- Type: Enhancement
 	- Status: Waiting on signoff
 	- Needs local test suite run?: Done. `installer-test.bash` 83 of 83.
-	- Needs external testing: A real run of each one-liner on a Mac and a Windows box.
+	- Needs external testing: A real run of the PowerShell one-liner on a Windows box. The Mac one passed on b26 on 20261024.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261014-105000
 	- Opened by: JC
@@ -107,158 +61,38 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- `install.ps1` gets `-Help` and `-Version`, and passes PSScriptAnalyzer.
 	- Progress log:
 		- 20261014: Both scripts and the README install section. The README one-liners lost their option text, which didn't run as pasted, and say to pass `--help`.
+		- 20261024: The bash one-liner from `install.md` ran on b26 as `mactest`, under the stock bash 3.2. `--version` printed 1.3.0. A plain `--yes` run said there's no stable release yet, installed beta.1 and checked it against `checksums.txt`. `--release=dev --yes` then had nothing to do, and `--uninstall --yes` removed both paths. The module cache stayed behind, filed as 2026102407393000.
+		- 20261024: b29w didn't answer, vmKt6m was paused, and vm925w is off limits, so the PowerShell one-liner is still to run.
 	- Branch: tidyup
 	- Commit: c286dfe
 	- Test case: EshFEjt, EshFEjv, EshFEjw, EshFEjx, EshFEjy, EshFEjz, EshFEk0, EshFEk1, EshFEk2. `--arch`'s missing-value case, Eq9oNBi, is retired with the flag.
 
-- Go leak, race, and lint checks in CICD.
-	- ID: 2026101816474400
+- Builds leave stale artifacts and side-effects behind.
+	- ID: 2026101916041200
 	- Type: Enhancement
 	- Status: Waiting on signoff
-	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and so did a quick `--container` run of the Go side. A full run adds nothing new, since every new check runs on quick runs too.
+		- Stays open until its child 2026102320181236 closes.
+	- Needs local test suite run?: Done. The full run passed at 1942bb2, and after it `docker images zuid-codeql` listed only `zuid-codeql:de7763196c93-856cd00870eb`, on the current `zuid-cicd:856cd00870eb`.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261018-164744
+	- Opened: 20261019-160412
 	- Opened by: JC
-	- Parent ID: 2026101816243853
-	- Related IDs: 2026101410495995
+	- Related IDs: 2026101912130117, 2026101816474402
 	- Requirements  [Feature]:
-		- The parent's Go requirements, less the soak test: goleak in every package's tests, `-race` on a full run, `go vet` and `staticcheck`, and `govulncheck`. Covers 2026101410495995.
+		- Do next, before the next cut.
+		- Verify or ensure that builds clean up stale artifacts and side-effects after they're done: caches, container cruft, tmp files, etc.
 	- Progress log:
-		- 20261019: Every run, quick and `--ci` included, runs goleak, the tests under `-race`, `go vet` and staticcheck on the module and on convertbase, and govulncheck. None is slow enough to be full-run only: `-race` adds about 6 s, and the rest take about 5 s together.
-		- 20261019: staticcheck and govulncheck are pinned in the container's Dockerfile, not in `fConfig` as 2026101410495995 asked, per the decision below.
-		- 20261019: `-race` needs cgo on Linux. Without cgo the tests run without it, and Et9R2xW skips with a note.
-		- 20261019: The third-party code checked is what a user of the module builds, convertbase and shcl. It gets `go vet` and staticcheck's bug checks, not its style ones. goleak is only in the tests, so it's left out.
-		- 20261019: govulncheck fails on any advisory in a third-party module, called or not. It also fails on one in Go's own library that the module or the reactor calls. One in code nothing calls is only counted. The reactor is scanned as wasip1, the way it ships.
-		- 20261019: Each gate failed first on a planted fault: a leaked goroutine, a data race, a missing leak check, a copied lock, an unused value, and the same 2 plus an old `golang.org/x/text` in a copy of convertbase. A style-only finding there passed. Offline, govulncheck skipped. Without docker, all 3 image checks skipped.
-	- Decisions:
-		- 20261018: The checker tools are pinned and run from the container image (`cicd/container/Dockerfile`), never installed on the host. A host run starts the pinned image for a stage that needs one. With no docker that stage skips with a note, so a public clone still passes. Inside a `--container` run the tools are called directly. The Go toolchain's own `go vet` and `go test -race` may run on the host's Go.
-		- 20261018: `-race`, staticcheck and govulncheck are full-run only if they're slow. A quick or `--ci` run keeps what's quick.
-		- 20261018: govulncheck skips offline with a note.
-		- 20261018: goleak goes in as `go.uber.org/goleak`, pinned in `go/go.mod`, with `VerifyTestMain` in every package's tests. The `go 1.24` directive stays.
-		- 20261018: The module needs no cgo. If `-race` needs cgo here, it's handled per the parent's traps.
-		- 20261018: Each gate is watched to fail on a planted fault before it's trusted.
-		- 20261019: A Go library advisory in code we call fails the run. The Go that's scanned builds the reactor that ships in the command, so it has to stay current. The fix is a `GO_VER` bump, 2026101907263616.
-	- Swept: every `go test` call in `cicd.bash`. The fuzz and benchmark runs pass with goleak in. The tests also compile for Windows and macOS with the new `TestMain`.
-	- Branch: leakgate
-	- Commit: a64c88c
-	- Test case: Et9R2xU (goleak), Et9R2xV (every package has it), Et9R2xW (`-race`), Et9R2xX and Et9R2xY (`go vet`), Et9R2xZ and Et9R2xa (staticcheck), Et9R2xb (govulncheck), Et9VtIq (the skip without docker). Et9luGK, Et9luGL and Et9luGM for how the report reads govulncheck. Each failed first.
-
-- C sanitizer and analyzer checks in CICD.
-	- ID: 2026101816474401
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and so did a quick `--container` run of the Zig side. A full run adds nothing new, since every new check runs on quick runs too.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261018-164744
-	- Opened by: JC
-	- Parent ID: 2026101816243853
-	- Requirements  [Feature]:
-		- The parent's C requirements, less the `--leakcheck` part: the C tests under ASan, LSan, and UBSan, and gcc's `-fanalyzer` and the clang analyzer over every first-party .c file.
-	- Progress log:
-		- 20261019: Every run, quick and `--ci` included, builds the C tests with gcc's ASan, LSan and UBSan and runs them: `capi_smoke.c` against both libraries, and `capi_interpose.c`. gcc's `-fanalyzer` and clang's analyzer check every tracked .c file. It all takes about 15 s on a busy box, most of it starting the image 5 times.
-		- 20261019: The compilers are the container image's, the same as the Go checkers, so a host run starts the image and a run without docker skips with a note. clang 19 was added to the image for its analyzer.
-		- 20261019: Wasmtime isn't instrumented, but its mallocs go through ASan's. A missing `zuid_free` shows up as about 11 KB of Wasmtime leaks. There are none today, so nothing is suppressed.
-		- 20261019: clang's analyzer gave up on every path at the 200-turn loop in `capi_smoke.c`, so a fault after it went unseen. It widens loops now. gcc's analyzer doesn't report a leak inside `main`, so the planted leaks went in a helper.
-		- 20261019: Each gate failed first on a planted fault: a leak, a null dereference, a signed overflow, a heap overflow, a missing `zuid_free`, and a leak in `capi_interpose.c`. Both analyzers caught the leaks and the null dereference. Neither can see a missing `zuid_free`. The growing-heap loop belongs to the soak test, 2026101816474402.
-	- Swept: every C build in `cicd.bash`. The Windows, FreeBSD and arm64 links of `capi_smoke.c` are for targets that can't run here, so they stay as plain link checks. The Go checks also call the image, from folders inside the repo, so they get no extra mount.
-	- Branch: csan
-	- Commit: d6dcb7c
-	- Test case: EtAHpAd, EtAHpAe and EtAHpAf (the sanitizers), EtAHpAg (gcc's analyzer), EtAHpAh (clang's), and EtAHpAi (the scratch dir is mounted into the image). Each failed first. The skip without docker is Et9VtIq's.
-
-- Leak, memory, and correctness checks in CICD.
-	- ID: 2026101816243853
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261018-162438
-	- Opened by: JC
-	- Related IDs: 2026101410495995
-	- Requirements  [Feature]:
-		- Only for code in use, that end users of this project use. That's the Go module, and the C API through its C tests. The Python scripts are pipeline tooling, and there's no Rust or C++ of ours.
-		- For all code:
-			- The checks cover first-party and third-party code. Vendored code is included.
-				- On third-party code, run the leak, memory, and correctness checks named here, not style lints. Style findings in someone else's crate or module aren't ours to fix.
-				- CodeQL reports only on source inside the database's root. For its run, vendor the dependencies into the tree first (`go mod vendor`).
-			- Any report fails the test that made it.
-			- Any leak is fixed. If the fix has to wait, it gets a backlog item, and the test that shows it turns the check off with that item's ID beside it.
-			- A `--leakcheck` flag adds the slow checks:
-				- CodeQL, from a pinned CLI run locally. No hosted service.
-				- A soak test. It loops through the program's main actions headless, and fails if the heap at round 2N is larger than at round N by more than a set margin. The heap report is kept as a pipeline artifact.
-			- Every tool is pinned and runs in the build container or lint image, never installed on the host.
-			- Each new gate is watched to fail before it's trusted, by planting the leak it's meant to catch and seeing it go red.
-			- Known-advisory scans run on every full run: `govulncheck`. They cover third-party code only, which is the point.
-		- For Go:
-			- Go leaks are goroutines that never exit, and references held too long: a map or slice that only grows, or a small slice keeping a big backing array alive.
-			- Every package's tests run `goleak.VerifyTestMain(m)` from `go.uber.org/goleak`, pinned in go.mod. A goroutine still running after the tests fails the run, whether our code or a dependency started it.
-			- Every full run runs the whole test suite with `-race`.
-			- If the code uses cgo, every full run also runs the tests with `-asan`, in a build dir of its own.
-			- Every full run runs `go vet` and `staticcheck`. `go vet`'s `lostcancel` and `copylocks` checks are the leak-related ones.
-			- The soak test reads `runtime.MemStats.HeapInuse` and `runtime.NumGoroutine()` at round N and 2N, after `runtime.GC()`. Its heap profile (`pprof`) is kept as the artifact, and `go tool pprof -base` shows what grew.
-			- Traps:
-				- `goleak.VerifyNone` per test doesn't work with `t.Parallel()`. Use `VerifyTestMain`.
-				- goleak ignores by function name. That's the only form of suppression allowed.
-				- `go test` caches a pass. Run with `-count=1`.
-				- One `runtime.GC()` can leave garbage behind. Call it twice before reading the stats, or the margin has to be wide enough to hide a real leak.
-				- `-race` needs cgo on some platforms. A job with `CGO_ENABLED=0` fails to build it or skips it, so check the job's env.
-				- `-race` is 2 to 20 times slower and uses 5 to 10 times the memory. Size the job's timeout for it.
-		- For C:
-			- Every full run builds the whole test suite with AddressSanitizer, LeakSanitizer, and UndefinedBehaviorSanitizer, in a build dir of its own.
-				- Any report fails the test that made it.
-				- Any leak is fixed. If the fix has to wait, it gets a backlog item, and the test that shows it turns leak detection off with that item's ID beside it.
-				- For a full leak stack, rerun the test with `ASAN_OPTIONS=fast_unwind_on_malloc=0`.
-			- Every full run also runs gcc's `-fanalyzer` and the clang static analyzer over every first-party .c file.
-				- Before the gate goes live, every existing finding is fixed, or suppressed at the line with a one-line reason. There's no baseline file.
-				- They move behind a flag only if a full run measures too slow.
-			- A `--leakcheck` flag adds the slow checks:
-				- CodeQL, from a pinned CLI run locally. No hosted service.
-				- The clang analyzer in cross-file (CTU) mode, so it follows calls across .c files.
-				- A heaptrack soak test. It loops through the program's main actions headless, and fails if the heap at round 2N is larger than at round N by more than a set margin. The heaptrack report is kept as a pipeline artifact.
-			- Coverity Scan and Infer aren't used. Coverity uploads the build to a third party.
-			- Every tool is pinned and runs in the build container or lint image, never installed on the host.
-			- Each new gate is watched to fail before it's trusted: plant a leak, a null dereference, and a loop that grows the heap, and see each one go red.
-			- Traps:
-				- `-fanalyzer` does nothing under `-fsyntax-only`. Compile with `-c -o /dev/null`.
-				- With `-Werror`, analyzer findings print as `error: ... [-Werror=analyzer-*]`, not `warning:`. A parser that only looks for warnings counts 0.
-				- heaptrack and ASan can't share a build. The soak test uses a plain build.
-				- ASan's allocator hides the heap from glibc's own stats, such as `mallinfo2`. A test that reads them should exit as skipped under ASan, not pass.
-	- Progress log:
-		- 20261018: Split into 2026101816474400 for Go, 2026101816474401 for C, and 2026101816474402 for `--leakcheck`. This one closes when they do.
-		- 20261019: All 3 children are in and waiting on signoff.
-	- Test case: the children's.
-
-- A `--leakcheck` flag for the slow checks.
-	- ID: 2026101816474402
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: Done. A full `cicd.bash --leakcheck` run passed, and so did `--container --only zig --leakcheck`. `--quick --leakcheck` passed with `--only go` and `--only zig`, and with `--container --only go`. Without docker the C half skipped with a note.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261018-164744
-	- Opened by: JC
-	- Parent ID: 2026101816243853
-	- Requirements  [Feature]:
-		- CodeQL for Go and C, the Go and C soak tests, and the clang analyzer in CTU mode, per the parent.
-	- Progress log:
-		- 20261019: `--leakcheck` adds to any run, `--ci` and `--container` included. A plain run leaves it out. It takes about a minute.
-		- 20261019: The Go soak runs every vector, the refusals, and live identifiers from 4 goroutines through new generators, 80 rounds and then 80 more. The heap has to stay within 128 KB and the goroutine count can't grow. Both heap profiles are kept in `cicd/artifacts/leakcheck/`.
-		- 20261019: The C soak has 2 parts, with an 8 KB margin. One context's calls run 100 rounds and 100 more under heaptrack, whose report is kept. Whole contexts run 8 and 8 more without it, since `zuid_new` compiles the module and heaptrack's own memory then grew about 70 MB a round. With glibc's per-thread cache off, both held to the byte.
-		- 20261019: heaptrack's leak list names compile buffers that the heap reading shows freed, so it isn't a verdict.
-		- 20261019: clang's analyzer runs in cross-file mode over the C tests. None of them calls into another, so a pair of files with a null dereference only that mode can see runs first, every time.
-		- 20261019: Each gate failed first on a planted fault: a slice that only grows and a stuck goroutine in the Go module, a missing `zuid_free`, a lost buffer and a growing cache in copies of the C soak, and the cross-file pair with that mode off. A cache of one short string a round passed, being under the margin.
-		- 20261019: clang-tools and heaptrack were added to the image, 70 MB on disk and 16 MB of content. CodeQL is left, for Go and C.
-		- 20261019: CodeQL 2.27.2 runs from an image of its own, built on the main one, from GitHub's C and Go bundles pinned by sha256. It's about 480 MB more, so only `--leakcheck` builds or starts it. Under `--container --leakcheck` the whole run is in that image. It takes about 25 s a language.
-		- 20261019: GitHub's CodeQL terms allow it here, since the code is under OSI licenses and on GitHub.com.
-		- 20261019: Go: the module is copied to a scratch folder and vendored there, so convertbase and shcl are under the database's root. So is the reactor, since the command runs it, and it's built for wasm the way the release builds it. Our code gets the whole security and quality suite, and third-party code only its security and correctness queries.
-		- 20261019: C: every tracked .c file is compiled fresh while CodeQL watches. Zig isn't a language CodeQL reads, so the C module's own code isn't in the database, only its header through the C tests. There's no third-party C.
-		- 20261019: Both fail if a file the build compiled isn't in the database. A C build that compiles nothing is refused by CodeQL itself. Go's extractor read every file even with a warm build cache, but the cache is fresh anyway.
-		- 20261019: The one finding is upstream, in shcl: a 32-bit number turned into an `int`. It's 2026101911183280, suppressed by that ID. A suppression nothing matches fails the run, so it comes out with the fix.
-		- 20261019: CodeQL has no Go query for a lost cancel. `go vet`'s `lostcancel` runs on every run already.
-		- 20261019: Each CodeQL gate failed first on a planted fault: a tainted path and a style finding in our Go, a security finding in a copy of convertbase, a use after free and a null check after a dereference in a copy of the C tests, and the vendored files left out of the database. A style finding in the convertbase copy passed. The plainest use after free never reached CodeQL, since gcc's `-Werror` refused it.
-		- 20261019: A full `--leakcheck` run passed in 13 minutes, and `--container --only zig --leakcheck` in 11.
-		- 20261019: Left for signoff, since the context soak runs without heaptrack where the requirement asked for it, and CodeQL's separate image was a judgment call.
-	- Swept: every `fInImage` call outside the CodeQL stage still gets the main image. Both images drop their old tags through one helper, and both pipeline tests that lift the image code lift it too. A plain `--container` run never builds or starts the CodeQL image.
-	- Branch: leakcheck
-	- Commit: 59c3e61, 516fef0, 51c712d
-	- Test case: EtAUMRA (the Go soak), EtAUMRB and EtAUMRE (the C soaks), EtAUMRC and EtAUMRD (the cross-file analyzer), EtAUMRF, EtAUMRG and EtAUMRH (the flag), EtAUMRI and EtAUMRJ (CodeQL on Go and C), EtAj5P2 (CodeQL's image), EtAj5P3 to EtAj5P6 (how its report is read). Each failed first.
+		- 20261023: A `--gate` run with a TMPDIR of its own left nothing behind. The TMPDIR was empty, nothing new was in `/tmp`, `/mnt/tmpfs/tmp` or `~/.cache`, and no zuid container, image or volume was added.
+		- 20261023: Every `mktemp -d` in `cicd.bash` is on the exit cleanup list, and each harness removes its own work dir on exit. Containers run with `--rm --init`.
+		- 20261023: `cicd/artifacts/` already rotates, and `dist/` is emptied before each package run. Fuzz finds are kept on purpose.
+		- 20261023: Found: a CodeQL image built on an older main image stayed until the next `--leakcheck` run. On b23 that was `zuid-codeql:953bf12e36c5-98809c2ceb21`, about 750 MB of its own. Every run that uses the main image now drops it, ahead of the old main tag. A quick Go run removed it on b23.
+		- 20261023: EtAj5P2's plain-run clause was "no mention of codeql at all". It's now "no CodeQL build or run", as its comment says, since a plain run removes a stale one now.
+		- 20261023: Zig's caches never shrink. Split off as 2026102320181236, waiting on a question.
+		- 20261023: Docker's build cache is shared with sister projects, and their steps can't be told from ours. So it stays with the hand prune after a build.
+		- 20261023: Full run `cicd.bash -q --no-sync --no-dogfood --no-backup --no-demo` at 1942bb2 passed in 17 minutes, 439 ok, 13 skips, no failures. It built the CodeQL image fresh, since none was left from before. EtaIbeg passed in it. Nothing of the run's was left in its TMPDIR, `/tmp`, `/mnt/tmpfs/tmp` or `~/.cache`, no zuid container or process was left, and no volume was added. `assets/demo.gif` was unchanged.
+	- Swept: the only 2 image builds are the main and CodeQL ones. Both lifts of `fContainer_Image` in `pipeline-test.bash` set `codeqlImage`. The run inside the container never calls it.
+	- Branch: round1023
+	- Commit: 0562b45
+	- Test case: EtaIbeg. It failed before the fix, keeping the stale CodeQL image, and passes after.
 
 - A Windows install leaves `PATH` to the user.
 	- ID: 2026101410495985
@@ -294,150 +128,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: tidyup
 	- Commit: aaa915c
 	- Test case: none. Wording only. The tests that read messages still pass.
-
-- PowerShell files aren't linted.
-	- ID: 2026101410495993
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and so did `--container --only go --quick`.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- Run PSScriptAnalyzer on `install.ps1` and `cicd/utility/run-latest.ps1` when it's installed, and fail on a finding. `install.ps1` is clean as of 20261014.
-	- Progress log:
-		- 20261014: `installer-test.bash` checks `install.ps1` against the 5.1 profile when PSScriptAnalyzer is installed (EshaOju). The general lint is still open.
-		- 20261019: PSScriptAnalyzer 1.25.0 is pinned in the container image, from the PowerShell Gallery package by version and sha256. The gallery's own SHA512 for it matched the download. A new "PowerShell: lint" stage runs its default rules on every tracked PowerShell file, `install.ps1` and `run-latest.ps1` today, from the image like the Go checkers. Any finding fails it, and with no docker it skips with a note. Both files are clean. About 7 s on a busy box.
-		- 20261019: Unpacked it's about 300 MB, nearly all of it the compatibility profiles EshaOju's rules read. The image grew 310 MB on disk and 15 MB in content. Leaving the profiles out would change what those rules flag, since they compare against all of them together, so the package goes in whole.
-		- 20261019: With PSScriptAnalyzer in the image, EshaOju runs under `--container` now, where it used to skip. A host run still checks it with the host's PSScriptAnalyzer, when there is one.
-		- 20261019: Question: the style guide names `PSUseConsistentIndentation` with tabs, in a `PSScriptAnalyzerSettings.psd1`. On `install.ps1` it flags the 2 continuation lines of one pipeline, 565 and 566. Not added, since it means picking how a pipeline is indented. Say if it should be.
-	- Branch: cicdtidy
-	- Commit: b79038c
-	- Test case: EtB6KVF is the check. It failed on an unused variable planted in `install.ps1` and a syntax error planted in `run-latest.ps1`, and on the old image, which has no PSScriptAnalyzer. EtB6KVG runs the stage with a stand-in docker: every tracked PowerShell file is handed in, a finding fails it, and with no docker it skips.
-
-- Stage headers have no full-width rule above them.
-	- ID: 2026101410495998
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and `lint-report.bash` reads its log as clean.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- A blank line, a full-width rule of `•`, then the title, as silkterm's `fSection` does. About 27 headers. Check `lint-report.bash` and `pipeline-test.bash` don't match on the header lines.
-	- Progress log:
-		- 20261019: Every stage header in `cicd.bash` goes through one `fSection`, like silkterm's. That's 30 headers, with the commit message prompt. "Passed." and the interrupt line are status lines, so they stayed as they were.
-		- 20261019: silkterm's rule is always 74 wide. Here it's the terminal's width when the run starts in one, and 74 in a pipe or a log. The width is read before the run log's tee, since after it nothing is a terminal, so the log gets the rule the screen got. `--container` hands its width to the run inside, which has no terminal.
-		- 20261019: Nothing reads the header lines. `lint-report.bash` looks for warning words, the rule has none, and the titles didn't change. `pipeline-test.bash` stubs the header out of the stages it lifts. `test-ids.py` reads test output only, and the pre-push hook reads none.
-		- 20261019: Question: `install.bash` has headers of its own ("Plan", "Downloading"), with no rule. Left alone, since that's what people see while installing. Say if they should get one too.
-	- Swept: the other bash scripts. The 3 test harnesses and `package.bash` print a status line or two, not stages. In the source, the new functions are inside existing `#•••` sections, and the new `pipeline-test.bash` section has that file's rule.
-	- Branch: cicdtidy
-	- Commit: 3fbe497
-	- Test case: EtB5PUX. A pipe gets 74, a 123-wide terminal gets 123, the run inside the container takes the width it's handed and a host run doesn't, and `--container` hands it in. It failed before the change, and fails with the terminal read taken out.
-
-- The Windows exe has no version resource or icon.
-	- ID: 2026101410495999
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: Done. See Verified.
-	- Needs external testing: Done. Windows reads both files' version info as built, on b29w.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Related IDs: 2026101305595483
-	- Target OS: Windows
-	- Requirements  [Feature]:
-		- An ASCII VERSIONINFO for the Windows targets, in the plain copyright form. The icon waits on a logo.
-		- Recheck that the exe still builds the same on 2 machines, apart from the known PDB paths.
-	- Progress log:
-		- 20261019: `zuid.exe` and `zuid.dll` have a version resource on both Windows targets. `build.zig` writes it from the line `--version` prints, and the year from `--about`. `libzuid.a` gets none, since it would end up inside the program that links it.
-		- 20261019: No icon yet. It waits on a logo.
-		- 20261019: On b29w, `Get-Item` gave both files the description, version, copyright and file name in the resource, with the prerelease flag set, and the exe's `--version` matched. That's the same version info Explorer's Properties tab shows.
-	- Decisions:
-		- 20261019: The copyright is `Copyright (C) <year> Jim Collier`, with no ID and no license. The license differs between the exe and the dll, and `--about` has it.
-		- 20261019: FILEVERSION is the release's 3 numbers and a 0. A prerelease sets the prerelease flag instead, and the text fields have the full version with the build number. The 4th number can't hold the build number, and any prerelease number there would sort a beta above its release. Noted in design.md.
-		- 20261019: FileDescription is `zuid` for the exe, which is what Task Manager shows, and `zuid C library` for the dll.
-	- Swept: every Windows file in the zips. `wasmtime.dll` is Wasmtime's own, and the test and smoke programs aren't shipped.
-	- Verified: 20261019, `cicd.bash --package` passed, then `--container --package`, and both again with `--quick` after the last change. Between b23 and the container every Windows exe and dll differs only in the time stamp and PDB ID of 2026101305595483, and the resources are identical. The other release files matched, apart from the `.deb` and `.rpm`, which differ by nfpm version as before.
-	- Verified: a build with no build number, a Debug build and a build of a version with no prerelease tag each gave the resource they should.
-	- Branch: winres
-	- Commit: 7df2b13
-	- Test case: EtBCCRm and EtBCCRn, one per Windows target, hold both files' resource to `--version` and `--about`, in ASCII with no time stamp. EtBCCRm failed with the resource left out.
-
-- Most harness labels are full sentences in one pattern.
-	- ID: 2026101410500002
-	- Type: Task
-	- Status: Waiting on signoff
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- Shorten the labels in `cli-test.bash`, `installer-test.bash`, `pipeline-test.bash`, and `cicd.bash`. The IDs stay. The Zig names were done in 2026101410495992.
-	- Progress log:
-		- 20261019: About 220 labels shortened across the 4 files, the C checks, `--leakcheck`, CodeQL, PSScriptAnalyzer and the version resource checks included. IDs and failure messages are unchanged. The fuzz labels still end in ", fuzzed for", since `pipeline-test.bash` matches on it, and labels that were already short were left alone.
-	- Swept: every old label across the repo and the notes outside it. Only `pipeline-test.bash` matched on cicd.bash's labels, for the shellcheck pin and PSScriptAnalyzer, and both sides changed together. No new label has "warning" in it. The only other hits are old pasted run logs, left as they are.
-	- Branch: labels
-	- Commit: bf0c2b0
-	- Test case: none, labels only. `cicd.bash --ci -q --no-backup --no-dogfood`, `installer-test.bash`, `pipeline-test.bash` and `test-ids.py check` all passed, and `lint-report.bash --check` is clean.
-
-- Builds leave stale artifacts and side-effects behind.
-	- ID: 2026101916041200
-	- Type: Enhancement
-	- Status: Waiting on signoff
-		- Stays open until its child 2026102320181236 closes.
-	- Needs local test suite run?: Done. The full run passed at 1942bb2, and after it `docker images zuid-codeql` listed only `zuid-codeql:de7763196c93-856cd00870eb`, on the current `zuid-cicd:856cd00870eb`.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261019-160412
-	- Opened by: JC
-	- Related IDs: 2026101912130117, 2026101816474402
-	- Requirements  [Feature]:
-		- Do next, before the next cut.
-		- Verify or ensure that builds clean up stale artifacts and side-effects after they're done: caches, container cruft, tmp files, etc.
-	- Progress log:
-		- 20261023: A `--gate` run with a TMPDIR of its own left nothing behind. The TMPDIR was empty, nothing new was in `/tmp`, `/mnt/tmpfs/tmp` or `~/.cache`, and no zuid container, image or volume was added.
-		- 20261023: Every `mktemp -d` in `cicd.bash` is on the exit cleanup list, and each harness removes its own work dir on exit. Containers run with `--rm --init`.
-		- 20261023: `cicd/artifacts/` already rotates, and `dist/` is emptied before each package run. Fuzz finds are kept on purpose.
-		- 20261023: Found: a CodeQL image built on an older main image stayed until the next `--leakcheck` run. On b23 that was `zuid-codeql:953bf12e36c5-98809c2ceb21`, about 750 MB of its own. Every run that uses the main image now drops it, ahead of the old main tag. A quick Go run removed it on b23.
-		- 20261023: EtAj5P2's plain-run clause was "no mention of codeql at all". It's now "no CodeQL build or run", as its comment says, since a plain run removes a stale one now.
-		- 20261023: Zig's caches never shrink. Split off as 2026102320181236, waiting on a question.
-		- 20261023: Docker's build cache is shared with sister projects, and their steps can't be told from ours. So it stays with the hand prune after a build.
-		- 20261023: Full run `cicd.bash -q --no-sync --no-dogfood --no-backup --no-demo` at 1942bb2 passed in 17 minutes, 439 ok, 13 skips, no failures. It built the CodeQL image fresh, since none was left from before. EtaIbeg passed in it. Nothing of the run's was left in its TMPDIR, `/tmp`, `/mnt/tmpfs/tmp` or `~/.cache`, no zuid container or process was left, and no volume was added. `assets/demo.gif` was unchanged.
-	- Swept: the only 2 image builds are the main and CodeQL ones. Both lifts of `fContainer_Image` in `pipeline-test.bash` set `codeqlImage`. The run inside the container never calls it.
-	- Branch: round1023
-	- Commit: 0562b45
-	- Test case: EtaIbeg. It failed before the fix, keeping the stale CodeQL image, and passes after.
-
-- Non-release builds don't show their build date.
-	- ID: 2026102318361186
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs external testing: Done. The `macos` workflow passed at 1942bb2, run 40063604025, with EtaWcMt and EtaWcMu in it.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261023-183527
-	- Opened by: JC
-	- Related IDs: 2026102321183047
-	- Requirements  [Feature]:
-		- For non-release builds, include " (YYYY-mm-DD)" after the build number.
-			- Report the date as the local date of whoever views the version.
-	- Progress log:
-		- 20261023: The date has to be worked out when `--version` runs, from the minutes in the build number, since the build machine's time zone isn't the viewer's.
-		- 20261023: Done. A non-release build prints `1.0.0-beta.1 (build debmp) (2026-10-23)`. The command takes the build number's minute and asks libc for the local date, so `TZ` and the system zone both count.
-		- 20261023: ErOiQba's pattern now allows the date. Old: ends in `\(build [0-9a-z]+\)$`. New: the same, then an optional ` \([0-9]{4}-[0-9]{2}-[0-9]{2}\)`.
-	- Decisions:
-		- 20261023: A release build is one made with `-Drelease`, which only `package.bash` passes. The dogfood build and the release are both ReleaseSafe, and the tag doesn't exist yet when a release is packaged, so neither could tell them apart.
-		- 20261023: The date is its own pair of parens after the build number's, `(build debmp) (2026-10-23)`, rather than inside it.
-		- 20261023: `--about` and `--help` show the same line as `--version`. The Windows version resource stays without the date, since it's fixed at build time.
-	- Verified: `--version` gave 2026-10-23 in PDT and at UTC-12, and 2026-10-24 at UTC and UTC+14, for a commit at 2026-10-24 04:06 UTC. A `-Drelease` build has no date, and its `--about` differs only in that. The x86_64 Windows build gave the same dates with `TZ` unset and at UTC+14. Windows x86_64 and arm64 and FreeBSD cross-build, and `clock.h` gives `localtime_r` for both macOS slices.
-		- `cli-test.bash` passed 90 of 90 on both builds, and the old ErOiQba failed on the dated one.
-		- EtaWcMt passed on a dated build and failed on a `-Drelease` one, and EtaWcMu the other way round.
-		- `cicd.bash -q --quick --package --only zig --no-sync --no-backup --no-dogfood`: passed, 377 ok and no failures. EtaWcMt and EtaWcMu passed in it, and so did the Windows resource checks and Esa8LVS.
-		- 20261023, run 40063604025 on `macos-15` at 1942bb2: passed, with EtaWcMt, EtaWcMu and ErOiQba ok, and `cli-test.bash` 89 of 89 on the universal release.
-		- The full Linux run at 1942bb2 passed, with EtaWcMt, EtaWcMu and ErOiQba in it.
-	- Hand test build: 20261024, the synced `zuid` every box runs is `1.0.0-beta.1 (build debpy) (2026-10-23)`, from 88e397f, which has this change.
-	- Swept: every `--version` reader. The installers take the first word. The publish notes, the Windows resource check and the Mac slice check read a release build. The test stand-ins print fixed lines.
-	- Branch: round1023
-	- Commit: 3c898d6
-	- Test case: EtaWcMt builds with SOURCE_DATE_EPOCH=1700000000 and wants 2023-11-14 at UTC and 2023-11-15 at UTC+14. EtaWcMu wants no date from the release `package.bash` built. ErOiQba takes either form.
 
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
@@ -554,6 +244,20 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: The code is upstream, so it's fixed in convert-base-v2 and comes in with a later pin. Until then `cicd/utility/codeql-suppressions.txt` suppresses it by this ID.
 		- 20261019: Stalled with the pin move, 2026100519164742.
 
+- The Windows exe has no icon.
+	- ID: 2026102407250000
+	- Type: Enhancement
+	- Status: Stalled
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261024-072500
+	- Opened by: JC
+	- Related IDs: 2026101410495999
+	- Target OS: Windows
+	- Requirements  [Feature]:
+		- An icon in `zuid.exe`'s resources, from the project logo.
+	- Progress log:
+		- 20261024: Split from 2026101410495999. Waits on a logo, and `private/logo/` is empty.
+
 - Zig's build caches grow without limit.
 	- ID: 2026102320181236
 	- Type: Enhancement
@@ -614,6 +318,380 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: round1023
 	- Commit: 878f5b9
 	- Test case: EtaL127 and EtaL128 run each slice, EtaL129 to EtaL12C link and run `capi_smoke.c` against the tarball per slice and link kind. EsZni4i failed on the runner before its fix and passed after.
+
+- The FreeBSD release has no `.pkg`.
+	- ID: 2026101410500001
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Target OS: FreeBSD
+	- Requirements  [Feature]:
+		- A `.pkg` beside the tarball. nfpm can't make one, so it's `pkg create` on a FreeBSD machine.
+		- Make it on vmFreeBSD when its host lock is free. When the VM is taken or down, build it here, but only if the result is sure to install on FreeBSD.
+	- Progress log:
+		- 20261019: Question: make it on vmFreeBSD over ssh during `--package`, the way the Mac files come back, or build FreeBSD's `pkg` from source in the container and run `pkg create` on Linux? The first is the native tool but needs the VM up for a release. Leaning toward the VM.
+		- 20261019: Answered: build it here if it's sure to run on FreeBSD. Try the host lock on vmFreeBSD first, and build locally if it's taken or down.
+
+- An uninstall leaves the compiled module in the cache.
+	- ID: 2026102407393000
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261024-073930
+	- Opened by: JC
+	- Related IDs: 2026101410495989
+	- Requirements  [Feature]:
+		- `--uninstall` on a user install also removes the command's cache dir, such as `~/Library/Caches/zuid`, `~/.cache/zuid` or `%LOCALAPPDATA%\zuid`. It's about 8 MB.
+		- A system install leaves other users' caches alone and says where they are.
+	- Progress log:
+		- 20261024: Seen on b26, after an install, one run and an uninstall.
+
+- Updates to CICD script flags.
+	- ID: 2026101816243852
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. `pipeline-test.bash` 76 of 76, and `cicd.bash --ci -q` passed in 143 s with the 3 Go cross checks in it.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261018-162438
+	- Opened by: JC
+	- Related IDs: 2026101410495991
+	- Requirements  [Feature]:
+		- Do next, before the next cut.
+		- `--ci`: Rename `--gate`.
+		- `--quick`:
+			- Should run whatever linting, validation, and testing steps are very quick.
+			- Cross-compile whatever is fast; e.g. maybe skip slow arm64.
+			- Skip anything requiring an external host.
+		- No flags, by default, should do everything.
+		- The other existing flags can stay.
+	- Progress log:
+		- 20261018: `--gate` is `--ci` in `cicd.bash`, its help, the pre-push hook, `pipeline-test.bash` and `development.md`. Every run cross-compiles the Go module now, quick ones and `--ci` too.
+		- 20261018: Timed the cross builds. Go takes about 4 s a target cold and almost nothing warm, and arm64 is no slower. Zig's release targets take about 20 s each cold, so they stay with packaging.
+		- 20261018: Nothing in the pipeline needs an outside host today, so there was nothing for `--quick` to skip. The sync and backup talk to the git remote and go on without it, the first run downloads Wasmtime once, and `--publish` needs GitHub.
+		- Note: a checkout whose hook predates this still runs `--gate`, which the new `cicd.bash` refuses, so its push to `main` stops. A pull, or `SKIP_GATE=1` once, gets past it.
+	- Swept: `--gate` and `doGate` across `repo/` and the private notes. What's left is in history lines and item 2026101410495991. `SKIP_GATE` keeps its name, since the hook is still a gate.
+	- Decisions:
+		- 20261018: A plain run does every stage, cross included, except `--publish` and the future `--leakcheck` (2026101816474402). It already packaged.
+		- 20261018: `--gate` is renamed `--ci`, with no alias.
+		- 20261019: Reversed. `--ci` is `--gate` again, with no alias, in `cicd.bash`, its help, the pre-push hook, `pipeline-test.bash` and `development.md`. A hook that still runs `--ci` stops the push the same way the old one did.
+		- 20261018: `--quick` runs every quick lint, check and test, plus the Go cross builds. It skips the Zig cross builds, which come with packaging, since they'd make `--ci` about 1.5 min longer.
+		- 20261018: `--cross` stays and changes nothing now. The other flags stay too.
+	- Branch: ciflags
+	- Commit: 36fe700, f08075d
+	- Test case: Et6FB1m (`--ci` is refused, since the 20261019 reversal), Et6FB1n (a plain run, `--quick` and `--ci` all cross-compile). EshGwj4, EshGwj5 and EshGwj6 moved to `--ci`, and back to `--gate`. Both new ones failed first.
+	- Acceptance signoff: Self-closed: flags work as the 20261019 reversal asked, and the tests pass.
+	- Closed: 20261024-072500
+
+- Leak, memory, and correctness checks in CICD.
+	- ID: 2026101816243853
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261018-162438
+	- Opened by: JC
+	- Related IDs: 2026101410495995
+	- Requirements  [Feature]:
+		- Only for code in use, that end users of this project use. That's the Go module, and the C API through its C tests. The Python scripts are pipeline tooling, and there's no Rust or C++ of ours.
+		- For all code:
+			- The checks cover first-party and third-party code. Vendored code is included.
+				- On third-party code, run the leak, memory, and correctness checks named here, not style lints. Style findings in someone else's crate or module aren't ours to fix.
+				- CodeQL reports only on source inside the database's root. For its run, vendor the dependencies into the tree first (`go mod vendor`).
+			- Any report fails the test that made it.
+			- Any leak is fixed. If the fix has to wait, it gets a backlog item, and the test that shows it turns the check off with that item's ID beside it.
+			- A `--leakcheck` flag adds the slow checks:
+				- CodeQL, from a pinned CLI run locally. No hosted service.
+				- A soak test. It loops through the program's main actions headless, and fails if the heap at round 2N is larger than at round N by more than a set margin. The heap report is kept as a pipeline artifact.
+			- Every tool is pinned and runs in the build container or lint image, never installed on the host.
+			- Each new gate is watched to fail before it's trusted, by planting the leak it's meant to catch and seeing it go red.
+			- Known-advisory scans run on every full run: `govulncheck`. They cover third-party code only, which is the point.
+		- For Go:
+			- Go leaks are goroutines that never exit, and references held too long: a map or slice that only grows, or a small slice keeping a big backing array alive.
+			- Every package's tests run `goleak.VerifyTestMain(m)` from `go.uber.org/goleak`, pinned in go.mod. A goroutine still running after the tests fails the run, whether our code or a dependency started it.
+			- Every full run runs the whole test suite with `-race`.
+			- If the code uses cgo, every full run also runs the tests with `-asan`, in a build dir of its own.
+			- Every full run runs `go vet` and `staticcheck`. `go vet`'s `lostcancel` and `copylocks` checks are the leak-related ones.
+			- The soak test reads `runtime.MemStats.HeapInuse` and `runtime.NumGoroutine()` at round N and 2N, after `runtime.GC()`. Its heap profile (`pprof`) is kept as the artifact, and `go tool pprof -base` shows what grew.
+			- Traps:
+				- `goleak.VerifyNone` per test doesn't work with `t.Parallel()`. Use `VerifyTestMain`.
+				- goleak ignores by function name. That's the only form of suppression allowed.
+				- `go test` caches a pass. Run with `-count=1`.
+				- One `runtime.GC()` can leave garbage behind. Call it twice before reading the stats, or the margin has to be wide enough to hide a real leak.
+				- `-race` needs cgo on some platforms. A job with `CGO_ENABLED=0` fails to build it or skips it, so check the job's env.
+				- `-race` is 2 to 20 times slower and uses 5 to 10 times the memory. Size the job's timeout for it.
+		- For C:
+			- Every full run builds the whole test suite with AddressSanitizer, LeakSanitizer, and UndefinedBehaviorSanitizer, in a build dir of its own.
+				- Any report fails the test that made it.
+				- Any leak is fixed. If the fix has to wait, it gets a backlog item, and the test that shows it turns leak detection off with that item's ID beside it.
+				- For a full leak stack, rerun the test with `ASAN_OPTIONS=fast_unwind_on_malloc=0`.
+			- Every full run also runs gcc's `-fanalyzer` and the clang static analyzer over every first-party .c file.
+				- Before the gate goes live, every existing finding is fixed, or suppressed at the line with a one-line reason. There's no baseline file.
+				- They move behind a flag only if a full run measures too slow.
+			- A `--leakcheck` flag adds the slow checks:
+				- CodeQL, from a pinned CLI run locally. No hosted service.
+				- The clang analyzer in cross-file (CTU) mode, so it follows calls across .c files.
+				- A heaptrack soak test. It loops through the program's main actions headless, and fails if the heap at round 2N is larger than at round N by more than a set margin. The heaptrack report is kept as a pipeline artifact.
+			- Coverity Scan and Infer aren't used. Coverity uploads the build to a third party.
+			- Every tool is pinned and runs in the build container or lint image, never installed on the host.
+			- Each new gate is watched to fail before it's trusted: plant a leak, a null dereference, and a loop that grows the heap, and see each one go red.
+			- Traps:
+				- `-fanalyzer` does nothing under `-fsyntax-only`. Compile with `-c -o /dev/null`.
+				- With `-Werror`, analyzer findings print as `error: ... [-Werror=analyzer-*]`, not `warning:`. A parser that only looks for warnings counts 0.
+				- heaptrack and ASan can't share a build. The soak test uses a plain build.
+				- ASan's allocator hides the heap from glibc's own stats, such as `mallinfo2`. A test that reads them should exit as skipped under ASan, not pass.
+	- Progress log:
+		- 20261018: Split into 2026101816474400 for Go, 2026101816474401 for C, and 2026101816474402 for `--leakcheck`. This one closes when they do.
+		- 20261019: All 3 children are in and waiting on signoff.
+	- Test case: the children's.
+	- Acceptance signoff: Self-closed: with its 3 children.
+	- Closed: 20261024-072500
+
+- Go leak, race, and lint checks in CICD.
+	- ID: 2026101816474400
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and so did a quick `--container` run of the Go side. A full run adds nothing new, since every new check runs on quick runs too.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261018-164744
+	- Opened by: JC
+	- Parent ID: 2026101816243853
+	- Related IDs: 2026101410495995
+	- Requirements  [Feature]:
+		- The parent's Go requirements, less the soak test: goleak in every package's tests, `-race` on a full run, `go vet` and `staticcheck`, and `govulncheck`. Covers 2026101410495995.
+	- Progress log:
+		- 20261019: Every run, quick and `--ci` included, runs goleak, the tests under `-race`, `go vet` and staticcheck on the module and on convertbase, and govulncheck. None is slow enough to be full-run only: `-race` adds about 6 s, and the rest take about 5 s together.
+		- 20261019: staticcheck and govulncheck are pinned in the container's Dockerfile, not in `fConfig` as 2026101410495995 asked, per the decision below.
+		- 20261019: `-race` needs cgo on Linux. Without cgo the tests run without it, and Et9R2xW skips with a note.
+		- 20261019: The third-party code checked is what a user of the module builds, convertbase and shcl. It gets `go vet` and staticcheck's bug checks, not its style ones. goleak is only in the tests, so it's left out.
+		- 20261019: govulncheck fails on any advisory in a third-party module, called or not. It also fails on one in Go's own library that the module or the reactor calls. One in code nothing calls is only counted. The reactor is scanned as wasip1, the way it ships.
+		- 20261019: Each gate failed first on a planted fault: a leaked goroutine, a data race, a missing leak check, a copied lock, an unused value, and the same 2 plus an old `golang.org/x/text` in a copy of convertbase. A style-only finding there passed. Offline, govulncheck skipped. Without docker, all 3 image checks skipped.
+	- Decisions:
+		- 20261018: The checker tools are pinned and run from the container image (`cicd/container/Dockerfile`), never installed on the host. A host run starts the pinned image for a stage that needs one. With no docker that stage skips with a note, so a public clone still passes. Inside a `--container` run the tools are called directly. The Go toolchain's own `go vet` and `go test -race` may run on the host's Go.
+		- 20261018: `-race`, staticcheck and govulncheck are full-run only if they're slow. A quick or `--ci` run keeps what's quick.
+		- 20261018: govulncheck skips offline with a note.
+		- 20261018: goleak goes in as `go.uber.org/goleak`, pinned in `go/go.mod`, with `VerifyTestMain` in every package's tests. The `go 1.24` directive stays.
+		- 20261018: The module needs no cgo. If `-race` needs cgo here, it's handled per the parent's traps.
+		- 20261018: Each gate is watched to fail on a planted fault before it's trusted.
+		- 20261019: A Go library advisory in code we call fails the run. The Go that's scanned builds the reactor that ships in the command, so it has to stay current. The fix is a `GO_VER` bump, 2026101907263616.
+	- Swept: every `go test` call in `cicd.bash`. The fuzz and benchmark runs pass with goleak in. The tests also compile for Windows and macOS with the new `TestMain`.
+	- Branch: leakgate
+	- Commit: a64c88c
+	- Test case: Et9R2xU (goleak), Et9R2xV (every package has it), Et9R2xW (`-race`), Et9R2xX and Et9R2xY (`go vet`), Et9R2xZ and Et9R2xa (staticcheck), Et9R2xb (govulncheck), Et9VtIq (the skip without docker). Et9luGK, Et9luGL and Et9luGM for how the report reads govulncheck. Each failed first.
+	- Acceptance signoff: Self-closed: each gate failed first on a planted fault, and all pass in every run since.
+	- Closed: 20261024-072500
+
+- C sanitizer and analyzer checks in CICD.
+	- ID: 2026101816474401
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and so did a quick `--container` run of the Zig side. A full run adds nothing new, since every new check runs on quick runs too.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261018-164744
+	- Opened by: JC
+	- Parent ID: 2026101816243853
+	- Requirements  [Feature]:
+		- The parent's C requirements, less the `--leakcheck` part: the C tests under ASan, LSan, and UBSan, and gcc's `-fanalyzer` and the clang analyzer over every first-party .c file.
+	- Progress log:
+		- 20261019: Every run, quick and `--ci` included, builds the C tests with gcc's ASan, LSan and UBSan and runs them: `capi_smoke.c` against both libraries, and `capi_interpose.c`. gcc's `-fanalyzer` and clang's analyzer check every tracked .c file. It all takes about 15 s on a busy box, most of it starting the image 5 times.
+		- 20261019: The compilers are the container image's, the same as the Go checkers, so a host run starts the image and a run without docker skips with a note. clang 19 was added to the image for its analyzer.
+		- 20261019: Wasmtime isn't instrumented, but its mallocs go through ASan's. A missing `zuid_free` shows up as about 11 KB of Wasmtime leaks. There are none today, so nothing is suppressed.
+		- 20261019: clang's analyzer gave up on every path at the 200-turn loop in `capi_smoke.c`, so a fault after it went unseen. It widens loops now. gcc's analyzer doesn't report a leak inside `main`, so the planted leaks went in a helper.
+		- 20261019: Each gate failed first on a planted fault: a leak, a null dereference, a signed overflow, a heap overflow, a missing `zuid_free`, and a leak in `capi_interpose.c`. Both analyzers caught the leaks and the null dereference. Neither can see a missing `zuid_free`. The growing-heap loop belongs to the soak test, 2026101816474402.
+	- Swept: every C build in `cicd.bash`. The Windows, FreeBSD and arm64 links of `capi_smoke.c` are for targets that can't run here, so they stay as plain link checks. The Go checks also call the image, from folders inside the repo, so they get no extra mount.
+	- Branch: csan
+	- Commit: d6dcb7c
+	- Test case: EtAHpAd, EtAHpAe and EtAHpAf (the sanitizers), EtAHpAg (gcc's analyzer), EtAHpAh (clang's), and EtAHpAi (the scratch dir is mounted into the image). Each failed first. The skip without docker is Et9VtIq's.
+	- Acceptance signoff: Self-closed: each gate failed first on a planted fault, and all pass in every run since.
+	- Closed: 20261024-072500
+
+- A `--leakcheck` flag for the slow checks.
+	- ID: 2026101816474402
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. A full `cicd.bash --leakcheck` run passed, and so did `--container --only zig --leakcheck`. `--quick --leakcheck` passed with `--only go` and `--only zig`, and with `--container --only go`. Without docker the C half skipped with a note.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261018-164744
+	- Opened by: JC
+	- Parent ID: 2026101816243853
+	- Requirements  [Feature]:
+		- CodeQL for Go and C, the Go and C soak tests, and the clang analyzer in CTU mode, per the parent.
+	- Progress log:
+		- 20261019: `--leakcheck` adds to any run, `--ci` and `--container` included. A plain run left it out at the time. It takes about a minute.
+		- 20261019: The Go soak runs every vector, the refusals, and live identifiers from 4 goroutines through new generators, 80 rounds and then 80 more. The heap has to stay within 128 KB and the goroutine count can't grow. Both heap profiles are kept in `cicd/artifacts/leakcheck/`.
+		- 20261019: The C soak has 2 parts, with an 8 KB margin. One context's calls run 100 rounds and 100 more under heaptrack, whose report is kept. Whole contexts run 8 and 8 more without it, since `zuid_new` compiles the module and heaptrack's own memory then grew about 70 MB a round. With glibc's per-thread cache off, both held to the byte.
+		- 20261019: heaptrack's leak list names compile buffers that the heap reading shows freed, so it isn't a verdict.
+		- 20261019: clang's analyzer runs in cross-file mode over the C tests. None of them calls into another, so a pair of files with a null dereference only that mode can see runs first, every time.
+		- 20261019: Each gate failed first on a planted fault: a slice that only grows and a stuck goroutine in the Go module, a missing `zuid_free`, a lost buffer and a growing cache in copies of the C soak, and the cross-file pair with that mode off. A cache of one short string a round passed, being under the margin.
+		- 20261019: clang-tools and heaptrack were added to the image, 70 MB on disk and 16 MB of content. CodeQL is left, for Go and C.
+		- 20261019: CodeQL 2.27.2 runs from an image of its own, built on the main one, from GitHub's C and Go bundles pinned by sha256. It's about 480 MB more, so only `--leakcheck` builds or starts it. Under `--container --leakcheck` the whole run is in that image. It takes about 25 s a language.
+		- 20261019: GitHub's CodeQL terms allow it here, since the code is under OSI licenses and on GitHub.com.
+		- 20261019: Go: the module is copied to a scratch folder and vendored there, so convertbase and shcl are under the database's root. So is the reactor, since the command runs it, and it's built for wasm the way the release builds it. Our code gets the whole security and quality suite, and third-party code only its security and correctness queries.
+		- 20261019: C: every tracked .c file is compiled fresh while CodeQL watches. Zig isn't a language CodeQL reads, so the C module's own code isn't in the database, only its header through the C tests. There's no third-party C.
+		- 20261019: Both fail if a file the build compiled isn't in the database. A C build that compiles nothing is refused by CodeQL itself. Go's extractor read every file even with a warm build cache, but the cache is fresh anyway.
+		- 20261019: The one finding is upstream, in shcl: a 32-bit number turned into an `int`. It's 2026101911183280, suppressed by that ID. A suppression nothing matches fails the run, so it comes out with the fix.
+		- 20261019: CodeQL has no Go query for a lost cancel. `go vet`'s `lostcancel` runs on every run already.
+		- 20261019: Each CodeQL gate failed first on a planted fault: a tainted path and a style finding in our Go, a security finding in a copy of convertbase, a use after free and a null check after a dereference in a copy of the C tests, and the vendored files left out of the database. A style finding in the convertbase copy passed. The plainest use after free never reached CodeQL, since gcc's `-Werror` refused it.
+		- 20261019: A full `--leakcheck` run passed in 13 minutes, and `--container --only zig --leakcheck` in 11.
+		- 20261019: Changed: a default run includes leakcheck, `--leakcheck` adds it back to `--quick`, and `--no-leakcheck` leaves it out (2026101916041201). The code does that now (2026101916041201).
+		- 20261019: Left for signoff, since the context soak runs without heaptrack where the requirement asked for it, and CodeQL's separate image was a judgment call.
+	- Swept: every `fInImage` call outside the CodeQL stage still gets the main image. Both images drop their old tags through one helper, and both pipeline tests that lift the image code lift it too. A plain `--container` run never builds or starts the CodeQL image.
+	- Branch: leakcheck
+	- Commit: 59c3e61, 516fef0, 51c712d
+	- Test case: EtAUMRA (the Go soak), EtAUMRB and EtAUMRE (the C soaks), EtAUMRC and EtAUMRD (the cross-file analyzer), EtAUMRF, EtAUMRG and EtAUMRH (the flag), EtAUMRI and EtAUMRJ (CodeQL on Go and C), EtAj5P2 (CodeQL's image), EtAj5P3 to EtAj5P6 (how its report is read). Each failed first.
+	- Acceptance signoff: Self-closed: each gate failed first on a planted fault. The 2 calls left open were sound: whole contexts soak without heaptrack, since under it heaptrack's own memory grew about 70 MB a round, and CodeQL's own image keeps 480 MB away from runs that don't use it.
+	- Closed: 20261024-072500
+
+- CICD has `--leakcheck` but no `--no-leakcheck`.
+	- ID: 2026101916041201
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. `pipeline-test.bash` passes, 93 of 93.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261019-160412
+	- Opened by: JC
+	- Related IDs: 2026101816474402
+	- Requirements  [Feature]:
+		- Do next, before the next cut.
+		- CICD should have both `--leakcheck` (e.g. useful to add back in for `--quick`), and `--no-leakcheck` (e.g. to exclude from default or with `--quiet`).
+	- Progress log:
+		- 20261019: Answered: a default run includes leakcheck. `--leakcheck` is for adding it back to `--quick`. That reverses "a plain run leaves it out" in 2026101816474402, which this changes.
+		- 20261019: Done. A full run has leakcheck, `--quick` and `--ci` leave it out unless `--leakcheck` is given, and `--no-leakcheck` drops it from any run. `--container` passes either flag in. Help, `development.md` and the pipeline tests match.
+	- Branch: leakdefault
+	- Commit: b021804
+	- Test case: EtAUMRF, EtAUMRH, EtAUMRG, EsJ9SjF.
+	- Acceptance signoff: Self-closed: clear intent, and its tests pass.
+	- Closed: 20261024-072500
+
+- Non-release builds don't show their build date.
+	- ID: 2026102318361186
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: Done. The `macos` workflow passed at 1942bb2, run 40063604025, with EtaWcMt and EtaWcMu in it.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261023-183527
+	- Opened by: JC
+	- Related IDs: 2026102321183047
+	- Requirements  [Feature]:
+		- For non-release builds, include " (YYYY-mm-DD)" after the build number.
+			- Report the date as the local date of whoever views the version.
+	- Progress log:
+		- 20261023: The date has to be worked out when `--version` runs, from the minutes in the build number, since the build machine's time zone isn't the viewer's.
+		- 20261023: Done. A non-release build prints `1.0.0-beta.1 (build debmp) (2026-10-23)`. The command takes the build number's minute and asks libc for the local date, so `TZ` and the system zone both count.
+		- 20261023: ErOiQba's pattern now allows the date. Old: ends in `\(build [0-9a-z]+\)$`. New: the same, then an optional ` \([0-9]{4}-[0-9]{2}-[0-9]{2}\)`.
+	- Decisions:
+		- 20261023: A release build is one made with `-Drelease`, which only `package.bash` passes. The dogfood build and the release are both ReleaseSafe, and the tag doesn't exist yet when a release is packaged, so neither could tell them apart.
+		- 20261023: The date is its own pair of parens after the build number's, `(build debmp) (2026-10-23)`, rather than inside it.
+		- 20261023: `--about` and `--help` show the same line as `--version`. The Windows version resource stays without the date, since it's fixed at build time.
+	- Verified: `--version` gave 2026-10-23 in PDT and at UTC-12, and 2026-10-24 at UTC and UTC+14, for a commit at 2026-10-24 04:06 UTC. A `-Drelease` build has no date, and its `--about` differs only in that. The x86_64 Windows build gave the same dates with `TZ` unset and at UTC+14. Windows x86_64 and arm64 and FreeBSD cross-build, and `clock.h` gives `localtime_r` for both macOS slices.
+		- `cli-test.bash` passed 90 of 90 on both builds, and the old ErOiQba failed on the dated one.
+		- EtaWcMt passed on a dated build and failed on a `-Drelease` one, and EtaWcMu the other way round.
+		- `cicd.bash -q --quick --package --only zig --no-sync --no-backup --no-dogfood`: passed, 377 ok and no failures. EtaWcMt and EtaWcMu passed in it, and so did the Windows resource checks and Esa8LVS.
+		- 20261023, run 40063604025 on `macos-15` at 1942bb2: passed, with EtaWcMt, EtaWcMu and ErOiQba ok, and `cli-test.bash` 89 of 89 on the universal release.
+		- The full Linux run at 1942bb2 passed, with EtaWcMt, EtaWcMu and ErOiQba in it.
+	- Hand test build: 20261024, the synced `zuid` every box runs is `1.0.0-beta.1 (build debpy) (2026-10-23)`, from 88e397f, which has this change.
+	- Swept: every `--version` reader. The installers take the first word. The publish notes, the Windows resource check and the Mac slice check read a release build. The test stand-ins print fixed lines.
+	- Branch: round1023
+	- Commit: 3c898d6
+	- Test case: EtaWcMt builds with SOURCE_DATE_EPOCH=1700000000 and wants 2023-11-14 at UTC and 2023-11-15 at UTC+14. EtaWcMu wants no date from the release `package.bash` built. ErOiQba takes either form.
+	- Acceptance signoff: Self-closed: its tests failed first, and pass on Linux and the macOS runner. The synced build shows the date.
+	- Closed: 20261024-072500
+
+- PowerShell files aren't linted.
+	- ID: 2026101410495993
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and so did `--container --only go --quick`.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Run PSScriptAnalyzer on `install.ps1` and `cicd/utility/run-latest.ps1` when it's installed, and fail on a finding. `install.ps1` is clean as of 20261014.
+	- Progress log:
+		- 20261014: `installer-test.bash` checks `install.ps1` against the 5.1 profile when PSScriptAnalyzer is installed (EshaOju). The general lint is still open.
+		- 20261019: PSScriptAnalyzer 1.25.0 is pinned in the container image, from the PowerShell Gallery package by version and sha256. The gallery's own SHA512 for it matched the download. A new "PowerShell: lint" stage runs its default rules on every tracked PowerShell file, `install.ps1` and `run-latest.ps1` today, from the image like the Go checkers. Any finding fails it, and with no docker it skips with a note. Both files are clean. About 7 s on a busy box.
+		- 20261019: Unpacked it's about 300 MB, nearly all of it the compatibility profiles EshaOju's rules read. The image grew 310 MB on disk and 15 MB in content. Leaving the profiles out would change what those rules flag, since they compare against all of them together, so the package goes in whole.
+		- 20261019: With PSScriptAnalyzer in the image, EshaOju runs under `--container` now, where it used to skip. A host run still checks it with the host's PSScriptAnalyzer, when there is one.
+		- 20261019: Question: the style guide names `PSUseConsistentIndentation` with tabs, in a `PSScriptAnalyzerSettings.psd1`. On `install.ps1` it flags the 2 continuation lines of one pipeline, 565 and 566. Not added, since it means picking how a pipeline is indented. Say if it should be.
+		- 20261019: Answered: no, not if it's only for formatting PowerShell.
+	- Branch: cicdtidy
+	- Commit: b79038c
+	- Test case: EtB6KVF is the check. It failed on an unused variable planted in `install.ps1` and a syntax error planted in `run-latest.ps1`, and on the old image, which has no PSScriptAnalyzer. EtB6KVG runs the stage with a stand-in docker: every tracked PowerShell file is handed in, a finding fails it, and with no docker it skips.
+	- Acceptance signoff: Self-closed: the stage failed on planted faults, and the indentation rule was answered no.
+	- Closed: 20261024-072500
+
+- Stage headers have no full-width rule above them.
+	- ID: 2026101410495998
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. `cicd.bash --ci -q` passed, and `lint-report.bash` reads its log as clean.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- A blank line, a full-width rule of `•`, then the title, as silkterm's `fSection` does. About 27 headers. Check `lint-report.bash` and `pipeline-test.bash` don't match on the header lines.
+	- Progress log:
+		- 20261019: Every stage header in `cicd.bash` goes through one `fSection`, like silkterm's. That's 30 headers, with the commit message prompt. "Passed." and the interrupt line are status lines, so they stayed as they were.
+		- 20261019: silkterm's rule is always 74 wide. Here it's the terminal's width when the run starts in one, and 74 in a pipe or a log. The width is read before the run log's tee, since after it nothing is a terminal, so the log gets the rule the screen got. `--container` hands its width to the run inside, which has no terminal.
+		- 20261019: Nothing reads the header lines. `lint-report.bash` looks for warning words, the rule has none, and the titles didn't change. `pipeline-test.bash` stubs the header out of the stages it lifts. `test-ids.py` reads test output only, and the pre-push hook reads none.
+		- 20261019: Question: `install.bash` has headers of its own ("Plan", "Downloading"), with no rule. Left alone, since that's what people see while installing. Say if they should get one too.
+	- Decisions:
+		- 20261024: `install.bash` keeps its headers with no rule, since nothing asked for one there.
+	- Swept: the other bash scripts. The 3 test harnesses and `package.bash` print a status line or two, not stages. In the source, the new functions are inside existing `#•••` sections, and the new `pipeline-test.bash` section has that file's rule.
+	- Branch: cicdtidy
+	- Commit: 3fbe497
+	- Test case: EtB5PUX. A pipe gets 74, a 123-wide terminal gets 123, the run inside the container takes the width it's handed and a host run doesn't, and `--container` hands it in. It failed before the change, and fails with the terminal read taken out.
+	- Acceptance signoff: Self-closed: tested, and its test failed first.
+	- Closed: 20261024-072500
+
+- The Windows exe has no version resource or icon.
+	- ID: 2026101410495999
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. See Verified.
+	- Needs external testing: Done. Windows reads both files' version info as built, on b29w.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Related IDs: 2026101305595483
+	- Target OS: Windows
+	- Requirements  [Feature]:
+		- An ASCII VERSIONINFO for the Windows targets, in the plain copyright form. The icon waits on a logo.
+		- Recheck that the exe still builds the same on 2 machines, apart from the known PDB paths.
+	- Progress log:
+		- 20261019: `zuid.exe` and `zuid.dll` have a version resource on both Windows targets. `build.zig` writes it from the line `--version` prints, and the year from `--about`. `libzuid.a` gets none, since it would end up inside the program that links it.
+		- 20261019: No icon yet. It waits on a logo.
+		- 20261019: On b29w, `Get-Item` gave both files the description, version, copyright and file name in the resource, with the prerelease flag set, and the exe's `--version` matched. That's the same version info Explorer's Properties tab shows.
+	- Decisions:
+		- 20261019: The copyright is `Copyright (C) <year> Jim Collier`, with no ID and no license. The license differs between the exe and the dll, and `--about` has it.
+		- 20261019: FILEVERSION is the release's 3 numbers and a 0. A prerelease sets the prerelease flag instead, and the text fields have the full version with the build number. The 4th number can't hold the build number, and any prerelease number there would sort a beta above its release. Noted in design.md.
+		- 20261019: FileDescription is `zuid` for the exe, which is what Task Manager shows, and `zuid C library` for the dll.
+	- Swept: every Windows file in the zips. `wasmtime.dll` is Wasmtime's own, and the test and smoke programs aren't shipped.
+	- Verified: 20261019, `cicd.bash --package` passed, then `--container --package`, and both again with `--quick` after the last change. Between b23 and the container every Windows exe and dll differs only in the time stamp and PDB ID of 2026101305595483, and the resources are identical. The other release files matched, apart from the `.deb` and `.rpm`, which differ by nfpm version as before.
+	- Verified: a build with no build number, a Debug build and a build of a version with no prerelease tag each gave the resource they should.
+	- Branch: winres
+	- Commit: 7df2b13
+	- Test case: EtBCCRm and EtBCCRn, one per Windows target, hold both files' resource to `--version` and `--about`, in ASCII with no time stamp. EtBCCRm failed with the resource left out.
+	- Acceptance signoff: Self-closed: Windows read both files' version info on b29w. The icon is 2026102407250000, waiting on a logo.
+	- Closed: 20261024-072500
+
+- Most harness labels are full sentences in one pattern.
+	- ID: 2026101410500002
+	- Type: Task
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Shorten the labels in `cli-test.bash`, `installer-test.bash`, `pipeline-test.bash`, and `cicd.bash`. The IDs stay. The Zig names were done in 2026101410495992.
+	- Progress log:
+		- 20261019: About 220 labels shortened across the 4 files, the C checks, `--leakcheck`, CodeQL, PSScriptAnalyzer and the version resource checks included. IDs and failure messages are unchanged. The fuzz labels still end in ", fuzzed for", since `pipeline-test.bash` matches on it, and labels that were already short were left alone.
+	- Swept: every old label across the repo and the notes outside it. Only `pipeline-test.bash` matched on cicd.bash's labels, for the shellcheck pin and PSScriptAnalyzer, and both sides changed together. No new label has "warning" in it. The only other hits are old pasted run logs, left as they are.
+	- Branch: labels
+	- Commit: bf0c2b0
+	- Test case: none, labels only. `cicd.bash --ci -q --no-backup --no-dogfood`, `installer-test.bash`, `pipeline-test.bash` and `test-ids.py check` all passed, and `lint-report.bash --check` is clean.
+	- Acceptance signoff: Self-closed: labels only, and every harness passes with them.
+	- Closed: 20261024-072500
 
 - `cli-test.bash` fails Ersmdcu when `--bin` is a relative path.
 	- ID: 2026102321183047
