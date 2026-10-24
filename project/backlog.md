@@ -594,22 +594,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 878f5b9
 	- Test case: EtaL127 and EtaL128 run each slice, EtaL129 to EtaL12C link and run `capi_smoke.c` against the tarball per slice and link kind. EsZni4i failed on the runner before its fix and passed after.
 
-- A full run rewrites `assets/demo.gif`, with no flag to stop it.
-	- ID: 2026102320065988
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261023-200659
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- A `--no-demo` flag, so a full test run leaves the tracked gif alone.
-		- A `--no-` flag for the other full-run stages that have none, such as fuzz and profile, so a failure in one doesn't stop a run that's testing something else.
-	- Estimated effort: Low
-
 - `cli-test.bash` fails Ersmdcu when `--bin` is a relative path.
 	- ID: 2026102321183047
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261023-211830
 	- Opened by: JC
@@ -620,6 +608,40 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Expected behavior [Bug]: 90 of 90, as with the same build's absolute path.
 	- Reproduced [Bug]: Yes, 20261023 on b23, 3 runs of 3. The absolute path passed.
 	- Possible cause [Bug]: The test runs `${bin}` after `cd "${work}"`, so a relative path names nothing there, and its `|| true` hides that. The round settings in memory.md give the relative form.
+	- Actual cause [Bug]:
+		- As guessed. A relative `--bin` named nothing after the `cd`, and `|| true` hid the failed run.
+	- Actual fix [Bug]: `cli-test.bash` makes `--bin` absolute before any case runs. Ersmdcu also fails on the run's exit code now, and says it.
+	- Verified: `--bin zig/zig-out/bin/zuid` from `repo/` failed 89 of 90 before the fix and passed 90 of 90 after. So did `./zig-out/bin/zuid` from `zig/`, and the absolute path still passed. Etab8wr failed against the old `cli-test.bash` and passes with the fix.
+	- Swept: every `cd` in `cli-test.bash`; Ersmdcu is the only case that runs the command from another dir. The `macos` workflow passes a relative `--bin` too, but Ersmdcu skips on a Mac.
+	- Branch: round1023
+	- Commit: faef0ac
+	- Test case: Etab8wr, in `pipeline-test.bash`, runs `cli-test.bash` with a relative `--bin` to a stand-in that keeps a module the way the command does, and wants Ersmdcu to pass. It skips on a Mac.
+	- Acceptance signoff: Self-closed: mechanical fix, and the test failed before it and passes after.
+	- Closed: 20261023-214307
+
+- A full run rewrites `assets/demo.gif`, with no flag to stop it.
+	- ID: 2026102320065988
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261023-200659
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- A `--no-demo` flag, so a full test run leaves the tracked gif alone.
+		- A `--no-` flag for the other full-run stages that have none, such as fuzz and profile, so a failure in one doesn't stop a run that's testing something else.
+	- Estimated effort: Low
+	- Progress log:
+		- 20261023: Done. `--no-fuzz` drops the Go and Zig fuzzing, `--no-profile` the profile and `--no-demo` the demo, each on its own. `--quick` still drops all three. `--container` passes `--no-fuzz` and `--no-profile` in; the demo never runs in there.
+		- 20261023: Packaging, the leak checks and dogfood already had a `--no-` flag. Every other full-run stage also runs on a quick run.
+	- Decisions:
+		- 20261023: No positive `--fuzz`, `--profile` or `--demo` to add them back to `--quick`, since nothing asked for it.
+	- Verified: `pipeline-test.bash` passed 98 of 98, and Etab8wo, Etab8wp and Etab8wq failed against the old `cicd.bash`. `cicd.bash -q --no-sync --no-backup --no-dogfood --no-leakcheck --no-fuzz --no-profile --no-demo` passed with `--only go`, and with `--only zig --no-package`. Neither ran the fuzz, profile or demo stages, the Zig fuzz tests showed as skipped for `--no-fuzz`, and `assets/demo.gif` was unchanged.
+	- Swept: every `doQuick` in `cicd.bash`. The fuzz, profile and demo call sites read their own flags now, and `fStage_Container` passes the two that apply. Help and `development.md` list the flags.
+	- Branch: round1023
+	- Commit: faef0ac
+	- Test case: Etab8wo (the flags, alone and with `--quick` and `--gate`), Etab8wp (each stage call reads its own flag), Etab8wq (`--container` passes them in).
+	- Acceptance signoff: Self-closed: clear intent, and its tests pass.
+	- Closed: 20261023-214307
 
 - `install.bash` stops under a Mac's stock bash for a user install.
 	- ID: 2026101410500003
