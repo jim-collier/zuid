@@ -536,8 +536,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - Run CICD on GitHub's free arm64 macOS runners.
 	- ID: 2026102318361185
 	- Type: Enhancement
-	- Status: Testing
-	- Needs external testing: The `macos` workflow on GitHub, on the round branch's commit.
+	- Status: Waiting on signoff
+	- Needs external testing: No. The `macos` workflow passed at 878f5b9, run 40059817674.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261023-183527
 	- Opened by: JC
@@ -549,10 +549,21 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261023: It would be the first run of the arm64 slice on Apple Silicon, which 2026101312344407 is stalled on.
 		- 20261023: `.github/workflows/macos.yml` runs `cicd.bash --quick --package` on `macos-15`, then `cli-test.bash` on the universal release. It runs on a push to any branch, skipping docs-only pushes, or by hand.
 		- 20261023: `--package` on a Mac now runs each slice it can, the x86_64 one under Rosetta on Apple Silicon, and links and runs `capi_smoke.c` against the tarball, static and shared, per slice. An Intel Mac links the arm64 one and skips running it.
+		- 20261023: The runner needed the Dockerfile's exact Go. setup-go turns off toolchain downloads, and the release check refuses any other Go for the reactor.
+		- 20261023: Found there: EsZni4i failed on `/Users/runner` in the release. Wasmtime is built on GitHub's runners, and its build paths stay in every binary that links it, so a runner's home matches them. When a vendored Wasmtime archive already has the home in it, only the checkout and Zig paths are looked for now. The run before the fix failed on it, and the one after passed.
+		- 20261023: Waits on signoff for the trigger: a push to any branch, docs-only pushes skipped. The arm64 macOS half of 2026101312344407 ran in this run.
+	- Verified:
+		- 20261023, run 40059817674 on `macos-15` at 878f5b9: `cicd.bash -q --quick --package --no-sync --no-backup --no-dogfood` passed, 473 ok, no failures. `cli-test.bash` passed 89 on the universal release, the arm64 slice natively.
+		- Locally: shellcheck, `test-ids.py check` (442, all unique), `pipeline-test.bash` 94 passed, the content scrub.
+		- Not verified: the new checks were not watched to fail.
 	- Decisions:
 		- 20261023: `macos-15`, not M4. GitHub's free arm64 runners are M1 class, and M4 is not offered free. 15 is the free arm64 image closest to the release's macOS 13.0 floor.
 		- 20261023: Zig comes from ziglang.org, checked against a pinned sha256 and cached between runs. No third-party setup action.
 		- 20261023: Lint, the Go checkers and the leak checks stay on Linux. The runner has no docker, and shellcheck there would not match the pinned one.
+	- Swept: every `${HOME}` leak pattern in `cicd.bash` and `package.bash`. EsZni4i is the only one.
+	- Branch: round1023
+	- Commit: 878f5b9
+	- Test case: EtaL127 and EtaL128 run each slice, EtaL129 to EtaL12C link and run `capi_smoke.c` against the tarball per slice and link kind. EsZni4i failed on the runner before its fix and passed after.
 
 - Non-release builds don't show their build date.
 	- ID: 2026102318361186
