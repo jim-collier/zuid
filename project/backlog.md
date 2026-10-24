@@ -495,6 +495,33 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: The code is upstream, so it's fixed in convert-base-v2 and comes in with a later pin. Until then `cicd/utility/codeql-suppressions.txt` suppresses it by this ID.
 		- 20261019: Stalled with the pin move, 2026100519164742.
 
+- Run CICD on GitHub's free arm64 macOS runners.
+	- ID: 2026102318361185
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261023-183527
+	- Opened by: JC
+	- Related IDs: 2026101312344407
+	- Target OS: macOS
+	- Requirements  [Feature]:
+		- Build, run the tests, and smoke-test the CLI on the built binary.
+	- Progress log:
+		- 20261023: It would be the first run of the arm64 slice on Apple Silicon, which 2026101312344407 is stalled on.
+
+- Non-release builds don't show their build date.
+	- ID: 2026102318361186
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261023-183527
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- For non-release builds, include " (YYYY-mm-DD)" after the build number.
+			- Report the date as the local date of whoever views the version.
+	- Progress log:
+		- 20261023: The date has to be worked out when `--version` runs, from the minutes in the build number, since the build machine's time zone isn't the viewer's.
+
 - `install.bash` stops under a Mac's stock bash for a user install.
 	- ID: 2026101410500003
 	- Type: Bug
@@ -2976,10 +3003,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 	- The ID is the local time to the hundredth of a second. Opened is when it was written down, which may differ. (Use a keyboard macro and possibly something like project 'zuid' to generate.)
 
-	- Status values meaning: Testing means the fix is in and checks are running or still to run. Waiting on signoff means automated testing passed. Moot means something else changed that made it irrelevant. Canceled means it still applies but was decided against. Waiting for testing means the fix is in and waits on a long CI run or an outside test host. Can't reproduce means a real attempt to reproduce it failed.
+	- Status values meaning: Testing means the fix is in and checks are running or still to run. Waiting on signoff means automated testing passed. Moot means something else changed that made it irrelevant. Canceled means it still applies but was decided against. Waiting on automated testing means the fix is in and an agent's test run is next. Waiting on a partial CICD run means it needs a narrowed run, such as `--quick` or `--only`, by a person or an agent. Waiting on a full CICD run is the same for a full run. Waiting on UAT means a person has to try it. Can't reproduce means a real attempt to reproduce it failed.
 
 	- As issues are worked, and statuses change, place them in correct sorting order within the list:
-		- First by status: Waiting for answers, Waiting on signoff, Testing, Waiting for testing, Can't reproduce, Stalled, Started, Queued, Done, Deferred, Canceled, Moot
+		- First by status: Waiting for answers, Waiting on signoff, Testing, Waiting on automated testing, Waiting on a partial CICD run, Waiting on a full CICD run, Waiting on UAT, Can't reproduce, Stalled, Started, Queued, Done, Deferred, Canceled, Moot
 		- Then by severity|priority: Critical, High, Avg, Low
 		- Then by type: Bugs, [not bugs together]
 
@@ -2990,7 +3017,7 @@ Template:
 - Title
 	- ID: YYYYmmDDHHMMSSNN
 	- Type: [Bug|Feature|Enhancement|Task]
-	- Status: [Queued|Waiting for answers|Waiting on signoff|Waiting for testing|Started|Testing|Stalled|Can't reproduce|Moot|Canceled|Deferred|Done]
+	- Status: [Queued|Waiting for answers|Waiting on signoff|Waiting on automated testing|Waiting on a partial CICD run|Waiting on a full CICD run|Waiting on UAT|Started|Testing|Stalled|Can't reproduce|Moot|Canceled|Deferred|Done]
 	- Needs local test suite run?:
 	- Needs external testing:
 	- Priority [Feature|Enhancement] | Severity [Bug]: [Critical|High|Avg|Low]
