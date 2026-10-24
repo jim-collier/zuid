@@ -30,7 +30,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## Issues
 
-
 - Installer options and messages per the house installer rules.
 	- ID: 2026101410495989
 	- Type: Enhancement
