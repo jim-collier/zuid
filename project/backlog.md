@@ -31,21 +31,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 ## Issues
 
 
-- README and GitHub About wording.
-	- ID: 2026101410495988
-	- Type: Task
-	- Status: Waiting for answers
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Progress log:
-		- 20261014: Suggested rewrites are in `private/suggestions.md`: badges, a status note, a who-it-isn't-for section, module examples, a support section, and the About blurb and topics. Facts and spelling were fixed in place.
-		- 20261014: Asked what this meant. Explained in-session: `private/suggestions.md` has wording for the README and the GitHub About box, each for a yes or no.
-		- 20261024: Answered: the "Why" paragraph as edited, and most of the rest is good. Feedback on the no-counter line: a counter should be a feature, now 2026102409130649.
-		- 20261024: In the README: the badges, the status note, the "Why" paragraph, 5 features, "Using the modules", "Who it isn't for" without the counter line, and "Support". The 2 module examples were compiled and run first. `FUNDING.yml` lost the silkterm line, and the README's commented copyright lines for the other 2 names are gone.
-		- 20261024: Left out: the CI badge, since the only workflow is macOS; the checksum and rebuild line, which isn't true for the Windows files yet; the package table, which `install.md` has already.
-		- 20261024: Question: set the GitHub About blurb and topics from `private/suggestions.md` now? It's public as soon as it's set.
-
 - Installer options and messages per the house installer rules.
 	- ID: 2026101410495989
 	- Type: Enhancement
@@ -356,6 +341,26 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- A system install leaves other users' caches alone and says where they are.
 	- Progress log:
 		- 20261024: Seen on b26, after an install, one run and an uninstall.
+
+- README and GitHub About wording.
+	- ID: 2026101410495988
+	- Type: Task
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Progress log:
+		- 20261014: Suggested rewrites are in `private/suggestions.md`: badges, a status note, a who-it-isn't-for section, module examples, a support section, and the About blurb and topics. Facts and spelling were fixed in place.
+		- 20261014: Asked what this meant. Explained in-session: `private/suggestions.md` has wording for the README and the GitHub About box, each for a yes or no.
+		- 20261024: Answered: the "Why" paragraph as edited, and most of the rest is good. Feedback on the no-counter line: a counter should be a feature, now 2026102409130649.
+		- 20261024: In the README: the badges, the status note, the "Why" paragraph, 5 features, "Using the modules", "Who it isn't for" without the counter line, and "Support". The 2 module examples were compiled and run first. `FUNDING.yml` lost the silkterm line, and the README's commented copyright lines for the other 2 names are gone.
+		- 20261024: Left out: the CI badge, since the only workflow is macOS; the checksum and rebuild line, which isn't true for the Windows files yet; the package table, which `install.md` has already.
+		- 20261024: Question: set the GitHub About blurb and topics from `private/suggestions.md` now? It's public as soon as it's set.
+		- 20261024: Answered: yes. The About blurb and the 8 new topics are set, and the 5 old topics kept.
+	- Commit: 14ba441
+	- Test case: none. Wording only. The docs checks pass on the README.
+	- Acceptance signoff: JC, 20261024.
+	- Closed: 20261024-093728
 
 - Wording in code, messages, and docs.
 	- ID: 2026101410495992
