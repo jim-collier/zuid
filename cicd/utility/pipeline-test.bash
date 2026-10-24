@@ -646,9 +646,34 @@ log="$(cat "${work}/engine-codeql" 2>/dev/null || true)"
 plainOut="$(fContainerIn "${worktreeMain}" "${work}/engine-plain" 0)" && plainRc=0 || plainRc=$?
 if ((rc == 0)) && grep -qxF "build --build-arg BASE=${newTag} -t ${codeqlTag} ${mainReal}/cicd/container/codeql" <<< "${log}" \
 	&& grep -q -- "^run .* ${codeqlTag} bash .* --leakcheck$" <<< "${log}" && grep -qxF "rmi zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld" <<< "${log}" \
-	&& ! grep -qxF "rmi ${codeqlTag}" <<< "${log}" && ((plainRc == 0)) && ! grep -q 'codeql' "${work}/engine-plain"
+	&& ! grep -qxF "rmi ${codeqlTag}" <<< "${log}" && ((plainRc == 0)) && ! grep -qE '^(build|run) .*codeql' "${work}/engine-plain"
 	then fPass
 	else fFail "exited ${rc} and ${plainRc}, asked: ${log//$'\n'/ | }; said '${out}' and '${plainOut}'"
+fi
+
+## A rebuilt main image left the CodeQL one built on the old one, and what it
+## held of the old layers, until the next --leakcheck run.
+fId EtaIbeg "plain run drops a CodeQL image on an old main one"
+staleBad=""
+for pass in built found; do
+	: > "${work}/engine-stale"
+	out="$(fContainerIn "${worktreeMain}" "${work}/engine-stale" 0)" && rc=0 || rc=$?
+	log="$(cat "${work}/engine-stale")"
+	rmis="$(grep '^rmi ' <<< "${log}" || true)"
+	((rc == 0)) || staleBad+=" ${pass}: exited ${rc}, said '${out}';"
+	! grep -qE '^(build|run) .*codeql' <<< "${log}" || staleBad+=" ${pass}: built or ran CodeQL;"
+	## The old main tag goes after the CodeQL one, or that one's layers stay.
+	if [[ "${pass}" == "built" ]]; then
+		grep -q '^build -t zuid-cicd' <<< "${log}" || staleBad+=" built: no build;"
+		[[ "${rmis}" == "rmi zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld"$'\n'"rmi zuid-cicd:0ld0ld0ld0ld" ]] || staleBad+=" built: removed '${rmis//$'\n'/ | }';"
+	else
+		! grep -q '^build ' <<< "${log}" || staleBad+=" found: built again;"
+		[[ "${rmis}" == "rmi zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld" ]] || staleBad+=" found: removed '${rmis//$'\n'/ | }';"
+	fi
+done
+if [[ -z "${staleBad}" ]]
+	then fPass
+	else fFail "${staleBad}"
 fi
 
 ## A public clone without docker still passes, so the checkers in the image
@@ -663,7 +688,7 @@ out="$(
 	uname(){ case "$1" in -s) echo Linux ;; -m) echo x86_64 ;; esac; }
 	# shellcheck disable=2034  ## Read by the lifted functions.
 	{
-		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerImage="zuid-cicd"; inContainer=0; containerTag=""; checkerSkipWhy=""
+		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerImage="zuid-cicd"; codeqlImage="zuid-codeql"; inContainer=0; containerTag=""; checkerSkipWhy=""
 	}
 	for fn in _fMustBeInPath fGoCheckers_Ready fContainer_Image fContainer_DropOthers; do
 		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }

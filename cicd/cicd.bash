@@ -779,13 +779,18 @@ fContainer_Image(){
 
 	## Tagged by the recipe's hash, so an edited recipe can't run on the old image.
 	containerTag="${containerImage}:$(git hash-object "${recipe}" | cut -c1-12)"
+	local -i built=0
 	if "${containerEngine}" image inspect "${containerTag}" &>/dev/null; then
 		fEcho_Clean "Image ......: ${containerTag}"
-		return 0
+	else
+		fEcho_Clean "Image ......: building ${containerTag}"
+		"${containerEngine}" build -t "${containerTag}" "$(dirname "${recipe}")" || fThrowError "Could not build '${containerTag}'."  "${FUNCNAME[0]}"
+		built=1
 	fi
-	fEcho_Clean "Image ......: building ${containerTag}"
-	"${containerEngine}" build -t "${containerTag}" "$(dirname "${recipe}")" || fThrowError "Could not build '${containerTag}'."  "${FUNCNAME[0]}"
-	fContainer_DropOthers "${containerImage}" "${containerTag}"
+	## A CodeQL image on an older main one is never run again, and it holds
+	## that image's layers, so it goes first. Only --leakcheck rebuilds it.
+	fContainer_DropOthers "${codeqlImage}" "" "-${containerTag##*:}"
+	if ((built)); then fContainer_DropOthers "${containerImage}" "${containerTag}"; fi
 
 }
 
@@ -814,11 +819,12 @@ fCodeql_Image(){
 
 ## What a new image replaces is a couple of GB nobody runs again. A plain rmi,
 ## so one a container still uses stays.
-fContainer_DropOthers(){  ## image, tag to keep
-	local -r image="$1" keep="$2"
+fContainer_DropOthers(){  ## image, tag to keep, [and any tag ending in this]
+	local -r image="$1" keep="$2" keepEnd="${3:-}"
 	local old=""
 	while IFS= read -r old; do
 		if [[ -z "${old}" ]] || [[ "${old}" == "${keep}" ]]; then continue; fi
+		if [[ -n "${keepEnd}" && "${old}" == *"${keepEnd}" ]]; then continue; fi
 		if "${containerEngine}" rmi "${old}" >/dev/null 2>&1
 			then fEcho_Clean "Removed ....: ${old}"
 			else fEcho_Clean "Kept .......: ${old} (in use)"
