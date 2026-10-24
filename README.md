@@ -7,10 +7,9 @@
 
 [![Command: GPL v2+](https://img.shields.io/badge/Command-GPLv2%2B-blue.svg)](license.md)
 [![Modules: Apache 2.0](https://img.shields.io/badge/Modules-Apache_2.0-green.svg)](license.md)
-![Lifecycle: Beta](https://img.shields.io/badge/Lifecycle-Beta-yellow)
-![Support](https://img.shields.io/badge/Support-Maintained-brightgreen)
-![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go&logoColor=white)
-![Zig](https://img.shields.io/badge/Zig-0.17.0-F7A41D?logo=zig&logoColor=white)
+[![Release](https://img.shields.io/github/v/release/jim-collier/zuid?include_prereleases&sort=semver)](https://github.com/jim-collier/zuid/releases)
+[![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go&logoColor=white)](go/go.mod)
+[![Zig](https://img.shields.io/badge/Zig-0.17.0-F7A41D?logo=zig&logoColor=white)](https://ziglang.org/download/)
 
 </div>
 <!--
@@ -56,7 +55,7 @@ Short, sortable, privacy-preserving unique identifiers - from a command line, a 
 
 </div>
 
-> **Beta.** The current prerelease is `v1.0.0-beta.1`, for Linux, macOS, Windows, and FreeBSD. Both implementations build and reproduce the shared test vectors, and every component works from the command line, the Go module, and the C module. See [project/backlog.md](project/backlog.md) for where it stands.
+> **Beta.** Releases cover Linux x86_64 and arm64, macOS, Windows x86_64 and arm64, and FreeBSD x86_64. The identifier format is settled; the command's flags may still change before 1.0.0.
 
 <!-- TOC ignore:true -->
 ## Table of contents
@@ -65,8 +64,11 @@ Short, sortable, privacy-preserving unique identifiers - from a command line, a 
 
 - [Why](#why)
 - [Features](#features)
+- [Using the modules](#using-the-modules)
 - [How it is built](#how-it-is-built)
+- [Who it isn't for](#who-it-isnt-for)
 - [Installation](#installation)
+- [Support](#support)
 - [Copyright and license](#copyright-and-license)
 
 <!-- /TOC -->
@@ -74,6 +76,8 @@ Short, sortable, privacy-preserving unique identifiers - from a command line, a 
 ## Why
 
 A random UUID is 36 characters, sorts meaninglessly, and is awkward to read over a phone. Most of the time that buys uniqueness nobody needed.
+
+UUIDv7 and ULID sort by time too. They're 36 and 26 characters. A zuid for the same job is often 6 to 12, because you pick the parts it needs.
 
 An identifier built from a timestamp and rendered in a compact base is far shorter, sorts in creation order as plain text, and is still unique enough for the job. When it is not, more components can be mixed in - more time precision, host, user, hardware address, a UUID, or random data - and the same identifier gets as unique as required.
 
@@ -106,7 +110,15 @@ Every component except an unhashed name is a fixed width, so identifiers line up
 
 - Private by default. Host and user are hashed unless asked otherwise, and `--salt` or `--salt-file` puts a secret of your own in front of the hash so candidate names cannot be tried against the output.
 
-- A curated set of bases suited to identifiers, with the library's full set of seventy-odd still available.
+- Base 62 by default. The help lists 16, 32w, 36, 62, 64tt, 128tt, 256tt, 512tt, 1024tz, and 2048tz, which all sort. `--base` takes any of the library's seventy-odd.
+
+- The same identifier from the command, the Go module, and the C module. A shared table of test vectors holds all 3 to the same output.
+
+- No config file, on purpose. Base and precision set an identifier's width and sort order, so 2 machines can't drift apart through a setting.
+
+- Every input can be pinned in the modules: clock, random source, host, user, domain, and hardware address. Tests get the same identifier every time.
+
+- Runs on baseline x86-64 and arm64 CPUs. Linux needs glibc 2.28 or newer, such as Debian 10, RHEL 8, or Ubuntu 20.04. macOS needs 13 or newer, and FreeBSD 14 or newer.
 
 - Embeddable, three ways:
 
@@ -116,6 +128,33 @@ Every component except an unhashed name is a fixed width, so identifiers line up
 
 	- A C module, for nearly anything else. Also permissively licensed.
 
+## Using the modules
+
+Go:
+
+~~~go
+g, err := zuid.New()
+if err != nil {
+	return err
+}
+id, err := g.Generate(zuid.Request{Format: "%d%r"})
+~~~
+
+C, linked with `-lzuid` against the shared library:
+
+~~~c
+zuid *z = zuid_new();
+if (!z) return 1;
+char out[256];
+zuid_request req = {0};
+req.format = "%d%r";
+if (zuid_generate(z, &req, out, sizeof out) == ZUID_OK) puts(out);
+else fprintf(stderr, "%s\n", zuid_last_error(z));
+zuid_free(z);
+~~~
+
+A C context starts in about half a second, so make one and keep it. The static library's link line is at the top of `zuid.h`.
+
 ## How it is built
 
 Base conversion is not reimplemented here. It comes from [convert-base-v2](https://github.com/jim-collier/convert-base-v2), so there is one definition of what a base means rather than two that can drift apart.
@@ -124,9 +163,21 @@ There are two implementations of the identifier spec, one in Go and one in Zig, 
 
 The Go module stays free of cgo and cross-compiles statically. The Zig side produces the command and the C module. Full reasoning is in [project/design.md](project/design.md).
 
+## Who it isn't for
+
+- If a database or API already expects UUIDs, use UUIDv7. zuid's format is its own.
+
+- The command is about 19 MB, since it embeds a WebAssembly runtime and the conversion module. Its first run compiles that module, and later runs read it from a cache.
+
+- There are no releases for musl, 32-bit, or other CPUs.
+
 ## Installation
 
 See [install.md](install.md) for the packages, the install scripts, and building from source. To work on zuid itself, see [development.md](development.md).
+
+## Support
+
+zuid is free. If it saves you time and you'd like to help, there's [GitHub Sponsors](https://github.com/sponsors/jim-collier) and [Ko-fi](https://ko-fi.com/jimcollier). A star, a clear bug report, or a mention to someone who needs it helps too. `zuid --donate` prints the same links.
 
 ## Copyright and license
 
@@ -139,8 +190,6 @@ The command is GPL-2.0-or-later. The Go and C modules are Apache-2.0, so embeddi
 > ZUID™ is a [trademark](trademark.md) of Jim Collier.
 <!--
 > Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]<br />
-> Copyright © 2026 t00mietum (CryptogID: ปʬϝღถɔ4რఠΔթะ9ƾǝu)<br />
-> Copyright (c) 2026 Bubbles<br />
 
 > Licensed under the [MIT License](https://mit-license.org/)<br />
 > SPDX-License-Identifier: `MIT`.<br />

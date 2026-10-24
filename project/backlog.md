@@ -31,6 +31,26 @@ Going forward, new issues in the new template at the bottom of this file, will g
 ## Issues
 
 
+- Identifiers from one tick have no counter.
+	- ID: 2026102409130649
+	- Type: Feature
+	- Status: Waiting for answers
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261024-091306
+	- Opened by: JC
+	- Related IDs: 2026101410495988
+	- Requirements  [Feature]:
+		- A counter component, so identifiers from one tick sort in the order they were made.
+	- Progress log:
+		- 20261024: From the README review. Today 2 identifiers from one tick sort in random order with `%r`, and repeat without it. design.md keeps same-tick repeats literal with a warning, and a counter is a way to ask for something else in the format.
+		- 20261024: Question, with a proposal for each:
+			- Name: `%c`.
+			- Scope: one run of the command, or one Go `Generator` or C context. Nothing is shared between processes, since that needs a state file, and there's no config file for the same reason. 2 processes in one tick still need `%h`, `%u` or `%r` to differ.
+			- Reset: back to 0 when the tick changes. A run reads the clock once, so in a batch it's the line number from 0.
+			- Width: fixed and derived from a target, like the other components, so identifiers still split by offset. 20 bits, which is 4 symbols in base 62. Past it is an error, as `%d` is past the horizon.
+			- The C context keeps the last tick and the count. That changes "the context keeps only the runtime and the clock pin", since a count can't come in per call.
+			- A format with `%c` can't repeat within a run, so the repeat warning never fires for it.
+
 - README and GitHub About wording.
 	- ID: 2026101410495988
 	- Type: Task
@@ -41,6 +61,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261014: Suggested rewrites are in `private/suggestions.md`: badges, a status note, a who-it-isn't-for section, module examples, a support section, and the About blurb and topics. Facts and spelling were fixed in place.
 		- 20261014: Asked what this meant. Explained in-session: `private/suggestions.md` has wording for the README and the GitHub About box, each for a yes or no.
+		- 20261024: Answered: the "Why" paragraph as edited, and most of the rest is good. Feedback on the no-counter line: a counter should be a feature, now 2026102409130649.
+		- 20261024: In the README: the badges, the status note, the "Why" paragraph, 5 features, "Using the modules", "Who it isn't for" without the counter line, and "Support". The 2 module examples were compiled and run first. `FUNDING.yml` lost the silkterm line, and the README's commented copyright lines for the other 2 names are gone.
+		- 20261024: Left out: the CI badge, since the only workflow is macOS; the checksum and rebuild line, which isn't true for the Windows files yet; the package table, which `install.md` has already.
+		- 20261024: Question: set the GitHub About blurb and topics from `private/suggestions.md` now? It's public as soon as it's set.
 
 - Installer options and messages per the house installer rules.
 	- ID: 2026101410495989
@@ -110,24 +134,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: answers
 	- Commit: 044ef7f
 	- Test case: None in the harness, since it runs on Linux, where there is no registry. The b29w runs are the check.
-
-- Wording in code, messages, and docs.
-	- ID: 2026101410495992
-	- Type: Task
-	- Status: Waiting on signoff
-	- Needs local test suite run?: Done. `--gate` passed, and the Windows Zig tests passed under Wine.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Progress log:
-		- 20261014: Comments, docs, messages, and test names reworded. 3 messages changed: a raw-byte base "cannot be used for an identifier", a hash width "fits at most" so many symbols, and the Go salt check's "could contain one".
-		- 20261014: Long Zig test names shortened. Made-up Windows account names in the tests. The template banner is gone from `code_of_conduct.md`.
-		- 20261014: design.md: 64h doesn't sort, base 128 at second precision is one of the tightest horizons, the allocator and cross-build notes match the code, and the folder tree is complete. Its tables and fences follow the house format.
-		- 20261014: README: the alpha's illegal-instruction crash on older CPUs, `%m` isn't hashed, the rpm name, the cache path, `--no-backup` for a plain clone, and the tools `--package` needs.
-		- 20261014: The demo ends on 3 s of black, its closing line is reworded, and it's 42.6 s.
-	- Branch: tidyup
-	- Commit: aaa915c
-	- Test case: none. Wording only. The tests that read messages still pass.
 
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
@@ -347,6 +353,26 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- A system install leaves other users' caches alone and says where they are.
 	- Progress log:
 		- 20261024: Seen on b26, after an install, one run and an uninstall.
+
+- Wording in code, messages, and docs.
+	- ID: 2026101410495992
+	- Type: Task
+	- Status: Done
+	- Needs local test suite run?: Done. `--gate` passed, and the Windows Zig tests passed under Wine.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Progress log:
+		- 20261014: Comments, docs, messages, and test names reworded. 3 messages changed: a raw-byte base "cannot be used for an identifier", a hash width "fits at most" so many symbols, and the Go salt check's "could contain one".
+		- 20261014: Long Zig test names shortened. Made-up Windows account names in the tests. The template banner is gone from `code_of_conduct.md`.
+		- 20261014: design.md: 64h doesn't sort, base 128 at second precision is one of the tightest horizons, the allocator and cross-build notes match the code, and the folder tree is complete. Its tables and fences follow the house format.
+		- 20261014: README: the alpha's illegal-instruction crash on older CPUs, `%m` isn't hashed, the rpm name, the cache path, `--no-backup` for a plain clone, and the tools `--package` needs.
+		- 20261014: The demo ends on 3 s of black, its closing line is reworded, and it's 42.6 s.
+	- Branch: tidyup
+	- Commit: aaa915c
+	- Test case: none. Wording only. The tests that read messages still pass.
+	- Acceptance signoff: JC, 20261024.
+	- Closed: 20261024-091306
 
 - Updates to CICD script flags.
 	- ID: 2026101816243852
