@@ -33,11 +33,14 @@ jobs:
           brew install bash
           echo "$(brew --prefix)/bin" >> "${GITHUB_PATH}"
 
-      # The image has Go, but not on PATH. The reactor still builds with the
-      # Dockerfile's GO_VER, which cicd.bash fetches through GOTOOLCHAIN.
+      # The image has Go, but not on PATH. setup-go sets GOTOOLCHAIN=local, and
+      # a release's reactor has to come from the Dockerfile's GO_VER, so that one.
+      - id: pins
+        run: echo "go=$(sed -n 's/^ARG GO_VER=//p' cicd/container/Dockerfile)" >> "${GITHUB_OUTPUT}"
+
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
+          go-version: ${{ steps.pins.outputs.go }}
           cache-dependency-path: go/go.sum
 
       # Where cicd.bash looks for it, so nothing has to name it.
