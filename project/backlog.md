@@ -31,6 +31,19 @@ Going forward, new issues in the new template at the bottom of this file, will g
 ## Issues
 
 
+- Zig's build caches grow without limit.
+	- ID: 2026102320181236
+	- Type: Enhancement
+	- Status: Waiting for answers
+		- Waits on the 2026102320181236 question in `questions.md`: whether to cap the caches, and how.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261023-201812
+	- Opened by: JC
+	- Parent ID: 2026101916041200
+	- Requirements  [Feature]:
+		- Zig never prunes its cache. On b23 `zig/.zig-cache` reached 711 MB in 5 days, and the Zig cache in the `zuid-cicd-cache` volume 336 MB. Go's build cache trims itself.
+		- Zig's global cache in `~/.cache/zig` is shared with other projects and Zig versions, so it isn't ours to prune.
+
 - README and GitHub About wording.
 	- ID: 2026101410495988
 	- Type: Task
@@ -379,6 +392,31 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: labels
 	- Commit: bf0c2b0
 	- Test case: none, labels only. `cicd.bash --ci -q --no-backup --no-dogfood`, `installer-test.bash`, `pipeline-test.bash` and `test-ids.py check` all passed, and `lint-report.bash --check` is clean.
+
+- Builds leave stale artifacts and side-effects behind.
+	- ID: 2026101916041200
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: The end-of-round full run, with its default `--leakcheck`. After it, `docker images zuid-codeql` lists only a tag ending in the current `zuid-cicd` tag.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261019-160412
+	- Opened by: JC
+	- Related IDs: 2026101912130117, 2026101816474402
+	- Requirements  [Feature]:
+		- Do next, before the next cut.
+		- Verify or ensure that builds clean up stale artifacts and side-effects after they're done: caches, container cruft, tmp files, etc.
+	- Progress log:
+		- 20261023: A `--gate` run with a TMPDIR of its own left nothing behind. The TMPDIR was empty, nothing new was in `/tmp`, `/mnt/tmpfs/tmp` or `~/.cache`, and no zuid container, image or volume was added.
+		- 20261023: Every `mktemp -d` in `cicd.bash` is on the exit cleanup list, and each harness removes its own work dir on exit. Containers run with `--rm --init`.
+		- 20261023: `cicd/artifacts/` already rotates, and `dist/` is emptied before each package run. Fuzz finds are kept on purpose.
+		- 20261023: Found: a CodeQL image built on an older main image stayed until the next `--leakcheck` run. On b23 that was `zuid-codeql:953bf12e36c5-98809c2ceb21`, about 750 MB of its own. Every run that uses the main image now drops it, ahead of the old main tag. A quick Go run removed it on b23.
+		- 20261023: EtAj5P2's plain-run clause was "no mention of codeql at all". It's now "no CodeQL build or run", as its comment says, since a plain run removes a stale one now.
+		- 20261023: Zig's caches never shrink. Split off as 2026102320181236, waiting on a question.
+		- 20261023: Docker's build cache is shared with sister projects, and their steps can't be told from ours. So it stays with the hand prune after a build.
+	- Swept: the only 2 image builds are the main and CodeQL ones. Both lifts of `fContainer_Image` in `pipeline-test.bash` set `codeqlImage`. The run inside the container never calls it.
+	- Branch: round1023
+	- Commit: 0562b45
+	- Test case: EtaIbeg. It failed before the fix, keeping the stale CodeQL image, and passes after.
 
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
