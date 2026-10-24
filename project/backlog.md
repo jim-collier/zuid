@@ -396,8 +396,9 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - Builds leave stale artifacts and side-effects behind.
 	- ID: 2026101916041200
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: The end-of-round full run, with its default `--leakcheck`. After it, `docker images zuid-codeql` lists only a tag ending in the current `zuid-cicd` tag.
+	- Status: Waiting on signoff
+		- Stays open until its child 2026102320181236 closes.
+	- Needs local test suite run?: Done. The full run passed at 1942bb2, and after it `docker images zuid-codeql` listed only `zuid-codeql:de7763196c93-856cd00870eb`, on the current `zuid-cicd:856cd00870eb`.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261019-160412
 	- Opened by: JC
@@ -413,6 +414,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261023: EtAj5P2's plain-run clause was "no mention of codeql at all". It's now "no CodeQL build or run", as its comment says, since a plain run removes a stale one now.
 		- 20261023: Zig's caches never shrink. Split off as 2026102320181236, waiting on a question.
 		- 20261023: Docker's build cache is shared with sister projects, and their steps can't be told from ours. So it stays with the hand prune after a build.
+		- 20261023: Full run `cicd.bash -q --no-sync --no-dogfood --no-backup --no-demo` at 1942bb2 passed in 17 minutes, 439 ok, 13 skips, no failures. It built the CodeQL image fresh, since none was left from before. EtaIbeg passed in it. Nothing of the run's was left in its TMPDIR, `/tmp`, `/mnt/tmpfs/tmp` or `~/.cache`, no zuid container or process was left, and no volume was added. `assets/demo.gif` was unchanged.
 	- Swept: the only 2 image builds are the main and CodeQL ones. Both lifts of `fContainer_Image` in `pipeline-test.bash` set `codeqlImage`. The run inside the container never calls it.
 	- Branch: round1023
 	- Commit: 0562b45
@@ -421,8 +423,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - Non-release builds don't show their build date.
 	- ID: 2026102318361186
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: the `macos` workflow on the round branch, for EtaWcMt and EtaWcMu on a Mac. Both passed on Linux.
+	- Status: Waiting on signoff
+	- Needs external testing: Done. The `macos` workflow passed at 1942bb2, run 40063604025, with EtaWcMt and EtaWcMu in it.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261023-183527
 	- Opened by: JC
@@ -442,6 +444,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- `cli-test.bash` passed 90 of 90 on both builds, and the old ErOiQba failed on the dated one.
 		- EtaWcMt passed on a dated build and failed on a `-Drelease` one, and EtaWcMu the other way round.
 		- `cicd.bash -q --quick --package --only zig --no-sync --no-backup --no-dogfood`: passed, 377 ok and no failures. EtaWcMt and EtaWcMu passed in it, and so did the Windows resource checks and Esa8LVS.
+		- 20261023, run 40063604025 on `macos-15` at 1942bb2: passed, with EtaWcMt, EtaWcMu and ErOiQba ok, and `cli-test.bash` 89 of 89 on the universal release.
+		- The full Linux run at 1942bb2 passed, with EtaWcMt, EtaWcMu and ErOiQba in it.
 	- Swept: every `--version` reader. The installers take the first word. The publish notes, the Windows resource check and the Mac slice check read a release build. The test stand-ins print fixed lines.
 	- Branch: round1023
 	- Commit: 3c898d6
