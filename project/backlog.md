@@ -444,6 +444,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- `cicd.bash -q --quick --package --only zig --no-sync --no-backup --no-dogfood`: passed, 377 ok and no failures. EtaWcMt and EtaWcMu passed in it, and so did the Windows resource checks and Esa8LVS.
 	- Swept: every `--version` reader. The installers take the first word. The publish notes, the Windows resource check and the Mac slice check read a release build. The test stand-ins print fixed lines.
 	- Branch: round1023
+	- Commit: 3c898d6
 	- Test case: EtaWcMt builds with SOURCE_DATE_EPOCH=1700000000 and wants 2023-11-14 at UTC and 2023-11-15 at UTC+14. EtaWcMu wants no date from the release `package.bash` built. ErOiQba takes either form.
 
 - FreeBSD kernel panics while zuid runs.
