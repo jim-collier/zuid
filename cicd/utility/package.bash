@@ -343,7 +343,8 @@ for zigTarget in "${zigTargets[@]}"; do
 	slice="${work}/slice-${zigTarget}"
 	wasmtimeArchive="$(fWasmtimeArchive "${zigTarget}")"
 	[[ -f "${wasmtimeArchive}" ]] || fDie "missing ${wasmtimeArchive}. Run cicd.bash --package first; it vendors Wasmtime."
-	( cd "${root}/zig" && zig build "-j${jobs}" -Doptimize=ReleaseSafe -Dtarget="${zigTarget}" --prefix "${slice}" )
+	## -Drelease leaves the build date off --version.
+	( cd "${root}/zig" && zig build "-j${jobs}" -Doptimize=ReleaseSafe -Drelease -Dtarget="${zigTarget}" --prefix "${slice}" )
 	case "${zigTarget}" in
 		## The command and both libraries load wasmtime.dll, so it goes beside
 		## them. Its import library is renamed to what -lwasmtime finds, for a

@@ -4,7 +4,8 @@
 		https://spdx.org/licenses/Apache-2.0.html
 	SPDX-License-Identifier: Apache-2.0
 
-	What clock.zig sees of libc, translated by build.zig.
+	What clock.zig, and the command's build date, see of libc, translated
+	by build.zig.
 */
 
 #include <time.h>

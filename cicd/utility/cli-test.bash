@@ -370,7 +370,8 @@ fWantFailure ErOiQbY "zero --rand-chars" "out of range for --rand-chars" --rand-
 ## --version is one bare line for scripts and the installers' head -n1. The
 ## copyright lives in --about.
 fWantLines ErOiQbZ "--version is one line"                  1 --version
-fWantMatch ErOiQba "--version is the version and build"     '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)? \(build [0-9a-z]+\)$' --version
+## A build that isn't for a release adds the date.
+fWantMatch ErOiQba "--version is the version and build"     '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)? \(build [0-9a-z]+\)( \([0-9]{4}-[0-9]{2}-[0-9]{2}\))?$' --version
 fWantAbsent ErOiQbb "--version has no copyright"            "Copyright" --version
 fWantContains ErOiQbc "--about has the copyright"           "Copyright ©" --about
 fWantContains ErOiQbd "--about names both licenses"         "The Go module and the C library are Apache-2.0." --about

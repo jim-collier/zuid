@@ -1944,6 +1944,16 @@ fStage_Zig_BuildStamp(){
 	fi
 	fTestPass
 
+	## bz4zn is 2023-11-14 22:13 UTC, already the 15th at UTC+14. A date fixed
+	## at build time would be the same in both.
+	fId EtaWcMt "build date is the viewer's local date"
+	local dated=""
+	dated="$(TZ=UTC0 "${stampDir}/again/bin/zuid" --version 2>&1 || true)"
+	[[ "${dated}" == *"(build bz4zn) (2023-11-14)" ]] || fTestFail "with TZ=UTC0, --version said '${dated}', not the 2023-11-14 build date."
+	dated="$(TZ=XXX-14 "${stampDir}/again/bin/zuid" --version 2>&1 || true)"
+	[[ "${dated}" == *"(build bz4zn) (2023-11-15)" ]] || fTestFail "at UTC+14, --version said '${dated}', not the 2023-11-15 build date."
+	fTestPass
+
 	rm -rf "${stampDir}"
 
 }
@@ -2492,6 +2502,18 @@ fStage_Package(){
 	local -r release="${repoRoot}/dist/${distPrefix}${osLabel}-${archLabel}"
 	local -i haveObjdump=0
 	if command -v objdump >/dev/null 2>&1; then haveObjdump=1; fi
+
+	## Only a build for a release leaves the date off. The publish stage reads
+	## the build number from --version, and the Windows resource is held to it.
+	fId EtaWcMu "release --version has no build date"
+	local releaseSaid=""
+	if ! releaseSaid="$("${release}" --version 2>/dev/null)"; then
+		fTestSkip "this host can't run ${release##*/}"
+	elif [[ "${releaseSaid}" =~ ^[^\ ]+\ \(build\ [0-9a-z]+\)$ ]]; then
+		fTestPass
+	else
+		fTestFail "--version said '${releaseSaid}'. package.bash has to build with -Drelease."
+	fi
 
 	## The macOS checks read one slice at a time. The x86_64 scan means nothing on
 	## arm64, and the minimum macOS has to be right for both.

@@ -56,11 +56,16 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     cmd_mod.addImport("zuid", lib_mod);
+    cmd_mod.addImport("c_clock", headers.clock);
     // What --version prints, and the Windows version resource with it.
-    const build_number = buildNumber(b, buildEpoch(b));
+    const build_minutes = buildMinutes(buildEpoch(b));
+    const build_number = buildNumber(b, build_minutes);
     const version_line = if (build_number.len > 0) b.fmt("{s} (build {s})", .{ version, build_number }) else version;
+    const release = b.option(bool, "release", "A published build: --version leaves off the build date (default: false)") orelse false;
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "version_line", version_line);
+    // Seconds, not a date: the command shows the day in the viewer's time zone.
+    build_options.addOption(?i64, "dated_from", if (release) null else if (build_minutes) |m| epoch_2000 + @as(i64, @intCast(m)) * 60 else null);
     cmd_mod.addOptions("build_options", build_options);
     if (is_windows) cmd_mod.addWin32ResourceFile(.{ .file = versionResource(b, optimize, version_line, .exe) });
 
@@ -291,13 +296,19 @@ fn buildEpoch(b: *std.Build) i64 {
     return std.fmt.parseInt(i64, std.mem.trim(u8, out, " \r\n"), 10) catch 0;
 }
 
-/// Minutes since 2000-01-01 UTC in lower-case Crockford base32, the same build
-/// number gitsby and silkterm use. Empty when nothing stamped the build.
-fn buildNumber(b: *std.Build, epoch: i64) []const u8 {
-    const epoch_2000 = 946684800;
-    if (epoch < epoch_2000) return "";
+const epoch_2000 = 946684800;
+
+/// Minutes since 2000-01-01 UTC, or null when nothing stamped the build.
+fn buildMinutes(epoch: i64) ?u64 {
+    if (epoch < epoch_2000) return null;
+    return @intCast(@divFloor(epoch - epoch_2000, 60));
+}
+
+/// The minutes in lower-case Crockford base32, the same build number gitsby
+/// and silkterm use. Empty when nothing stamped the build.
+fn buildNumber(b: *std.Build, build_minutes: ?u64) []const u8 {
+    var minutes = build_minutes orelse return "";
     const alphabet = "0123456789abcdefghjkmnpqrstvwxyz";
-    var minutes: u64 = @intCast(@divFloor(epoch - epoch_2000, 60));
     var digits: [13]u8 = undefined;
     var at: usize = digits.len;
     while (true) {
@@ -428,7 +439,8 @@ fn wasmtimeLibrary(target: std.Build.ResolvedTarget) []const u8 {
 }
 
 /// The C each library file reads, from lib/c/, as the modules clock.zig,
-/// env.zig and host.zig import. Translated once and shared by every artifact.
+/// env.zig and host.zig import, and the command imports clock.h for its build
+/// date. Translated once and shared by every artifact.
 const Headers = struct {
     clock: *std.Build.Module,
     env: *std.Build.Module,

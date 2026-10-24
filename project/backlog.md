@@ -418,6 +418,34 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 0562b45
 	- Test case: EtaIbeg. It failed before the fix, keeping the stale CodeQL image, and passes after.
 
+- Non-release builds don't show their build date.
+	- ID: 2026102318361186
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs external testing: the `macos` workflow on the round branch, for EtaWcMt and EtaWcMu on a Mac. Both passed on Linux.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261023-183527
+	- Opened by: JC
+	- Related IDs: 2026102321183047
+	- Requirements  [Feature]:
+		- For non-release builds, include " (YYYY-mm-DD)" after the build number.
+			- Report the date as the local date of whoever views the version.
+	- Progress log:
+		- 20261023: The date has to be worked out when `--version` runs, from the minutes in the build number, since the build machine's time zone isn't the viewer's.
+		- 20261023: Done. A non-release build prints `1.0.0-beta.1 (build debmp) (2026-10-23)`. The command takes the build number's minute and asks libc for the local date, so `TZ` and the system zone both count.
+		- 20261023: ErOiQba's pattern now allows the date. Old: ends in `\(build [0-9a-z]+\)$`. New: the same, then an optional ` \([0-9]{4}-[0-9]{2}-[0-9]{2}\)`.
+	- Decisions:
+		- 20261023: A release build is one made with `-Drelease`, which only `package.bash` passes. The dogfood build and the release are both ReleaseSafe, and the tag doesn't exist yet when a release is packaged, so neither could tell them apart.
+		- 20261023: The date is its own pair of parens after the build number's, `(build debmp) (2026-10-23)`, rather than inside it.
+		- 20261023: `--about` and `--help` show the same line as `--version`. The Windows version resource stays without the date, since it's fixed at build time.
+	- Verified: `--version` gave 2026-10-23 in PDT and at UTC-12, and 2026-10-24 at UTC and UTC+14, for a commit at 2026-10-24 04:06 UTC. A `-Drelease` build has no date, and its `--about` differs only in that. The x86_64 Windows build gave the same dates with `TZ` unset and at UTC+14. Windows x86_64 and arm64 and FreeBSD cross-build, and `clock.h` gives `localtime_r` for both macOS slices.
+		- `cli-test.bash` passed 90 of 90 on both builds, and the old ErOiQba failed on the dated one.
+		- EtaWcMt passed on a dated build and failed on a `-Drelease` one, and EtaWcMu the other way round.
+		- `cicd.bash -q --quick --package --only zig --no-sync --no-backup --no-dogfood`: passed, 377 ok and no failures. EtaWcMt and EtaWcMu passed in it, and so did the Windows resource checks and Esa8LVS.
+	- Swept: every `--version` reader. The installers take the first word. The publish notes, the Windows resource check and the Mac slice check read a release build. The test stand-ins print fixed lines.
+	- Branch: round1023
+	- Test case: EtaWcMt builds with SOURCE_DATE_EPOCH=1700000000 and wants 2023-11-14 at UTC and 2023-11-15 at UTC+14. EtaWcMu wants no date from the release `package.bash` built. ErOiQba takes either form.
+
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -565,19 +593,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 878f5b9
 	- Test case: EtaL127 and EtaL128 run each slice, EtaL129 to EtaL12C link and run `capi_smoke.c` against the tarball per slice and link kind. EsZni4i failed on the runner before its fix and passed after.
 
-- Non-release builds don't show their build date.
-	- ID: 2026102318361186
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261023-183527
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- For non-release builds, include " (YYYY-mm-DD)" after the build number.
-			- Report the date as the local date of whoever views the version.
-	- Progress log:
-		- 20261023: The date has to be worked out when `--version` runs, from the minutes in the build number, since the build machine's time zone isn't the viewer's.
-
 - A full run rewrites `assets/demo.gif`, with no flag to stop it.
 	- ID: 2026102320065988
 	- Type: Enhancement
@@ -589,6 +604,21 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- A `--no-demo` flag, so a full test run leaves the tracked gif alone.
 		- A `--no-` flag for the other full-run stages that have none, such as fuzz and profile, so a failure in one doesn't stop a run that's testing something else.
 	- Estimated effort: Low
+
+- `cli-test.bash` fails Ersmdcu when `--bin` is a relative path.
+	- ID: 2026102321183047
+	- Type: Bug
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261023-211830
+	- Opened by: JC
+	- Related IDs: 2026102318361186
+	- Steps to reproduce [Bug]:
+		- From `repo/`, run `bash cicd/utility/cli-test.bash --bin zig/zig-out/bin/zuid`.
+	- Incorrect behavior [Bug]: Ersmdcu fails with "nothing under .../home/.cache/zuid", 89 of 90.
+	- Expected behavior [Bug]: 90 of 90, as with the same build's absolute path.
+	- Reproduced [Bug]: Yes, 20261023 on b23, 3 runs of 3. The absolute path passed.
+	- Possible cause [Bug]: The test runs `${bin}` after `cd "${work}"`, so a relative path names nothing there, and its `|| true` hides that. The round settings in memory.md give the relative form.
 
 - `install.bash` stops under a Mac's stock bash for a user install.
 	- ID: 2026101410500003
