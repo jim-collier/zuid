@@ -31,19 +31,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 ## Issues
 
 
-- Zig's build caches grow without limit.
-	- ID: 2026102320181236
-	- Type: Enhancement
-	- Status: Waiting for answers
-		- Waits on the 2026102320181236 question in `questions.md`: whether to cap the caches, and how.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261023-201812
-	- Opened by: JC
-	- Parent ID: 2026101916041200
-	- Requirements  [Feature]:
-		- Zig never prunes its cache. On b23 `zig/.zig-cache` reached 711 MB in 5 days, and the Zig cache in the `zuid-cicd-cache` volume 336 MB. Go's build cache trims itself.
-		- Zig's global cache in `~/.cache/zig` is shared with other projects and Zig versions, so it isn't ours to prune.
-
 - README and GitHub About wording.
 	- ID: 2026101410495988
 	- Type: Task
@@ -446,7 +433,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- `cicd.bash -q --quick --package --only zig --no-sync --no-backup --no-dogfood`: passed, 377 ok and no failures. EtaWcMt and EtaWcMu passed in it, and so did the Windows resource checks and Esa8LVS.
 		- 20261023, run 40063604025 on `macos-15` at 1942bb2: passed, with EtaWcMt, EtaWcMu and ErOiQba ok, and `cli-test.bash` 89 of 89 on the universal release.
 		- The full Linux run at 1942bb2 passed, with EtaWcMt, EtaWcMu and ErOiQba in it.
-	- Hand test build: b23's `zuid` on PATH is `1.0.0-beta.1 (build ddytm)`, from 20261014, which doesn't have this change. Asked in questions.md whether to dogfood main's build.
+	- Hand test build: 20261024, the synced `zuid` every box runs is `1.0.0-beta.1 (build debpy) (2026-10-23)`, from 88e397f, which has this change.
 	- Swept: every `--version` reader. The installers take the first word. The publish notes, the Windows resource check and the Mac slice check read a release build. The test stand-ins print fixed lines.
 	- Branch: round1023
 	- Commit: 3c898d6
@@ -567,10 +554,38 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: The code is upstream, so it's fixed in convert-base-v2 and comes in with a later pin. Until then `cicd/utility/codeql-suppressions.txt` suppresses it by this ID.
 		- 20261019: Stalled with the pin move, 2026100519164742.
 
+- Zig's build caches grow without limit.
+	- ID: 2026102320181236
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261023-201812
+	- Opened by: JC
+	- Parent ID: 2026101916041200
+	- Requirements  [Feature]:
+		- Zig never prunes its cache. On b23 `zig/.zig-cache` reached 711 MB in 5 days, and the Zig cache in the `zuid-cicd-cache` volume 336 MB. Go's build cache trims itself.
+		- Zig's global cache in `~/.cache/zig` is shared with other projects and Zig versions, so it isn't ours to prune.
+	- Progress log:
+		- 20261024: Answered: (b). At the end of a run, `cicd.bash` empties `zig/.zig-cache`, or the volume's Zig cache under `--container`, when it's over about 2 GB. `~/.cache/zig` is left alone.
+
+- CICD runs on the host unless asked for the container.
+	- ID: 2026102406590100
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261024-065901
+	- Opened by: JC
+	- Related IDs: 2026102318361185
+	- Requirements  [Feature]:
+		- A plain run uses the container when docker works, and the host when it doesn't, with a note. A missing docker never fails a run.
+		- A flag forces the host.
+	- Progress log:
+		- 20261024: From the round settings answer: CICD should try to use containers where possible, but not fail without.
+
 - Run CICD on GitHub's free arm64 macOS runners.
 	- ID: 2026102318361185
 	- Type: Enhancement
-	- Status: Waiting on signoff
+	- Status: Queued
 	- Needs external testing: No. The `macos` workflow passed at 878f5b9, run 40059817674.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261023-183527
@@ -586,6 +601,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261023: The runner needed the Dockerfile's exact Go. setup-go turns off toolchain downloads, and the release check refuses any other Go for the reactor.
 		- 20261023: Found there: EsZni4i failed on `/Users/runner` in the release. Wasmtime is built on GitHub's runners, and its build paths stay in every binary that links it, so a runner's home matches them. When a vendored Wasmtime archive already has the home in it, only the checkout and Zig paths are looked for now. The run before the fix failed on it, and the one after passed.
 		- 20261023: Waits on signoff for the trigger: a push to any branch, docs-only pushes skipped. The arm64 macOS half of 2026101312344407 ran in this run.
+		- 20261024: Answered: use GitHub's free arm64 macOS runner, and other boxes, but not with `--quick`. So the workflow does the full run, less what needs docker.
 	- Verified:
 		- 20261023, run 40059817674 on `macos-15` at 878f5b9: `cicd.bash -q --quick --package --no-sync --no-backup --no-dogfood` passed, 473 ok, no failures. `cli-test.bash` passed 89 on the universal release, the arm64 slice natively.
 		- Locally: shellcheck, `test-ids.py check` (442, all unique), `pipeline-test.bash` 94 passed, the content scrub.
