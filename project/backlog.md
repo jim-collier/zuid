@@ -536,7 +536,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - Run CICD on GitHub's free arm64 macOS runners.
 	- ID: 2026102318361185
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Testing
+	- Needs external testing: The `macos` workflow on GitHub, on the round branch's commit.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261023-183527
 	- Opened by: JC
@@ -546,6 +547,12 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Build, run the tests, and smoke-test the CLI on the built binary.
 	- Progress log:
 		- 20261023: It would be the first run of the arm64 slice on Apple Silicon, which 2026101312344407 is stalled on.
+		- 20261023: `.github/workflows/macos.yml` runs `cicd.bash --quick --package` on `macos-15`, then `cli-test.bash` on the universal release. It runs on a push to any branch, skipping docs-only pushes, or by hand.
+		- 20261023: `--package` on a Mac now runs each slice it can, the x86_64 one under Rosetta on Apple Silicon, and links and runs `capi_smoke.c` against the tarball, static and shared, per slice. An Intel Mac links the arm64 one and skips running it.
+	- Decisions:
+		- 20261023: `macos-15`, not M4. GitHub's free arm64 runners are M1 class, and M4 is not offered free. 15 is the free arm64 image closest to the release's macOS 13.0 floor.
+		- 20261023: Zig comes from ziglang.org, checked against a pinned sha256 and cached between runs. No third-party setup action.
+		- 20261023: Lint, the Go checkers and the leak checks stay on Linux. The runner has no docker, and shellcheck there would not match the pinned one.
 
 - Non-release builds don't show their build date.
 	- ID: 2026102318361186

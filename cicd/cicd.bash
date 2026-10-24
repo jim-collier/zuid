@@ -2623,8 +2623,66 @@ fStage_Package(){
 		fTestPass
 	fi
 
+	fStage_Package_MacRun "${thinDir}" "${release}" "${packageVersion}"
+
 	rm -rf "${thinDir}"
 
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Runs each slice of the macOS release this Mac can run: its own, plus x86_64
+## under Rosetta on Apple Silicon. Then capi_smoke.c against the tarball's
+## libraries, per slice. Nothing here is Apple Silicon, so the arm64 slice runs
+## only on the hosted macOS runner.
+fStage_Package_MacRun(){  ## scratch dir, release, version
+	local -r scratchDir="$1" release="$2" version="$3"
+	local -i isMac=0
+	if [[ "$(uname -s)" == "Darwin" ]]; then isMac=1; fi
+	local macLib=""
+	if ((isMac)); then macLib="$(find "${scratchDir}/tgz" -type f -name 'libzuid.a' -print -quit)"; macLib="${macLib%/*}"; fi
+	local -r smokeSrc="${zigDir}/lib/test/capi_smoke.c"
+	local -ra cWarn=(-std=c99 -Wall -Wextra -Wpedantic -Werror)
+	## Its own cache, so the real one is never read or written.
+	local -r runHome="${scratchDir}/run-home"
+	mkdir -p "${runHome}"
+	local slice="" said="" linkKind="" smokeExe=""
+	local -i canRun=0
+	local -a linkFlags=()
+	for slice in x86_64 arm64; do
+		canRun=0
+		if ((isMac)) && arch -"${slice}" /usr/bin/true 2>/dev/null; then canRun=1; fi
+
+		fId "${slice}" x86_64=EtaL127 arm64=EtaL128 "macOS release, ${slice} slice runs"
+		if ((! isMac)); then
+			fTestSkip "macOS only"
+		elif ((! canRun)); then
+			fTestSkip "this Mac can't run ${slice}"
+		else
+			said="$(HOME="${runHome}" XDG_CACHE_HOME="${runHome}/cache" arch -"${slice}" "${release}" --version 2>&1)" || fTestFail "--version failed: ${said}"
+			[[ "${said}" == "${version} (build "*")" ]] || fTestFail "--version said '${said}', not ${version}."
+			said="$(HOME="${runHome}" XDG_CACHE_HOME="${runHome}/cache" arch -"${slice}" "${release}" 2>&1)" || fTestFail "a default identifier failed: ${said}"
+			[[ -n "${said}" && "${said}" != *$'\n'* ]] || fTestFail "a default identifier came out as '${said}'."
+			fTestPass
+		fi
+
+		for linkKind in static shared; do
+			fId "${slice}-${linkKind}" x86_64-static=EtaL129 x86_64-shared=EtaL12A arm64-static=EtaL12B arm64-shared=EtaL12C "capi_smoke.c, macOS ${slice} ${linkKind}"
+			if ((! isMac)); then fTestSkip "macOS only"; continue; fi
+			[[ -n "${macLib}" ]] || fTestFail "the tarball has no libzuid.a."
+			## Named as files, since -lzuid takes the dylib beside the archive.
+			if [[ "${linkKind}" == "static" ]]
+				then linkFlags=("${macLib}/libzuid.a" "${macLib}/libwasmtime.a" -lpthread -ldl -lm)
+				else linkFlags=(-L "${macLib}" -lzuid "-Wl,-rpath,${macLib}")
+			fi
+			smokeExe="${scratchDir}/smoke-mac-${slice}-${linkKind}"
+			MACOSX_DEPLOYMENT_TARGET="13.0" clang -arch "${slice}" "${cWarn[@]}" -I "${macLib}/../include" "${smokeSrc}" "${linkFlags[@]}" \
+				-o "${smokeExe}" || fTestFail "did not link."
+			if ((! canRun)); then fTestSkip "linked, but this Mac can't run ${slice}"; continue; fi
+			arch -"${slice}" "${smokeExe}" || fTestFail "the smoke test failed."
+			fTestPass
+		done
+	done
 }
 
 
