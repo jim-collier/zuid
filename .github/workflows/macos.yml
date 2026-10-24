@@ -33,6 +33,13 @@ jobs:
           brew install bash
           echo "$(brew --prefix)/bin" >> "${GITHUB_PATH}"
 
+      # The image has Go, but not on PATH. The reactor still builds with the
+      # Dockerfile's GO_VER, which cicd.bash fetches through GOTOOLCHAIN.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+          cache-dependency-path: go/go.sum
+
       # Where cicd.bash looks for it, so nothing has to name it.
       - id: zig-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
