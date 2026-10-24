@@ -522,6 +522,18 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261023: The date has to be worked out when `--version` runs, from the minutes in the build number, since the build machine's time zone isn't the viewer's.
 
+- A full run rewrites `assets/demo.gif`, with no flag to stop it.
+	- ID: 2026102320065988
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261023-200659
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- A `--no-demo` flag, so a full test run leaves the tracked gif alone.
+		- A `--no-` flag for the other full-run stages that have none, such as fuzz and profile, so a failure in one doesn't stop a run that's testing something else.
+	- Estimated effort: Low
+
 - `install.bash` stops under a Mac's stock bash for a user install.
 	- ID: 2026101410500003
 	- Type: Bug
