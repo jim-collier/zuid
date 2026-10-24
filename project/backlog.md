@@ -31,26 +31,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 ## Issues
 
 
-- Identifiers from one tick have no counter.
-	- ID: 2026102409130649
-	- Type: Feature
-	- Status: Waiting for answers
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261024-091306
-	- Opened by: JC
-	- Related IDs: 2026101410495988
-	- Requirements  [Feature]:
-		- A counter component, so identifiers from one tick sort in the order they were made.
-	- Progress log:
-		- 20261024: From the README review. Today 2 identifiers from one tick sort in random order with `%r`, and repeat without it. design.md keeps same-tick repeats literal with a warning, and a counter is a way to ask for something else in the format.
-		- 20261024: Question, with a proposal for each:
-			- Name: `%c`.
-			- Scope: one run of the command, or one Go `Generator` or C context. Nothing is shared between processes, since that needs a state file, and there's no config file for the same reason. 2 processes in one tick still need `%h`, `%u` or `%r` to differ.
-			- Reset: back to 0 when the tick changes. A run reads the clock once, so in a batch it's the line number from 0.
-			- Width: fixed and derived from a target, like the other components, so identifiers still split by offset. 20 bits, which is 4 symbols in base 62. Past it is an error, as `%d` is past the horizon.
-			- The C context keeps the last tick and the count. That changes "the context keeps only the runtime and the clock pin", since a count can't come in per call.
-			- A format with `%c` can't repeat within a run, so the repeat warning never fires for it.
-
 - README and GitHub About wording.
 	- ID: 2026101410495988
 	- Type: Task
@@ -324,6 +304,29 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: round1023
 	- Commit: 878f5b9
 	- Test case: EtaL127 and EtaL128 run each slice, EtaL129 to EtaL12C link and run `capi_smoke.c` against the tarball per slice and link kind. EsZni4i failed on the runner before its fix and passed after.
+
+- Identifiers from one tick have no counter.
+	- ID: 2026102409130649
+	- Type: Feature
+	- Status: Queued
+		- Proposals are accepted.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261024-091306
+	- Opened by: JC
+	- Related IDs: 2026101410495988
+	- Requirements  [Feature]:
+		- A counter component, so identifiers from one tick sort in the order they were made.
+	- Progress log:
+		- 20261024: From the README review. Today 2 identifiers from one tick sort in random order with `%r`, and repeat without it. design.md keeps same-tick repeats literal with a warning, and a counter is a way to ask for something else in the format.
+		- 20261024: Question, with a proposal for each:
+			- Name: `%c`.
+			- Scope: one run of the command, or one Go `Generator` or C context. Nothing is shared between processes, since that needs a state file, and there's no config file for the same reason. 2 processes in one tick still need `%h`, `%u` or `%r` to differ.
+			- Reset: back to 0 when the tick changes. A run reads the clock once, so in a batch it's the line number from 0.
+			- Width: fixed and derived from a target, like the other components, so identifiers still split by offset. 20 bits, which is 4 symbols in base 62. Past it is an error, as `%d` is past the horizon.
+			- The C context keeps the last tick and the count. That changes "the context keeps only the runtime and the clock pin", since a count can't come in per call.
+			- A format with `%c` can't repeat within a run, so the repeat warning never fires for it.
+	- Decisions:
+		- 20261024: The proposal above, as asked. Its C context change goes in design.md beside the old rule.
 
 - The FreeBSD release has no `.pkg`.
 	- ID: 2026101410500001
