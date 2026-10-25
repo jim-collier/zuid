@@ -1304,7 +1304,7 @@ out="$(
 	fInImage "${repoRoot}" true
 )" || labelBad+=" fInImage exited $?: ${out};"
 mapfile -t names < <(grep -o -- '--name [^ ]*' "${work}/engine-steps" | cut -d' ' -f2 || true)
-if ((${#names[@]} != 4)) || [[ "$(printf '%s\n' "${names[@]}" | sort -u | wc -l)" != "4" ]]; then labelBad+=" names not 4 apart: ${names[*]};"; fi
+if ((${#names[@]} != 4)) || [[ "$(printf '%s\n' "${names[@]}" | sort -u | wc -l | tr -d ' ')" != "4" ]]; then labelBad+=" names not 4 apart: ${names[*]};"; fi
 [[ "${names[0]:-}" == "zuid-20261019-101112-go-checkers-1" ]] || labelBad+=" first step named '${names[0]:-}';"
 [[ "${names[1]:-}" == zuid-20261019-101112-go-checkers-2-* ]] || labelBad+=" second step named '${names[1]:-}';"
 [[ "$(grep -c -- "^run --rm --init .* ${labels} " "${work}/engine-steps" || true)" == "3" ]] || labelBad+=" not 3 labeled --rm runs;"

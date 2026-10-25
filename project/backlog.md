@@ -123,6 +123,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Type: Enhancement
 	- Status: Waiting on automated testing
 	- Needs local test suite run?: The round's `--gate`, which builds the new `zuid-cicd` image. It should end with one `Docker .....:` line. After it, `docker image inspect` on the new tag should show both labels, `docker volume ls --filter label=dev.project=zuid` should list `zuid-cicd-cache` and `zuid-zig-cache`, and `docker ps -a --filter label=dev.project=zuid` should list nothing.
+	- Needs external testing: the `macos` workflow on the `round1025-fix` push, for EtitVm7.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261024-162331
 	- Opened by: JC
@@ -149,12 +150,13 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: EsJ9SjE now wants no `rmi` during the stage, where it wanted `rmi zuid-cicd:0ld0ld0ld0ld`. Its build line, and those of EtAj5P2 and Etij2SC, have the two labels now.
 		- 20261025: EsJ9SjF's run line has `--name zuid-20261019-101112-container --label dev.project=zuid --label dev.run=20261019-101112` after the volumes now.
 		- 20261025: EtAj5P2 and EtaIbeg now want no `rmi` during the stage, where they wanted the old CodeQL tag, then the old main one. EtitVm9 checks that order at the end of the run instead.
+		- 20261025: EtitVm7 failed on the `macos` workflow since c50557e. The 4 names were apart, but the Mac's `wc -l` pads its count with spaces, so the count never matched "4". It strips them now, like the other counts. With a padding `wc` on PATH it failed before and passes after, and `pipeline-test.bash` is 128 of 128 both ways.
 		- Verified: `pipeline-test.bash` 115 of 115. With each of 4 faults put in, its own case failed: an unlabeled volume (EtitVm7), the one before not kept (EtitVm9), `--keep-temp` ignored (EtitVm8), and no call from the exit trap (EtitVm8). Against a scratch label on b23's docker, the volumes came up labeled, a left-running container was stopped and removed, and the line was printed.
 	- Decisions:
 		- 20261025: `dev.run` is the run's stamp for now. It becomes the run folder's name when 2026102416233107 makes one.
 		- 20261025: Tags are removed only at the end of a run that passed, so a failed build never costs the one before it.
 		- 20261025: The volume cap empties what the runs wrote, which is everything but the image's own root-owned folders.
-	- Swept: every `docker run` goes through `fContainer_RunArgs` (the stage and `fInImage`), except the volume check, which labels its own. Both image builds are labeled. installer-test's `bash:3.2` runs belong to that harness, with `--rm`, and are left to 2026102416233107. Every rig that lifts `fContainer_Image`, `fInImage` or `fContainer_RunArgs` sets the run and project.
+	- Swept: every `docker run` goes through `fContainer_RunArgs` (the stage and `fInImage`), except the volume check, which labels its own. Both image builds are labeled. installer-test's `bash:3.2` runs belong to that harness, with `--rm`, and are left to 2026102416233107. Every rig that lifts `fContainer_Image`, `fInImage` or `fContainer_RunArgs` sets the run and project. Every `wc` count in `cicd/` is stripped, compared with `-eq`, or compared with another count padded the same way.
 	- Branch: round1025
 	- Commit: c50557e
 	- Test case: EtitVm7 (labels and names), EtitVm8 (the run's containers at its end, and the traps), EtitVm9 (the passing run's tidy). Each failed with its part of the change broken.
