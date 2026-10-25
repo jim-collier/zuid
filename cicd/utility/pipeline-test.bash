@@ -100,9 +100,10 @@ fWantRefusal ErgqYt3 "--publish with --only go"            "--publish needs the 
 fWantRefusal EsJ9SjI "--publish with --container"          "does not go with --container" --publish --container
 fWantRefusal EshGwj4 "--gate won't commit"                  "--gate only builds and tests" --gate --commit
 fWantRefusal EshGwj5 "--gate won't package"                 "--gate only builds and tests" --gate --package
-## --ci was renamed back to --gate with no alias. The bad --only after it keeps
-## a build that still took --ci from starting a real run.
-fWantRefusal Et6FB1m "--ci is gone"                     "'--ci'" --ci --only nope
+## --ci was renamed back to --gate with no alias on 20261019, and came back as
+## another name for --merge-gate on 20261025. The bad --only after it keeps a
+## run from starting, and shows --ci was taken.
+fWantRefusal Et6FB1m "--ci is taken"                    "after --only" --ci --only nope
 fWantRefusal Eshc39l "--publish with --no-package"         "does not go with --no-package" --publish --no-package
 
 fId EsJ9cHS "--container from inside one"
@@ -387,6 +388,7 @@ fInitIn(){  ## repo dir, args...
 			doBackup=1; backupAsked=0; backupInWorktree=0; doDogfood=1; dogfoodAsked=0; doPublish=0; allowPartial=0
 			doContainer=0; containerMode="auto"; inContainer=0; doGate=0; doLeakcheck=1; leakAsked=0
 			doFuzz=1; doProfile=1; doDemo=1
+			doFullGate=0; gateFlag=""; aliasNote=""; doLong=0; doRemote=1
 		}
 		shift
 		local fn=""
@@ -402,6 +404,9 @@ fInitIn(){  ## repo dir, args...
 			printf 'doLeakcheck=%s\n' "${doLeakcheck}"
 		elif [[ "${showSlow:-0}" == "1" ]]; then
 			printf 'doFuzz=%s doProfile=%s doDemo=%s\n' "${doFuzz}" "${doProfile}" "${doDemo}"
+		elif [[ "${showFullGate:-0}" == "1" ]]; then
+			printf 'quick=%s sync=%s backup=%s dogfood=%s demo=%s quiet=%s leak=%s fuzz=%s profile=%s remote=%s note=%s\n' \
+				"${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}" "${doDemo}" "${doQuietly}" "${doLeakcheck}" "${doFuzz}" "${doProfile}" "${doRemote}" "${aliasNote:-none}"
 		elif [[ "${showGate:-0}" == "1" ]]; then
 			printf 'doQuick=%s doSync=%s doBackup=%s doDogfood=%s doPackage=%s\n' "${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}" "${doPackage}"
 		elif [[ "${showPackage:-0}" == "1" ]]; then
@@ -475,6 +480,58 @@ for _ in 1 2 3 4; do wantSlow+=$'\n'"doFuzz=0 doProfile=0 doDemo=0"; done
 if ((rc == 0)) && [[ "${out}" == "${wantSlow}" ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+## The gate flags never commit, push, install, publish or prompt. Through the
+## lifted fInit, since a refusal that broke would start a real run, and these
+## flags don't prompt.
+fId Etj4p9f "gate flags refuse the stages that write"
+gateBad=""
+for gateArgs in "--merge-gate --commit" "--merge-gate --push" "--merge-gate --dogfood" "--merge-gate --backup" "--merge-gate --publish" \
+	"--ci --commit" "--backlog-run-full --dogfood" "--backlog-run-quick --package" "--backlog-run-quick --push" "--gate -m msg"; do
+	# shellcheck disable=2086  ## Split on purpose.
+	out="$(fInitIn "${worktreeMain}" ${gateArgs})" && rc=0 || rc=$?
+	if ((rc == 0)) || [[ "${out}" != *"${gateArgs%% *} only builds and tests"* ]]; then gateBad+=" '${gateArgs}' exited ${rc}: ${out:0:80};"; fi
+done
+for gateArgs in "--merge-gate --quick" "--quick --ci" "--backlog-run-full --gate" "--long --quick" "--slow --backlog-run-quick"; do
+	# shellcheck disable=2086
+	out="$(fInitIn "${worktreeMain}" ${gateArgs})" && rc=0 || rc=$?
+	if ((rc == 0)) || [[ "${out}" != *"n't go "* ]]; then gateBad+=" '${gateArgs}' exited ${rc}: ${out:0:80};"; fi
+done
+if [[ -z "${gateBad}" ]]
+	then fPass
+	else fFail "${gateBad}"
+fi
+
+## What each gate flag runs. The full ones run the default run's checks, fuzz,
+## profile and leak checks included, minus what writes or prompts. --gate and
+## --ci say they're other names.
+fId Etj4p9g "what the gate flags run"
+out="$(for gateArgs in --backlog-run-quick --gate --backlog-run-full --merge-gate --ci "--merge-gate --no-remote"; do
+	# shellcheck disable=2086
+	showFullGate=1 fInitIn "${worktreeMain}" ${gateArgs}
+done)" && rc=0 || rc=$?
+wantGate="quick=1 sync=0 backup=0 dogfood=0 demo=0 quiet=1 leak=0 fuzz=0 profile=0 remote=1 note=none"
+wantGate+=$'\n'"quick=1 sync=0 backup=0 dogfood=0 demo=0 quiet=1 leak=0 fuzz=0 profile=0 remote=1 note=--gate is another name for --backlog-run-quick."
+wantGate+=$'\n'"quick=0 sync=0 backup=0 dogfood=0 demo=0 quiet=1 leak=1 fuzz=1 profile=1 remote=1 note=none"
+wantGate+=$'\n'"quick=0 sync=0 backup=0 dogfood=0 demo=0 quiet=1 leak=1 fuzz=1 profile=1 remote=1 note=none"
+wantGate+=$'\n'"quick=0 sync=0 backup=0 dogfood=0 demo=0 quiet=1 leak=1 fuzz=1 profile=1 remote=1 note=--ci is another name for --merge-gate."
+wantGate+=$'\n'"quick=0 sync=0 backup=0 dogfood=0 demo=0 quiet=1 leak=1 fuzz=1 profile=1 remote=0 note=none"
+if ((rc == 0)) && [[ "${out}" == "${wantGate}" ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+## --long and --slow are the default run for now. The note for --gate and --ci
+## goes out once the run log has started.
+fId Etj4p9h "--long, --slow, and the alias line"
+out="$(showFullGate=1 fInitIn "${worktreeMain}" --long; showFullGate=1 fInitIn "${worktreeMain}" --slow)" && rc=0 || rc=$?
+wantLong="quick=0 sync=1 backup=1 dogfood=1 demo=1 quiet=0 leak=1 fuzz=1 profile=1 remote=1 note=none"
+# shellcheck disable=2016  ## Script text, looked for as written.
+if ((rc == 0)) && [[ "${out}" == "${wantLong}"$'\n'"${wantLong}" ]] \
+	&& grep -A1 -F 'then fStartRunLog; fi' <<< "$(sed -n '/^fMain(){/,/^}/p' "${cicd}")" | grep -qF 'if [[ -n "${aliasNote}" ]]; then fEcho_Clean; fEcho_Clean "${aliasNote}"; fi'
+	then fPass
+	else fFail "exited ${rc} and said '${out//$'\n'/ | }', or fMain doesn't print the alias line after the log starts"
 fi
 
 fId Etab8wp "the stage calls follow the flags"
@@ -2344,6 +2401,48 @@ else
 	fi
 fi
 
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The pre-push hook, in a scratch repo with a bare remote. The committed
+## cicd.bash is a stand-in that writes down what it was asked for.
+
+fId Etj4p9i "the hook gates main with --merge-gate"
+hookRepo="${work}/hook/repo"
+gateLog="${work}/hook/gate.log"
+git init -q --bare "${work}/hook/remote.git"
+git init -q -b main "${hookRepo}"
+git -C "${hookRepo}" config user.name t
+git -C "${hookRepo}" config user.email t@t
+mkdir -p "${hookRepo}/cicd/utility/git-hooks" "${hookRepo}/go" "${hookRepo}/project"
+cp "${cicd%/cicd.bash}/utility/git-hooks/pre-push" "${cicd%/cicd.bash}/utility/git-hooks/no-gate-paths" "${hookRepo}/cicd/utility/git-hooks/"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\n' "${gateLog}" > "${hookRepo}/cicd/cicd.bash"
+chmod +x "${hookRepo}/cicd/cicd.bash"
+printf 'x\n' > "${hookRepo}/README.md"; printf 'package x\n' > "${hookRepo}/go/x.go"
+git -C "${hookRepo}" add -A
+git -C "${hookRepo}" commit -q -m first
+git -C "${hookRepo}" config core.hooksPath cicd/utility/git-hooks
+git -C "${hookRepo}" remote add origin "${work}/hook/remote.git"
+fHookPush(){  ## ref
+	: > "${gateLog}"
+	env -u SKIP_GATE TMPDIR="${work}/hook" git -C "${hookRepo}" push -q origin "$1" > /dev/null 2>&1 || printf 'push failed\n' >> "${gateLog}"
+	tr '\n' ' ' < "${gateLog}"
+}
+hookBad=""
+out="$(fHookPush main)";                          [[ "${out}" == "--merge-gate " ]] || hookBad+=" a new main said '${out}';"
+printf 'y\n' >> "${hookRepo}/README.md"; printf 'y\n' > "${hookRepo}/project/notes.txt"
+git -C "${hookRepo}" add -A; git -C "${hookRepo}" commit -q -m docs
+out="$(fHookPush main)";                          [[ -z "${out}" ]] || hookBad+=" docs only said '${out}';"
+printf 'y\n' >> "${hookRepo}/README.md"; printf '// y\n' >> "${hookRepo}/go/x.go"
+git -C "${hookRepo}" add -A; git -C "${hookRepo}" commit -q -m code
+out="$(fHookPush main)";                          [[ "${out}" == "--merge-gate " ]] || hookBad+=" docs and code said '${out}';"
+printf '// z\n' >> "${hookRepo}/go/x.go"
+git -C "${hookRepo}" add -A; git -C "${hookRepo}" commit -q -m dev
+out="$(fHookPush HEAD:refs/heads/dev)";           [[ -z "${out}" ]] || hookBad+=" a push to dev said '${out}';"
+if [[ -z "${hookBad}" ]]
+	then fPass
+	else fFail "${hookBad}"
+fi
+
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
 fLine ""
@@ -2351,6 +2450,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: The gate flags, and the pre-push hook's --merge-gate and docs skip.
 ##		- 20261025 JC: The Zig cache tidy, and the Zig cache volume in the run arguments.
 ##		- 20261025 JC: The container by default, --no-container.
 ##		- 20261023 JC: --no-fuzz, --no-profile, --no-demo. cli-test.bash with a relative --bin.

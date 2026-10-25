@@ -367,6 +367,36 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: Etj0Hby (the counts), Etj0Hbz (a bad load reading), Etj0Hc0 (checked again before each step), Etj0NB7 (the priority), Etj0Hc1 (Zig fuzz), Etj0Hc2 (steps in the image), Etj0Hc3 (`codeql.bash`). Each failed against the scripts before the change, and passes after.
 	- Verified: 20261025, `pipeline-test.bash` 122 of 122, the bash 3.2 installer cases, and `cicd.bash --gate --only go --no-container` with docker absent, at load 31 to 71 on 32 CPUs.
 
+- CICD reset: standard flags, the gate flags and the hook
+	- ID: 2026102508153575
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: The round's full run, as `cicd/cicd.bash --backlog-run-full`. It should pass, run fuzz, profile, packaging and the leak checks, leave out the demo, and leave `git status` as it found it, `assets/demo.gif` included.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-081535
+	- Opened by: JC
+	- Parent ID: 2026102416233103
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- `--long`, with `--slow` as another name, `--backlog-run-quick`, `--backlog-run-full`, `--merge-gate` and `--no-remote`.
+		- `--gate` and `--ci` stay as other names for `--backlog-run-quick` and `--merge-gate`, and say so in one line when used.
+		- The backlog and merge gate flags never dogfood, publish, commit, push, install, sync, rewrite a tracked file, or prompt. That covers the backup and `assets/demo.gif`.
+		- The pre-push hook runs `--merge-gate` on a push to main. A push whose commits change only paths listed in one place the hook reads skips it. No gate on dev.
+	- Progress log:
+		- 20261025: `--backlog-run-quick` is the old `--gate`, plus no demo. `--backlog-run-full` and `--merge-gate` are a full run with no sync, dogfood, backup or demo, and no prompt, so fuzz, profile, packaging and the leak checks all run. Each refuses `--commit`, `--push`, `-m`, `--backup`, `--dogfood` and `--publish`, and the full ones refuse `--quick`.
+		- 20261025: `--gate` and `--ci` print "is another name for" once the run log has started. `--long` and `--slow` are the default run, since no step is long enough to move out of it. `--no-remote` is taken and changes nothing yet, for 2026102416233100.
+		- 20261025: The hook runs `--merge-gate`. It skips a push to main whose commits change only paths in `cicd/utility/git-hooks/no-gate-paths`: `*.md`, `project/` and `assets/`, the same as the `macos` workflow's `paths-ignore`. A new main, or one whose old tip isn't in the clone, is gated.
+		- 20261025: Et6FB1m expected `--ci` to be refused, per the 20261019 reversal. It now expects `--ci` to be taken, as this item asks.
+	- Decisions:
+		- 20261025: A gate's refusal names the flag as typed, so `--gate --commit` still says `--gate`.
+		- 20261025: `--merge-gate` and `--backlog-run-full` take `--package` and `--no-package`, since `dist/` is ignored. `--backlog-run-quick` still refuses `--package`, as `--gate` did.
+		- 20261025: A docs-only push to main skips the docs checks and the README example check too. They run on every other run.
+		- 20261025: A push to main now runs the full run's checks, about 20 minutes on b23, not the 5 of the quick gate.
+	- Swept: every `--gate` and `--ci` in `repo/`. `cicd.bash` help, `development.md`, the hook and `pipeline-test.bash` are updated. What's left is in History lines. `fStage_Container` passes nothing new, since the gate flags only turn stages off outside, and the demo never runs inside.
+	- Branch: round1025
+	- Test case: Etj4p9f (the refusals), Etj4p9g (what each gate flag runs), Etj4p9h (`--long`, `--slow`, and the alias line), Etj4p9i (the hook: a new main, docs only, docs and code, dev), Et6FB1m (`--ci` is taken). Each failed against the scripts before the change, and passes after.
+	- Verified: 20261025, `pipeline-test.bash` 126 of 126, `test-ids.py check` (476, all unique), shellcheck, the content scrub, and `cicd.bash --gate --only go --no-container`, which printed the alias line, passed, and left the tree as it was. Load about 41 on 32 CPUs.
+
 - CICD reset: other hosts and VMs
 	- ID: 2026102416233100
 	- Type: Enhancement
@@ -407,6 +437,38 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Earlier decisions this overrides: the 20261019 call on 2026101816243852 that `--ci` is `--gate` again with no alias, the quick-only gate on main from 2026101410495991, and the private CI/CD notes, where `--quick` skips dogfood.
 	- Progress log:
 		- 20261025: `--no-container` is in, from 2026102406590100.
+		- 20261025: Split in 3. The gate flags, `--long`, `--no-remote` and the hook are 2026102508153575. Areas and `--list` are 2026102508153578. `--quick`'s fuzz and dogfood are 2026102508153580. `--keep-temp` was already in, from 2026102416233101.
+	- Decisions:
+		- 20261025: Nothing moves to `--long`. The default run took about 17 minutes on b23 on 20261023, well under the hour.
+
+- CICD reset: standard flags, areas and `--list`
+	- ID: 2026102508153578
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-081535
+	- Opened by: JC
+	- Parent ID: 2026102416233103
+	- Prereq IDs: 2026102508153575
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- `--backlog-run-quick [<area>...]` runs only the areas named, such as `go`, `zig`, `shell` or `docs`. `--help` lists the areas.
+		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
+
+- CICD reset: standard flags, `--quick` fuzz and dogfood
+	- ID: 2026102508153580
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-081535
+	- Opened by: JC
+	- Parent ID: 2026102416233103
+	- Prereq IDs: 2026102508153575
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- `--quick` keeps fuzzing at a short budget, and copies the release-optimized native build to dogfood. Today it drops both.
+		- `--backlog-run-quick` and `--merge-gate` still never dogfood.
+		- Earlier decisions this overrides: the private CI/CD notes, where `--quick` skips dogfood.
 
 - CICD reset: step output
 	- ID: 2026102416233104

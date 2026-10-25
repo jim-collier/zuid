@@ -27,6 +27,7 @@
 ##		- 20261025 JC: The container by default where docker answers. --no-container.
 ##		- 20261025 JC: Zig caches emptied over 2 GB or after a Zig change. The image's has its own volume.
 ##		- 20261025 JC: Docker cleanup by label at the end of a run. --keep-temp.
+##		- 20261025 JC: --backlog-run-quick, --backlog-run-full, --merge-gate, --long, --no-remote. --gate and --ci are other names.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Global, since the exit trap reads it after fMain has gone.
@@ -206,8 +207,19 @@ fPrint_Help(){
 		    --no-profile      Leave the profile out of a full run.
 		    --no-demo         Leave the demo out, so assets/demo.gif stays as it is.
 		    --no-sync         Skip the remote refresh at the start.
-		    --gate              The pre-push check: --quick, with no sync, dogfood,
-		                      backup, commit or push. See below.
+		    --long, --slow    Everything. Nothing in the default run takes long enough
+		                      to be left out of it yet, so for now this is the same.
+		    --backlog-run-quick
+		                      What a backlog worker runs before it commits: --quick,
+		                      with no sync, dogfood, backup, demo, commit or push,
+		                      and no prompt. --gate is another name for it.
+		    --backlog-run-full
+		                      What a backlog round runs once at its end: every check
+		                      of the default run, with none of the above.
+		    --merge-gate      The pre-push check before main, the same checks as
+		                      --backlog-run-full. --ci is another name for it. See
+		                      below.
+		    --no-remote       Skip the other hosts and VMs. No step uses one yet.
 		    -m, --message     Commit message. Implies --commit.
 		    --commit          Commit if everything passed. Refuses on a protected
 		                      branch: ${protectedBranches[*]}
@@ -228,7 +240,7 @@ fPrint_Help(){
 		                      A run uses it anyway where docker answers. See below.
 		    --no-container    Run them on this machine, docker or not.
 		    --leakcheck       Add the slow leak checks. On by default, so this is for
-		                      a --quick or --gate run. See below.
+		                      a quick run. See below.
 		    --no-leakcheck    Leave the slow leak checks out.
 		    --keep-temp       Keep this run's containers, rather than removing them
 		                      at the end. See below.
@@ -321,14 +333,16 @@ fPrint_Help(){
 		with the third-party Go it builds, and on the C tests, from an image of its
 		own built on the main one. It's about 480 MB more, so only --leakcheck
 		builds it. Its reports and the soaks' go in cicd/artifacts/leakcheck/.
-		About 10 minutes. A --quick or --gate run leaves it out unless --leakcheck
-		is given, and --no-leakcheck leaves it out of any run.
+		About 10 minutes. A quick run, --backlog-run-quick too, leaves it out unless
+		--leakcheck is given, and --no-leakcheck leaves it out of any run.
 
 		With no options a run does every stage but --publish.
 
-		--gate is what cicd/utility/git-hooks/pre-push runs before a push to main,
-		on the commit being pushed, in a scratch worktree. Turn the hook on once
-		per clone with: git config core.hooksPath cicd/utility/git-hooks
+		--merge-gate is what cicd/utility/git-hooks/pre-push runs before a push to
+		main, on the commit being pushed, in a scratch worktree. A push whose
+		commits change only the paths in cicd/utility/git-hooks/no-gate-paths, such
+		as docs, skips it, and so does a push to any other branch. Turn the hook on
+		once per clone with: git config core.hooksPath cicd/utility/git-hooks
 		SKIP_GATE=1 skips it. A run's own backup and push skip it, since that run
 		just passed.
 
@@ -459,6 +473,14 @@ fMain(){
 	local    containerMode="auto"
 	local    imageSkipWhy=""
 	local -i doGate=0
+	## --merge-gate and --backlog-run-full: the default run's checks, and nothing
+	## that writes outside the tree or to git.
+	local -i doFullGate=0
+	local    gateFlag=""
+	local    aliasNote=""
+	local -i doLong=0
+	# shellcheck disable=2034  ## For the steps on other hosts, which aren't in yet.
+	local -i doRemote=1
 	local -i doLeakcheck=1
 	local -i leakAsked=0
 	local -i doFuzz=1
@@ -474,6 +496,7 @@ fMain(){
 	readonly allowPartial
 	readonly containerMode
 	readonly doGate
+	readonly doFullGate gateFlag aliasNote doLong doRemote
 	readonly doLeakcheck
 	readonly doFuzz
 	readonly doProfile
@@ -509,6 +532,7 @@ fMain(){
 
 	## Inside a container the outer run already logs everything this prints.
 	if ((! inContainer)); then fStartRunLog; fi
+	if [[ -n "${aliasNote}" ]]; then fEcho_Clean; fEcho_Clean "${aliasNote}"; fi
 
 	## Plain 'if', not '&&' - a trailing false in a function trips the ERR trap.
 	if ((doSync));                 then fStage_Sync;      fi
@@ -598,7 +622,16 @@ fInit(){
 			--allow-partial) allowPartial=1 ;;
 			--container)  doContainer=1; containerMode="on"  ;;
 			--no-container) doContainer=0; containerMode="off" ;;
-			--gate)         doGate=1 ;;
+			## gateFlag is as typed, for the refusals.
+			--backlog-run-quick) doGate=1;     gateFlag="${currentArg}" ;;
+			--gate)              doGate=1;     gateFlag="${currentArg}"; aliasNote="--gate is another name for --backlog-run-quick." ;;
+			--backlog-run-full)  doFullGate=1; gateFlag="${currentArg}" ;;
+			--merge-gate)        doFullGate=1; gateFlag="${currentArg}" ;;
+			--ci)                doFullGate=1; gateFlag="${currentArg}"; aliasNote="--ci is another name for --merge-gate." ;;
+			--long|--slow)  doLong=1  ;;
+			--no-remote)
+				# shellcheck disable=2034  ## For the steps on other hosts, which aren't in yet.
+				doRemote=0 ;;
 			--leakcheck)  doLeakcheck=1; leakAsked=1 ;;
 			--no-leakcheck) doLeakcheck=0; leakAsked=1 ;;
 			--no-fuzz)    doFuzz=0    ;;
@@ -614,13 +647,27 @@ fInit(){
 		shift || true
 	done
 
-	## The pre-push hook's run. Anything that writes outside the tree, or to git,
-	## would be a push inside a push.
-	if ((doGate)); then
-		if ((doCommit)) || ((doPush)) || ((backupAsked)) || ((doPackage)) || ((dogfoodAsked)); then
-			fThrowError "--gate only builds and tests. Drop the other stage flags."  "${FUNCNAME[0]}"
+	## A backlog worker's run, a round's last one, and the pre-push hook's. None
+	## writes outside the tree or to git, or rewrites a tracked file, which
+	## for the hook would be a push inside a push. The demo rewrites
+	## assets/demo.gif. Release files go to dist/, which is ignored.
+	if ((doGate)) && ((doFullGate)); then
+		fThrowError "${gateFlag} doesn't go with another gate flag."  "${FUNCNAME[0]}"
+	fi
+	if ((doGate)) || ((doFullGate)); then
+		if ((doCommit)) || ((doPush)) || ((backupAsked)) || ((dogfoodAsked)) || ((doPublish)) || { ((doGate)) && ((doPackage)); }; then
+			fThrowError "${gateFlag} only builds and tests. Drop the other stage flags."  "${FUNCNAME[0]}"
 		fi
-		doQuick=1; doSync=0; doBackup=0; doDogfood=0; doQuietly=1
+		doSync=0; doBackup=0; doDogfood=0; doDemo=0; doQuietly=1
+	fi
+	if ((doGate)); then doQuick=1; fi
+	if ((doFullGate)) && ((doQuick)); then
+		fThrowError "${gateFlag} runs every check of the default run, so it doesn't go with --quick."  "${FUNCNAME[0]}"
+	fi
+	## Nothing in the default run takes long enough to move out of it yet, so
+	## --long is the default run.
+	if ((doLong)) && ((doQuick)); then
+		fThrowError "--long and --quick don't go together."  "${FUNCNAME[0]}"
 	fi
 
 	## Leak checks are 10 minutes more, so a quick run only has them if asked.

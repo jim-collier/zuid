@@ -47,7 +47,8 @@ On x86_64 Linux where docker answers, `cicd/cicd.bash` needs only git and docker
 ~~~bash
 cicd/cicd.bash                      # every stage but --publish: build, test, cross-compile, and package where it can
 cicd/cicd.bash --quick              # skip fuzzing, profiling, the demo, packaging and the dogfood install
-cicd/cicd.bash --gate                 # what the pre-push hook runs: --quick, without the sync, dogfood or backup
+cicd/cicd.bash --backlog-run-quick  # --quick, without the sync, dogfood, backup or demo, and no prompt. --gate is another name
+cicd/cicd.bash --merge-gate         # what the pre-push hook runs before main: every check of a full run, with the same left out. --ci is another name
 cicd/cicd.bash --only go            # one toolchain, so only that one has to exist
 cicd/cicd.bash --no-container       # build and test on this machine, even where docker answers
 cicd/cicd.bash --container          # build and test in the pinned image, or fail
@@ -59,13 +60,15 @@ cicd/cicd.bash --no-backup          # skip the archive, commit, and push
 cicd/cicd.bash --commit -m "message"  # commit too, refusing on main and dev
 ~~~
 
+The pre-push hook in `cicd/utility/git-hooks/` runs `--merge-gate` on the commit being pushed to main, in a scratch worktree. A push whose commits change only the paths in `cicd/utility/git-hooks/no-gate-paths`, such as docs, skips it, and so does a push to any other branch. Turn it on once per clone with `git config core.hooksPath cicd/utility/git-hooks`.
+
 Underneath it's only `cd go && go build ./...` and `cd zig && zig build`. The Zig half needs `cicd/cicd.bash` to have run at least once first, since that is what populates `zig/vendor/`. Zig refuses an empty or non-numeric `SOURCE_DATE_EPOCH` the first time it builds its own C libraries, so unset it rather than leave it empty. `cicd/cicd.bash` drops one like that by itself.
 
 Both sides have to reproduce every row of `testdata/vectors.tsv` before anything merges. That file is the specification in executable form, so a change to the identifier format means regenerating it and re-running both.
 
 Run logs, profiles, and demo renders go under `cicd/artifacts/`, which is rotated and not committed.
 
-`--leakcheck` is on for a full run, and off for `--quick` and `--gate` unless it's asked for. `--no-leakcheck` leaves it out of any run. It soaks each side: the same calls a caller makes, round after round, failing when the heap after round 2N is bigger than after round N by more than a margin. The Go soak runs on the Go on PATH and keeps 2 heap profiles, and `go tool pprof -base` on them shows what grew. The C soak runs in the image, under heaptrack, and keeps heaptrack's report. Both go in `cicd/artifacts/leakcheck/`. It also runs clang's analyzer in cross-file mode over the C tests, so it follows a call from one file into another. All of it takes about 10 minutes.
+`--leakcheck` is on for a full run, and off for `--quick` and `--backlog-run-quick` unless it's asked for. `--no-leakcheck` leaves it out of any run. It soaks each side: the same calls a caller makes, round after round, failing when the heap after round 2N is bigger than after round N by more than a margin. The Go soak runs on the Go on PATH and keeps 2 heap profiles, and `go tool pprof -base` on them shows what grew. The C soak runs in the image, under heaptrack, and keeps heaptrack's report. Both go in `cicd/artifacts/leakcheck/`. It also runs clang's analyzer in cross-file mode over the C tests, so it follows a call from one file into another. All of it takes about 10 minutes.
 
 `--leakcheck` also runs CodeQL, on the Go module and on the C tests. It comes from a second image, built from `cicd/container/codeql/Dockerfile` on top of the first one the first time `--leakcheck` asks for it, about 480 MB more. The Go module is copied to a scratch folder and its dependencies vendored there, since CodeQL only reports on code inside the folder it was given. Any finding in our own code fails the run, and so does a security or correctness finding in third-party code. One that has to wait for a fix upstream goes in `cicd/utility/codeql-suppressions.txt` with its backlog item. The reports go in `cicd/artifacts/leakcheck/` too, as SARIF. Zig isn't a language CodeQL reads, so the C module itself is covered only through its header and the C tests. GitHub's terms for CodeQL allow it on code under an OSI license, so check them before running it on a fork that isn't.
 
