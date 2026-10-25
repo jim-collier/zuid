@@ -24,6 +24,7 @@
 ##		- 20261019 JC: --leakcheck is on by default, off for --quick and --gate. --no-leakcheck.
 ##		- 20261019 JC: --ci is --gate again.
 ##		- 20261023 JC: --no-fuzz, --no-profile, --no-demo.
+##		- 20261025 JC: The container by default where docker answers. --no-container.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Set by --container for the run it starts inside.
@@ -207,7 +208,9 @@ fPrint_Help(){
 		    --publish         Publish a GitHub release of the version in
 		                      zig/lib/src/core.zig. Implies --package. See below.
 		    --allow-partial   Let --publish go ahead with some platforms missing.
-		    --container       Run the build and test stages in a container. See below.
+		    --container       Run the build and test stages in the container, or fail.
+		                      A run uses it anyway where docker answers. See below.
+		    --no-container    Run them on this machine, docker or not.
 		    --leakcheck       Add the slow leak checks. On by default, so this is for
 		                      a --quick or --gate run. See below.
 		    --no-leakcheck    Leave the slow leak checks out.
@@ -267,11 +270,14 @@ fPrint_Help(){
 		first when it's missing. Without docker on x86_64 Linux they skip with a
 		note. govulncheck also skips when offline.
 
-		--container runs preflight through package in a Debian image with every tool
-		pinned, built from cicd/container/Dockerfile the first time it is needed.
+		On x86_64 Linux where docker answers, a run does preflight through package
+		in a Debian image with every tool pinned, built from cicd/container/Dockerfile
+		the first time it is needed. Without docker, or when the image won't build,
+		it says so in one line and runs them here. --publish runs them here too.
 		The sync, demo, dogfood and backup stay on this machine, since they need its
-		git keys, fonts and paths. It needs docker, or ZUID_DOCKER naming another
-		program that takes docker's arguments. x86_64 only. Not with --publish.
+		git keys, fonts and paths. --container insists on the image and fails
+		without it; --no-container stays here. ZUID_DOCKER can name another program
+		that takes docker's arguments. --container doesn't go with --publish.
 
 		--leakcheck is a soak test of each side, clang's cross-file analyzer, and
 		CodeQL. The soaks repeat what a caller does and fail when the heap after
@@ -400,6 +406,8 @@ fMain(){
 	local -i doPublish=0
 	local -i allowPartial=0
 	local -i doContainer=0
+	local    containerMode="auto"
+	local    imageSkipWhy=""
 	local -i doGate=0
 	local -i doLeakcheck=1
 	local -i leakAsked=0
@@ -412,11 +420,9 @@ fMain(){
 	readonly doQuick
 	readonly doSync
 	readonly doPush
-	readonly doPackage
-	readonly packageSkipWhy
 	readonly doPublish
 	readonly allowPartial
-	readonly doContainer
+	readonly containerMode
 	readonly doGate
 	readonly doLeakcheck
 	readonly doFuzz
@@ -456,8 +462,12 @@ fMain(){
 
 	## Plain 'if', not '&&' - a trailing false in a function trips the ERR trap.
 	if ((doSync));                 then fStage_Sync;      fi
+	## After the sync, which can bring a new Dockerfile.
+	fContainer_Pick
+	readonly doContainer doPackage packageSkipWhy imageSkipWhy
 	if ((doContainer)); then
 		fStage_Container
+		fStage_Shell_Bash32
 	else
 		fPreflight
 		fStage_Shell
@@ -532,7 +542,8 @@ fInit(){
 			--no-dogfood) doDogfood=0; dogfoodAsked=0 ;;
 			--publish)    doPublish=1; doPackage=1 ;;
 			--allow-partial) allowPartial=1 ;;
-			--container)  doContainer=1 ;;
+			--container)  doContainer=1; containerMode="on"  ;;
+			--no-container) doContainer=0; containerMode="off" ;;
 			--gate)         doGate=1 ;;
 			--leakcheck)  doLeakcheck=1; leakAsked=1 ;;
 			--no-leakcheck) doLeakcheck=0; leakAsked=1 ;;
@@ -551,7 +562,7 @@ fInit(){
 	## The pre-push hook's run. Anything that writes outside the tree, or to git,
 	## would be a push inside a push.
 	if ((doGate)); then
-		if ((doCommit)) || ((doPush)) || ((backupAsked)) || ((doPackage)) || ((doContainer)) || ((dogfoodAsked)); then
+		if ((doCommit)) || ((doPush)) || ((backupAsked)) || ((doPackage)) || ((dogfoodAsked)); then
 			fThrowError "--gate only builds and tests. Drop the other stage flags."  "${FUNCNAME[0]}"
 		fi
 		doQuick=1; doSync=0; doBackup=0; doDogfood=0; doQuietly=1
@@ -749,15 +760,41 @@ fStage_Sync(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The pinned image where docker answers, else this machine with a note. A
+## missing docker never fails a run. --container and --no-container decide
+## alone, and --publish needs this machine's gh login.
+fContainer_Pick(){
+
+	if ((inContainer)); then return 0; fi
+	fSection "Container"
+	if [[ "${containerMode}" == "off" ]]; then fEcho_Clean "Container ..: off (--no-container), so this runs here"; return 0; fi
+	if [[ "${containerMode}" == "on" ]];  then return 0; fi
+
+	local why=""
+	if   ((doPublish));                                                 then why="--publish runs on this machine"
+	elif [[ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]];             then why="the image is Linux x86_64 only"
+	elif [[ -z "$(command -v "${containerEngine}" 2>/dev/null || true)" ]]; then why="no ${containerEngine}"
+	elif ! "${containerEngine}" info >/dev/null 2>&1;                   then why="${containerEngine} isn't answering"
+	## The checkers would only try the same build again.
+	elif ! fContainer_Image soft;                                       then why="the image didn't build"; imageSkipWhy="${why}"
+	fi
+	if [[ -n "${why}" ]]; then fEcho_Clean "Container ..: not used, ${why}, so this runs here"; return 0; fi
+
+	doContainer=1
+	## The image has every tool packaging needs.
+	if [[ -n "${packageSkipWhy}" ]]; then packageSkipWhy=""; doPackage=1; fi
+
+}
+
+
 ## Preflight through package, run inside the pinned image, then back here for
 ## whatever needs this machine. The repo is mounted at the same path inside,
 ## so paths in logs and caches, and a worktree's .git file, still point at
 ## something.
 fStage_Container(){
 
-	fSection "Container"
-
-	fContainer_Image
+	## fContainer_Pick has the tag already, unless --container asked.
+	if [[ -z "${containerTag}" ]]; then fContainer_Image; fi
 	## The run inside can't start another container, so CodeQL's image is the
 	## one it runs in. It's the main image with CodeQL added.
 	local runTag="${containerTag}"
@@ -768,6 +805,19 @@ fStage_Container(){
 
 	local -a innerEnv=(-e ZUID_IN_CONTAINER=1 -e "USER=${USER:-builder}" -e "ZUID_RUN_STAMP=${runStamp}" -e "ZUID_COLUMNS=${_sectionWidth}")
 	if [[ -n "${SOURCE_DATE_EPOCH+set}" ]]; then innerEnv+=(-e "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"); fi
+	## SDE is a kit on this machine, not in the image, so it goes in where it is.
+	local sde=""
+	if ((doPackage)); then sde="$(fFindSde)"; fi
+	if [[ -n "${sde}" ]]; then sde="$(readlink -f "${sde}" || true)"; fi
+	if [[ -x "${sde}" ]]; then
+		innerEnv+=(-e "ZUID_SDE=${sde}")
+		if [[ "${sde}" != "${repoRoot}/"* ]]; then runArgs+=(-v "${sde%/*}:${sde%/*}:ro"); fi
+	fi
+	## The pre-push hook's worktree shares the checkout's Zig cache.
+	if [[ "${ZIG_LOCAL_CACHE_DIR:-}" == /* ]] && [[ -d "${ZIG_LOCAL_CACHE_DIR}" ]]; then
+		innerEnv+=(-e "ZIG_LOCAL_CACHE_DIR=${ZIG_LOCAL_CACHE_DIR}")
+		if [[ "${ZIG_LOCAL_CACHE_DIR}" != "${repoRoot}/"* ]]; then runArgs+=(-v "${ZIG_LOCAL_CACHE_DIR}:${ZIG_LOCAL_CACHE_DIR}"); fi
+	fi
 
 	local -a innerArgs=(-q --no-sync --no-backup --no-dogfood)
 	if [[ -n "${onlyToolchain}" ]]; then innerArgs+=(--only "${onlyToolchain}"); fi
@@ -787,8 +837,9 @@ fStage_Container(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## Sets containerTag, building the image first if it isn't there yet.
-fContainer_Image(){
+## Sets containerTag, building the image first if it isn't there yet. With
+## "soft", a failed build returns 1 rather than stopping the run.
+fContainer_Image(){  ## [soft]
 
 	_fMustBeInPath "${containerEngine}"
 	local -r recipe="${repoRoot}/cicd/container/Dockerfile"
@@ -801,7 +852,10 @@ fContainer_Image(){
 		fEcho_Clean "Image ......: ${containerTag}"
 	else
 		fEcho_Clean "Image ......: building ${containerTag}"
-		"${containerEngine}" build -t "${containerTag}" "$(dirname "${recipe}")" || fThrowError "Could not build '${containerTag}'."  "${FUNCNAME[0]}"
+		if ! "${containerEngine}" build -t "${containerTag}" "$(dirname "${recipe}")"; then
+			if [[ "${1:-}" == "soft" ]]; then fEcho_Clean "Image ......: ${containerTag} didn't build"; containerTag=""; return 1; fi
+			fThrowError "Could not build '${containerTag}'."  "${FUNCNAME[0]}"
+		fi
 		built=1
 	fi
 	## A CodeQL image on an older main one is never run again, and it holds
@@ -858,6 +912,12 @@ fContainer_RunArgs(){  ## array to fill
 	runArgs_k4w=(--rm --init --user "$(id -u):$(id -g)" -v "${repoRoot}:${repoRoot}" -v "${containerVolume}:/cache")
 	local -r gitCommon="$(git -C "${repoRoot}" rev-parse --path-format=absolute --git-common-dir)"
 	if [[ "${gitCommon}" != "${repoRoot}/"* ]]; then runArgs_k4w+=(-v "${gitCommon}:${gitCommon}"); fi
+	## A Zig cache linked off the snapshotted dataset points at nothing inside,
+	## and Zig stops on NotDir.
+	local -r zigCacheLink="${repoRoot}/zig/.zig-cache"
+	local zigCacheReal=""
+	if [[ -L "${zigCacheLink}" ]]; then zigCacheReal="$(readlink -f "${zigCacheLink}" || true)"; fi
+	if [[ -d "${zigCacheReal}" && "${zigCacheReal}" != "${repoRoot}/"* ]]; then runArgs_k4w+=(-v "${zigCacheReal}:${zigCacheReal}"); fi
 }
 
 
@@ -1189,6 +1249,23 @@ fStage_Shell_Installers(){
 }
 
 
+## bash:3.2 is an image on this machine, which the run in the container can't
+## start, so it skips these and they run here after it.
+fStage_Shell_Bash32(){
+
+	fSection "Installers: bash 3.2"
+
+	local -r runner="${utilityDir}/installer-test.bash"
+	if [[ ! -f "${runner}" ]] || [[ -z "$(command -v python3 2>/dev/null || true)" ]]; then
+		fEcho_Clean "Skipped ....: needs installer-test.bash and python3 here."
+		return 0
+	fi
+
+	bash "${runner}" --only bash32
+
+}
+
+
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Go(){
 
@@ -1338,6 +1415,7 @@ fStage_Go_Checks(){
 fGoCheckers_Ready(){
 	checkerSkipWhy=""
 	if ((inContainer)); then return 0; fi
+	if [[ -n "${imageSkipWhy:-}" ]]; then checkerSkipWhy="${imageSkipWhy}"; return 0; fi
 	if [[ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]]; then checkerSkipWhy="the checkers' image is Linux x86_64 only"; return 0; fi
 	if [[ -z "$(command -v "${containerEngine}" 2>/dev/null || true)" ]]; then checkerSkipWhy="no ${containerEngine} to run the pinned checkers in"; return 0; fi
 	if ! "${containerEngine}" info >/dev/null 2>&1; then checkerSkipWhy="${containerEngine} isn't answering"; return 0; fi
@@ -2726,6 +2804,15 @@ fStage_Package_MacRun(){  ## scratch dir, release, version
 }
 
 
+## Never the bare 'sde', which is an unrelated tool on some boxes.
+fFindSde(){
+	local sde="${ZUID_SDE:-}"
+	if [[ -z "${sde}" ]]; then sde="$(command -v sde64 2>/dev/null || true)"; fi
+	if [[ -z "${sde}" && -x "${HOME}/.local/opt/intel-sde/sde64" ]]; then sde="${HOME}/.local/opt/intel-sde/sde64"; fi
+	printf '%s' "${sde}"
+}
+
+
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Runs the Linux x86_64 release under Intel's SDE as the oldest CPUs it has to
 ## run on. SDE stops at the first instruction the chip lacks, in the code
@@ -2736,10 +2823,7 @@ fStage_Package_MacRun(){  ## scratch dir, release, version
 fStage_Package_OldCpu(){  ## x86_64 release, scratch dir
 
 	local -r release="$1" scratchDir="$2"
-	## Never the bare 'sde', which is an unrelated tool on some boxes.
-	local sde="${ZUID_SDE:-}"
-	if [[ -z "${sde}" ]]; then sde="$(command -v sde64 2>/dev/null || true)"; fi
-	if [[ -z "${sde}" && -x "${HOME}/.local/opt/intel-sde/sde64" ]]; then sde="${HOME}/.local/opt/intel-sde/sde64"; fi
+	local -r sde="$(fFindSde)"
 	local -r seedHome="${scratchDir}/oldcpu-seed" runFormat="%d-%h-%u-%f-%g-%r"
 
 	local chip="" chipName="" chipHome="" sdeErrors=""

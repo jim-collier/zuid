@@ -279,7 +279,7 @@ fInitIn(){  ## repo dir, args...
 			repoRoot="$1"; onlyToolchain=""; commitMsg=""; doQuietly=0
 			doCross=0; doQuick=0; doSync=1; doCommit=0; commitAsked=0; doPush=0; doPackage=0; noPackage=0; packageSkipWhy=""
 			doBackup=1; backupAsked=0; backupInWorktree=0; doDogfood=1; dogfoodAsked=0; doPublish=0; allowPartial=0
-			doContainer=0; inContainer=0; doGate=0; doLeakcheck=1; leakAsked=0
+			doContainer=0; containerMode="auto"; inContainer=0; doGate=0; doLeakcheck=1; leakAsked=0
 			doFuzz=1; doProfile=1; doDemo=1
 		}
 		shift
@@ -300,6 +300,8 @@ fInitIn(){  ## repo dir, args...
 			printf 'doQuick=%s doSync=%s doBackup=%s doDogfood=%s doPackage=%s\n' "${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}" "${doPackage}"
 		elif [[ "${showPackage:-0}" == "1" ]]; then
 			printf 'doPackage=%s skip=%s\n' "${doPackage}" "${packageSkipWhy}"
+		elif [[ "${showContainer:-0}" == "1" ]]; then
+			printf 'doContainer=%s mode=%s\n' "${doContainer}" "${containerMode}"
 		else
 			printf 'doBackup=%s backupInWorktree=%s\n' "${doBackup}" "${backupInWorktree}"
 		fi
@@ -379,6 +381,20 @@ if grep -q 'if ((doProfile)); *then fStage_Profile;' <<< "${mainBody}" && grep -
 	&& grep -q 'if ((doFuzz)); then fStage_Go_Fuzz;' <<< "${goBody}" && grep -q 'if ((! doFuzz)); then' <<< "${zigFuzzBody}"
 	then fPass
 	else fFail "a slow stage isn't keyed on its own flag in cicd.bash"
+fi
+
+## The run in the container can't start bash:3.2, so it skips those cases and
+## the run outside does them.
+fId Etika82 "bash 3.2 cases run outside the container"
+bash32Body="$(sed -n '/^fStage_Shell_Bash32(){/,/^}/p' "${cicd}")"
+installerBody="$(cat "${cicd%/cicd.bash}/utility/installer-test.bash")"
+# shellcheck disable=2016  ## Script text, looked for as written.
+if grep -A1 -E '^[[:space:]]+fStage_Container$' <<< "${mainBody}" | grep -qE '^[[:space:]]+fStage_Shell_Bash32$' \
+	&& grep -qF 'bash "${runner}" --only bash32' <<< "${bash32Body}" \
+	&& grep -qF 'if [[ "${ZUID_IN_CONTAINER:-}" == "1" ]]; then' <<< "${installerBody}" \
+	&& grep -A2 -F 'if [[ "${only}" == "bash32" ]]; then' <<< "${installerBody}" | grep -qE '^[[:space:]]+fCase_Bash32$'
+	then fPass
+	else fFail "the container run doesn't hand the bash 3.2 cases back to this machine"
 fi
 
 fId EtAUMRH "--help on --leakcheck"
@@ -504,7 +520,8 @@ cat > "${work}/engine" <<'STUB'
 printf '%s\n' "$*" >> "${ENGINE_LOG}"
 case "$1 ${2:-}" in
 	"image inspect") [[ -f "${ENGINE_LOG}.built-${3//[:\/]/_}" ]] ;;
-	"build "*)       while (($#)) && [[ "$1" != "-t" ]]; do shift; done; : > "${ENGINE_LOG}.built-${2//[:\/]/_}" ;;
+	"build "*)       [[ "${ENGINE_BUILD_RC:-0}" == "0" ]] || exit "${ENGINE_BUILD_RC}"
+	                 while (($#)) && [[ "$1" != "-t" ]]; do shift; done; : > "${ENGINE_LOG}.built-${2//[:\/]/_}" ;;
 	"image ls")      if [[ "$3" == "zuid-codeql" ]]
 		then printf 'zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld\n%s\n' "${ENGINE_NEW_CODEQL:-}"
 		else printf 'zuid-cicd:0ld0ld0ld0ld\n%s\n' "${ENGINE_NEW}"
@@ -523,6 +540,8 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 		fEcho_Clean(){ printf '%s\n' "$*"; }
 		# shellcheck disable=2329
 		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2329
+		fFindSde(){ printf '%s' "${rigSde:-}"; }
 		# shellcheck disable=2034  ## Read by the lifted fStage_Container.
 		{
 			repoRoot="$(cd "$1" && pwd -P)"; containerImage="zuid-cicd"; containerVolume="zuid-cicd-cache"; codeqlImage="zuid-codeql"
@@ -538,6 +557,9 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 		echo "FROM codeql" > "${repoRoot}/cicd/container/codeql/Dockerfile"
 		# shellcheck disable=2030  ## Each case sets its own.
 		export ZUID_DOCKER="${work}/engine" ENGINE_LOG="$2" ENGINE_RUN_RC="$3"
+		## The pre-push hook sets it, and the run lines below want it only when asked.
+		unset ZIG_LOCAL_CACHE_DIR
+		if [[ -n "${zigCache:-}" ]]; then export ZIG_LOCAL_CACHE_DIR="${zigCache}"; fi
 		ENGINE_NEW="zuid-cicd:$(git hash-object "${repoRoot}/cicd/container/Dockerfile" | cut -c1-12)"
 		ENGINE_NEW_CODEQL="zuid-codeql:$(git hash-object "${repoRoot}/cicd/container/codeql/Dockerfile" | cut -c1-12)-${ENGINE_NEW#*:}"
 		export ENGINE_NEW ENGINE_NEW_CODEQL
@@ -741,6 +763,7 @@ out="$(
 	fGoCheckers_Ready; printf 'missing=%s\n' "${checkerSkipWhy}"
 	# shellcheck disable=2034
 	containerEngine="${work}/engine"
+	# shellcheck disable=2030  ## Only this subshell's.
 	export ENGINE_INFO_RC=1
 	fGoCheckers_Ready; printf 'silent=%s\n' "${checkerSkipWhy}"
 	export ENGINE_INFO_RC=0
@@ -750,6 +773,155 @@ if ((rc == 0)) && grep -qxF "missing=no ${work}/no-such-engine to run the pinned
 	&& grep -qxF "silent=${work}/engine isn't answering" <<< "${out}" && grep -qxF "ready= tag=${newTag}" <<< "${out}"
 	then fPass
 	else fFail "exited ${rc} and said: ${out//$'\n'/ | }"
+fi
+
+fId Etij2SB "--container, --no-container"
+out="$(for containerArgs in "" --no-container --container "--container --no-container" "--gate --no-container" "--gate --container"; do
+	# shellcheck disable=2086  ## Empty means no argument at all.
+	showContainer=1 fInitIn "${worktreeMain}" ${containerArgs}
+done)" && rc=0 || rc=$?
+wantContainer="doContainer=0 mode=auto"$'\n'"doContainer=0 mode=off"$'\n'"doContainer=1 mode=on"$'\n'"doContainer=0 mode=off"$'\n'"doContainer=0 mode=off"$'\n'"doContainer=1 mode=on"
+if ((rc == 0)) && [[ "${out}" == "${wantContainer}" ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+## A run's own pick of the container, with the stand-in engine above.
+fPickIn(){  ## engine log; the case's settings come in as pick* variables
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2329
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2329
+		uname(){ case "$1" in -s) echo "${pickOs:-Linux}" ;; -m) echo x86_64 ;; esac; }
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{
+			repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerImage="zuid-cicd"; codeqlImage="zuid-codeql"; containerTag=""
+			inContainer="${pickInside:-0}"; containerMode="${pickMode:-auto}"; doContainer="${pickAsked:-0}"
+			doPublish="${pickPublish:-0}"; doPackage=0; packageSkipWhy="${pickSkip:-}"; imageSkipWhy=""
+			containerEngine="${pickEngine:-${work}/engine}"
+		}
+		local fn=""
+		for fn in _fMustBeInPath fContainer_Pick fContainer_Image fContainer_DropOthers; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		# shellcheck disable=2030,2031  ## The stub reads them; each case has its own.
+		export ENGINE_LOG="$1" ENGINE_INFO_RC="${pickInfoRc:-0}" ENGINE_BUILD_RC="${pickBuildRc:-0}"
+		: > "${ENGINE_LOG}"
+		fContainer_Pick
+		printf 'doContainer=%s doPackage=%s skip=%s image=%s tag=%s\n' "${doContainer}" "${doPackage}" "${packageSkipWhy}" "${imageSkipWhy}" "${containerTag}"
+	) 2>&1
+}
+pickSkipWhy="no llvm-objcopy to strip the release with"
+
+## The image has the tools, so a full run that couldn't package here does there.
+fId Etij2SC "the container where docker answers"
+out="$(pickSkip="${pickSkipWhy}" fPickIn "${work}/engine-pick")" && rc=0 || rc=$?
+if ((rc == 0)) && grep -qxF "build -t ${newTag} ${mainReal}/cicd/container" "${work}/engine-pick" \
+	&& [[ "${out}" == *$'\n'"doContainer=1 doPackage=1 skip= image= tag=${newTag}" ]]
+	then fPass
+	else fFail "exited ${rc} and said: ${out//$'\n'/ | }"
+fi
+
+fId Etij2SD "this machine with a note, without docker"
+pickBad=""
+fWantPick(){  ## why, then the case's pick* settings as name=value
+	local -r why="$1"; shift
+	local got="" imageWant=""
+	if [[ "${why}" == "the image didn't build" ]]; then imageWant="${why}"; fi
+	# shellcheck disable=2163  ## Exports the name=value pairs it was handed.
+	got="$(export "$@" pickSkip="${pickSkipWhy}"; fPickIn "${work}/engine-pick-fb")" || { pickBad+=" '${why}' exited $?: ${got//$'\n'/ | };"; return 0; }
+	if [[ "${got}" != *"Container ..: not used, ${why}, so this runs here"$'\n'"doContainer=0 doPackage=0 skip=${pickSkipWhy} image=${imageWant} tag=" ]]; then pickBad+=" '${why}' said: ${got//$'\n'/ | };"; fi
+}
+fWantPick "no ${work}/no-such-engine"            pickEngine="${work}/no-such-engine"
+fWantPick "${work}/engine isn't answering"       pickInfoRc=1
+fWantPick "the image didn't build"               pickBuildRc=1
+fWantPick "--publish runs on this machine"       pickPublish=1
+fWantPick "the image is Linux x86_64 only"       pickOs=Darwin
+if [[ -z "${pickBad}" ]]
+	then fPass
+	else fFail "${pickBad}"
+fi
+
+## Asked for by name, or already inside, nothing is asked of docker.
+fId Etij2SE "--container, --no-container and the run inside decide alone"
+pickBad=""
+out="$(pickMode=off fPickIn "${work}/engine-pick-off")" || pickBad+=" off exited $?;"
+[[ "${out}" == "Container ..: off (--no-container), so this runs here"$'\n'"doContainer=0 doPackage=0 skip= image= tag=" ]] || pickBad+=" off said: ${out//$'\n'/ | };"
+out="$(pickMode=on pickAsked=1 fPickIn "${work}/engine-pick-on")" || pickBad+=" on exited $?;"
+[[ "${out}" == "doContainer=1 doPackage=0 skip= image= tag=" ]] || pickBad+=" on said: ${out//$'\n'/ | };"
+out="$(pickInside=1 fPickIn "${work}/engine-pick-in")" || pickBad+=" inside exited $?;"
+[[ "${out}" == "doContainer=0 doPackage=0 skip= image= tag=" ]] || pickBad+=" inside said: ${out//$'\n'/ | };"
+for pickLog in off on in; do
+	if [[ -s "${work}/engine-pick-${pickLog}" ]]; then pickBad+=" ${pickLog} asked the engine: $(tr '\n' '|' < "${work}/engine-pick-${pickLog}");"; fi
+done
+if [[ -z "${pickBad}" ]]
+	then fPass
+	else fFail "${pickBad}"
+fi
+
+## The checkers would only try the same failed build again.
+fId Etij2SF "checkers skip on an image that didn't build"
+: > "${work}/engine-noimage"
+out="$(
+	# shellcheck disable=2329  ## Called by the lifted functions, not here.
+	fEcho_Clean(){ :; }
+	# shellcheck disable=2034  ## Read by the lifted functions.
+	{ inContainer=0; checkerSkipWhy=""; imageSkipWhy="the image didn't build"; containerEngine="${work}/engine"; }
+	fLoad fGoCheckers_Ready || { echo "no fGoCheckers_Ready in cicd.bash"; exit 2; }
+	# shellcheck disable=2030,2031  ## The stub reads it.
+	export ENGINE_LOG="${work}/engine-noimage"
+	fGoCheckers_Ready; printf 'why=%s\n' "${checkerSkipWhy}"
+)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == "why=the image didn't build" ]] && [[ ! -s "${work}/engine-noimage" ]]
+	then fPass
+	else fFail "exited ${rc}, said '${out}', asked: $(tr '\n' '|' < "${work}/engine-noimage")"
+fi
+
+## The pre-push hook points the worktree's Zig at the checkout's cache.
+fId EtijCAL "the hook's Zig cache goes in"
+mkdir -p "${work}/hook-zig-cache" "${mainReal}/zig/.zig-cache"
+: > "${work}/engine-zc"
+out="$(zigCache="${work}/hook-zig-cache" fContainerIn "${worktreeMain}" "${work}/engine-zc" 0)" && rc=0 || rc=$?
+: > "${work}/engine-zc-in"
+zigCache="${mainReal}/zig/.zig-cache" fContainerIn "${worktreeMain}" "${work}/engine-zc-in" 0 >/dev/null 2>&1 || rc=$?
+if ((rc == 0)) && grep -q -- "^run .* -v ${work}/hook-zig-cache:${work}/hook-zig-cache .* -e ZIG_LOCAL_CACHE_DIR=${work}/hook-zig-cache " "${work}/engine-zc" \
+	&& grep -q -- "^run .* -e ZIG_LOCAL_CACHE_DIR=${mainReal}/zig/.zig-cache " "${work}/engine-zc-in" && ! grep -q -- "-v ${mainReal}/zig/.zig-cache:" "${work}/engine-zc-in"
+	then fPass
+	else fFail "exited ${rc}, asked: $(grep '^run ' "${work}/engine-zc" "${work}/engine-zc-in" || true)"
+fi
+
+## This checkout's cache is a link off the snapshotted dataset, and Zig
+## stopped on NotDir in the container.
+fId EtimFcG "a Zig cache linked out of the tree goes in"
+workReal="$(cd "${work}" && pwd -P)"
+mkdir -p "${work}/zc-target" "${mainReal}/zig"
+zcLinkBad=""
+if [[ -e "${mainReal}/zig/.zig-cache" && ! -L "${mainReal}/zig/.zig-cache" ]]; then
+	mv "${mainReal}/zig/.zig-cache" "${mainReal}/zig/.zig-cache.real"
+fi
+ln -sfn "${work}/zc-target" "${mainReal}/zig/.zig-cache"
+: > "${work}/engine-zclink"
+fContainerIn "${worktreeMain}" "${work}/engine-zclink" 0 >/dev/null 2>&1 || zcLinkBad+=" the stage exited $?;"
+rm -f -- "${mainReal}/zig/.zig-cache"
+if [[ -d "${mainReal}/zig/.zig-cache.real" ]]; then mv "${mainReal}/zig/.zig-cache.real" "${mainReal}/zig/.zig-cache"; fi
+grep -q -- "^run .* -v ${workReal}/zc-target:${workReal}/zc-target " "${work}/engine-zclink" || zcLinkBad+=" no mount for it;"
+if [[ -z "${zcLinkBad}" ]]
+	then fPass
+	else fFail "${zcLinkBad} asked: $(grep '^run ' "${work}/engine-zclink" || true)"
+fi
+
+## SDE is a kit on this machine, so the packaging inside can only find it
+## when it's handed in.
+fId EtimFcH "SDE goes in for packaging"
+mkdir -p "${work}/sde-kit"
+: > "${work}/sde-kit/sde64"; chmod +x "${work}/sde-kit/sde64"
+: > "${work}/engine-sde"
+out="$(rigSde="${work}/sde-kit/sde64" fContainerIn "${worktreeMain}" "${work}/engine-sde" 0)" && rc=0 || rc=$?
+if ((rc == 0)) && grep -q -- "^run .* -v ${workReal}/sde-kit:${workReal}/sde-kit:ro .* -e ZUID_SDE=${workReal}/sde-kit/sde64 " "${work}/engine-sde"
+	then fPass
+	else fFail "exited ${rc}, asked: $(grep '^run ' "${work}/engine-sde" || true)"
 fi
 
 ## The C sanitizer builds go to a scratch dir outside the repo, which the
@@ -1748,6 +1920,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: The container by default, --no-container.
 ##		- 20261023 JC: --no-fuzz, --no-profile, --no-demo. cli-test.bash with a relative --bin.
 ##		- 20261019 JC: The CodeQL report, and CodeQL's image under --container.
 ##		- 20261019 JC: --leakcheck.

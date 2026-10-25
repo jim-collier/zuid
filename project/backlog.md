@@ -234,7 +234,9 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - CICD runs on the host unless asked for the container.
 	- ID: 2026102406590100
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: The round's full run, `cicd/cicd.bash -q --no-sync --no-dogfood --no-backup --no-demo`, which takes the image now. It's the first full run there: packaging with SDE handed in, the leak checks and CodeQL, then the bash 3.2 cases outside.
+	- Needs external testing: The `macos` workflow on the round branch's push. It should say the image is Linux x86_64 only, and pass on the host.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261024-065901
 	- Opened by: JC
@@ -246,6 +248,16 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261024: From the round settings answer: CICD should try to use containers where possible, but not fail without.
 		- 20261024: Raised to high by the CICD reset, per `Containers` in the shared CICD rules. The flag that forces the host is `--no-container`. A step whose point is the real OS, such as the demo with this machine's fonts, stays on the host or a test box.
+		- 20261025: A run uses the image on Linux x86_64 where docker answers. Otherwise it stays here, and one "Container" line says why: no docker, docker not answering, an image that won't build, `--publish`, or another platform. `--no-container` stays here, and `--container` still fails without docker.
+		- 20261025: When the image won't build, the image's checkers skip with that reason rather than build it again. A full run that can't package here, for want of llvm-objcopy, packages in the image.
+		- 20261025: Found in the first gate in the image: this checkout's `zig/.zig-cache` links off the snapshotted dataset, and Zig stopped on NotDir inside. The link's target is mounted at its own path now. `--container` had the same fault.
+		- 20261025: The bash 3.2 installer cases need this machine's `bash:3.2` image, so the run inside skips them, and the run outside does them after it. The host's SDE kit goes in for packaging, and so does the pre-push hook's Zig cache.
+	- Decisions:
+		- 20261025: `--gate` uses the image too, since the round rule is that checks run in the container where docker works. `--gate --container` and `--gate --no-container` are allowed now.
+		- 20261025: A failed image build falls back to the host only when nothing was asked for, per the shared rule. `--container` still stops on it.
+	- Swept: every docker run goes through `fContainer_RunArgs`, for the stage and for `fInImage`. The SDE lookup is one helper for the package stage and the container. installer-test's `bash:3.2` is the only image a test starts itself. The `macos` workflow has no docker, so it takes the host.
+	- Branch: round1025
+	- Test case: Etij2SB (the flags), Etij2SC (the image where docker answers), Etij2SD (each fallback, with its note), Etij2SE (`--container`, `--no-container` and the run inside ask docker nothing), Etij2SF (checkers skip on a failed build), EtijCAL (the hook's Zig cache), EtimFcG (a linked Zig cache), EtimFcH (SDE), Etika82 (bash 3.2 outside). Each failed against the script before the change, and passes after.
 
 - CICD reset: other hosts and VMs
 	- ID: 2026102416233100

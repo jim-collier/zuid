@@ -15,7 +15,7 @@
 ##		checked, so a script that moves its URLs or its paths fails this rather
 ##		than quietly testing nothing.
 ##	Syntax:
-##		installer-test.bash [--keep] [--only bash|ps1]
+##		installer-test.bash [--keep] [--only bash|ps1|bash32]
 ##	History: At bottom.
 
 ##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
@@ -82,7 +82,7 @@ while (($#)); do case "$1" in
 	*) fDie "unknown option: $1 (try --help)" ;;
 esac; done
 
-case "${only}" in ""|bash|ps1) ;; *) fDie "--only wants bash or ps1, got '${only}'" ;; esac
+case "${only}" in ""|bash|ps1|bash32) ;; *) fDie "--only wants bash, ps1 or bash32, got '${only}'" ;; esac
 
 repoRoot="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 [[ -f "${repoRoot}/install.bash" ]] || fDie "could not find install.bash from ${repoRoot}"
@@ -1112,10 +1112,13 @@ fCase_ForeignSameVersion(){  ## label, runner
 }
 
 ## A Mac's /bin/bash is 3.2, where an empty array under set -u is unbound. The
-## host bash is newer, so this runs in a container when one is on hand.
+## host bash is newer, so this runs in a container when one is on hand. cicd.bash's
+## container can't start one, so the run outside does these two after it.
 fCase_Bash32(){
 	local skipWhy="${skipWhy}" out="" rc=0 home=""
-	if ! command -v docker >/dev/null 2>&1 || ! docker image inspect bash:3.2 >/dev/null 2>&1; then
+	if [[ "${ZUID_IN_CONTAINER:-}" == "1" ]]; then
+		skipWhy="runs outside the container, after it"
+	elif ! command -v docker >/dev/null 2>&1 || ! docker image inspect bash:3.2 >/dev/null 2>&1; then
 		skipWhy="no docker image bash:3.2"
 	fi
 	home="$(fNewHome "bash32")"
@@ -1143,7 +1146,12 @@ fCase_Bash32(){
 fEcho "Installers: against a local release listing on port ${port}"
 fLine ""
 
-if [[ "${only}" != "ps1" ]]; then
+if [[ "${only}" == "bash32" ]]; then
+	fLine "install.bash"
+	fCase_Bash32
+fi
+
+if [[ "${only}" == "" || "${only}" == "bash" ]]; then
 	fLine "install.bash"
 	fCase_ReleaseChoice "bash" "fRunBash"
 	fCase_PrereleaseOnly "bash" "fRunBash"
@@ -1168,7 +1176,7 @@ fi
 
 ## Without pwsh the ps1 cases still run, so each one reports as skipped by ID,
 ## but the runner does nothing.
-if [[ "${only}" != "bash" ]]; then
+if [[ "${only}" == "" || "${only}" == "ps1" ]]; then
 	fLine ""
 	fLine "install.ps1"
 	if ((! hasPwsh)); then skipWhy="pwsh not installed"; fi
@@ -1190,10 +1198,12 @@ if [[ "${only}" != "bash" ]]; then
 	skipWhy=""
 fi
 
-fLine ""
-fLine "package.bash"
-fCase_PackageOutDir
-fCase_PackageHeader
+if [[ "${only}" != "bash32" ]]; then
+	fLine ""
+	fLine "package.bash"
+	fCase_PackageOutDir
+	fCase_PackageHeader
+fi
 
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}, skipped: ${skipped}"
@@ -1202,6 +1212,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: --only bash32, for the run outside cicd.bash's container.
 ##		- 20261014 JC: User target by default. install.ps1 against the 5.1 profile.
 ##		- 20261014 JC: --help from a pipe, --version, --opt=value, semver order, lookup errors, bash 3.2.
 ##		- 20261003 JC: An aarch64 Linux machine fetches the arm64 tarball.

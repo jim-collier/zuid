@@ -38,7 +38,7 @@ If the `zig` on PATH is older, `cicd/cicd.bash` takes the one named by `ZIG`, or
 
 Nothing has to be installed system-wide beyond those. The WebAssembly runtime and the conversion module are fetched or built into `zig/vendor/`, which is not committed.
 
-On x86_64 Linux with docker, `cicd/cicd.bash --container` needs only git and docker. It builds an image from `cicd/container/Dockerfile` the first time, about 2 GB, with every tool above at a pinned version, and runs the build and tests in it. The demo, the dogfood install and the backup still run outside it, and `--publish` does not go with it. `ZUID_DOCKER` can name another program that takes docker's arguments, such as podman, but only docker has been tried.
+On x86_64 Linux where docker answers, `cicd/cicd.bash` needs only git and docker, since a run builds and tests in a pinned image by default. It builds the image from `cicd/container/Dockerfile` the first time, about 2 GB, with every tool above at a pinned version. Without docker, or when the image won't build, the run says so in one line and uses the tools above on this machine. `--no-container` stays on this machine on purpose, and `--container` fails rather than do that. The demo, the dogfood install and the backup still run outside the image, and a `--publish` run stays out of it entirely. `ZUID_DOCKER` can name another program that takes docker's arguments, such as podman, but only docker has been tried.
 
 ## Building and testing
 
@@ -49,7 +49,8 @@ cicd/cicd.bash                      # every stage but --publish: build, test, cr
 cicd/cicd.bash --quick              # skip fuzzing, profiling, the demo, packaging and the dogfood install
 cicd/cicd.bash --gate                 # what the pre-push hook runs: --quick, without the sync, dogfood or backup
 cicd/cicd.bash --only go            # one toolchain, so only that one has to exist
-cicd/cicd.bash --container          # build and test in the pinned image instead
+cicd/cicd.bash --no-container       # build and test on this machine, even where docker answers
+cicd/cicd.bash --container          # build and test in the pinned image, or fail
 cicd/cicd.bash --quick --leakcheck  # add the soak tests, the cross-file C analyzer, and CodeQL back to a quick run
 cicd/cicd.bash --package            # build the release files into dist/, even on a quick run
 cicd/cicd.bash --no-package         # a full run without them
