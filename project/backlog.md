@@ -415,10 +415,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Opened: 20261025-140721
 	- Opened by: JC
 	- Parent ID: 2026102416233107
-	- Prereq IDs: 2026102514072140
+	- Related IDs: 2026102514072140
 	- Requirements  [Feature]:
 		- `cli-test.bash`, `pipeline-test.bash`, `installer-test.bash` and the pre-push hook remove only through the guard from 2026102514072140.
 		- Run alone, each makes its own run folder the same way. Run from `cicd.bash`, each makes its folder inside the run's.
+	- Prereq row dropped 20261025: the guard from 2026102514072140 is in at 5b2f7c3, and only its full run is left.
 
 - CICD reset: guard in the packager and the installers
 	- ID: 2026102514072150
@@ -428,11 +429,12 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Opened: 20261025-140721
 	- Opened by: JC
 	- Parent ID: 2026102416233107
-	- Prereq IDs: 2026102514072140
+	- Related IDs: 2026102514072140
 	- Requirements  [Feature]:
 		- `package.bash` removes its work folder through the guard, and empties `dist/` or `--out` through one that names that folder as its one parent.
 		- `install.bash` and `install.ps1` carry their own guard, since they run alone from a download. The install dir is the one parent each names. `install.bash` stays Bash 3.2.
 		- The 4 `rm -rf` in the 2 Dockerfiles run inside the image build, on fixed paths. Left as they are unless asked.
+	- Prereq row dropped 20261025: the guard from 2026102514072140 is in at 5b2f7c3, and only its full run is left.
 
 - CICD reset: version line
 	- ID: 2026102416233108
