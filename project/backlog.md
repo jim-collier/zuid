@@ -257,6 +257,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: A failed image build falls back to the host only when nothing was asked for, per the shared rule. `--container` still stops on it.
 	- Swept: every docker run goes through `fContainer_RunArgs`, for the stage and for `fInImage`. The SDE lookup is one helper for the package stage and the container. installer-test's `bash:3.2` is the only image a test starts itself. The `macos` workflow has no docker, so it takes the host.
 	- Branch: round1025
+	- Commit: e709b98
 	- Test case: Etij2SB (the flags), Etij2SC (the image where docker answers), Etij2SD (each fallback, with its note), Etij2SE (`--container`, `--no-container` and the run inside ask docker nothing), Etij2SF (checkers skip on a failed build), EtijCAL (the hook's Zig cache), EtimFcG (a linked Zig cache), EtimFcH (SDE), Etika82 (bash 3.2 outside). Each failed against the script before the change, and passes after.
 
 - CICD reset: other hosts and VMs
