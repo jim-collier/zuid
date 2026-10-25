@@ -343,7 +343,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - CICD reset: standard flags
 	- ID: 2026102416233103
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261024-162331
 	- Opened by: JC
@@ -362,7 +362,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: `--no-container` is in, from 2026102406590100.
 		- 20261025: Split in 3. The gate flags, `--long`, `--no-remote` and the hook are 2026102508153575. Areas and `--list` are 2026102508153578. `--quick`'s fuzz and dogfood are 2026102508153580. `--keep-temp` was already in, from 2026102416233101.
 	- Decisions:
+	- Test case: none of its own. Its 3 children have theirs.
+	- Closed: 20261025-215200
 		- 20261025: Nothing moves to `--long`. The default run took about 17 minutes on b23 on 20261023, well under the hour.
+	- 20261025: closed with its last children, 2026102508153578 and 2026102508153580.
 
 - CICD reset: temp files and safe removal
 	- ID: 2026102416233107
