@@ -371,6 +371,68 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Each run writes a `run.pid` in it, and removes the project's own stale run folders: over 2 days old, with no live process.
 		- Every recursive removal goes through the repo's own copy of the safe removal guard: the pipeline, the harnesses, the hook, the packager and the installers. One outside the temp root, such as `dist/` or an install dir, names the one parent it may remove under.
 		- 38 recursive removals in 10 files, none through a guard. File list in the private notes.
+	- Progress log:
+		- 20261025: Split in 3. The run folder, its cleanup and the guard in `cicd.bash` are 2026102514072140. The harnesses and the hook are 2026102514072145. The packager and the installers are 2026102514072150.
+
+- CICD reset: run folder and guard in cicd.bash
+	- ID: 2026102514072140
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, in the image. The leak check, package, profile and FreeBSD vendor removals only run there.
+	- Needs external testing: The `macos` workflow, which that run starts once the branch is pushed. BSD `rm -x`, `realpath` with no `-e`, and dee1p to dee1s on macOS.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261025-140721
+	- Opened by: JC
+	- Parent ID: 2026102416233107
+	- Requirements  [Feature]:
+		- The parent's run folder, `TMPDIR`, `TEMP` and `TMP`, end-of-run removal, `--keep-temp`, `run.pid` and stale folder bullets, for `cicd.bash`.
+		- The repo's own copy of the safe removal guard, in one file the other scripts can source.
+		- Every recursive removal in `cicd.bash` goes through it. The Zig vendor folder names `zig/vendor` as its one parent.
+		- `dev.run` and container names use the run folder's name.
+	- Progress log:
+		- 20261025: Each run makes `${HOST_TEMP}/zuid/<stamp>_<NNN>` with a plain `mkdir`, writes `run.pid` there, and points `TMPDIR`, `TEMP` and `TMP` at it. `HOST_TEMP` falls back to `TMPDIR`, then `/tmp`. The path is resolved with `realpath` once.
+		- 20261025: The exit traps remove it, failed or interrupted too. `--keep-temp` keeps it, says where, and keeps what a failed stage left in it.
+		- 20261025: Then the project's run folders over 2 days old go, unless their `run.pid` names a live process. Only names shaped like a run folder.
+		- 20261025: The guard is `cicd/utility/include/safe-rm.bash`: `fSafeRm` for a temp path, and `fSafeRm_Under` for one under a named parent. All 16 recursive removals in `cicd.bash` use it. The 4 Zig vendor ones name `zig/vendor`. GNU `rm` gets `--one-file-system`, BSD `rm` gets `-x`.
+		- 20261025: `dev.run` and container names are the run folder's name now, such as `20261025-141812_001`.
+		- 20261025: Found while testing: a SIGTERM or SIGHUP ran the cleanup, then the run went on, and exited 0. Now it stops with exit 1, like Ctrl+C.
+		- 20261025: `cicd.bash` exits at once when the guard file is missing. A copy of the script without it ran on and left its folder, which ddhnc's copied tree showed. ddhnc copies the guard now.
+		- Verified: `pipeline-test.bash` 144 of 144, with `HOST_TEMP` set and with it and `TMPDIR` unset. `--backlog-run-quick shell go --no-container`, `--backlog-run-quick shell` and `--backlog-run-quick zig` in the image passed, and left no run folder or container. shellcheck on the stage's list, the guard added, is clean.
+		- Verified: Each new case failed with its fault put in: the guard's path rule taken out (dee1p), no live-process check (dee1q), no removal in the exit trap (dee1r, dee1s), and the old TERM handling (dee1s). Against the old `cicd.bash`, dee1q, dee1r and dee1s failed.
+	- Decisions:
+		- 20261025: The guard prints nothing when it removes something, unlike the shared one. 2026102416233109's line at the end of a run says what went.
+		- 20261025: A `HOST_TEMP` that isn't there stops the run, rather than being made. It most likely means a disk that isn't mounted.
+	- Swept: every `rm -r` in `cicd.bash`. Every function `pipeline-test.bash` lifts that removes a folder: `_fRemoveScratchDirs` and `fStage_Zig_Fuzz`. The only copy of `cicd.bash` in the harnesses is ddhnc's. The harnesses, the hook, the packager and the installers are the other 2 children.
+	- Branch: round1025c
+	- Commit: 5b2f7c3
+	- Test case: dee1p, dee1q, dee1r and dee1s.
+
+- CICD reset: guard in the harnesses and the hook
+	- ID: 2026102514072145
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261025-140721
+	- Opened by: JC
+	- Parent ID: 2026102416233107
+	- Prereq IDs: 2026102514072140
+	- Requirements  [Feature]:
+		- `cli-test.bash`, `pipeline-test.bash`, `installer-test.bash` and the pre-push hook remove only through the guard from 2026102514072140.
+		- Run alone, each makes its own run folder the same way. Run from `cicd.bash`, each makes its folder inside the run's.
+
+- CICD reset: guard in the packager and the installers
+	- ID: 2026102514072150
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261025-140721
+	- Opened by: JC
+	- Parent ID: 2026102416233107
+	- Prereq IDs: 2026102514072140
+	- Requirements  [Feature]:
+		- `package.bash` removes its work folder through the guard, and empties `dist/` or `--out` through one that names that folder as its one parent.
+		- `install.bash` and `install.ps1` carry their own guard, since they run alone from a download. The install dir is the one parent each names. `install.bash` stays Bash 3.2.
+		- The 4 `rm -rf` in the 2 Dockerfiles run inside the image build, on fixed paths. Left as they are unless asked.
 
 - CICD reset: version line
 	- ID: 2026102416233108
