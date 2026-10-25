@@ -30,34 +30,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## Issues
 
-- Builds leave stale artifacts and side-effects behind.
-	- ID: 2026101916041200
-	- Type: Enhancement
-	- Status: Waiting on signoff
-		- Stays open until its child 2026102320181236 closes.
-	- Needs local test suite run?: Done. The full run passed at 1942bb2, and after it `docker images zuid-codeql` listed only `zuid-codeql:de7763196c93-856cd00870eb`, on the current `zuid-cicd:856cd00870eb`.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261019-160412
-	- Opened by: JC
-	- Related IDs: 2026101912130117, 2026101816474402
-	- Requirements  [Feature]:
-		- Do next, before the next cut.
-		- Verify or ensure that builds clean up stale artifacts and side-effects after they're done: caches, container cruft, tmp files, etc.
-	- Progress log:
-		- 20261023: A `--gate` run with a TMPDIR of its own left nothing behind. The TMPDIR was empty, nothing new was in `/tmp`, `/mnt/tmpfs/tmp` or `~/.cache`, and no zuid container, image or volume was added.
-		- 20261023: Every `mktemp -d` in `cicd.bash` is on the exit cleanup list, and each harness removes its own work dir on exit. Containers run with `--rm --init`.
-		- 20261023: `cicd/artifacts/` already rotates, and `dist/` is emptied before each package run. Fuzz finds are kept on purpose.
-		- 20261023: Found: a CodeQL image built on an older main image stayed until the next `--leakcheck` run. On b23 that was `zuid-codeql:953bf12e36c5-98809c2ceb21`, about 750 MB of its own. Every run that uses the main image now drops it, ahead of the old main tag. A quick Go run removed it on b23.
-		- 20261023: EtAj5P2's plain-run clause was "no mention of codeql at all". It's now "no CodeQL build or run", as its comment says, since a plain run removes a stale one now.
-		- 20261023: Zig's caches never shrink. Split off as 2026102320181236, waiting on a question.
-		- 20261023: Docker's build cache is shared with sister projects, and their steps can't be told from ours. So it stays with the hand prune after a build.
-		- 20261023: Full run `cicd.bash -q --no-sync --no-dogfood --no-backup --no-demo` at 1942bb2 passed in 17 minutes, 439 ok, 13 skips, no failures. It built the CodeQL image fresh, since none was left from before. EtaIbeg passed in it. Nothing of the run's was left in its TMPDIR, `/tmp`, `/mnt/tmpfs/tmp` or `~/.cache`, no zuid container or process was left, and no volume was added. `assets/demo.gif` was unchanged.
-		- 20261024: The build cache note above is superseded by 2026102416233101, from the CICD reset.
-	- Swept: the only 2 image builds are the main and CodeQL ones. Both lifts of `fContainer_Image` in `pipeline-test.bash` set `codeqlImage`. The run inside the container never calls it.
-	- Branch: round1023
-	- Commit: 0562b45
-	- Test case: EtaIbeg. It failed before the fix, keeping the stale CodeQL image, and passes after.
-
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -106,51 +78,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: Every `mktemp` in the tree is a `mktemp -d` that goes on the cleanup list. Nothing calls a plain `mktemp`. The file seen was in the temp root every session on this box shares, and was tied to the run only by its time, about 34 s after the run started.
 	- Branch: cicdtidy
 	- Test case: none. Nothing reproduced it, so there's no failure for a test to pin. EscPGS5 and EscPGS6 already pin the cleanup of scratch folders.
-
-- CICD reset: container cleanup
-	- ID: 2026102416233101
-	- Type: Enhancement
-	- Status: Stalled
-		- Held for the hand pass by ID on `zuid-cicd:856cd00870eb` and `zuid-codeql:de7763196c93-856cd00870eb`, once the round has merged. Nothing else is left.
-	- Needs local test suite run?: Done. `cicd/cicd.bash --backlog-run-quick` at f123531 ended with one `Docker .....:` line, and so did the full run. After them, `zuid-cicd:8029eec721c8` and `zuid-codeql:de7763196c93-8029eec721c8` had both labels, `docker volume ls --filter label=dev.project=zuid` listed `zuid-cicd-cache` and `zuid-zig-cache`, and `docker ps -a --filter label=dev.project=zuid` listed nothing.
-	- Needs external testing: Done. The `macos` workflow, run 40211475106 on `round1025-fix`, whose tree is round1025's head 45f01a1, passed, EtitVm7 included.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261024-162331
-	- Opened by: JC
-	- Related IDs: 2026101916041200, 2026102406590100
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per the container bullets in `Cleanup after a run` in the shared CICD rules. Containers already run with `--rm`.
-		- Every container, image and volume the pipeline makes gets 2 labels, `dev.project=zuid` and `dev.run=<run folder>`. Containers are named `zuid-<run folder>-<step>`.
-		- At the end of a run, on failure and Ctrl+C too, the run's containers are stopped and removed by label. `--keep-temp` keeps them.
-		- Dangling images go by the project label. An older tag goes once a newer one has passed, and the current tag and the one before it stay. Today every other tag goes right after a build.
-		- Then `docker builder prune -f --filter until=168h`, so a week of build cache stays warm.
-		- The cache volume follows the same 2 GB rule as the Zig caches.
-		- One line at the end says what was removed and about what it freed, from `docker system df` before and after.
-		- What was built before the labels gets one pass by hand, by ID.
-		- Earlier decisions this overrides: the 20261023 note on 2026101916041200 that docker's build cache stays with a prune by hand, and the private container notes, where a build drops every other `zuid-cicd` tag.
-	- Progress log:
-		- 20261025: Every container, image and volume a run makes has `dev.project=zuid` and `dev.run=<run>`. Containers are `zuid-<run>-<step>`, numbered per step. The two cache volumes are made labeled when missing, since docker makes them bare.
-		- 20261025: At the end of a run, failed or interrupted too, its containers are stopped and removed by both labels. `--keep-temp` keeps them, and drops `--rm`.
-		- 20261025: A run that passed then removes, by the project label only, every `zuid-codeql` and `zuid-cicd` tag but the current one and the one before it, CodeQL's first, and the dangling images. Then `docker builder prune -f --filter until=168h`, and `zuid-cicd-cache` is emptied when it's over 2048 MB. One `Docker .....:` line says what went and about what it freed.
-		- 20261025: Images are no longer dropped right after a build.
-		- 20261025: Hand pass: `zuid-cicd-cache` (421 MB, 336 MB of it the old Zig cache at `/cache/home/.cache/zig`) was removed, so the next run makes it labeled. No container used it.
-		- 20261025: Left for a hand pass by ID: `zuid-cicd:856cd00870eb` (`6f89bc5604b3`) and `zuid-codeql:de7763196c93-856cd00870eb` (`d2cc10f16f9a`). They're unlabeled, so the rule never removes them, and `dev` and `main` still run on them. They go once a newer labeled image has passed.
-		- 20261025: On b23 one `docker system df` call in a run came back empty, and the line said the whole of docker was freed. 12 calls in a row and 2 at once all answered, so the cause is not found. The line now says the amount is unknown when either call is empty.
-		- 20261025: EsJ9SjE now wants no `rmi` during the stage, where it wanted `rmi zuid-cicd:0ld0ld0ld0ld`. Its build line, and those of EtAj5P2 and Etij2SC, have the two labels now.
-		- 20261025: EsJ9SjF's run line has `--name zuid-20261019-101112-container --label dev.project=zuid --label dev.run=20261019-101112` after the volumes now.
-		- 20261025: EtAj5P2 and EtaIbeg now want no `rmi` during the stage, where they wanted the old CodeQL tag, then the old main one. EtitVm9 checks that order at the end of the run instead.
-		- 20261025: EtitVm7 failed on the `macos` workflow since c50557e. The 4 names were apart, but the Mac's `wc -l` pads its count with spaces, so the count never matched "4". It strips them now, like the other counts. With a padding `wc` on PATH it failed before and passes after, and `pipeline-test.bash` is 128 of 128 both ways.
-		- Verified: `pipeline-test.bash` 115 of 115. With each of 4 faults put in, its own case failed: an unlabeled volume (EtitVm7), the one before not kept (EtitVm9), `--keep-temp` ignored (EtitVm8), and no call from the exit trap (EtitVm8). Against a scratch label on b23's docker, the volumes came up labeled, a left-running container was stopped and removed, and the line was printed.
-		- 20261025: The quick and full runs at f123531 passed in the image. Both ended with "removed build cache over a week old; about 0.0 GB freed". Only two labeled tags of each image exist, so none went.
-	- Decisions:
-		- 20261025: `dev.run` is the run's stamp for now. It becomes the run folder's name when 2026102416233107 makes one.
-		- 20261025: Tags are removed only at the end of a run that passed, so a failed build never costs the one before it.
-		- 20261025: The volume cap empties what the runs wrote, which is everything but the image's own root-owned folders.
-	- Swept: every `docker run` goes through `fContainer_RunArgs` (the stage and `fInImage`), except the volume check, which labels its own. Both image builds are labeled. installer-test's `bash:3.2` runs belong to that harness, with `--rm`, and are left to 2026102416233107. Every rig that lifts `fContainer_Image`, `fInImage` or `fContainer_RunArgs` sets the run and project. Every `wc` count in `cicd/` is stripped, compared with `-eq`, or compared with another count padded the same way.
-	- Branch: round1025
-	- Commit: c50557e
-	- Test case: EtitVm7 (labels and names), EtitVm8 (the run's containers at its end, and the traps), EtitVm9 (the passing run's tidy). Each failed with its part of the change broken.
 
 - Move `convertbase` to `lib/v0.2.0` once it is tagged.
 	- ID: 2026100519164742
@@ -532,6 +459,198 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Acceptance signoff: Self-closed: reproduced, and the test failed before and passes after.
 	- Closed: 20261014-105000
 
+- Release binaries keep debug info and the build machine's paths.
+	- ID: 2026101008194330
+	- Type: Bug
+	- Status: Done
+	- Needs external testing: Done. b26 and b29w, 20261013, see Verified.
+	- Priority|Severity [Bug]: High
+	- Opened: 20261010-081943
+	- Opened by: JC
+	- Related IDs: 2026101008194270
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- `strings -a bin/zuid` from the `v1.0.0-alpha.1` Linux x86_64 tarball.
+	- Incorrect behavior [Bug]: 48 paths under the builder's home directory, from the Zig install and Zig's cache. The file is 28.4 MB and has 10 debug sections.
+	- Expected behavior [Bug]: No paths from the build machine, and the same bytes from any machine that builds the same commit.
+	- Reproduced [Bug]: Yes, 20261010, in the published alpha and in builds from b23 and the container. Stripped, the alpha binary is 18.7 MB with none of those paths.
+	- Possible cause [Bug]: Release builds keep their debug info, and nothing strips it.
+	- Actual cause [Bug]:
+		- Confirmed. Nothing stripped the release builds, so each kept its DWARF, with the paths of the Zig install, its caches, the checkout and the home dir. The static libraries had the same. The Windows zips had the PDB too.
+	- Progress log:
+		- 20261010: found while comparing a container build with a host build. Every release file differed.
+		- 20261013: Reproduced on b23 by the new check, 43 problems, the same paths and debug sections in every binary of every asset.
+		- 20261013: Stripped, the bare Linux and FreeBSD binaries come out the same from b23 and the container. Other files still differ for reasons outside debug info, logged as 2026101304122319.
+	- Decisions:
+		- 20261013: release binaries are stripped. Each one's debug info goes in `dist/debug/`, not published, but kept by the backup so a panic address can still be looked up. The Windows `.pdb` leaves the zips the same way.
+		- 20261013: `libzuid.a` keeps only its debug info in `dist/debug/`, not a whole unstripped copy.
+	- Actual fix [Bug]: `package.bash` strips every binary built here. On Linux that's `llvm-objcopy`, for both ELF and Windows files. On a Mac it's `strip`, with `dsymutil` first. A program or shared library keeps its symbols and DWARF in `dist/debug/<release>/`, as `<name>.debug` or `<name>.dSYM`. A static library keeps its symbols, and only its DWARF goes there, as `libzuid.a.debug`. On Linux every ELF `.debug` file is zlib packed, which gdb reads as is. A Mac keeps a whole unstripped `libzuid.a`, since Apple's tools can't split an archive. Both Windows PDBs move there, the DLL's included, which was dropped before. The AVX and armv8-a scans take function names from the debug file.
+	- Branch: strip, dbgonly
+	- Commit: 60169a5, f9cd9fd
+	- Test case: EsZni4i, EsZni4j, EsZni4k and EsbEsag.
+		- EsZni4i fails on any file in the release with this machine's paths, any binary built here with debug sections, and any PDB. It failed on the tree before the fix, with 43 problems.
+		- EsZni4j checks each binary has its own debug info in `dist/debug/`. It failed with another release's `.debug` file, the command's PDB in place of the DLL's, and an archive copy missing.
+		- EsZni4k checks nothing under `dist/debug/` is uploaded or hashed by `--publish`. It and ErgqYtF failed with the publish stage reading all of `dist/`.
+		- EsbEsag checks each ELF file in `dist/debug/` has packed DWARF and no code. It failed on all 9 from the run before, the 3 whole archive copies among them.
+	- Swept: every asset in `dist/`, the bare binaries, tarballs, zips, `.deb` and `.rpm`, with the shared and static libraries. The scans that read names: ErbFB7B, ErlUUiR, ErgjCkU and ErmS0zB read the debug files now. EsXcjyV reads the unstripped dogfood build and is unchanged. `--publish` and the checksums in `package.bash` read only the top of `dist/`.
+	- Verified: `cicd.bash --package` passed on b23 and with `--container`, 20261013. The Linux x86_64 command is 18.8 MB, down from 28.9 MB. Through the debug file, the AVX scan found the same 235 functions as on the unstripped build, for a build for this CPU. The arm64 scan found the same 56 on a cortex_a76 build.
+	- Verified: 20261013, b26 `--package` at 2fa8524, with ErbFB7B and Esa8LVS skipped since both fail there for other items: EsZni4i, EsZni4j, ErfrKRQ, ErbFB7D and Erfhegq pass, and the stripped universal command runs. The full b23 run passed too.
+	- Verified: 20261013, b29w, the stripped x86_64 zip under pwsh 7: `zuid.exe` ran every component, a cold and a warm module cache, base 2048tz and a salt, and refused a bad base. `capi_smoke.c` passed with mingw gcc against `zuid.dll` and against `libzuid.a`. On b23 `dist/debug/` went from 127 MB to 72 MB a run, and `cicd.bash --package` passed.
+	- Note: `codesign -v` calls the command's x86_64 slice unsigned. An Intel Mac doesn't need one. Whether it was signed before the strip wasn't checked.
+	- Acceptance signoff: Self-closed: tested on every platform but arm64 Windows, which nothing here can run.
+	- Closed: 20261013-094815
+
+- The dogfood install puts a build for the build machine's CPU in the synced dir.
+	- ID: 2026101218531694
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: High
+	- Opened: 20261012-185316
+	- Opened by: JC
+	- Related IDs: 2026093018112406
+	- Target OS: Linux
+	- Steps to reproduce [Bug]:
+		- Run a full `cicd.bash` on a newer x86_64 box. Run `zuid -f %u` from the synced dir on one without SHA-NI, such as an i7-6600U.
+	- Incorrect behavior [Bug]: Illegal instruction, in Zig's SHA-256, on the first hash. Anything with no hashing in it still works.
+	- Expected behavior [Bug]: Whatever the synced dir holds runs on every x86_64 box that reads it.
+	- Reproduced [Bug]: Yes, on b28l. `v1.0.0-alpha.1` does the same, since it came before 2026093018112406.
+	- Actual cause [Bug]:
+		- 2026093018112406 named a target in `package.bash` only. The Zig stage's own build, which dogfood copies, still targets the host CPU.
+		- The synced dir is first in the dogfood list on any OS, and it syncs to the Mac and the arm64 VM too.
+	- Actual fix [Bug]: On Linux the Zig stage builds the command for `package.bash`'s target. Only a Linux x86_64 run puts it in the synced dir; others start at `~/.local/bin`.
+	- Branch: dogfoodcpu
+	- Test case: EsXcjyV, the AVX scan on the build dogfood copies. Failed on a build for the host: 235 functions used AVX.
+	- Verified: 20261013, the synced copy's only SHA-NI code is in Wasmtime's Rust `sha2`, which asks the CPU first. None in Zig's SHA-256.
+	- Acceptance signoff: Self-closed: tested, and the old box can't easily be reached for a rerun.
+	- Closed: 20261013-033301
+
+- The macOS build hangs on Zig 0.17.0.
+	- ID: 2026100318410002
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: No. A full `cicd.bash --no-dogfood --no-backup --cross -q` passed on Linux with the fix.
+	- Needs external testing: Done on b26, 20261004.
+	- Priority|Severity [Bug]: High
+	- Opened: 20261003-184100
+	- Opened by: JC
+	- Related IDs: 2026100313583935, 2026100415475381
+	- Target OS: macOS
+	- Steps to reproduce [Bug]:
+		- On b26, run `cicd.bash` with Zig 0.17.0.
+		- Or by hand: `zig translate-c -lc <any header> | wc -c`.
+	- Incorrect behavior [Bug]: The Zig stage never ends. The three header steps sit at full CPU.
+	- Expected behavior [Bug]: The build finishes, as it does on Linux.
+	- Reproduced [Bug]: Yes, on b26, 20261003. Even a one-line header hangs when the output goes to a pipe. The same command writing to a file finishes at once.
+	- Possible cause [Bug]: Zig copies its output to stdout with `fcopyfile`, which fails on a pipe there, and Zig retries forever. The header step reads stdout through a pipe. No upstream report found.
+	- Progress log:
+		- 20261003: Untested idea: have the step write to its output file through `sh -c`, so Zig never writes to a pipe.
+		- 20261004: Reproduced again on b26: piped, a one-line header gave no output in 20 s; to a file it finished at once. `zig translate-c` has no output file option, so the step cannot just name one.
+		- 20261004: Not `sh -c`, since a native Windows build has no `sh`. A small Zig helper does the redirect on every host instead.
+		- 20261004: Found along the way: `Eq9nb3o` could not see the header step at all. The translator kept its own cache beside `build.zig`, so the test's fresh cache still got a warm translation. Fixed here, since the test pins what this step must keep.
+		- 20261004: Also found: a cold global cache fails the empty `SOURCE_DATE_EPOCH` build anyway, in Zig's own libunwind build. Same on `main`. Logged as 2026100415475381.
+	- Actual cause [Bug]: `zig translate-c` copies its cached result to stdout with `fcopyfile` on macOS. Read in Zig's source, not traced: an error that is not "unsupported" makes the copy report zero bytes, and the caller asks again forever. Linux takes another path.
+	- Actual fix [Bug]: The three header steps run `zig translate-c` through `zig/tools/to_file.zig`, which gives it a file for stdout. Still a Run step, so it still drops `SOURCE_DATE_EPOCH`. The translator now gets the build's cache directory too.
+	- Verified: on b26, a fresh-cache build finished in about 23 s, a fresh-cache build with `SOURCE_DATE_EPOCH` empty finished too, and all 30 Zig tests passed. That copy had no git history, so it had no build number to check. On Linux, the translated headers match `zig translate-c` byte for byte, the arm64 Linux and FreeBSD cross builds work, a no-op rebuild takes under a tenth of a second, and the full pipeline passes.
+	- Swept: `captureStdOut` and `addSystemCommand` in `build.zig`, and every `zig` call in the scripts. The header steps were the only place Zig wrote a file to a pipe. `cicd.bash`'s `zig fmt` check now covers `zig/tools`.
+	- Branch: machang
+	- Commit: 47c1134
+	- Test case: new `Erm4m6a` fails if `build.zig` captures a command's stdout. It fails on the old `build.zig` and passes now. A Linux build cannot hang, so the hang itself waits on the b26 run. `Eq9nb3o` now fails when the step stops dropping `SOURCE_DATE_EPOCH`; before the cache fix it passed either way.
+	- Verified: 20261004 on b26, at 12d2b2d: the full pipeline with `--package` passed in about 7 minutes, with a fresh clone and a cold Zig cache for the project. The Zig stage finished, and `Erm4m6a` and `Eq9nb3o` passed. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
+	- Acceptance signoff: Self-closed: the macOS build finishes, and its tests pass.
+	- Closed: 20261004-175611
+
+- Release builds target the build machine's CPU.
+	- ID: 2026093018112406
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: High
+	- Opened: 20260930-181124
+	- Opened by: JC
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- `package.bash` runs `zig build` with no `-Dtarget` or `-Dcpu`.
+	- Incorrect behavior [Bug]: Zig then builds for the host CPU, so a release binary can use instructions an older x86_64 lacks. On macOS it also targets the host's exact OS version.
+	- Expected behavior [Bug]: A baseline CPU, and a stated minimum macOS.
+	- Reproduced [Bug]: Yes. A Linux release used AVX in about 190 functions and needed glibc 2.36. A macOS one used AVX and asked for 15.8.
+	- Actual cause [Bug]:
+		- With no target named, Zig builds for the machine it runs on, glibc included.
+	- Decisions:
+		- Baseline CPU. The code built here is too small to gain from newer instructions, and Wasmtime checks the CPU itself.
+	- Actual fix [Bug]: `package.bash` names a target: glibc 2.28 on Linux, macOS 13.0 on a Mac, both with the baseline CPU. It now builds the macOS tarball and binary on a Mac too.
+	- Branch: baseline
+	- Commit: 668b432
+	- Test case: `ErbFB7B`, `ErbFB7C`, `ErbFB7D`, run with `--package`. Each watched to fail on a build for the host.
+	- Closed: 20261002-194500
+
+- `%m` is the same on every Intel Mac with a T2 chip.
+	- ID: 2026093018112392
+	- Type: Bug
+	- Status: Done
+	- Priority|Severity [Bug]: High
+	- Opened: 20260930-181124
+	- Opened by: JC
+	- Target OS: macOS, Intel with a T2 chip
+	- Steps to reproduce [Bug]:
+		- Run `zuid --no-hash -b 16 -f %m`.
+	- Incorrect behavior [Bug]: `ACDE48001122`. That is the T2 bridge interface, `en5`, and every T2 Mac has that address on it.
+	- Expected behavior [Bug]: An address that differs between hosts.
+	- Reproduced [Bug]: Yes, on macOS 15.8. Go and Zig agree.
+	- Actual cause [Bug]:
+		- The lowest-numbered interface wins, and `en5` comes before `en0` there.
+	- Decisions:
+		- Skip that one address on both sides. The lowest-numbered rule stays.
+	- Actual fix [Bug]: Both sides skip `ac:de:48:00:11:22`. On the test Mac `%m` is now `ap1`'s address, index 5, which is ahead of `en0`. Both sides agree.
+	- Branch: t2mac
+	- Commit: 91411c1
+	- Test case: `ErU3R79`, `ErU3R7A`. Both watched to fail without the skip.
+	- Closed: 20261001-135500
+
+- CICD reset: container cleanup
+	- ID: 2026102416233101
+	- Type: Enhancement
+	- Status: Done
+		- 20261025: The old unlabeled `zuid-cicd:856cd00870eb` and `zuid-codeql:de7763196c93-856cd00870eb` were removed by ID after the labeled pair passed.
+	- Needs local test suite run?: Done. `cicd/cicd.bash --backlog-run-quick` at f123531 ended with one `Docker .....:` line, and so did the full run. After them, `zuid-cicd:8029eec721c8` and `zuid-codeql:de7763196c93-8029eec721c8` had both labels, `docker volume ls --filter label=dev.project=zuid` listed `zuid-cicd-cache` and `zuid-zig-cache`, and `docker ps -a --filter label=dev.project=zuid` listed nothing.
+	- Needs external testing: Done. The `macos` workflow, run 40211475106 on `round1025-fix`, whose tree is round1025's head 45f01a1, passed, EtitVm7 included.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101916041200, 2026102406590100
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the container bullets in `Cleanup after a run` in the shared CICD rules. Containers already run with `--rm`.
+		- Every container, image and volume the pipeline makes gets 2 labels, `dev.project=zuid` and `dev.run=<run folder>`. Containers are named `zuid-<run folder>-<step>`.
+		- At the end of a run, on failure and Ctrl+C too, the run's containers are stopped and removed by label. `--keep-temp` keeps them.
+		- Dangling images go by the project label. An older tag goes once a newer one has passed, and the current tag and the one before it stay. Today every other tag goes right after a build.
+		- Then `docker builder prune -f --filter until=168h`, so a week of build cache stays warm.
+		- The cache volume follows the same 2 GB rule as the Zig caches.
+		- One line at the end says what was removed and about what it freed, from `docker system df` before and after.
+		- What was built before the labels gets one pass by hand, by ID.
+		- Earlier decisions this overrides: the 20261023 note on 2026101916041200 that docker's build cache stays with a prune by hand, and the private container notes, where a build drops every other `zuid-cicd` tag.
+	- Progress log:
+		- 20261025: Every container, image and volume a run makes has `dev.project=zuid` and `dev.run=<run>`. Containers are `zuid-<run>-<step>`, numbered per step. The two cache volumes are made labeled when missing, since docker makes them bare.
+		- 20261025: At the end of a run, failed or interrupted too, its containers are stopped and removed by both labels. `--keep-temp` keeps them, and drops `--rm`.
+		- 20261025: A run that passed then removes, by the project label only, every `zuid-codeql` and `zuid-cicd` tag but the current one and the one before it, CodeQL's first, and the dangling images. Then `docker builder prune -f --filter until=168h`, and `zuid-cicd-cache` is emptied when it's over 2048 MB. One `Docker .....:` line says what went and about what it freed.
+		- 20261025: Images are no longer dropped right after a build.
+		- 20261025: Hand pass: `zuid-cicd-cache` (421 MB, 336 MB of it the old Zig cache at `/cache/home/.cache/zig`) was removed, so the next run makes it labeled. No container used it.
+		- 20261025: Left for a hand pass by ID: `zuid-cicd:856cd00870eb` (`6f89bc5604b3`) and `zuid-codeql:de7763196c93-856cd00870eb` (`d2cc10f16f9a`). They're unlabeled, so the rule never removes them, and `dev` and `main` still run on them. They go once a newer labeled image has passed.
+		- 20261025: On b23 one `docker system df` call in a run came back empty, and the line said the whole of docker was freed. 12 calls in a row and 2 at once all answered, so the cause is not found. The line now says the amount is unknown when either call is empty.
+		- 20261025: EsJ9SjE now wants no `rmi` during the stage, where it wanted `rmi zuid-cicd:0ld0ld0ld0ld`. Its build line, and those of EtAj5P2 and Etij2SC, have the two labels now.
+		- 20261025: EsJ9SjF's run line has `--name zuid-20261019-101112-container --label dev.project=zuid --label dev.run=20261019-101112` after the volumes now.
+		- 20261025: EtAj5P2 and EtaIbeg now want no `rmi` during the stage, where they wanted the old CodeQL tag, then the old main one. EtitVm9 checks that order at the end of the run instead.
+		- 20261025: EtitVm7 failed on the `macos` workflow since c50557e. The 4 names were apart, but the Mac's `wc -l` pads its count with spaces, so the count never matched "4". It strips them now, like the other counts. With a padding `wc` on PATH it failed before and passes after, and `pipeline-test.bash` is 128 of 128 both ways.
+		- Verified: `pipeline-test.bash` 115 of 115. With each of 4 faults put in, its own case failed: an unlabeled volume (EtitVm7), the one before not kept (EtitVm9), `--keep-temp` ignored (EtitVm8), and no call from the exit trap (EtitVm8). Against a scratch label on b23's docker, the volumes came up labeled, a left-running container was stopped and removed, and the line was printed.
+		- 20261025: The quick and full runs at f123531 passed in the image. Both ended with "removed build cache over a week old; about 0.0 GB freed". Only two labeled tags of each image exist, so none went.
+	- Decisions:
+		- 20261025: `dev.run` is the run's stamp for now. It becomes the run folder's name when 2026102416233107 makes one.
+		- 20261025: Tags are removed only at the end of a run that passed, so a failed build never costs the one before it.
+		- 20261025: The volume cap empties what the runs wrote, which is everything but the image's own root-owned folders.
+	- Swept: every `docker run` goes through `fContainer_RunArgs` (the stage and `fInImage`), except the volume check, which labels its own. Both image builds are labeled. installer-test's `bash:3.2` runs belong to that harness, with `--rm`, and are left to 2026102416233107. Every rig that lifts `fContainer_Image`, `fInImage` or `fContainer_RunArgs` sets the run and project. Every `wc` count in `cicd/` is stripped, compared with `-eq`, or compared with another count padded the same way.
+	- Branch: round1025
+	- Commit: c50557e
+	- Test case: EtitVm7 (labels and names), EtitVm8 (the run's containers at its end, and the traps), EtitVm9 (the passing run's tidy). Each failed with its part of the change broken.
+	- Closed: 20261025-095950
+
 - CICD reset: step output
 	- ID: 2026102416233104
 	- Type: Enhancement
@@ -704,200 +823,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: Etij2SB (the flags), Etij2SC (the image where docker answers), Etij2SD (each fallback, with its note), Etij2SE (`--container`, `--no-container` and the run inside ask docker nothing), Etij2SF (checkers skip on a failed build), EtijCAL (the hook's Zig cache), EtimFcG (a linked Zig cache), EtimFcH (SDE), Etika82 (bash 3.2 outside). Each failed against the script before the change, and passes after.
 	- Verified: 20261025, the full run in the image at f123531, and the `macos` workflow run 40211475106.
 	- Closed: 20261025-095700
-
-- Installer options and messages per the house installer rules.
-	- ID: 2026101410495989
-	- Type: Enhancement
-	- Status: Done
-		- 20261025: Moved from signoff, since a machine can run the Windows step on b29w.
-	- Needs local test suite run?: Done. `installer-test.bash` 83 of 83.
-	- Needs external testing: Done. On b29w on 20261025, the one-liner from `main`, the same as the round's `install.ps1` by sha256, passed under Windows PowerShell 5.1 and pwsh 7. The Mac one passed on b26 on 20261024.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- `--version`, and `--opt=value` beside `--opt value`.
-		- Pick releases in semver order, not GitHub's date order.
-		- Say why a release lookup failed: rate limit, network, or HTTP status.
-		- Name the target and the alternative when a write fails.
-		- Check sha256 with `shasum` or `openssl` where there's no `sha256sum`.
-		- Drop `--arch` and `-Arch`. The arch is detected.
-		- `install.ps1` gets `-Help` and `-Version`, and passes PSScriptAnalyzer.
-	- Progress log:
-		- 20261014: Both scripts and the README install section. The README one-liners lost their option text, which didn't run as pasted, and say to pass `--help`.
-		- 20261024: The bash one-liner from `install.md` ran on b26 as `mactest`, under the stock bash 3.2. `--version` printed 1.3.0. A plain `--yes` run said there's no stable release yet, installed beta.1 and checked it against `checksums.txt`. `--release=dev --yes` then had nothing to do, and `--uninstall --yes` removed both paths. The module cache stayed behind, filed as 2026102407393000.
-		- 20261024: b29w didn't answer, vmKt6m was paused, and vm925w is off limits, so the PowerShell one-liner is still to run.
-		- 20261025: On b29w as `collierjr`, under 5.1 and 7: `-Version` printed 1.3.0, and `-Help` printed the usage. `-Yes` said there's no stable release yet, installed beta.1, checked it against `checksums.txt`, and `zuid.exe --version` printed `1.0.0-beta.1 (build ddytm)`. A second run had nothing to do, and `-Uninstall -Yes` removed it. The prompt was skipped with `-Yes`, not answered by hand.
-	- Branch: tidyup
-	- Commit: c286dfe
-	- Test case: EshFEjt, EshFEjv, EshFEjw, EshFEjx, EshFEjy, EshFEjz, EshFEk0, EshFEk1, EshFEk2. `--arch`'s missing-value case, Eq9oNBi, is retired with the flag.
-	- Closed: 20261025-095700
-
-- A Windows install leaves `PATH` to the user.
-	- ID: 2026101410495985
-	- Type: Enhancement
-	- Status: Done
-		- 20261025: Moved from signoff, since a machine can run the Windows step on b29w.
-	- Needs local test suite run?: Done. `installer-test.bash` 86 of 86.
-	- Needs external testing: Done. A system install from an admin account on b29w went on the machine `PATH`, under 5.1 and 7, on 20261025.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Target OS: Windows
-	- Progress log:
-		- 20261014: Question: should `install.ps1` add the `bin` folder to the user or machine `PATH`, the way silkterm's does? Today it prints a hint. A machine `PATH` near 4 KB is a known trap on both test boxes.
-		- 20261014: Answer: yes. A user install goes on the user `PATH`, a system one on the machine `PATH`, through the registry so `%VAR%` entries keep expanding. Skipped with a note past 2047 or 4095 characters. Uninstall takes it off. On b29w the user `PATH` came back byte for byte after an uninstall, once a trailing `;` was kept.
-		- 20261025: On b29w as `collierjr`, an admin, `-Target system -Yes` put `C:\Program Files\zuid\bin` on the machine `PATH`, kept it `ExpandString`, and a second run changed nothing. `-Target system -Uninstall -Yes` gave the machine `PATH` back byte for byte, 4030 characters. The user install did the same for the user `PATH`, under both shells.
-	- Branch: answers
-	- Commit: 044ef7f
-	- Test case: None in the harness, since it runs on Linux, where there is no registry. The b29w runs are the check.
-	- Closed: 20261025-095700
-
-- Release binaries keep debug info and the build machine's paths.
-	- ID: 2026101008194330
-	- Type: Bug
-	- Status: Done
-	- Needs external testing: Done. b26 and b29w, 20261013, see Verified.
-	- Priority|Severity [Bug]: High
-	- Opened: 20261010-081943
-	- Opened by: JC
-	- Related IDs: 2026101008194270
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- `strings -a bin/zuid` from the `v1.0.0-alpha.1` Linux x86_64 tarball.
-	- Incorrect behavior [Bug]: 48 paths under the builder's home directory, from the Zig install and Zig's cache. The file is 28.4 MB and has 10 debug sections.
-	- Expected behavior [Bug]: No paths from the build machine, and the same bytes from any machine that builds the same commit.
-	- Reproduced [Bug]: Yes, 20261010, in the published alpha and in builds from b23 and the container. Stripped, the alpha binary is 18.7 MB with none of those paths.
-	- Possible cause [Bug]: Release builds keep their debug info, and nothing strips it.
-	- Actual cause [Bug]:
-		- Confirmed. Nothing stripped the release builds, so each kept its DWARF, with the paths of the Zig install, its caches, the checkout and the home dir. The static libraries had the same. The Windows zips had the PDB too.
-	- Progress log:
-		- 20261010: found while comparing a container build with a host build. Every release file differed.
-		- 20261013: Reproduced on b23 by the new check, 43 problems, the same paths and debug sections in every binary of every asset.
-		- 20261013: Stripped, the bare Linux and FreeBSD binaries come out the same from b23 and the container. Other files still differ for reasons outside debug info, logged as 2026101304122319.
-	- Decisions:
-		- 20261013: release binaries are stripped. Each one's debug info goes in `dist/debug/`, not published, but kept by the backup so a panic address can still be looked up. The Windows `.pdb` leaves the zips the same way.
-		- 20261013: `libzuid.a` keeps only its debug info in `dist/debug/`, not a whole unstripped copy.
-	- Actual fix [Bug]: `package.bash` strips every binary built here. On Linux that's `llvm-objcopy`, for both ELF and Windows files. On a Mac it's `strip`, with `dsymutil` first. A program or shared library keeps its symbols and DWARF in `dist/debug/<release>/`, as `<name>.debug` or `<name>.dSYM`. A static library keeps its symbols, and only its DWARF goes there, as `libzuid.a.debug`. On Linux every ELF `.debug` file is zlib packed, which gdb reads as is. A Mac keeps a whole unstripped `libzuid.a`, since Apple's tools can't split an archive. Both Windows PDBs move there, the DLL's included, which was dropped before. The AVX and armv8-a scans take function names from the debug file.
-	- Branch: strip, dbgonly
-	- Commit: 60169a5, f9cd9fd
-	- Test case: EsZni4i, EsZni4j, EsZni4k and EsbEsag.
-		- EsZni4i fails on any file in the release with this machine's paths, any binary built here with debug sections, and any PDB. It failed on the tree before the fix, with 43 problems.
-		- EsZni4j checks each binary has its own debug info in `dist/debug/`. It failed with another release's `.debug` file, the command's PDB in place of the DLL's, and an archive copy missing.
-		- EsZni4k checks nothing under `dist/debug/` is uploaded or hashed by `--publish`. It and ErgqYtF failed with the publish stage reading all of `dist/`.
-		- EsbEsag checks each ELF file in `dist/debug/` has packed DWARF and no code. It failed on all 9 from the run before, the 3 whole archive copies among them.
-	- Swept: every asset in `dist/`, the bare binaries, tarballs, zips, `.deb` and `.rpm`, with the shared and static libraries. The scans that read names: ErbFB7B, ErlUUiR, ErgjCkU and ErmS0zB read the debug files now. EsXcjyV reads the unstripped dogfood build and is unchanged. `--publish` and the checksums in `package.bash` read only the top of `dist/`.
-	- Verified: `cicd.bash --package` passed on b23 and with `--container`, 20261013. The Linux x86_64 command is 18.8 MB, down from 28.9 MB. Through the debug file, the AVX scan found the same 235 functions as on the unstripped build, for a build for this CPU. The arm64 scan found the same 56 on a cortex_a76 build.
-	- Verified: 20261013, b26 `--package` at 2fa8524, with ErbFB7B and Esa8LVS skipped since both fail there for other items: EsZni4i, EsZni4j, ErfrKRQ, ErbFB7D and Erfhegq pass, and the stripped universal command runs. The full b23 run passed too.
-	- Verified: 20261013, b29w, the stripped x86_64 zip under pwsh 7: `zuid.exe` ran every component, a cold and a warm module cache, base 2048tz and a salt, and refused a bad base. `capi_smoke.c` passed with mingw gcc against `zuid.dll` and against `libzuid.a`. On b23 `dist/debug/` went from 127 MB to 72 MB a run, and `cicd.bash --package` passed.
-	- Note: `codesign -v` calls the command's x86_64 slice unsigned. An Intel Mac doesn't need one. Whether it was signed before the strip wasn't checked.
-	- Acceptance signoff: Self-closed: tested on every platform but arm64 Windows, which nothing here can run.
-	- Closed: 20261013-094815
-
-- The dogfood install puts a build for the build machine's CPU in the synced dir.
-	- ID: 2026101218531694
-	- Type: Bug
-	- Status: Done
-	- Priority|Severity [Bug]: High
-	- Opened: 20261012-185316
-	- Opened by: JC
-	- Related IDs: 2026093018112406
-	- Target OS: Linux
-	- Steps to reproduce [Bug]:
-		- Run a full `cicd.bash` on a newer x86_64 box. Run `zuid -f %u` from the synced dir on one without SHA-NI, such as an i7-6600U.
-	- Incorrect behavior [Bug]: Illegal instruction, in Zig's SHA-256, on the first hash. Anything with no hashing in it still works.
-	- Expected behavior [Bug]: Whatever the synced dir holds runs on every x86_64 box that reads it.
-	- Reproduced [Bug]: Yes, on b28l. `v1.0.0-alpha.1` does the same, since it came before 2026093018112406.
-	- Actual cause [Bug]:
-		- 2026093018112406 named a target in `package.bash` only. The Zig stage's own build, which dogfood copies, still targets the host CPU.
-		- The synced dir is first in the dogfood list on any OS, and it syncs to the Mac and the arm64 VM too.
-	- Actual fix [Bug]: On Linux the Zig stage builds the command for `package.bash`'s target. Only a Linux x86_64 run puts it in the synced dir; others start at `~/.local/bin`.
-	- Branch: dogfoodcpu
-	- Test case: EsXcjyV, the AVX scan on the build dogfood copies. Failed on a build for the host: 235 functions used AVX.
-	- Verified: 20261013, the synced copy's only SHA-NI code is in Wasmtime's Rust `sha2`, which asks the CPU first. None in Zig's SHA-256.
-	- Acceptance signoff: Self-closed: tested, and the old box can't easily be reached for a rerun.
-	- Closed: 20261013-033301
-
-- The macOS build hangs on Zig 0.17.0.
-	- ID: 2026100318410002
-	- Type: Bug
-	- Status: Done
-	- Needs local test suite run?: No. A full `cicd.bash --no-dogfood --no-backup --cross -q` passed on Linux with the fix.
-	- Needs external testing: Done on b26, 20261004.
-	- Priority|Severity [Bug]: High
-	- Opened: 20261003-184100
-	- Opened by: JC
-	- Related IDs: 2026100313583935, 2026100415475381
-	- Target OS: macOS
-	- Steps to reproduce [Bug]:
-		- On b26, run `cicd.bash` with Zig 0.17.0.
-		- Or by hand: `zig translate-c -lc <any header> | wc -c`.
-	- Incorrect behavior [Bug]: The Zig stage never ends. The three header steps sit at full CPU.
-	- Expected behavior [Bug]: The build finishes, as it does on Linux.
-	- Reproduced [Bug]: Yes, on b26, 20261003. Even a one-line header hangs when the output goes to a pipe. The same command writing to a file finishes at once.
-	- Possible cause [Bug]: Zig copies its output to stdout with `fcopyfile`, which fails on a pipe there, and Zig retries forever. The header step reads stdout through a pipe. No upstream report found.
-	- Progress log:
-		- 20261003: Untested idea: have the step write to its output file through `sh -c`, so Zig never writes to a pipe.
-		- 20261004: Reproduced again on b26: piped, a one-line header gave no output in 20 s; to a file it finished at once. `zig translate-c` has no output file option, so the step cannot just name one.
-		- 20261004: Not `sh -c`, since a native Windows build has no `sh`. A small Zig helper does the redirect on every host instead.
-		- 20261004: Found along the way: `Eq9nb3o` could not see the header step at all. The translator kept its own cache beside `build.zig`, so the test's fresh cache still got a warm translation. Fixed here, since the test pins what this step must keep.
-		- 20261004: Also found: a cold global cache fails the empty `SOURCE_DATE_EPOCH` build anyway, in Zig's own libunwind build. Same on `main`. Logged as 2026100415475381.
-	- Actual cause [Bug]: `zig translate-c` copies its cached result to stdout with `fcopyfile` on macOS. Read in Zig's source, not traced: an error that is not "unsupported" makes the copy report zero bytes, and the caller asks again forever. Linux takes another path.
-	- Actual fix [Bug]: The three header steps run `zig translate-c` through `zig/tools/to_file.zig`, which gives it a file for stdout. Still a Run step, so it still drops `SOURCE_DATE_EPOCH`. The translator now gets the build's cache directory too.
-	- Verified: on b26, a fresh-cache build finished in about 23 s, a fresh-cache build with `SOURCE_DATE_EPOCH` empty finished too, and all 30 Zig tests passed. That copy had no git history, so it had no build number to check. On Linux, the translated headers match `zig translate-c` byte for byte, the arm64 Linux and FreeBSD cross builds work, a no-op rebuild takes under a tenth of a second, and the full pipeline passes.
-	- Swept: `captureStdOut` and `addSystemCommand` in `build.zig`, and every `zig` call in the scripts. The header steps were the only place Zig wrote a file to a pipe. `cicd.bash`'s `zig fmt` check now covers `zig/tools`.
-	- Branch: machang
-	- Commit: 47c1134
-	- Test case: new `Erm4m6a` fails if `build.zig` captures a command's stdout. It fails on the old `build.zig` and passes now. A Linux build cannot hang, so the hang itself waits on the b26 run. `Eq9nb3o` now fails when the step stops dropping `SOURCE_DATE_EPOCH`; before the cache fix it passed either way.
-	- Verified: 20261004 on b26, at 12d2b2d: the full pipeline with `--package` passed in about 7 minutes, with a fresh clone and a cold Zig cache for the project. The Zig stage finished, and `Erm4m6a` and `Eq9nb3o` passed. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
-	- Acceptance signoff: Self-closed: the macOS build finishes, and its tests pass.
-	- Closed: 20261004-175611
-
-- Release builds target the build machine's CPU.
-	- ID: 2026093018112406
-	- Type: Bug
-	- Status: Done
-	- Priority|Severity [Bug]: High
-	- Opened: 20260930-181124
-	- Opened by: JC
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- `package.bash` runs `zig build` with no `-Dtarget` or `-Dcpu`.
-	- Incorrect behavior [Bug]: Zig then builds for the host CPU, so a release binary can use instructions an older x86_64 lacks. On macOS it also targets the host's exact OS version.
-	- Expected behavior [Bug]: A baseline CPU, and a stated minimum macOS.
-	- Reproduced [Bug]: Yes. A Linux release used AVX in about 190 functions and needed glibc 2.36. A macOS one used AVX and asked for 15.8.
-	- Actual cause [Bug]:
-		- With no target named, Zig builds for the machine it runs on, glibc included.
-	- Decisions:
-		- Baseline CPU. The code built here is too small to gain from newer instructions, and Wasmtime checks the CPU itself.
-	- Actual fix [Bug]: `package.bash` names a target: glibc 2.28 on Linux, macOS 13.0 on a Mac, both with the baseline CPU. It now builds the macOS tarball and binary on a Mac too.
-	- Branch: baseline
-	- Commit: 668b432
-	- Test case: `ErbFB7B`, `ErbFB7C`, `ErbFB7D`, run with `--package`. Each watched to fail on a build for the host.
-	- Closed: 20261002-194500
-
-- `%m` is the same on every Intel Mac with a T2 chip.
-	- ID: 2026093018112392
-	- Type: Bug
-	- Status: Done
-	- Priority|Severity [Bug]: High
-	- Opened: 20260930-181124
-	- Opened by: JC
-	- Target OS: macOS, Intel with a T2 chip
-	- Steps to reproduce [Bug]:
-		- Run `zuid --no-hash -b 16 -f %m`.
-	- Incorrect behavior [Bug]: `ACDE48001122`. That is the T2 bridge interface, `en5`, and every T2 Mac has that address on it.
-	- Expected behavior [Bug]: An address that differs between hosts.
-	- Reproduced [Bug]: Yes, on macOS 15.8. Go and Zig agree.
-	- Actual cause [Bug]:
-		- The lowest-numbered interface wins, and `en5` comes before `en0` there.
-	- Decisions:
-		- Skip that one address on both sides. The lowest-numbered rule stays.
-	- Actual fix [Bug]: Both sides skip `ac:de:48:00:11:22`. On the test Mac `%m` is now `ap1`'s address, index 5, which is ahead of `en0`. Both sides agree.
-	- Branch: t2mac
-	- Commit: 91411c1
-	- Test case: `ErU3R79`, `ErU3R7A`. Both watched to fail without the skip.
-	- Closed: 20261001-135500
 
 - Updates to CICD script flags.
 	- ID: 2026101816243852
@@ -1337,6 +1262,63 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: f4c69e3
 	- Test case: `ErOkWfZ`, `ErOkWfb`.
 	- Closed: 20260930-155553
+
+- Builds leave stale artifacts and side-effects behind.
+	- ID: 2026101916041200
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. The full run passed at 1942bb2, and after it `docker images zuid-codeql` listed only `zuid-codeql:de7763196c93-856cd00870eb`, on the current `zuid-cicd:856cd00870eb`.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261019-160412
+	- Opened by: JC
+	- Related IDs: 2026101912130117, 2026101816474402
+	- Requirements  [Feature]:
+		- Do next, before the next cut.
+		- Verify or ensure that builds clean up stale artifacts and side-effects after they're done: caches, container cruft, tmp files, etc.
+	- Progress log:
+		- 20261023: A `--gate` run with a TMPDIR of its own left nothing behind. The TMPDIR was empty, nothing new was in `/tmp`, `/mnt/tmpfs/tmp` or `~/.cache`, and no zuid container, image or volume was added.
+		- 20261023: Every `mktemp -d` in `cicd.bash` is on the exit cleanup list, and each harness removes its own work dir on exit. Containers run with `--rm --init`.
+		- 20261023: `cicd/artifacts/` already rotates, and `dist/` is emptied before each package run. Fuzz finds are kept on purpose.
+		- 20261023: Found: a CodeQL image built on an older main image stayed until the next `--leakcheck` run. On b23 that was `zuid-codeql:953bf12e36c5-98809c2ceb21`, about 750 MB of its own. Every run that uses the main image now drops it, ahead of the old main tag. A quick Go run removed it on b23.
+		- 20261023: EtAj5P2's plain-run clause was "no mention of codeql at all". It's now "no CodeQL build or run", as its comment says, since a plain run removes a stale one now.
+		- 20261023: Zig's caches never shrink. Split off as 2026102320181236, waiting on a question.
+		- 20261023: Docker's build cache is shared with sister projects, and their steps can't be told from ours. So it stays with the hand prune after a build.
+		- 20261023: Full run `cicd.bash -q --no-sync --no-dogfood --no-backup --no-demo` at 1942bb2 passed in 17 minutes, 439 ok, 13 skips, no failures. It built the CodeQL image fresh, since none was left from before. EtaIbeg passed in it. Nothing of the run's was left in its TMPDIR, `/tmp`, `/mnt/tmpfs/tmp` or `~/.cache`, no zuid container or process was left, and no volume was added. `assets/demo.gif` was unchanged.
+		- 20261024: The build cache note above is superseded by 2026102416233101, from the CICD reset.
+	- Swept: the only 2 image builds are the main and CodeQL ones. Both lifts of `fContainer_Image` in `pipeline-test.bash` set `codeqlImage`. The run inside the container never calls it.
+	- Branch: round1023
+	- Commit: 0562b45
+	- Test case: EtaIbeg. It failed before the fix, keeping the stale CodeQL image, and passes after.
+	- Acceptance signoff: Self-closed: its child 2026102320181236 closed 20261025, and the round's full run left no zuid container, stray image or temp file behind.
+	- Closed: 20261025-095950
+
+- Installer options and messages per the house installer rules.
+	- ID: 2026101410495989
+	- Type: Enhancement
+	- Status: Done
+		- 20261025: Moved from signoff, since a machine can run the Windows step on b29w.
+	- Needs local test suite run?: Done. `installer-test.bash` 83 of 83.
+	- Needs external testing: Done. On b29w on 20261025, the one-liner from `main`, the same as the round's `install.ps1` by sha256, passed under Windows PowerShell 5.1 and pwsh 7. The Mac one passed on b26 on 20261024.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- `--version`, and `--opt=value` beside `--opt value`.
+		- Pick releases in semver order, not GitHub's date order.
+		- Say why a release lookup failed: rate limit, network, or HTTP status.
+		- Name the target and the alternative when a write fails.
+		- Check sha256 with `shasum` or `openssl` where there's no `sha256sum`.
+		- Drop `--arch` and `-Arch`. The arch is detected.
+		- `install.ps1` gets `-Help` and `-Version`, and passes PSScriptAnalyzer.
+	- Progress log:
+		- 20261014: Both scripts and the README install section. The README one-liners lost their option text, which didn't run as pasted, and say to pass `--help`.
+		- 20261024: The bash one-liner from `install.md` ran on b26 as `mactest`, under the stock bash 3.2. `--version` printed 1.3.0. A plain `--yes` run said there's no stable release yet, installed beta.1 and checked it against `checksums.txt`. `--release=dev --yes` then had nothing to do, and `--uninstall --yes` removed both paths. The module cache stayed behind, filed as 2026102407393000.
+		- 20261024: b29w didn't answer, vmKt6m was paused, and vm925w is off limits, so the PowerShell one-liner is still to run.
+		- 20261025: On b29w as `collierjr`, under 5.1 and 7: `-Version` printed 1.3.0, and `-Help` printed the usage. `-Yes` said there's no stable release yet, installed beta.1, checked it against `checksums.txt`, and `zuid.exe --version` printed `1.0.0-beta.1 (build ddytm)`. A second run had nothing to do, and `-Uninstall -Yes` removed it. The prompt was skipped with `-Yes`, not answered by hand.
+	- Branch: tidyup
+	- Commit: c286dfe
+	- Test case: EshFEjt, EshFEjv, EshFEjw, EshFEjx, EshFEjy, EshFEjz, EshFEk0, EshFEk1, EshFEk2. `--arch`'s missing-value case, Eq9oNBi, is retired with the flag.
+	- Closed: 20261025-095700
 
 - Leak, memory, and correctness checks in CICD.
 	- ID: 2026101816243853
@@ -2116,6 +2098,26 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Verified: 20261004 on b26, at 12d2b2d: ErmYT8R passed in the full `--package` run, and the macOS tarball lists `share/LICENSE-wasmtime.txt`, which is the Apache 2.0 text. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
 	- Acceptance signoff: Self-closed: every release has the license, and its tests pass.
 	- Closed: 20261004-175611
+
+- A Windows install leaves `PATH` to the user.
+	- ID: 2026101410495985
+	- Type: Enhancement
+	- Status: Done
+		- 20261025: Moved from signoff, since a machine can run the Windows step on b29w.
+	- Needs local test suite run?: Done. `installer-test.bash` 86 of 86.
+	- Needs external testing: Done. A system install from an admin account on b29w went on the machine `PATH`, under 5.1 and 7, on 20261025.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Target OS: Windows
+	- Progress log:
+		- 20261014: Question: should `install.ps1` add the `bin` folder to the user or machine `PATH`, the way silkterm's does? Today it prints a hint. A machine `PATH` near 4 KB is a known trap on both test boxes.
+		- 20261014: Answer: yes. A user install goes on the user `PATH`, a system one on the machine `PATH`, through the registry so `%VAR%` entries keep expanding. Skipped with a note past 2047 or 4095 characters. Uninstall takes it off. On b29w the user `PATH` came back byte for byte after an uninstall, once a trailing `;` was kept.
+		- 20261025: On b29w as `collierjr`, an admin, `-Target system -Yes` put `C:\Program Files\zuid\bin` on the machine `PATH`, kept it `ExpandString`, and a second run changed nothing. `-Target system -Uninstall -Yes` gave the machine `PATH` back byte for byte, 4030 characters. The user install did the same for the user `PATH`, under both shells.
+	- Branch: answers
+	- Commit: 044ef7f
+	- Test case: None in the harness, since it runs on Linux, where there is no registry. The b29w runs are the check.
+	- Closed: 20261025-095700
 
 - README and GitHub About wording.
 	- ID: 2026101410495988
