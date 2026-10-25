@@ -34,6 +34,7 @@
 ##		- 20261025 JC: A full run starts the macos workflow on GitHub and waits for it. --no-remote skips it.
 ##		- 20261025 JC: The harnesses make their folders inside the run's, through ZUID_RUN_DIR.
 ##		- 20261025 JC: A run folder of its own in HOST_TEMP, removed at the end. Removals go through the safe removal guard.
+##		- 20261025 JC: The FreeBSD release tested on vmFreeBSD, under the host lock. A step can end in SKIP.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Global, since the exit trap reads it after fMain has gone.
@@ -85,6 +86,13 @@ fConfig(){ :;
 	## "zuid-<version>-". --publish refuses a set with any of these missing, unless
 	## --allow-partial.
 	default_releaseAssets=("linux-x86_64.tgz" "linux-arm64.tgz" "freebsd-x86_64.tgz" "darwin-universal.tgz" "windows-x86_64.zip" "windows-arm64.zip")
+
+	## Test boxes, as ssh destinations. The host part is the box's name in the
+	## shared host lock. ZUID_BOX_FREEBSD replaces it, and set empty leaves the
+	## box out.
+	default_boxFreeBSD="bsdtest@vmFreeBSD"
+	## How long a box step waits for a box another session holds, then skips.
+	default_boxWaitSecs=600
 
 	## Vendored Wasmtime C API, pinned. Fetched into zig/vendor/ when absent.
 	## One checksum per platform, as <arch>-<os>=<sha256>, in Wasmtime's own names.
@@ -242,8 +250,8 @@ fPrint_Help(){
 		    --merge-gate      The pre-push check before main, the same checks as
 		                      --backlog-run-full. --ci is another name for it. See
 		                      below.
-		    --no-remote       Skip the other hosts and VMs, and the macOS workflow on
-		                      GitHub. See below.
+		    --no-remote       Skip the test boxes, and the macOS workflow on GitHub.
+		                      See below.
 		    -m, --message     Commit message. Implies --commit.
 		    --commit          Commit if everything passed. Refuses on a protected
 		                      branch: ${protectedBranches[*]}
@@ -308,6 +316,16 @@ fPrint_Help(){
 		note when the remote's branch isn't at HEAD, or there's no gh, and it runs
 		the commit, not uncommitted edits. --quick, --backlog-run-quick and --only
 		leave it out, and so does --no-remote.
+
+		A run that packages then tests the releases this machine can't run on the
+		test boxes, over ssh: FreeBSD on ${freebsdBox:-nothing, since ZUID_BOX_FREEBSD is empty}. Each box is held
+		through the shared host lock for its step, and a VM is put back the way it
+		was found, by the lock's VM state helper: ZUID_BOX_LOCK if set, else the
+		first *_vm-state.bash on PATH. Without one the box isn't held. A box another
+		session holds is waited for up to $((boxWaitSecs / 60)) minutes. A box that's taken or
+		doesn't answer is a SKIP, in its step and at the end, and the run goes on.
+		The job runs in a folder of its own under the box's temp root, removed
+		after. --no-remote leaves the boxes out.
 
 		Every run - quick or full, any branch - then archives the whole project:
 		repo/, private/, the lot, into ../versions/, and publishes it, committing
@@ -421,6 +439,8 @@ fMain(){
 	local -a default_protectedBranches=()
 	local    default_releaseBranch=""
 	local -a default_releaseAssets=()
+	local    default_boxFreeBSD=""
+	local -i default_boxWaitSecs=0
 	local    default_wasmtimeVer=""
 	local -a default_wasmtimeSha256s=()
 	local    default_freebsdRepo=""
@@ -448,6 +468,8 @@ fMain(){
 	local -ra protectedBranches=("${default_protectedBranches[@]}")
 	local -r  releaseBranch="${default_releaseBranch}"
 	local -ra releaseAssets=("${default_releaseAssets[@]}")
+	local -r  freebsdBox="${ZUID_BOX_FREEBSD-${default_boxFreeBSD}}"
+	local -ri boxWaitSecs="${default_boxWaitSecs}"
 	local -r wasmtimeVer="${default_wasmtimeVer}"
 	local -ra wasmtimeSha256s=("${default_wasmtimeSha256s[@]}")
 	local -r  freebsdRepo="${default_freebsdRepo}"
@@ -603,7 +625,13 @@ fMain(){
 	((! stepsHanded)) || return 0
 
 	fEcho_Clean
-	fEcho "Passed."
+	local skipped=""
+	for skipped in "${_stepSkipped[@]}"; do fEcho_Clean "Skipped ....: ${skipped}"; done
+	case "${#_stepSkipped[@]}" in
+		0) fEcho "Passed." ;;
+		1) fEcho "Passed, with 1 step skipped." ;;
+		*) fEcho "Passed, with ${#_stepSkipped[@]} steps skipped." ;;
+	esac
 	fEcho_Clean
 
 }
@@ -664,6 +692,13 @@ fSteps(){
 		elif [[ "${onlyToolchain}" == "go" ]]; then packageWhy="--only go"
 		else packageWhy="${quickWhy}, unless --package"; fi
 		fStep_Off "Package" "${packageWhy}"
+	fi
+	## The boxes test what Package made, so they go where it does.
+	if ((! inContainer)); then
+		if   ((! doRemote)); then fStep_Off "FreeBSD box" "--no-remote"
+		elif [[ -z "${freebsdBox}" ]]; then fStep_Off "FreeBSD box" "ZUID_BOX_FREEBSD is empty"
+		elif ! fSteps_Packages; then fStep_Off "FreeBSD box" "nothing packaged"
+		else fStep "FreeBSD box: ${freebsdBox##*@}" fStage_Box_FreeBSD; fi
 	fi
 
 	if ((! _stepPlanning)); then
@@ -1513,7 +1548,8 @@ fStage_Shell(){
 			"${utilityDir}/installer-test.bash" "${utilityDir}/cli-test.bash" \
 			"${utilityDir}/pipeline-test.bash" "${utilityDir}/package.bash" \
 			"${utilityDir}/c-checks.bash" "${utilityDir}/git-hooks/pre-push" \
-			"${utilityDir}/include/safe-rm.bash"
+			"${utilityDir}/include/safe-rm.bash" "${utilityDir}/box-run.bash" \
+			"${utilityDir}/box-release-test.bash"
 		fEcho_Clean "Clean."
 	fi
 
@@ -4395,6 +4431,79 @@ fStage_Hosted_Result(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Test boxes. Each is held through the shared host lock for its step, by the
+## lock's VM state helper, which also puts a VM back the way it was found.
+## box-run.bash does the ssh half. A box that's taken or doesn't answer is a
+## skip, never a failure, per the CICD rules for other hosts.
+
+## The helper: ZUID_BOX_LOCK, empty for none, else the first *_vm-state.bash on
+## PATH. It's found by that pattern, since its full name is the machine's own.
+fBox_Lock(){
+	if [[ -n "${ZUID_BOX_LOCK+x}" ]]; then printf '%s\n' "${ZUID_BOX_LOCK}"; return 0; fi
+	local dir="" found=""
+	local -a hits=()
+	local IFS=":"
+	for dir in ${PATH}; do
+		[[ -n "${dir}" && -d "${dir}" ]] || continue
+		hits=("${dir}"/*_vm-state.bash)
+		for found in "${hits[@]}"; do
+			if [[ -f "${found}" && -x "${found}" ]]; then printf '%s\n' "${found}"; return 0; fi
+		done
+	done
+	return 0
+}
+
+fBox_Skip(){ fTestSkip "$*"; fStep_Skip "$*" ;}
+
+## Runs <job dir>'s job.bash on the box, held for as long as that takes, and
+## ends the step's check from box-run.bash's verdict.
+fBox_Run(){  ## ssh destination, job dir
+	local -r dest="$1" jobDir="$2"
+	local -r box="${dest##*@}" verdictFile="${2%/}.verdict"
+	local lock="" verdict=""
+	local -i rc=0
+	local -a job=(bash "${utilityDir}/box-run.bash" "${dest}" "${jobDir}" "${verdictFile}")
+	lock="$(fBox_Lock)"
+	: > "${verdictFile}"
+	if [[ -n "${lock}" ]]; then
+		ZUID_BOX_KEEP="${keepTemp}" "${lock}" wrap "${box}" --wait "${boxWaitSecs}" --why "${projectName}: cicd ${runName}" -- "${job[@]}" || rc=$?
+	else
+		fEcho_Clean "Note .......: no host lock here, so ${box} isn't held"
+		ZUID_BOX_KEEP="${keepTemp}" "${job[@]}" || rc=$?
+	fi
+	read -r verdict < "${verdictFile}" || true
+	case "${verdict}" in
+		pass)
+			if ((rc)); then fEcho_Clean "Note .......: ${box} may not be back the way it was found, exit ${rc}, as said above"; fi
+			fTestPass ;;
+		fail\ *) fTestFail "${verdict#fail }" ;;
+		skip\ *) fBox_Skip "${verdict#skip }" ;;
+		*)
+			## The job never ran, so the lock or the VM never came.
+			if ((rc == 3)); then fBox_Skip "${box} stayed taken for $((boxWaitSecs / 60)) minutes"
+			else fBox_Skip "${box} couldn't be had or woken, exit ${rc}, as said above"; fi
+			;;
+	esac
+}
+
+## The FreeBSD release from this run, its command through cli-test.bash and
+## its libraries through capi_smoke.c, on FreeBSD itself.
+fStage_Box_FreeBSD(){
+	fId dee33 "FreeBSD release on its box: command surface and C module"
+	local -r tarball="${repoRoot}/dist/${distPrefix}freebsd-x86_64.tgz" jobDir="${_runDir}/box-freebsd"
+	if [[ ! -f "${tarball}" ]]; then fBox_Skip "no ${tarball##*/} in dist/"; return 0; fi
+	mkdir -p "${jobDir}/cicd/utility/include" "${jobDir}/testdata"
+	cp "${tarball}"                                  "${jobDir}/"
+	cp "${utilityDir}/box-release-test.bash"         "${jobDir}/job.bash"
+	cp "${utilityDir}/cli-test.bash"                 "${jobDir}/cicd/utility/"
+	cp "${utilityDir}/include/safe-rm.bash"          "${jobDir}/cicd/utility/include/"
+	cp "${repoRoot}/testdata/errors.tsv"             "${jobDir}/testdata/"
+	cp "${zigDir}/lib/test/capi_smoke.c"             "${jobDir}/"
+	fBox_Run "${freebsdBox}" "${jobDir}"
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Everything --publish needs that can be known before the build, so a refusal
 ## comes in seconds rather than after it. ZUID_GH names another gh, which is
 ## how the tests run this without reaching GitHub.
@@ -5141,19 +5250,29 @@ function fSection(){
 ## step the run in the image does, without running it here.
 declare -a _stepTitles=() _stepFuncs=() _stepOffs=()
 declare -i _stepPlanning=0 _stepElsewhere=0 _stepAt=0 _stepTotal=0
-declare _stepOpen=""
+declare _stepOpen="" _stepSkipWhy=""
+## The steps that ended in SKIP, for the end of the run.
+declare -a _stepSkipped=()
 function fStep(){  ## title, function, args...
 	local -r title="$1"; shift
 	if ((_stepPlanning)); then _stepTitles+=("${title}"); _stepFuncs+=("${1:-}"); return 0; fi
 	_stepAt+=1
 	((! _stepElsewhere)) || return 0
 	fSection "$(fStep_Stamp): Step ${_stepAt} of ${_stepTotal}; Starting ${title}"
-	_stepOpen="${title}"
+	_stepOpen="${title}"; _stepSkipWhy=""
 	fJobs_Recheck
 	"$@"
 	_stepOpen=""
-	fEcho "$(fStep_Stamp): Step ${_stepAt} of ${_stepTotal}; PASS ${title}"
+	if [[ -n "${_stepSkipWhy}" ]]; then
+		_stepSkipped+=("${title} (${_stepSkipWhy})")
+		fEcho "$(fStep_Stamp): Step ${_stepAt} of ${_stepTotal}; SKIP ${title} (${_stepSkipWhy})"
+	else
+		fEcho "$(fStep_Stamp): Step ${_stepAt} of ${_stepTotal}; PASS ${title}"
+	fi
 }
+## A step that couldn't do its job, such as a box that didn't answer, ends in
+## SKIP rather than PASS.
+function fStep_Skip(){ _stepSkipWhy="$*" ;}
 function fStep_Off(){  ## title, flag or reason
 	if ((_stepPlanning)); then _stepOffs+=("${1} (${2})"); fi
 }

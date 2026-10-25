@@ -339,6 +339,86 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- A box that doesn't answer is a `SKIP` in its step and in the summary, and never stops the run, `--merge-gate` included.
 		- Each box gets a work folder of its own for the project, under its temp root.
 		- Windows tests use `b29w`, never `b29w-wif`. Nothing in the repo names `b29w-wif` today.
+	- Progress log:
+		- 20261025: Split in 4, one per box. The shared part comes with vmFreeBSD in 2026102514523202, then vmDebARM64 in 2026102514523204, b29w in 2026102514523207, and the Mac in 2026102514523209.
+
+- CICD reset: other hosts, the shared part and vmFreeBSD
+	- ID: 2026102514523202
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, for dee33 in a real full run: the FreeBSD box step after Package, its step line, and the skip list at the end if the box is taken.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-145232
+	- Opened by: JC
+	- Parent ID: 2026102416233100
+	- Related IDs: 2026101410500001, 2026100413383471
+	- Target OS: FreeBSD
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- The part every box step shares: the host lock and the VM state helper around the box, a `SKIP` in the step's line and in the summary when the box doesn't answer, and a work folder of its own under the box's temp root. `--no-remote` turns the box steps off.
+		- On vmFreeBSD, the FreeBSD release from the run's `--package` passes `cli-test.bash` and the C smoke test, shared and static.
+	- Progress log:
+		- 20261025: A run that packages has a "FreeBSD box" step after Package, outside the image. It sends the FreeBSD tarball, `cli-test.bash` and `capi_smoke.c` to `bsdtest@vmFreeBSD`, and runs them there with the link lines `zuid.h` gives.
+		- 20261025: The box is held through the lock's VM state helper's `wrap`, which also starts or resumes the VM and puts it back. `cicd.bash` finds it as `ZUID_BOX_LOCK`, or the first `*_vm-state.bash` on PATH. Without one, the box runs unheld, with a note.
+		- 20261025: `cicd/utility/box-run.bash` does the ssh half for every box: a run folder of its own under the box's temp root, made and removed through the repo's guard, and a verdict of pass, fail or skip.
+		- 20261025: A box that's taken past 10 minutes, can't be woken, or doesn't answer is a SKIP. The step's closing line then says SKIP, not PASS, and the end of the run lists every skipped step. A job that fails fails the run.
+		- 20261025: `ZUID_BOX_FREEBSD` names another destination, and set empty turns the step off. `--no-remote` turns it off too.
+		- 20261025: The two new scripts are in the shellcheck stage and dee2c's removal scan.
+	- Decisions:
+		- 20261025: The calls above that may need a look are under `Check:` in the questions file: how the lock is found, the 10-minute wait, when the step runs, and fail against skip.
+	- Branch: round1025c
+	- Test case: dee33 (the box step itself, in a full run), dee34 (which runs have it), dee35 (pass, fail, down, taken and no lock, with ssh and the lock stood in for, and the box's folder gone after), dee36 (a skipped step's line). dee34, dee35 and dee36 each failed with their check broken, and pass after.
+	- Verified:
+		- 20261025: dee33 on the real vmFreeBSD, from off, against `dist/` from 09:39: 91 of 91 `cli-test.bash` cases on FreeBSD 15.1, both smoke tests, then the VM shut down and put back to off. An unknown box name and an unreachable address each came out as a SKIP.
+		- 20261025: `pipeline-test.bash` 150 of 150, `test-ids.py check` (509, all unique), shellcheck, the content scrub, and `cicd.bash --backlog-run-quick shell docs`, 7 of 8 steps before a scrub hit in this item's text, fixed and rescrubbed clean. Load about 2 to 11 on 32 CPUs.
+		- Not verified: the step inside a full run.
+	- Swept: every `doRemote` read in `fSteps`, the `--no-remote` help and `development.md`, the shellcheck list in `fStage_Shell`, dee2c's file list, and `fPlanIn`'s defaults. The macOS workflow's own skips keep their PASS step line, since it isn't a box.
+
+- CICD reset: other hosts, Linux arm64 on vmDebARM64
+	- ID: 2026102514523204
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-145232
+	- Opened by: JC
+	- Parent ID: 2026102416233100
+	- Prereq IDs: 2026102514523202
+	- Target OS: Linux arm64
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- On vmDebARM64, through the shared part, the Linux arm64 release passes `cli-test.bash` and the C smoke test, shared and static. The VM is emulated, so keep the job small.
+
+- CICD reset: other hosts, Windows on b29w
+	- ID: 2026102514523207
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-145232
+	- Opened by: JC
+	- Parent ID: 2026102416233100
+	- Prereq IDs: 2026102514523202
+	- Related IDs: 2026101312344407
+	- Target OS: Windows x86_64
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- On b29w, never `b29w-wif`, the x86_64 zip from the run's `--package` runs its command, and `install.ps1` installs it under 5.1 and 7, user and system, with both `PATH`s back as they were. The installer part is run by hand today, with `win-installer-test.bash` from the private notes.
+		- The box has no bash on PATH, so the job is PowerShell, sent and run with `-File`.
+
+- CICD reset: other hosts, macOS on b26 or vmKt6m
+	- ID: 2026102514523209
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-145232
+	- Opened by: JC
+	- Parent ID: 2026102416233100
+	- Prereq IDs: 2026102514523202
+	- Related IDs: 2026102318361185
+	- Target OS: macOS
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- On b26, or vmKt6m when b26 doesn't answer, the run builds and tests with `--package` from the commit being tested, and the universal tarball comes back into `dist-incoming/`, not by hand.
+		- The box needs Zig 0.17.0. b26 had 0.16.0 when last noted.
 
 - CICD reset: standard flags
 	- ID: 2026102416233103

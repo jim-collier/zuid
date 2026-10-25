@@ -1000,6 +1000,7 @@ fPlanIn(){  ## inContainer, planContainer, then name=value settings
 			doSync=1; doGate=0; doFullGate=0; gateFlag=""; doQuick=0; doDemo=1; doPackage=0; noPackage=0; packageSkipWhy=""
 			onlyToolchain=""; doGo=1; doZig=1; doFuzz=1; doCross=1; doLeakcheck=1; leakAsked=0; doProfile=1
 			doPublish=0; doDogfood=1; doBackup=1; backupInWorktree=0; commitAsked=0; doCommit=0; doPush=0; doRemote=1
+			freebsdBox="bsdtest@vmFreeBSD"
 			_stepTitles=(); _stepOffs=(); _stepPlanning=0; _stepElsewhere=0; _stepAt=0; _stepTotal=0
 			read -r -a runAreas <<< "${planAreas:-}"; areaWhy="not in --backlog-run-quick ${planAreas:-}"
 		}
@@ -1193,6 +1194,121 @@ out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_CONCLUSION=success GITHUB_ACTIONS
 if [[ -z "${hostedBad}" ]]
 	then fPass
 	else fFail "${hostedBad}"
+fi
+
+## The FreeBSD box tests what Package made, outside the image, unless
+## --no-remote or its destination is empty.
+fId dee34 "which runs test on the FreeBSD box"
+boxBad=""
+for boxCase in "doPackage=1|yes" "doPackage=1 doFullGate=1 gateFlag=--merge-gate doSync=0|yes" "doPackage=1 doRemote=0|--no-remote" "doPackage=1 freebsdBox=|ZUID_BOX_FREEBSD is empty" "doQuick=1|nothing packaged" "onlyToolchain=go doZig=0|nothing packaged"; do
+	boxWant="${boxCase#*|}"
+	# shellcheck disable=2086  ## Settings, split on purpose.
+	outside="$(planAreas="" planOffs=1 fPlanIn 0 1 ${boxCase%%|*})" || { boxBad+=" '${boxCase}': ${outside};"; continue; }
+	if [[ "${boxWant}" == "yes" ]]; then
+		grep -v '^off:' <<< "${outside}" | sed -n '/^\*\{0,1\}Package$/,$p' | grep -qx 'FreeBSD box: vmFreeBSD' || boxBad+=" '${boxCase}': it isn't after Package, in '${outside//$'\n'/, }';"
+	else
+		grep -q '^FreeBSD box' <<< "${outside}" && boxBad+=" '${boxCase}' runs it;"
+		grep -qxF "off:FreeBSD box (${boxWant})" <<< "${outside}" || boxBad+=" '${boxCase}' doesn't say it's off for ${boxWant};"
+	fi
+done
+inside="$(planAreas="" fPlanIn 1 0 doSync=0 doDogfood=0 doBackup=0 doPackage=1)" || true
+grep -q 'FreeBSD box' <<< "${inside}" && boxBad+=" the image runs it;"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## The box step end to end, with ssh and the host lock stood in for. ssh runs
+## its command here, so the box's temp root is a folder of the test's own.
+fId dee35 "a box step passes, fails, or skips when the box is down or taken"
+boxBad=""
+boxDir="${work}/box"
+mkdir -p "${boxDir}/bin" "${boxDir}/root" "${boxDir}/dist" "${boxDir}/run"
+cat > "${boxDir}/bin/ssh" <<'EOF_bssh'
+#!/usr/bin/env bash
+while [[ "${1:-}" == -o ]]; do shift 2; done
+shift
+[[ "${BOX_DOWN:-0}" != 1 ]] || exit 255
+HOST_TEMP="${BOX_ROOT:?}" exec bash -c "$*"
+EOF_bssh
+cat > "${boxDir}/bin/lock" <<'EOF_block'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${BOX_LOCK_LOG:?}"
+[[ "${BOX_TAKEN:-0}" != 1 ]] || exit 3
+while [[ "${1:-}" != -- ]]; do shift; done
+shift
+exec "$@"
+EOF_block
+chmod +x "${boxDir}/bin/ssh" "${boxDir}/bin/lock"
+export BOX_ROOT="${boxDir}/root" BOX_LOCK_LOG="${boxDir}/lock.log"
+## Always called in $(...), so a brace group is subshell enough.
+fBoxIn(){  ## job.bash's text, in BOX_JOB
+	{
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{ repoRoot="${boxDir}"; utilityDir="$(cd "$(dirname "${cicd}")" && pwd -P)/utility"
+		  zigDir="${boxDir}/zig"; distPrefix="zuid-1.0.0-"; freebsdBox="bsdtest@vmFreeBSD"; boxWaitSecs=60; keepTemp=0
+		  projectName="zuid"; runName="test"; _stepSkipWhy=""; }
+		_runDir="${boxDir}/run"
+		local fn=""
+		for fn in fBox_Lock fBox_Skip fBox_Run fStage_Box_FreeBSD fStep_Skip fId fTestPass fTestSkip fTestFail; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		# shellcheck disable=2329  ## Called by the lifted functions.
+		{ fEcho_Clean(){ printf '%s\n' "$*"; }; fThrowError(){ printf 'error: %s\n' "$1"; exit 1; }; }
+		## The job is a stand-in, not the real one.
+		# shellcheck disable=2329
+		cp(){ if [[ "${1##*/}" == box-release-test.bash ]]; then printf '%s\n' "${BOX_JOB:?}" > "$2"; else command cp "$@"; fi; }
+		if [[ -d "${_runDir}/box-freebsd" ]]; then fSafeRm "${_runDir}/box-freebsd"; fi
+		: > "${BOX_LOCK_LOG}"
+		fStage_Box_FreeBSD
+		printf 'skipwhy:%s\n' "${_stepSkipWhy}"
+	} 2>&1
+}
+mkdir -p "${boxDir}/zig/lib/test" "${boxDir}/testdata"
+: > "${boxDir}/zig/lib/test/capi_smoke.c"; : > "${boxDir}/testdata/errors.tsv"
+## No release yet.
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dee33 .*(no zuid-1.0.0-freebsd-x86_64.tgz in dist/)$' <<< "${out}" && grep -q '^skipwhy:no ' <<< "${out}"; } || boxBad+=" no release: exited ${rc}, said '${out//$'\n'/ | }';"
+printf 'x\n' > "${boxDir}/dist/zuid-1.0.0-freebsd-x86_64.tgz"
+## Passes, under the lock, and the box's folder is gone after.
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='[[ -f zuid-1.0.0-freebsd-x86_64.tgz && -f cicd/utility/cli-test.bash ]]' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -qx '  PASS dee33 FreeBSD release on its box: command surface and C module' <<< "${out}" && grep -qx 'skipwhy:' <<< "${out}"; } || boxBad+=" pass: exited ${rc}, said '${out//$'\n'/ | }';"
+grep -q '^wrap vmFreeBSD --wait 60 --why zuid: cicd test -- bash .*/box-run.bash bsdtest@vmFreeBSD ' "${BOX_LOCK_LOG}" || boxBad+=" pass: not held through the lock;"
+grep -q "^Box \.*: bsdtest@vmFreeBSD:${boxDir}/root/zuid/[0-9]\{8\}-[0-9]\{6\}_[0-9]\{3\}$" <<< "${out}" || boxBad+=" pass: no work folder of its own;"
+[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" pass: the box's folder is still there;"
+## The job fails, which fails the step.
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 3' fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -qx '  FAIL dee33 FreeBSD release on its box: command surface and C module' <<< "${out}" && grep -q 'exited 3' <<< "${out}"; } || boxBad+=" fail: exited ${rc}, said '${out//$'\n'/ | }';"
+[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" fail: the box's folder is still there;"
+## Down, or taken past the wait, is a skip that the step ends on.
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dee33 .*(no answer from bsdtest@vmFreeBSD)$' <<< "${out}" && grep -qx 'skipwhy:no answer from bsdtest@vmFreeBSD' <<< "${out}"; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_TAKEN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dee33 .*(vmFreeBSD stayed taken for 1 minutes)$' <<< "${out}"; } || boxBad+=" taken: exited ${rc}, said '${out//$'\n'/ | }';"
+## No lock here, which says so and runs anyway.
+out="$(ZUID_BOX_LOCK="" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q "isn't held" <<< "${out}" && grep -q '^  PASS dee33 ' <<< "${out}" && [[ ! -s "${BOX_LOCK_LOG}" ]]; } || boxBad+=" no lock: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## A step that skipped ends on SKIP, not PASS, and is kept for the end.
+fId dee36 "a skipped step says SKIP"
+stepOut="$(
+	fLoad fStep || exit 2
+	fLoad fStep_Skip || exit 2
+	# shellcheck disable=2329,2034  ## Called and read by the lifted functions.
+	{ declare -i _stepPlanning=0 _stepElsewhere=0 _stepAt=0 _stepTotal=2; _stepOpen=""; _stepSkipWhy=""; _stepSkipped=()
+	  fEcho(){ printf '%s\n' "$*"; }; fStep_Stamp(){ printf 'now\n'; }; fJobs_Recheck(){ :; }
+	  fBoxDown(){ fStep_Skip "no answer"; }; fFine(){ :; }; }
+	fStep "Box" fBoxDown
+	fStep "Other" fFine
+	printf 'kept:%s\n' "${_stepSkipped[@]}"
+)" || true
+if grep -qx 'now: Step 1 of 2; SKIP Box (no answer)' <<< "${stepOut}" && grep -qx 'now: Step 2 of 2; PASS Other' <<< "${stepOut}" && grep -qx 'kept:Box (no answer)' <<< "${stepOut}"
+	then fPass
+	else fFail "said '${stepOut//$'\n'/ | }'"
 fi
 
 ## --quick fuzzes and dogfoods, per the 2026-10-24 CICD reset. The gate flags
@@ -2854,7 +2970,8 @@ fId dee2c "recursive removals only inside the guards"
 guardBad=""
 # shellcheck disable=2031  ## Only a subshell much earlier changes it.
 for guardFile in cicd/utility/cli-test.bash cicd/utility/pipeline-test.bash cicd/utility/installer-test.bash \
-	cicd/utility/git-hooks/pre-push cicd/utility/package.bash cicd/utility/include/safe-rm.bash cicd/cicd.bash install.bash install.ps1; do
+	cicd/utility/git-hooks/pre-push cicd/utility/package.bash cicd/utility/include/safe-rm.bash cicd/cicd.bash install.bash install.ps1 \
+	cicd/utility/box-run.bash cicd/utility/box-release-test.bash; do
 	# shellcheck disable=2031  ## Likewise.
 	[[ -f "${repoRoot}/${guardFile}" ]] || { guardBad+=" no ${guardFile};"; continue; }
 	# shellcheck disable=2031  ## Likewise.
