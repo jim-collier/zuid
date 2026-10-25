@@ -1997,7 +1997,7 @@ fStage_Go_Consumer(){
 	fTestPass
 
 	local consumerDir=""
-	consumerDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	consumerDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${consumerDir}")
 
 	cat > "${consumerDir}/main.go" <<-'EOF'
@@ -2408,7 +2408,7 @@ fStage_Zig_Fuzz(){
 	cd "${zigDir}" || fThrowError "Missing the Zig tree: '${zigDir}'."  "${FUNCNAME[0]}"
 
 	local logDir=""
-	logDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	logDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${logDir}")
 	local -r fuzzLog="${logDir}/fuzz.log"
 
@@ -2499,7 +2499,7 @@ fStage_Zig_Cli(){
 fStage_Zig_BuildStamp(){
 
 	local stampDir=""
-	stampDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	stampDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${stampDir}")
 
 	## Zig 0.17.0 on macOS spins forever copying its output into a pipe, and a
@@ -2624,7 +2624,7 @@ fStage_Zig_CApi(){
 
 	local -r smokeSrc="${zigDir}/lib/test/capi_smoke.c"
 	local buildDir=""
-	buildDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	buildDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	## An errexit abort skips a RETURN trap, so the cleanup is registered where
 	## the exit handler can also see it.
 	_scratchDirs+=("${buildDir}")
@@ -2765,7 +2765,7 @@ fStage_Zig_CChecks(){
 	local -r testDir="${zigDir}/lib/test" incDir="${zigDir}/zig-out/include" libDir="${zigDir}/zig-out/lib"
 	local -ra cWarn=(-std=c99 -Wall -Wextra -Wpedantic -Werror)
 	local buildDir=""
-	buildDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	buildDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${buildDir}")
 
 	fId de5ay "capi_smoke.c shared, sanitized"
@@ -2843,7 +2843,7 @@ fLeakcheck_Go(){  ## artifact dir
 	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
 	local -rx GOMAXPROCS="${hardJobs}"
 	local soakDir=""
-	soakDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	soakDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${soakDir}")
 
 	## TestSoak skips without ZUID_SOAK_DIR. Its exit is held until the profiles
@@ -2885,7 +2885,7 @@ fLeakcheck_C(){  ## artifact dir
 	local -r soakSrc="${zigDir}/lib/test/capi_soak.c" incDir="${zigDir}/zig-out/include" libDir="${zigDir}/zig-out/lib"
 	local -ra cWarn=(-std=c99 -Wall -Wextra -Wpedantic -Werror)
 	local buildDir=""
-	buildDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	buildDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${buildDir}")
 
 	## heaptrack's data file is kept only on a failure. It runs to about 25 MB.
@@ -2932,7 +2932,7 @@ fLeakcheck_CodeQL(){  ## artifact dir
 
 	local -r runner="${utilityDir}/codeql.bash"
 	local workDir=""
-	workDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	workDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${workDir}")
 
 	if ((doGo)); then
@@ -3022,7 +3022,7 @@ fProfile_Cli(){
 	fi
 
 	local scratch=""
-	scratch="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	scratch="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${scratch}")
 
 	## perf needs kernel.perf_event_paranoid below 3 to record an unprivileged
@@ -3126,7 +3126,7 @@ fStage_Package(){
 	## The macOS checks read one slice at a time. The x86_64 scan means nothing on
 	## arm64, and the minimum macOS has to be right for both.
 	local thinDir=""
-	thinDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	thinDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${thinDir}")
 	local -r macSlices=("x86_64" "arm64")
 
@@ -5147,7 +5147,7 @@ fFindZig(){  ## minimum version
 	local -r have="$("${found}" version 2>/dev/null || true)"
 	fVersion_AtLeast "${have}" "${want}" || fThrowError "Zig ${want} or newer required, found '${have}' at ${found}."  "${FUNCNAME[0]}"
 	local linkDir=""
-	linkDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	linkDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${linkDir}")
 	ln -s "$(readlink -f "${found}")" "${linkDir}/zig"
 	export PATH="${linkDir}:${PATH}"
@@ -5371,6 +5371,8 @@ function _fRemoveScratchDirs(){
 	## Only a bare mktemp -d's own tmp.* folder, in TMPDIR or /tmp. Checking for
 	## /tmp alone kept every one when TMPDIR was elsewhere, as it is on macOS.
 	local tmpRoot="${TMPDIR:-/tmp}"; tmpRoot="${tmpRoot%/}"
+	## fMkTempDir names it by its physical path.
+	tmpRoot="$(cd -P -- "${tmpRoot}" 2>/dev/null && pwd -P)" || tmpRoot="${TMPDIR:-/tmp}"; tmpRoot="${tmpRoot%/}"
 	local dir="" parent=""
 	for dir in "${_scratchDirs[@]}"; do
 		[[ -n "${dir}" && -d "${dir}" && ! -L "${dir}" && "${dir##*/}" == tmp.* ]] || continue

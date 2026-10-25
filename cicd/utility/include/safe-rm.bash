@@ -10,6 +10,7 @@
 ##			fRunDir_Make <project> <stamp>  A run folder in the temp root, for cicd.bash.
 ##			fRunDir_Sweep                   Then the project's stale run folders.
 ##			fRunDir_Sub <project> <name>    Inside cicd.bash's run folder, or a run folder of its own when run alone.
+##			fMkTempDir                      A tmp.* folder in TMPDIR, physical. Prints it.
 ##		Both take one absolute path, refuse '..', '//', a newline, a link, a path
 ##		through a link and one that isn't there, and stay on one filesystem.
 ##		safeRmOwn is the project's own folder in the temp root, realpath'd once, since
@@ -70,6 +71,15 @@ fSafeRm_Under(){  ## parent, path
 		printf 'safe-rm: refused, not under %s: %s\n' "${parent}" "${p}" >&2; return 1
 	fi
 	_fSafeRm_Do "${p}"
+}
+
+## A scratch folder in TMPDIR, by its physical path, so the guard can take it
+## back. Never a bare mktemp -d: macOS's ignores TMPDIR and uses its own temp
+## folder, behind the /var link.
+fMkTempDir(){
+	local root="${TMPDIR:-/tmp}"
+	root="$(cd -P -- "${root}" && pwd -P)" || { printf "mktemp: the temp dir '%s' isn't there.\n" "${TMPDIR:-/tmp}" >&2; return 1; }
+	mktemp -d "${root%/}/tmp.XXXXXXXXXX"
 }
 
 ## <parent>/<name>_<NNN>, with a plain mkdir and a counter, so two started in
@@ -137,6 +147,7 @@ fRunDir_Sub(){  ## project, name
 }
 
 ##	History:
+##		- 20261025 JC: fMkTempDir, since macOS's bare mktemp -d ignores TMPDIR.
 ##		- 20261025 JC: fRunDir_Sweep counts what it removed.
 ##		- 20261025 JC: The run folder, for cicd.bash and the harnesses alike.
 ##		- 20261025 JC: Created, from the shared safe removal guard.

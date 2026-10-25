@@ -2759,7 +2759,7 @@ for goQuick in 1 0; do
 		fLoad fStage_Go_Fuzz || exit 2
 		# shellcheck disable=2034  ## Read by the lifted function.
 		{ doQuick="${goQuick}"; goDir="${work}/gofuzz/go"; hardJobs=2; }
-		# shellcheck disable=2031  ## Only the subshell's PATH.
+		# shellcheck disable=2030,2031  ## Only the subshell's PATH.
 		export FAKE_GO_ARGS="${work}/go-args" PATH="${fuzzBin}:${PATH}" PYTHONDONTWRITEBYTECODE=1
 		fStage_Go_Fuzz
 	) > /dev/null 2>&1 || budgetBad+=" the Go stage exited $? with doQuick=${goQuick};"
@@ -2789,7 +2789,7 @@ ln -s "${work}/clean-target" "${cleanTmp}/tmp.link"
 cleanBad=""
 if ! out="$(
 	fLoad _fRemoveScratchDirs || { echo "no _fRemoveScratchDirs in cicd.bash"; exit 2; }
-	# shellcheck disable=2031  ## Its own TMPDIR, with the trailing slash macOS gives.
+	# shellcheck disable=2030,2031  ## Its own TMPDIR, with the trailing slash macOS gives.
 	export TMPDIR="${cleanTmp}/"
 	_scratchDirs=("${cleanTmp}/tmp.mine" "${cleanTmp}/keep" "${work}/clean-other/tmp.elsewhere" "${cleanTmp}/tmp.link" "")
 	_fRemoveScratchDirs
@@ -2806,6 +2806,64 @@ fi
 if [[ -z "${cleanBad}" ]]
 	then fPass
 	else fFail "${cleanBad}"
+fi
+
+## A stage's scratch folder is made inside TMPDIR, by its physical path, so
+## the guard takes it back. Once with TMPDIR through a link, and once with a
+## mktemp that ignores TMPDIR for a temp folder behind a link, as macOS's
+## does. A bare mktemp -d failed both, on the guard's link refusal.
+fId dee5h "scratch folders made physical, inside TMPDIR"
+mkRoot="${work}/mkt"
+mkdir -p "${mkRoot}/real/run" "${mkRoot}/real/sysT" "${mkRoot}/bin"
+ln -s "${mkRoot}/real" "${mkRoot}/var"
+realMktemp="$(command -v mktemp)"
+printf '#!/usr/bin/env bash\nif [[ "$*" == "-d" ]]; then exec "%s" -d "%s/tmp.XXXXXXXXXX"; fi\nexec "%s" "$@"\n' \
+	"${realMktemp}" "${mkRoot}/var/sysT" "${realMktemp}" > "${mkRoot}/bin/mktemp"
+## Enough of go for the consumer stage: its build writes a program that runs.
+# shellcheck disable=2016  ## Expanded by the stand-in.
+printf '#!/usr/bin/env bash\nif [[ "$1" == build ]]; then printf "#!/bin/sh\\nexit 0\\n" > "$3"; chmod +x "$3"; fi\nexit 0\n' > "${mkRoot}/bin/go"
+chmod +x "${mkRoot}/bin/mktemp" "${mkRoot}/bin/go"
+mkdir "${mkRoot}/gobin"; ln -s "${mkRoot}/bin/go" "${mkRoot}/gobin/go"
+fMkCase(){  ## TMPDIR, PATH prefix
+	(
+		fLoad fStage_Go_Consumer || { echo "no fStage_Go_Consumer in cicd.bash"; exit 2; }
+		# shellcheck disable=2329  ## Called by the lifted stage.
+		{ fId(){ :; }; fTestPass(){ :; }; fTestFail(){ printf 'fail: %s\n' "$*"; exit 1; }; fThrowError(){ printf '%s\n' "$1"; exit 1; }; }
+		# shellcheck disable=2030,2031,2034  ## Read by the lifted stage, in this subshell.
+		{ goDir="${repoRoot}/go"; _scratchDirs=(); safeRmOwn="${mkRoot}/real"; }
+		# shellcheck disable=2030,2031  ## Only this subshell's.
+		export TMPDIR="$1" PATH="$2:${PATH}"
+		fStage_Go_Consumer 2>&1 || echo "rc=$?"
+	)
+}
+mkBad=""
+out="$(fMkCase "${mkRoot}/var/run" "${mkRoot}/gobin")"
+[[ -z "${out}" ]] || mkBad+=" TMPDIR through a link: ${out};"
+out="$(fMkCase "${mkRoot}/real/run" "${mkRoot}/bin")"
+[[ -z "${out}" ]] || mkBad+=" a mktemp that ignores TMPDIR: ${out};"
+mkLeft="$(find "${mkRoot}/real" -mindepth 2 | tr '\n' ' ')"
+[[ -z "${mkLeft}" ]] || mkBad+=" left ${mkLeft};"
+if [[ -z "${mkBad}" ]]
+	then fPass
+	else fFail "${mkBad}"
+fi
+
+## Every mktemp names its template, or goes through fMkTempDir. A bare one is
+## what dee5h caught in the consumer stage, on macOS.
+fId dee5j "no bare mktemp in the scripts"
+mkBad=""
+# shellcheck disable=2031  ## repoRoot is the harness's own.
+for mkFile in cicd/cicd.bash install.bash cicd/utility/include/safe-rm.bash cicd/utility/git-hooks/pre-push \
+	cicd/utility/{installer-test,cli-test,pipeline-test,package,c-checks,box-run,box-release-test,gomod-prune}.bash; do
+	[[ -f "${repoRoot}/${mkFile}" ]] || { mkBad+=" no ${mkFile};"; continue; }
+	while IFS= read -r mkLine; do
+		mkBad+=" ${mkFile}:${mkLine%%:*};"
+	done < <(grep -nE '(\$\(|^[[:space:]]*|[;|&][[:space:]]*)mktemp( |\)|$)' "${repoRoot}/${mkFile}" | grep -vE '^[0-9]+:[[:space:]]*#' \
+		| grep -v 'XXX' | grep -v -e '-v mktemp' -e '_fMustBeInPath mktemp' || true)
+done
+if [[ -z "${mkBad}" ]]
+	then fPass
+	else fFail "bare mktemp at${mkBad}"
 fi
 
 ## The guard every recursive removal goes through. The refusals run against a
