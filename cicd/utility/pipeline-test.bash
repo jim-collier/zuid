@@ -276,14 +276,21 @@ if ((rc == 0)) && [[ "${out}" == "${want}" ]]
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
 fi
 
-## On the script's own process, so everything it starts inherits it.
+## On the script's own process, so everything it starts inherits it. Read
+## through fNiceOf, since the image has no ps. Where there is /proc, its branch
+## is checked too, with ps hidden by a function.
 fId Etj0NB7 "the run lowers its own priority"
-out="$(bash -c "$(sed -n '/^fLowPriority(){/,/^}/p' "${cicd}")"'
+out="$(bash -c "$(sed -n '/^fLowPriority(){/,/^}/p;/^fNiceOf(){/,/^}/p' "${cicd}")"'
 	fLowPriority
-	printf "%s|" "$(ps -o nice= -p "$$" | tr -d " ")"
+	printf "%s|" "$(fNiceOf "$$")"
+	if [[ -r "/proc/$$/stat" ]]; then
+		printf "%s|" "$(command(){ [[ "$*" != "-v ps" ]] && builtin command "$@"; }; fNiceOf "$$")"
+	else
+		printf "19|"
+	fi
 	if command -v ionice >/dev/null; then ionice -p "$$"; fi
 ' 2>&1)" && rc=0 || rc=$?
-if ((rc == 0)) && [[ "${out}" == "19|"* ]] && { ! command -v ionice >/dev/null || [[ "${out}" == "19|idle"* ]]; }
+if ((rc == 0)) && [[ "${out}" == "19|19|"* ]] && { ! command -v ionice >/dev/null || [[ "${out}" == "19|19|idle"* ]]; }
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
