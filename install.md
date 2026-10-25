@@ -51,7 +51,7 @@ The first run compiles the WebAssembly module built into the command, which take
 
 ## Do it yourself
 
-Clone the repository and run `cicd/cicd.bash --no-backup`. Without that flag a run also archives the tree, then commits and pushes it. It fetches what it needs, builds both sides, and runs the tests. The command ends up at `zig/zig-out/bin/zuid`, and a full run also copies it to the first of `~/.local/bin` or `~/bin` that exists, so what is on your path is the build that just passed. `--no-dogfood` turns that off. A full run on Linux x86_64 or macOS builds the release files into `dist/` as well, and [development.md](development.md) lists what that needs.
+Clone the repository and run `cicd/cicd.bash --no-backup`. Without that flag a run also archives the tree, then commits and pushes it. It fetches what it needs, builds both sides, and runs the tests. The command ends up at `zig/zig-out/bin/zuid`, and a run, quick or full, also copies it to the first of `~/.local/bin` or `~/bin` that exists, so what is on your path is the build that just passed. `--no-dogfood` turns that off. A full run on Linux x86_64 or macOS builds the release files into `dist/` as well, and [development.md](development.md) lists what that needs.
 
 For the Go module, no install step is needed:
 

@@ -480,14 +480,15 @@ if ((rc == 0)) && [[ "${out}" == $'doLeakcheck=1\ndoLeakcheck=1\ndoLeakcheck=0\n
 fi
 
 ## Each slow stage can be left out of a full run alone, so a failure in one
-## doesn't stop a run that's testing something else. Quick drops them all.
+## doesn't stop a run that's testing something else. Quick drops profile and
+## demo, but fuzzes. The gate drops all three.
 fId Etab8wo "--no-fuzz, --no-profile, --no-demo"
 out="$(for slowArgs in "" --no-fuzz --no-profile --no-demo "--no-fuzz --no-profile --no-demo" --quick --gate "--quick --no-demo"; do
 	# shellcheck disable=2086  ## Empty means no argument at all.
 	showSlow=1 fInitIn "${worktreeMain}" ${slowArgs}
 done)" && rc=0 || rc=$?
 wantSlow="doFuzz=1 doProfile=1 doDemo=1"$'\n'"doFuzz=0 doProfile=1 doDemo=1"$'\n'"doFuzz=1 doProfile=0 doDemo=1"$'\n'"doFuzz=1 doProfile=1 doDemo=0"
-for _ in 1 2 3 4; do wantSlow+=$'\n'"doFuzz=0 doProfile=0 doDemo=0"; done
+wantSlow+=$'\n'"doFuzz=0 doProfile=0 doDemo=0"$'\n'"doFuzz=1 doProfile=0 doDemo=0"$'\n'"doFuzz=0 doProfile=0 doDemo=0"$'\n'"doFuzz=1 doProfile=0 doDemo=0"
 if ((rc == 0)) && [[ "${out}" == "${wantSlow}" ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
@@ -757,7 +758,7 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 			repoRoot="$(cd "$1" && pwd -P)"; containerImage="zuid-cicd"; containerVolume="zuid-cicd-cache"; codeqlImage="zuid-codeql"
 			containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"
 			onlyToolchain="go"; doQuick="${quick:-1}"; doPackage=1; doLeakcheck="${leakcheck:-0}"; runStamp="20261019-101112"; _stepAt=2; _stepTotal=30
-			doFuzz="${fuzz:-0}"; doProfile="${profile:-0}"
+			doFuzz="${fuzz:-1}"; doProfile="${profile:-0}"
 			projectName="zuid"; runName="20261019-101112"; keepTemp="${keep:-0}"; _dockerRun=""; buildJobs=3
 			read -r -a runAreas <<< "${areasIn:-}"
 		}
@@ -842,6 +843,19 @@ runs="$(grep '^run ' "${work}/engine-slow" | sed 's/.* --only go //' || true)"
 if ((rc == 0)) && [[ "${runs}" == $'--package --no-leakcheck --no-fuzz\n--package --no-leakcheck --no-profile\n--package --no-leakcheck' ]]
 	then fPass
 	else fFail "exited ${rc}, asked: ${runs//$'\n'/ | }"
+fi
+
+## A quick run fuzzes now, so --quick no longer says --no-fuzz for it.
+fId EtjfGH2 "--container passes --no-fuzz in on a quick run"
+fuzzInner="$(
+	fLoad fContainer_InnerArgs || exit 2
+	# shellcheck disable=2034  ## Read by the lifted function.
+	{ onlyToolchain=""; doQuick=1; doPackage=0; doLeakcheck=0; doProfile=0; keepTemp=0; runAreas=(); }
+	for doFuzz in 1 0; do args=(); fContainer_InnerArgs args; printf '%s\n' "${args[*]}"; done
+)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${fuzzInner}" == $'-q --no-sync --no-backup --no-dogfood --quick --no-leakcheck\n-q --no-sync --no-backup --no-dogfood --quick --no-leakcheck --no-fuzz' ]]
+	then fPass
+	else fFail "exited ${rc}, asked: ${fuzzInner//$'\n'/ | }"
 fi
 
 ## The image has no time zone, so the run inside stamped its files in UTC and
@@ -1066,6 +1080,32 @@ logsAfter="$(find "${cicd%/cicd.bash}/artifacts" -maxdepth 1 -newer "${cicd}" 2>
 if [[ -z "${listBad}" ]]
 	then fPass
 	else fFail "${listBad}"
+fi
+
+## --quick fuzzes and dogfoods, per the 2026-10-24 CICD reset. The gate flags
+## do neither.
+fId EtjfGH0 "--quick fuzzes and dogfoods, the gates don't"
+quickBad=""
+## As planned on the host. The run in the image has no dogfood step.
+fQuickList(){ env -u ZUID_IN_CONTAINER -u ZUID_STEP_FIRST -u ZUID_STEP_TOTAL bash "${cicd}" --list "$@" --no-container < /dev/null 2>&1; }
+out="$(fQuickList --quick)" || quickBad+=" --quick exited $?;"
+for step in "Go: fuzz" "Zig: fuzz" "Dogfood"; do
+	grep -qE "^[0-9]+\. ${step}\$" <<< "${out}" || quickBad+=" --quick has no ${step} step;"
+done
+out="$(fQuickList --quick --no-fuzz --no-dogfood)" || quickBad+=" --quick --no-fuzz exited $?;"
+for step in "Go: fuzz (--no-fuzz)" "Zig: fuzz (--no-fuzz)" "Dogfood (--no-dogfood)"; do
+	grep -qxF "Off ........: ${step}" <<< "${out}" || quickBad+=" --quick --no-fuzz --no-dogfood doesn't say ${step};"
+done
+for gate in --backlog-run-quick --merge-gate; do
+	out="$(fQuickList "${gate}")" || quickBad+=" ${gate} exited $?;"
+	grep -qxF "Off ........: Dogfood (${gate})" <<< "${out}" || quickBad+=" ${gate} dogfoods;"
+	if [[ "${gate}" == "--backlog-run-quick" ]]; then
+		grep -qxF "Off ........: Go: fuzz (${gate})" <<< "${out}" || quickBad+=" ${gate} fuzzes;"
+	fi
+done
+if [[ -z "${quickBad}" ]]
+	then fPass
+	else fFail "${quickBad}"
 fi
 
 ## CodeQL is about 480 MB, so a run that doesn't want it never builds it.
@@ -2347,7 +2387,7 @@ fFuzzIn(){  ## mode, name of the test that finds
 		done
 		# shellcheck disable=2034  ## Read by the lifted functions.
 		{
-			doQuick=0; doFuzz=1; zigDir="${dir}/zig"; buildJobs=5; hardJobs=2
+			doQuick="${rigQuick:-0}"; doFuzz=1; zigDir="${dir}/zig"; buildJobs=5; hardJobs=2
 			_scratchDirs=(); artifactDir="${dir}/artifacts"; runStamp="pipeline-test"
 		}
 		## The script's own exit cleanup. A failed case leaves through exit 1,
@@ -2410,6 +2450,44 @@ out="$(FAKE_ZIG_ARGS="${work}/fuzz-args" fFuzzIn clean)" && rc=0 || rc=$?
 if ((rc == 0)) && grep -qxF -- "build -j2 test --fuzz=50K" "${work}/fuzz-args"
 	then fPass
 	else fFail "exited ${rc}, zig was asked: '$(tr '\n' ' ' < "${work}/fuzz-args")'"
+fi
+
+## A quick run fuzzes on a short budget, both sides.
+fId EtjfGH1 "quick fuzz budget"
+budgetBad=""
+: > "${work}/fuzz-args"
+rigQuick=1 FAKE_ZIG_ARGS="${work}/fuzz-args" fFuzzIn clean > /dev/null || budgetBad+=" the Zig stage exited $?;"
+grep -qxF -- "build -j2 test --fuzz=5K" "${work}/fuzz-args" || budgetBad+=" zig was asked '$(tr '\n' ' ' < "${work}/fuzz-args")';"
+# shellcheck disable=2016  ## The stand-in's own text.
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "${FAKE_GO_ARGS:-/dev/null}"\n' > "${fuzzBin}/go"
+chmod +x "${fuzzBin}/go"
+mkdir -p "${work}/gofuzz/go"
+for goQuick in 1 0; do
+	: > "${work}/go-args"
+	(
+		# shellcheck disable=2329  ## Called by the lifted fStage_Go_Fuzz, not here.
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2329
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2329
+		fTestPass(){ :; }
+		# shellcheck disable=2329
+		fTestFail(){ printf '%s\n' "$*"; exit 1; }
+		# shellcheck disable=2329
+		fId(){ :; }
+		fLoad fStage_Go_Fuzz || exit 2
+		# shellcheck disable=2034  ## Read by the lifted function.
+		{ doQuick="${goQuick}"; goDir="${work}/gofuzz/go"; hardJobs=2; }
+		# shellcheck disable=2031  ## Only the subshell's PATH.
+		export FAKE_GO_ARGS="${work}/go-args" PATH="${fuzzBin}:${PATH}" PYTHONDONTWRITEBYTECODE=1
+		fStage_Go_Fuzz
+	) > /dev/null 2>&1 || budgetBad+=" the Go stage exited $? with doQuick=${goQuick};"
+	goWant="-fuzztime=20s"; if ((goQuick)); then goWant="-fuzztime=5s"; fi
+	grep -qF -- " ${goWant} " "${work}/go-args" || budgetBad+=" go was asked '$(tr '\n' ' ' < "${work}/go-args")' with doQuick=${goQuick};"
+done
+if [[ -z "${budgetBad}" ]]
+	then fPass
+	else fFail "${budgetBad}"
 fi
 
 ## Each case above left its fuzz.log folder in the temp dir, 2 a run, since

@@ -29,6 +29,7 @@
 ##		- 20261025 JC: Docker cleanup by label at the end of a run. --keep-temp.
 ##		- 20261025 JC: --backlog-run-quick, --backlog-run-full, --merge-gate, --long, --no-remote. --gate and --ci are other names.
 ##		- 20261025 JC: Areas for --backlog-run-quick. --list.
+##		- 20261025 JC: --quick fuzzes on a short budget, and dogfoods.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Global, since the exit trap reads it after fMain has gone.
@@ -212,10 +213,10 @@ fPrint_Help(){
 		                      to be installed.
 		    --cross           Kept for old command lines. Every run cross-compiles the
 		                      Go module now, for ${crossTargets[*]}
-		    --quick           Skip the slow stages: fuzzing, profiling, the demo and
-		                      packaging, plus the dogfood install. Lint, the tests,
-		                      the Go cross builds and the backup still run.
-		    --no-fuzz         Leave the Go and Zig fuzzing out of a full run.
+		    --quick           Skip the slow stages: profiling, the demo and packaging.
+		                      Fuzzing runs on a short budget. Lint, the tests, the
+		                      Go cross builds, dogfood and the backup still run.
+		    --no-fuzz         Leave the Go and Zig fuzzing out.
 		    --no-profile      Leave the profile out of a full run.
 		    --no-demo         Leave the demo out, so assets/demo.gif stays as it is.
 		    --no-sync         Skip the remote refresh at the start.
@@ -223,9 +224,10 @@ fPrint_Help(){
 		                      to be left out of it yet, so for now this is the same.
 		    --backlog-run-quick [<area>...]
 		                      What a backlog worker runs before it commits: --quick,
-		                      with no sync, dogfood, backup, demo, commit or push,
-		                      and no prompt. --gate is another name for it. Areas
-		                      named after it narrow it to theirs. See below.
+		                      with no fuzzing, sync, dogfood, backup, demo, commit
+		                      or push, and no prompt. --gate is another name for
+		                      it. Areas named after it narrow it to theirs. See
+		                      below.
 		    --backlog-run-full
 		                      What a backlog round runs once at its end: every check
 		                      of the default run, with none of the above.
@@ -243,8 +245,8 @@ fPrint_Help(){
 		    --backup          Archive and publish. On by default, so this only undoes
 		                      an earlier --no-backup.
 		    --no-backup       Do not archive or publish, however the run went.
-		    --dogfood         Install for daily use even on a quick run. A full run
-		                      installs anyway.
+		    --dogfood         Install for daily use. On by default, so this only
+		                      undoes an earlier --no-dogfood.
 		    --no-dogfood      Do not install, however the run went.
 		    --publish         Publish a GitHub release of the version in
 		                      zig/lib/src/core.zig. Implies --package. See below.
@@ -275,9 +277,10 @@ fPrint_Help(){
 		Every run is logged to cicd/artifacts/, along with any profile and demo it
 		produced. Those are rotated, not kept forever, and none of it is committed.
 
-		A full run that builds the Zig side also puts the command where daily use
-		finds it, so that's always the build that just passed. Each release file it
-		packaged goes to its own platform's dir, if that dir exists:
+		A run that builds the Zig side, quick or full, also puts the command where
+		daily use finds it, so that's always the build that just passed. The gate
+		flags never do. Each release file it packaged goes to its own platform's
+		dir, if that dir exists:
 		$(printf '  zuid-<version>-%s\n' "${dogfoodSynced[@]}" | sed 's/|/ -> /; s/|/ in /')
 		With nothing packaged, the command from zig-out goes to the first of these
 		that exists: ${dogfoodDirs[*]}
@@ -530,10 +533,8 @@ fMain(){
 	## Set by the publish preflight, read by the publish stage.
 	local publishVersion="" publishRemote="" publishHead="" publishRepoUrl=""
 
-	## Dogfooding rides along with every full run, so that daily use is the
-	## build that just passed. A quick run is mid-iteration, so it stays
-	## off the path unless asked for by name.
-	if ((doQuick)) && ((! dogfoodAsked)); then doDogfood=0; fi
+	## Dogfooding rides along with every run, quick too, so that daily use is
+	## the build that just passed. The gate flags turned it off in fInit.
 	readonly doDogfood
 
 	## Backing up survives a quick run - the archive is cheap next to the stages
@@ -644,7 +645,6 @@ fSteps(){
 	if ((doZig)) && ((doDogfood)); then fStep "Dogfood" fStage_Dogfood
 	elif [[ "${onlyToolchain}" == "go" ]]; then fStep_Off "Dogfood" "--only go"
 	elif ((doGate)) || ((doFullGate)); then fStep_Off "Dogfood" "${gateFlag}"
-	elif ((doQuick)); then fStep_Off "Dogfood" "--quick, unless --dogfood"
 	else fStep_Off "Dogfood" "--no-dogfood"; fi
 	if ((doBackup)); then fStep "Backup and publish" fStage_Backup
 	elif ((backupInWorktree)); then fStep_Off "Backup and publish" "a linked worktree"
@@ -713,7 +713,7 @@ fSteps_Scrub(){
 	else fStep_Off "Content scrub" "no private/hooks/scrub.bash beside the repo"; fi
 }
 
-fSteps_FuzzWhy(){ if ((doQuick)); then printf '%s\n' "${quickWhy}"; else printf '%s\n' "--no-fuzz"; fi ;}
+fSteps_FuzzWhy(){ if ((doGate)); then printf '%s\n' "${gateFlag}"; else printf '%s\n' "--no-fuzz"; fi ;}
 
 ## The image has every tool packaging needs, so a run there packages where
 ## this machine couldn't.
@@ -864,7 +864,8 @@ fInit(){
 		fi
 		doSync=0; doBackup=0; doDogfood=0; doDemo=0; doQuietly=1
 	fi
-	if ((doGate)); then doQuick=1; fi
+	## A worker's gate fits in about 4 minutes, so fuzzing waits for the round's full run.
+	if ((doGate)); then doQuick=1; doFuzz=0; fi
 	if ((${#runAreas[@]})) && [[ -n "${onlyToolchain}" ]]; then
 		fThrowError "The areas after ${gateFlag} already pick the toolchains, so drop --only."  "${FUNCNAME[0]}"
 	fi
@@ -879,7 +880,8 @@ fInit(){
 
 	## Leak checks are 10 minutes more, so a quick run only has them if asked.
 	if ((doQuick)) && ((! leakAsked)); then doLeakcheck=0; fi
-	if ((doQuick)); then doFuzz=0; doProfile=0; doDemo=0; fi
+	## Quick keeps fuzzing, on a short budget. See fStage_Go_Fuzz and fStage_Zig_Fuzz.
+	if ((doQuick)); then doProfile=0; doDemo=0; fi
 
 	## The Go cross builds take a few seconds each from cold, so quick runs get
 	## them too. The Zig ones take about 20 s a target and come with --package.
@@ -1145,8 +1147,8 @@ fContainer_InnerArgs(){  ## array to fill
 	if ((doQuick));   then innerArgs_m2q+=(--quick);   fi
 	if ((doPackage)); then innerArgs_m2q+=(--package); fi
 	if ((doLeakcheck)); then innerArgs_m2q+=(--leakcheck); else innerArgs_m2q+=(--no-leakcheck); fi
-	## --quick already says these. The demo stays out here anyway.
-	if ((! doQuick)) && ((! doFuzz));    then innerArgs_m2q+=(--no-fuzz);    fi
+	## --quick already drops the profile, but not fuzzing. The demo stays out here anyway.
+	if ((! doFuzz));                     then innerArgs_m2q+=(--no-fuzz);    fi
 	if ((! doQuick)) && ((! doProfile)); then innerArgs_m2q+=(--no-profile); fi
 	if ((keepTemp)); then innerArgs_m2q+=(--keep-temp); fi
 	if ((${#runAreas[@]})); then innerArgs_m2q+=(--backlog-run-quick "${runAreas[@]}"); fi
@@ -1965,7 +1967,9 @@ fStage_Go_Fuzz(){
 
 	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
 
-	local -r fuzzTime="20s"
+	## A quick run fuzzes too, just not for as long.
+	local fuzzTime="20s"; if ((doQuick)); then fuzzTime="5s"; fi
+	readonly fuzzTime
 	local -r crasherDir="${goDir}/zuid/testdata/fuzz/FuzzGenerate"
 	local output=""
 	local -i attempt=0
@@ -2294,7 +2298,9 @@ fStage_Zig(){
 ## build. A find still exits 0, so the output is read for it.
 fStage_Zig_Fuzz(){
 
-	local -r fuzzLimit="50K"
+	## About 35 s warm at 50K and 17 s at 5K, which is mostly the fuzz build.
+	local fuzzLimit="50K"; if ((doQuick)); then fuzzLimit="5K"; fi
+	readonly fuzzLimit
 
 	## One line per fuzz test under its own ID, as the Go side does. The limit
 	## is per test, not shared.
@@ -2308,7 +2314,7 @@ fStage_Zig_Fuzz(){
 
 	local -i i=0
 	if ((! doFuzz)); then
-		local skipWhy="--no-fuzz"; if ((doQuick)); then skipWhy="a quick run"; fi
+		local skipWhy="--no-fuzz"; if ((doGate)); then skipWhy="${gateFlag}"; fi
 		for i in "${!fuzzIds[@]}"; do
 			fId "${fuzzIds[i]}" "${fuzzNames[i]}, fuzzed for ${fuzzLimit} iterations"
 			fTestSkip "${skipWhy}"

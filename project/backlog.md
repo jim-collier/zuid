@@ -57,6 +57,34 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: Etjcehs (area parsing and refusals), Etjceht (the steps each area runs, here and in the image, and the areas handed in), Etjcehu (`--list` runs nothing, and every test ID is in some step). Each failed against the scripts before the change. Etjceht also failed with the areas left out of the image's arguments and with the bash 3.2 step ungated, and Etjcehu with the old function scan in `test-ids.py`.
 	- Verified: 20261025, `pipeline-test.bash` 131 of 131, shellcheck, `test-ids.py check` (481, all unique), the content scrub, and `cicd.bash --backlog-run-quick shell docs` on this machine and in the image, 8 of 8 steps each. `--list` with no other options took 0.24 s. Load about 11 on 32 CPUs.
 
+- CICD reset: standard flags, `--quick` fuzz and dogfood
+	- ID: 2026102508153580
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs external testing: The `macos` workflow on the round branch. Its `--quick` now fuzzes, and Zig fuzz has never run on a Mac.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-081535
+	- Opened by: JC
+	- Parent ID: 2026102416233103
+	- Prereq IDs: 2026102508153575
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- `--quick` keeps fuzzing at a short budget, and copies the release-optimized native build to dogfood. Today it drops both.
+		- `--backlog-run-quick` and `--merge-gate` still never dogfood.
+		- Earlier decisions this overrides: the private CI/CD notes, where `--quick` skips dogfood.
+	- Progress log:
+		- 20261025: `--quick` fuzzes Go for 5 s and Zig for 5K iterations, against 20 s and 50K in a full run. That's about 7 s and 17 s more on b23. `--no-fuzz` still drops it.
+		- 20261025: `--quick` dogfoods: the ReleaseSafe command from zig-out, or the release files with `--package`, the same as a full run. `--dogfood` now only undoes an earlier `--no-dogfood`.
+		- 20261025: `--container` hands `--no-fuzz` in on a quick run too, since `--quick` no longer says it.
+		- 20261025: Etab8wo wanted `doFuzz=0` for `--quick` and `--quick --no-demo`. Now `doFuzz=1`. The container rig's default is a plain `--quick` run, so fuzz on, and EsJ9SjF and EtAUMRG are unchanged.
+	- Decisions:
+		- 20261025: `--backlog-run-quick` and `--gate` still don't fuzz, so a worker's gate stays near 4 minutes. Fuzzing waits for the round's full run, as before.
+		- 20261025: "Native" is read as this platform's build, not this CPU's. The dogfood build stays on the baseline target, per EsXcjyV.
+	- Swept: every `doQuick` and `doFuzz` read in `cicd.bash`, the fuzz skip reasons, `fContainer_InnerArgs`, `--help`, `development.md`, `install.md` and `design.md` -> "Testing". The pre-push hook passes `--merge-gate`, and the `macos` workflow `--no-dogfood`, so neither changes.
+	- Branch: round1025b
+	- Test case: EtjfGH0 (what `--quick` and the gates plan), EtjfGH1 (the quick fuzz budgets), EtjfGH2 (`--no-fuzz` handed to the image on a quick run), and Etab8wo. Each failed against the old `cicd.bash` and passes now.
+	- Verified: 20261025, `pipeline-test.bash` 134 of 134, here and with `ZUID_IN_CONTAINER=1`. shellcheck, `test-ids.py check` (484, all unique), and the content scrub. `cicd.bash -q --quick --no-dogfood --no-sync --no-backup --only go --no-container` passed 14 of 14 steps, Go fuzz included. The same with `--only zig --container` passed 16 of 16 steps across the handoff to the image, Zig fuzz at 5K included. Load about 4 to 16 on 32 CPUs.
+
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -229,21 +257,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: Split in 3. The gate flags, `--long`, `--no-remote` and the hook are 2026102508153575. Areas and `--list` are 2026102508153578. `--quick`'s fuzz and dogfood are 2026102508153580. `--keep-temp` was already in, from 2026102416233101.
 	- Decisions:
 		- 20261025: Nothing moves to `--long`. The default run took about 17 minutes on b23 on 20261023, well under the hour.
-
-- CICD reset: standard flags, `--quick` fuzz and dogfood
-	- ID: 2026102508153580
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261025-081535
-	- Opened by: JC
-	- Parent ID: 2026102416233103
-	- Prereq IDs: 2026102508153575
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- `--quick` keeps fuzzing at a short budget, and copies the release-optimized native build to dogfood. Today it drops both.
-		- `--backlog-run-quick` and `--merge-gate` still never dogfood.
-		- Earlier decisions this overrides: the private CI/CD notes, where `--quick` skips dogfood.
 
 - CICD reset: a test for every Done item
 	- ID: 2026102416233105

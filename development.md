@@ -46,8 +46,8 @@ On x86_64 Linux where docker answers, `cicd/cicd.bash` needs only git and docker
 
 ~~~bash
 cicd/cicd.bash                      # every stage but --publish: build, test, cross-compile, and package where it can
-cicd/cicd.bash --quick              # skip fuzzing, profiling, the demo, packaging and the dogfood install
-cicd/cicd.bash --backlog-run-quick  # --quick, without the sync, dogfood, backup or demo, and no prompt. --gate is another name
+cicd/cicd.bash --quick              # skip profiling, the demo and packaging, and fuzz on a short budget. Still installs for daily use
+cicd/cicd.bash --backlog-run-quick  # --quick, without fuzzing, the sync, dogfood, backup or demo, and no prompt. --gate is another name
 cicd/cicd.bash --backlog-run-quick go docs  # the same, but only the areas named: go, zig, shell, installers, docs
 cicd/cicd.bash --list --merge-gate  # print the steps and test IDs a run with the other options would have, and run nothing
 cicd/cicd.bash --merge-gate         # what the pre-push hook runs before main: every check of a full run, with the same left out. --ci is another name
