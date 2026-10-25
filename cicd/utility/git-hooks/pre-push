@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Local merge gate. Before a push that updates main, run cicd.bash --merge-gate
 # on the commit being pushed, in a scratch worktree, since the working tree
 # often has edits that aren't in it. A push whose commits change only the paths
@@ -66,13 +66,19 @@ if [ -z "${gatedPath}" ]; then
 fi
 
 echo "pre-push: gating the push to main with cicd.bash --merge-gate, for ${gatedPath} (SKIP_GATE=1 skips)" >&2
-gateDir="$(mktemp -d "${TMPDIR:-/tmp}/zuid-gate.XXXXXX")"
-tree="${gateDir}/tree"
+# A run folder like cicd.bash's, removed only through the guard.
+# shellcheck source=cicd/utility/include/safe-rm.bash
+source "$(dirname "${BASH_SOURCE[0]}")/../include/safe-rm.bash" \
+	|| { echo "pre-push: no utility/include/safe-rm.bash beside the hook" >&2; exit 1; }
 fCleanup() {
-	git -C "${top}" worktree remove --force "${tree}" >/dev/null 2>&1 || :
-	rm -rf "${gateDir}"
+	[ -n "${safeRmRunDir}" ] || return 0
+	git -C "${top}" worktree remove --force "${safeRmRunDir}/tree" >/dev/null 2>&1 || :
+	fSafeRm "${safeRmRunDir}" || :
 }
-trap fCleanup EXIT INT TERM
+trap fCleanup EXIT
+trap 'exit 1' INT TERM
+fRunDir_Sub zuid pre-push || { echo "pre-push: no run folder" >&2; exit 1; }
+tree="${safeRmRunDir}/tree"
 git -C "${top}" worktree add --detach -q "${tree}" "${mainSha}" \
 	|| { echo "pre-push: couldn't check out ${mainSha} to gate it" >&2; exit 1; }
 
@@ -90,3 +96,4 @@ export ZIG_LOCAL_CACHE_DIR
 ##		- 20261018: --gate is --ci.
 ##		- 20261019: --ci is --gate again.
 ##		- 20261025: --merge-gate, the default run's checks. Docs-only pushes skip it.
+##		- 20261025: Bash. Its folder is a run folder, removed through the guard.

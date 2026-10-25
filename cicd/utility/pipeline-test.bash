@@ -57,8 +57,19 @@ cicd="${repoRoot}/cicd/cicd.bash"
 flameReport="${repoRoot}/cicd/utility/flame-report.py"
 [[ -f "${cicd}" ]] || fDie "could not find cicd.bash from ${repoRoot}"
 
-work="$(mktemp -d)"
-trap 'rm -rf "${work}"' EXIT
+## The guard is for the lifted functions that remove a folder too. The run
+## folder is physical, since the guard refuses a path through a link, and
+## macOS's temp folder sits behind /var.
+# shellcheck source=cicd/utility/include/safe-rm.bash
+source "${repoRoot}/cicd/utility/include/safe-rm.bash"
+trap '[[ -z "${safeRmRunDir}" ]] || fSafeRm "${safeRmRunDir}"' EXIT
+fRunDir_Sub zuid pipeline-test || fDie "no run folder"
+work="${safeRmRunDir}"
+## The guard refuses a path that isn't there.
+fRmIfThere(){ if [[ -e "$1" || -L "$1" ]]; then fSafeRm "$1"; fi ;}
+## The exported values, space-separated. One name per printenv, since BSD's
+## takes only one.
+fPrintEnv(){ local n; for n in "$@"; do printenv "${n}"; done | tr '\n' ' ' ;}
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -372,8 +383,9 @@ fi
 ## Run through a symlinked folder, the root kept the link's name, and a find
 ## started there listed only the link. The sync refusal names the root.
 fId ddhnc "repo root through a symlink"
-mkdir -p "${work}/linked/real/cicd"
+mkdir -p "${work}/linked/real/cicd/utility/include"
 cp "${cicd}" "${work}/linked/real/cicd/"
+cp "${cicd%/cicd.bash}/utility/include/safe-rm.bash" "${work}/linked/real/cicd/utility/include/"
 ln -s real "${work}/linked/link"
 out="$(cd "${work}/linked" && env -u ZUID_CICD_QUIET bash link/cicd/cicd.bash -q --no-backup --no-dogfood 2>&1 < /dev/null)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"Not a git repo: '$(cd "${work}/linked/real" && pwd -P)'"* ]]
@@ -991,6 +1003,7 @@ fPlanIn(){  ## inContainer, planContainer, then name=value settings
 			doSync=1; doGate=0; doFullGate=0; gateFlag=""; doQuick=0; doDemo=1; doPackage=0; noPackage=0; packageSkipWhy=""
 			onlyToolchain=""; doGo=1; doZig=1; doFuzz=1; doCross=1; doLeakcheck=1; leakAsked=0; doProfile=1
 			doPublish=0; doDogfood=1; doBackup=1; backupInWorktree=0; commitAsked=0; doCommit=0; doPush=0; doRemote=1
+			freebsdBox="bsdtest@vmFreeBSD"
 			_stepTitles=(); _stepOffs=(); _stepPlanning=0; _stepElsewhere=0; _stepAt=0; _stepTotal=0
 			read -r -a runAreas <<< "${planAreas:-}"; areaWhy="not in --backlog-run-quick ${planAreas:-}"
 		}
@@ -1184,6 +1197,121 @@ out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_CONCLUSION=success GITHUB_ACTIONS
 if [[ -z "${hostedBad}" ]]
 	then fPass
 	else fFail "${hostedBad}"
+fi
+
+## The FreeBSD box tests what Package made, outside the image, unless
+## --no-remote or its destination is empty.
+fId dee34 "which runs test on the FreeBSD box"
+boxBad=""
+for boxCase in "doPackage=1|yes" "doPackage=1 doFullGate=1 gateFlag=--merge-gate doSync=0|yes" "doPackage=1 doRemote=0|--no-remote" "doPackage=1 freebsdBox=|ZUID_BOX_FREEBSD is empty" "doQuick=1|nothing packaged" "onlyToolchain=go doZig=0|nothing packaged"; do
+	boxWant="${boxCase#*|}"
+	# shellcheck disable=2086  ## Settings, split on purpose.
+	outside="$(planAreas="" planOffs=1 fPlanIn 0 1 ${boxCase%%|*})" || { boxBad+=" '${boxCase}': ${outside};"; continue; }
+	if [[ "${boxWant}" == "yes" ]]; then
+		grep -v '^off:' <<< "${outside}" | sed -n '/^\*\{0,1\}Package$/,$p' | grep -qx 'FreeBSD box: vmFreeBSD' || boxBad+=" '${boxCase}': it isn't after Package, in '${outside//$'\n'/, }';"
+	else
+		grep -q '^FreeBSD box' <<< "${outside}" && boxBad+=" '${boxCase}' runs it;"
+		grep -qxF "off:FreeBSD box (${boxWant})" <<< "${outside}" || boxBad+=" '${boxCase}' doesn't say it's off for ${boxWant};"
+	fi
+done
+inside="$(planAreas="" fPlanIn 1 0 doSync=0 doDogfood=0 doBackup=0 doPackage=1)" || true
+grep -q 'FreeBSD box' <<< "${inside}" && boxBad+=" the image runs it;"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## The box step end to end, with ssh and the host lock stood in for. ssh runs
+## its command here, so the box's temp root is a folder of the test's own.
+fId dee35 "a box step passes, fails, or skips when the box is down or taken"
+boxBad=""
+boxDir="${work}/box"
+mkdir -p "${boxDir}/bin" "${boxDir}/root" "${boxDir}/dist" "${boxDir}/run"
+cat > "${boxDir}/bin/ssh" <<'EOF_bssh'
+#!/usr/bin/env bash
+while [[ "${1:-}" == -o ]]; do shift 2; done
+shift
+[[ "${BOX_DOWN:-0}" != 1 ]] || exit 255
+HOST_TEMP="${BOX_ROOT:?}" exec bash -c "$*"
+EOF_bssh
+cat > "${boxDir}/bin/lock" <<'EOF_block'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${BOX_LOCK_LOG:?}"
+[[ "${BOX_TAKEN:-0}" != 1 ]] || exit 3
+while [[ "${1:-}" != -- ]]; do shift; done
+shift
+exec "$@"
+EOF_block
+chmod +x "${boxDir}/bin/ssh" "${boxDir}/bin/lock"
+export BOX_ROOT="${boxDir}/root" BOX_LOCK_LOG="${boxDir}/lock.log"
+## Always called in $(...), so a brace group is subshell enough.
+fBoxIn(){  ## job.bash's text, in BOX_JOB
+	{
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{ repoRoot="${boxDir}"; utilityDir="$(cd "$(dirname "${cicd}")" && pwd -P)/utility"
+		  zigDir="${boxDir}/zig"; distPrefix="zuid-1.0.0-"; freebsdBox="bsdtest@vmFreeBSD"; boxWaitSecs=60; keepTemp=0
+		  projectName="zuid"; runName="test"; _stepSkipWhy=""; }
+		_runDir="${boxDir}/run"
+		local fn=""
+		for fn in fBox_Lock fBox_Skip fBox_Run fStage_Box_FreeBSD fStep_Skip fId fTestPass fTestSkip fTestFail; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		# shellcheck disable=2329  ## Called by the lifted functions.
+		{ fEcho_Clean(){ printf '%s\n' "$*"; }; fThrowError(){ printf 'error: %s\n' "$1"; exit 1; }; }
+		## The job is a stand-in, not the real one.
+		# shellcheck disable=2329
+		cp(){ if [[ "${1##*/}" == box-release-test.bash ]]; then printf '%s\n' "${BOX_JOB:?}" > "$2"; else command cp "$@"; fi; }
+		if [[ -d "${_runDir}/box-freebsd" ]]; then fSafeRm "${_runDir}/box-freebsd"; fi
+		: > "${BOX_LOCK_LOG}"
+		fStage_Box_FreeBSD
+		printf 'skipwhy:%s\n' "${_stepSkipWhy}"
+	} 2>&1
+}
+mkdir -p "${boxDir}/zig/lib/test" "${boxDir}/testdata"
+: > "${boxDir}/zig/lib/test/capi_smoke.c"; : > "${boxDir}/testdata/errors.tsv"
+## No release yet.
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dee33 .*(no zuid-1.0.0-freebsd-x86_64.tgz in dist/)$' <<< "${out}" && grep -q '^skipwhy:no ' <<< "${out}"; } || boxBad+=" no release: exited ${rc}, said '${out//$'\n'/ | }';"
+printf 'x\n' > "${boxDir}/dist/zuid-1.0.0-freebsd-x86_64.tgz"
+## Passes, under the lock, and the box's folder is gone after.
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='[[ -f zuid-1.0.0-freebsd-x86_64.tgz && -f cicd/utility/cli-test.bash ]]' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -qx '  PASS dee33 FreeBSD release on its box: command surface and C module' <<< "${out}" && grep -qx 'skipwhy:' <<< "${out}"; } || boxBad+=" pass: exited ${rc}, said '${out//$'\n'/ | }';"
+grep -q '^wrap vmFreeBSD --wait 60 --why zuid: cicd test -- bash .*/box-run.bash bsdtest@vmFreeBSD ' "${BOX_LOCK_LOG}" || boxBad+=" pass: not held through the lock;"
+grep -q "^Box \.*: bsdtest@vmFreeBSD:${boxDir}/root/zuid/[0-9]\{8\}-[0-9]\{6\}_[0-9]\{3\}$" <<< "${out}" || boxBad+=" pass: no work folder of its own;"
+[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" pass: the box's folder is still there;"
+## The job fails, which fails the step.
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 3' fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -qx '  FAIL dee33 FreeBSD release on its box: command surface and C module' <<< "${out}" && grep -q 'exited 3' <<< "${out}"; } || boxBad+=" fail: exited ${rc}, said '${out//$'\n'/ | }';"
+[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" fail: the box's folder is still there;"
+## Down, or taken past the wait, is a skip that the step ends on.
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dee33 .*(no answer from bsdtest@vmFreeBSD)$' <<< "${out}" && grep -qx 'skipwhy:no answer from bsdtest@vmFreeBSD' <<< "${out}"; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_TAKEN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dee33 .*(vmFreeBSD stayed taken for 1 minutes)$' <<< "${out}"; } || boxBad+=" taken: exited ${rc}, said '${out//$'\n'/ | }';"
+## No lock here, which says so and runs anyway.
+out="$(ZUID_BOX_LOCK="" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q "isn't held" <<< "${out}" && grep -q '^  PASS dee33 ' <<< "${out}" && [[ ! -s "${BOX_LOCK_LOG}" ]]; } || boxBad+=" no lock: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## A step that skipped ends on SKIP, not PASS, and is kept for the end.
+fId dee36 "a skipped step says SKIP"
+stepOut="$(
+	fLoad fStep || exit 2
+	fLoad fStep_Skip || exit 2
+	# shellcheck disable=2329,2034  ## Called and read by the lifted functions.
+	{ declare -i _stepPlanning=0 _stepElsewhere=0 _stepAt=0 _stepTotal=2; _stepOpen=""; _stepSkipWhy=""; _stepSkipped=()
+	  fEcho(){ printf '%s\n' "$*"; }; fStep_Stamp(){ printf 'now\n'; }; fJobs_Recheck(){ :; }
+	  fBoxDown(){ fStep_Skip "no answer"; }; fFine(){ :; }; }
+	fStep "Box" fBoxDown
+	fStep "Other" fFine
+	printf 'kept:%s\n' "${_stepSkipped[@]}"
+)" || true
+if grep -qx 'now: Step 1 of 2; SKIP Box (no answer)' <<< "${stepOut}" && grep -qx 'now: Step 2 of 2; PASS Other' <<< "${stepOut}" && grep -qx 'kept:Box (no answer)' <<< "${stepOut}"
+	then fPass
+	else fFail "said '${stepOut//$'\n'/ | }'"
 fi
 
 ## --quick fuzzes and dogfoods, per the 2026-10-24 CICD reset. The gate flags
@@ -1584,12 +1712,13 @@ if [[ -z "${stopBad}" ]]
 fi
 
 ## Only the project's, older tags keeping the one before the current, a week
-## of build cache, the volume's cap, and one line.
+## of build cache, Go's module prune and the volume's cap, and one line at the
+## end of the run.
 fTidyIn(){  ## engine log; label, cap come in as variables
 	(
 		# shellcheck disable=2329  ## Called by the lifted functions.
 		fEcho_Clean(){ printf '%s\n' "$*"; }
-		for fn in fContainer_Tidy fContainer_StopRun fContainer_DropOlder fContainer_VolumeCap fDocker_Bytes fCodeql_Tag; do
+		for fn in fContainer_Tidy fContainer_StopRun fContainer_DropOlder fContainer_VolumeCap fDocker_Bytes fCodeql_Tag fCleanup_Say fCleanup_Mb; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		# shellcheck disable=2034  ## Read by the lifted functions.
@@ -1597,6 +1726,7 @@ fTidyIn(){  ## engine log; label, cap come in as variables
 			repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerEngine="${work}/engine"; projectName="zuid"; runName="20261019-101112"
 			containerImage="zuid-cicd"; codeqlImage="zuid-codeql"; containerVolume="zuid-cicd-cache"; zigCacheCapMB=2048; keepTemp=0
 			containerTag="${newTag}"; _dockerEngine="${containerEngine}"; _dockerProject="zuid"; _dockerRun="${runName}"; _dockerGone=(); _dockerPid="${BASHPID}"
+			_cleanGone=(); _cleanKb=0; _cleanSay=1; _cleanDockerFreed=""; _runPid="${BASHPID}"; safeRmSweptN=0; inContainer=0
 		}
 		mkdir -p "${repoRoot}/cicd/container/codeql"; echo "FROM codeql" > "${repoRoot}/cicd/container/codeql/Dockerfile"
 		ENGINE_NEW="${newTag}" ENGINE_NEW_CODEQL="zuid-codeql:$(echo "FROM codeql" | git hash-object --stdin | cut -c1-12)-${newTag#*:}"
@@ -1606,27 +1736,31 @@ fTidyIn(){  ## engine log; label, cap come in as variables
 		: > "${ENGINE_LOG}"; rm -f "${ENGINE_LOG}.df"
 		fContainer_Tidy
 		printf 'run=%s\n' "${_dockerRun}"
+		fCleanup_Say
 	) 2>&1
 }
 fId dednb "a passing run tidies docker by label"
 tidyBad=""
-out="$(cap="emptied 3145728" fTidyIn "${work}/engine-tidy")" || tidyBad+=" exited $?: ${out};"
+out="$(cap=$'pruned 10240\nemptied 3145728' fTidyIn "${work}/engine-tidy")" || tidyBad+=" exited $?: ${out};"
 log="$(cat "${work}/engine-tidy")"
 rmis="$(grep '^rmi ' <<< "${log}" || true)"
 [[ "${rmis}" == "rmi zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld"$'\n'"rmi zuid-cicd:0ld0ld0ld0ld"$'\n'"rmi d4ng1e" ]] || tidyBad+=" removed '${rmis//$'\n'/ | }';"
 grep -qxF "image ls zuid-cicd --filter label=dev.project=zuid --format {{.CreatedAt}}"$'\t'"{{.Repository}}:{{.Tag}}" <<< "${log}" || tidyBad+=" tags not listed by label;"
 grep -qxF "images -q --filter dangling=true --filter label=dev.project=zuid" <<< "${log}" || tidyBad+=" dangling not by label;"
 grep -qxF "builder prune -f --filter until=168h" <<< "${log}" || tidyBad+=" no builder prune;"
-grep -q -- "^run --rm --init .* -v zuid-cicd-cache:/cache --name zuid-20261019-101112-cache-cap --label dev.project=zuid --label dev.run=20261019-101112 --cpus 1 --cpu-shares 256 ${newTag} ionice -c 3 nice -n 19 sh -c" <<< "${log}" \
-	&& grep -q -- " sh 2097152$" <<< "${log}" || tidyBad+=" no capped volume check;"
+tidyRoot="$(cd "${worktreeMain}" && pwd -P)"
+grep -q -- "^run --rm --init .* -v ${tidyRoot}:${tidyRoot}:ro -v zuid-cicd-cache:/cache --name zuid-20261019-101112-cache-cap --label dev.project=zuid --label dev.run=20261019-101112 --cpus 1 --cpu-shares 256 ${newTag} ionice -c 3 nice -n 19 sh -c" <<< "${log}" \
+	&& grep -q -- " sh 2097152 ${tidyRoot}$" <<< "${log}" || tidyBad+=" no capped volume check;"
+# shellcheck disable=2016  ## The script's own text.
+grep -qF 'bash "$2/cicd/utility/gomod-prune.bash" "$(go env GOMODCACHE)" "$2/go/go.sum"' <<< "${log}" || tidyBad+=" no Go module prune;"
 ! grep -qE '^(rmi|.*-f ).*(prevprevprev|'"${newTag#*:}"')' <<< "${rmis}" || tidyBad+=" removed a kept tag;"
 ! grep -qE '^(system prune|rmi -f|image prune)' <<< "${log}" || tidyBad+=" pruned wide;"
-want="Docker .....: removed zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld, zuid-cicd:0ld0ld0ld0ld, 1 dangling image(s), zuid-cicd-cache's contents, 3072 MB, build cache over a week old; about 3.7 GB freed"
-[[ "${out}" == *"${want}"$'\n'"run=" ]] || tidyBad+=" said '${out//$'\n'/ | }';"
+want="Cleanup ....: removed zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld, zuid-cicd:0ld0ld0ld0ld, 1 dangling image(s), Go modules go.sum doesn't name, 10 MB, zuid-cicd-cache's contents, 3072 MB, build cache over a week old; about 3.7 GB freed"
+[[ "${out}" == *"run="$'\n'"${want}" ]] || tidyBad+=" said '${out//$'\n'/ | }';"
 out="$(label="" dfAfter="" fTidyIn "${work}/engine-tidy-nolabel")" || tidyBad+=" unlabeled exited $?;"
 ! grep -q -- "-cache-cap" "${work}/engine-tidy-nolabel" || tidyBad+=" checked an unlabeled volume;"
 ## A df that didn't answer is no reason to claim the whole lot was freed.
-[[ "${out}" == *"; an unknown amount freed, since docker system df didn't answer"$'\n'* ]] || tidyBad+=" a silent df said '${out//$'\n'/ | }';"
+[[ "${out}" == *"; under 1 MB freed, plus an unknown amount from docker, since docker system df didn't answer" ]] || tidyBad+=" a silent df said '${out//$'\n'/ | }';"
 if [[ -z "${tidyBad}" ]]
 	then fPass
 	else fFail "${tidyBad}"
@@ -1648,12 +1782,14 @@ fZigTidyIn(){  ## repo dir, cap in MB, inContainer
 		{
 			repoRoot="$(cd "$1" && pwd -P)"; zigCacheCapMB="$2"; inContainer="$3"
 			zigCacheStamp=".cicd-zig-version"; containerZigCache="${zigGlobal:-/zig-cache}"
+			_cleanGone=(); _cleanKb=0
 		}
 		local fn=""
-		for fn in fZigCache_Tidy fZigCache_Empty; do
+		for fn in fZigCache_Tidy fZigCache_Empty fCleanup_Mb; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		fZigCache_Tidy
+		printf 'gone=%s kb=%s\n' "${_cleanGone[*]}" "${_cleanKb}"
 	) 2>&1
 }
 ## A cache with a file in it, and a stamp if one is given.
@@ -1684,6 +1820,8 @@ fZigCacheEmptied "${work}/zt-cap-target/.zig-cache" || capBad+=" the linked one 
 [[ -L "${zt}/linked/.zig-cache" ]]                 || capBad+=" the link is gone;"
 [[ -f "${zt}/.git/.zig-cache/o/0123abcd/obj" ]]    || capBad+=" went into .git;"
 [[ "${out}" == *"Zig cache ..: emptied ${ztReal}/zig/.zig-cache, "*" MB, over 0 MB"* ]] || capBad+=" no line for it;"
+## And for the run's last line.
+[[ "${out}" =~ gone=.*zig/.zig-cache,\ (under\ 1|[0-9]+)\ MB.*\ kb=[1-9][0-9]*$ ]] || capBad+=" not kept for the end line;"
 if [[ -z "${capBad}" ]]
 	then fPass
 	else fFail "${capBad} said '${out//$'\n'/ | }'"
@@ -1922,7 +2060,7 @@ fTarball(){  ## path, version
 	mkdir -p "${tree}/zuid-v$2/bin"
 	printf 'zuid %s\n' "$2" > "${tree}/zuid-v$2/bin/zuid"
 	tar -C "${tree}" -czf "$1" "zuid-v$2"
-	rm -rf "${tree}"
+	fSafeRm "${tree}"
 }
 
 ## A repo on main, pushed, with this machine's dist/ and the other machines'
@@ -1946,7 +2084,7 @@ fPublishRepo(){  ## name, version
 	fTarball "${dir}/repo/dist/zuid-${version}-linux-arm64.tgz" "${version}"
 	fTarball "${dir}/repo/dist/zuid-${version}-freebsd-x86_64.tgz" "${version}"
 	## Answers --version the way the real one does, for the notes' build line.
-	printf '#!/bin/sh\necho "%s (build abc12)"\n' "${version}" > "${dir}/repo/dist/zuid-${version}-linux-x86_64"
+	printf '#!/bin/sh\necho "zuid v%s build abc12"\necho "Copyright (C) 2026 Jim Collier"\n' "${version}" > "${dir}/repo/dist/zuid-${version}-linux-x86_64"
 	chmod +x "${dir}/repo/dist/zuid-${version}-linux-x86_64"
 	printf 'arm64\n'  > "${dir}/repo/dist/zuid-${version}-linux-arm64"
 	printf 'freebsd\n' > "${dir}/repo/dist/zuid-${version}-freebsd-x86_64"
@@ -1980,7 +2118,7 @@ fPublishIn(){  ## name, quiet, allow partial
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		fConfig
-		# shellcheck disable=2034,2154  ## Read by the lifted functions. The defaults come from the lifted fConfig.
+		# shellcheck disable=2030,2034,2154  ## Read by the lifted functions, in this subshell. The defaults come from the lifted fConfig.
 		{
 			repoRoot="${dir}/repo"; zigDir="${dir}/repo/zig"; incomingDir="${dir}/repo/dist-incoming"
 			releaseBranch="${default_releaseBranch}"; releaseAssets=("${default_releaseAssets[@]}")
@@ -2054,7 +2192,7 @@ rm -f "${work}/partial/repo/dist-incoming/"zuid-1.0.0-beta.1-windows-*.zip
 fWantPublishRefusal ddfbe "missing platform, no --allow-partial" partial "No asset for: zuid-1.0.0-beta.1-windows-x86_64.zip zuid-1.0.0-beta.1-windows-arm64.zip" 1 0
 
 fId ddfbf "--allow-partial publishes the rest"
-rm -rf "${work}/partial/repo/dist/release"
+fRmIfThere "${work}/partial/repo/dist/release"
 out="$(fPublishIn partial 1 1 < /dev/null)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == *"Missing ....: zuid-1.0.0-beta.1-windows-x86_64.zip zuid-1.0.0-beta.1-windows-arm64.zip"* ]] && [[ -e "${work}/partial/gh-create" ]]
 	then fPass
@@ -2067,7 +2205,7 @@ fPublishRepo unanswered 1.0.0-beta.1
 fId ddfbg "no answer to the prompt means no"
 unansweredBad=""
 for answer in "" $'\n' $'n\n'; do
-	rm -rf "${work}/unanswered/repo/dist/release"
+	fRmIfThere "${work}/unanswered/repo/dist/release"
 	out="$(printf '%s' "${answer}" | fPublishIn unanswered 0 0)" && rc=0 || rc=$?
 	if ((rc == 0)) || [[ "${out}" != *"Not published"* ]] || ! fNothingPublished unanswered; then
 		unansweredBad+=" answer '${answer//$'\n'/\\n}' exited ${rc};"
@@ -2185,7 +2323,7 @@ if [[ "${betaNotes}" == *"Notes for this one."* ]] && [[ "${betaNotes}" != *"old
 fi
 
 fId ddybx "build number tops the notes"
-if [[ "${betaNotes}" == "zuid v1.0.0-beta.1 build abc12"$'\n'* ]]
+if [[ "${betaNotes}" == "zuid v1.0.0-beta.1 build abc12"$'\n\n'* ]]
 	then fPass
 	else fFail "notes were '${betaNotes:0:120}'"
 fi
@@ -2448,8 +2586,9 @@ fi
 ## package.bash in a scratch tree, with a stand-in zig that records what it was
 ## handed and fails, so nothing is built.
 pkgTree="${work}/pkg"
-mkdir -p "${pkgTree}/cicd/utility" "${work}/pkgbin"
+mkdir -p "${pkgTree}/cicd/utility/include" "${work}/pkgbin"
 cp "${utilityDir}/package.bash" "${pkgTree}/cicd/utility/"
+cp "${utilityDir}/include/safe-rm.bash" "${pkgTree}/cicd/utility/include/"
 for wasmtimeSub in wasmtime wasmtime-{x86_64,aarch64}-{linux,macos,freebsd}; do
 	mkdir -p "${pkgTree}/zig/vendor/${wasmtimeSub}/lib"
 	: > "${pkgTree}/zig/vendor/${wasmtimeSub}/lib/libwasmtime.a"
@@ -2620,7 +2759,7 @@ for goQuick in 1 0; do
 		fLoad fStage_Go_Fuzz || exit 2
 		# shellcheck disable=2034  ## Read by the lifted function.
 		{ doQuick="${goQuick}"; goDir="${work}/gofuzz/go"; hardJobs=2; }
-		# shellcheck disable=2031  ## Only the subshell's PATH.
+		# shellcheck disable=2030,2031  ## Only the subshell's PATH.
 		export FAKE_GO_ARGS="${work}/go-args" PATH="${fuzzBin}:${PATH}" PYTHONDONTWRITEBYTECODE=1
 		fStage_Go_Fuzz
 	) > /dev/null 2>&1 || budgetBad+=" the Go stage exited $? with doQuick=${goQuick};"
@@ -2650,7 +2789,7 @@ ln -s "${work}/clean-target" "${cleanTmp}/tmp.link"
 cleanBad=""
 if ! out="$(
 	fLoad _fRemoveScratchDirs || { echo "no _fRemoveScratchDirs in cicd.bash"; exit 2; }
-	# shellcheck disable=2031  ## Its own TMPDIR, with the trailing slash macOS gives.
+	# shellcheck disable=2030,2031  ## Its own TMPDIR, with the trailing slash macOS gives.
 	export TMPDIR="${cleanTmp}/"
 	_scratchDirs=("${cleanTmp}/tmp.mine" "${cleanTmp}/keep" "${work}/clean-other/tmp.elsewhere" "${cleanTmp}/tmp.link" "")
 	_fRemoveScratchDirs
@@ -2667,6 +2806,357 @@ fi
 if [[ -z "${cleanBad}" ]]
 	then fPass
 	else fFail "${cleanBad}"
+fi
+
+## A stage's scratch folder is made inside TMPDIR, by its physical path, so
+## the guard takes it back. Once with TMPDIR through a link, and once with a
+## mktemp that ignores TMPDIR for a temp folder behind a link, as macOS's
+## does. A bare mktemp -d failed both, on the guard's link refusal.
+fId dee5h "scratch folders made physical, inside TMPDIR"
+mkRoot="${work}/mkt"
+mkdir -p "${mkRoot}/real/run" "${mkRoot}/real/sysT" "${mkRoot}/bin"
+ln -s "${mkRoot}/real" "${mkRoot}/var"
+realMktemp="$(command -v mktemp)"
+printf '#!/usr/bin/env bash\nif [[ "$*" == "-d" ]]; then exec "%s" -d "%s/tmp.XXXXXXXXXX"; fi\nexec "%s" "$@"\n' \
+	"${realMktemp}" "${mkRoot}/var/sysT" "${realMktemp}" > "${mkRoot}/bin/mktemp"
+## Enough of go for the consumer stage: its build writes a program that runs.
+# shellcheck disable=2016  ## Expanded by the stand-in.
+printf '#!/usr/bin/env bash\nif [[ "$1" == build ]]; then printf "#!/bin/sh\\nexit 0\\n" > "$3"; chmod +x "$3"; fi\nexit 0\n' > "${mkRoot}/bin/go"
+chmod +x "${mkRoot}/bin/mktemp" "${mkRoot}/bin/go"
+mkdir "${mkRoot}/gobin"; ln -s "${mkRoot}/bin/go" "${mkRoot}/gobin/go"
+fMkCase(){  ## TMPDIR, PATH prefix
+	(
+		fLoad fStage_Go_Consumer || { echo "no fStage_Go_Consumer in cicd.bash"; exit 2; }
+		# shellcheck disable=2329  ## Called by the lifted stage.
+		{ fId(){ :; }; fTestPass(){ :; }; fTestFail(){ printf 'fail: %s\n' "$*"; exit 1; }; fThrowError(){ printf '%s\n' "$1"; exit 1; }; }
+		# shellcheck disable=2030,2031,2034  ## Read by the lifted stage, in this subshell.
+		{ goDir="${repoRoot}/go"; _scratchDirs=(); safeRmOwn="${mkRoot}/real"; }
+		# shellcheck disable=2030,2031  ## Only this subshell's.
+		export TMPDIR="$1" PATH="$2:${PATH}"
+		fStage_Go_Consumer 2>&1 || echo "rc=$?"
+	)
+}
+mkBad=""
+out="$(fMkCase "${mkRoot}/var/run" "${mkRoot}/gobin")"
+[[ -z "${out}" ]] || mkBad+=" TMPDIR through a link: ${out};"
+out="$(fMkCase "${mkRoot}/real/run" "${mkRoot}/bin")"
+[[ -z "${out}" ]] || mkBad+=" a mktemp that ignores TMPDIR: ${out};"
+mkLeft="$(find "${mkRoot}/real" -mindepth 2 | tr '\n' ' ')"
+[[ -z "${mkLeft}" ]] || mkBad+=" left ${mkLeft};"
+if [[ -z "${mkBad}" ]]
+	then fPass
+	else fFail "${mkBad}"
+fi
+
+## Every mktemp names its template, or goes through fMkTempDir. A bare one is
+## what dee5h caught in the consumer stage, on macOS.
+fId dee5j "no bare mktemp in the scripts"
+mkBad=""
+# shellcheck disable=2031  ## repoRoot is the harness's own.
+for mkFile in cicd/cicd.bash install.bash cicd/utility/include/safe-rm.bash cicd/utility/git-hooks/pre-push \
+	cicd/utility/{installer-test,cli-test,pipeline-test,package,c-checks,box-run,box-release-test,gomod-prune}.bash; do
+	[[ -f "${repoRoot}/${mkFile}" ]] || { mkBad+=" no ${mkFile};"; continue; }
+	while IFS= read -r mkLine; do
+		mkBad+=" ${mkFile}:${mkLine%%:*};"
+	done < <(grep -nE '(\$\(|^[[:space:]]*|[;|&][[:space:]]*)mktemp( |\)|$)' "${repoRoot}/${mkFile}" | grep -vE '^[0-9]+:[[:space:]]*#' \
+		| grep -v 'XXX' | grep -v -e '-v mktemp' -e '_fMustBeInPath mktemp' || true)
+done
+if [[ -z "${mkBad}" ]]
+	then fPass
+	else fFail "bare mktemp at${mkBad}"
+fi
+
+## The guard every recursive removal goes through. The refusals run against a
+## stand-in for rm, so a broken guard removes nothing, /usr/bin included.
+fId dee1p "safe-rm refuses all but its own"
+rmRoot="${work}/saferm"
+mkdir -p "${rmRoot}/own/a" "${rmRoot}/own/gone" "${rmRoot}/own/target" "${rmRoot}/vendor/pkg" "${rmRoot}/other/pkg"
+ln -s "${rmRoot}/own/target" "${rmRoot}/own/link"
+ln -s "${rmRoot}/own" "${rmRoot}/via"
+rmBad="$(
+	safeRmOwn="${rmRoot}/own"
+	(
+		# shellcheck disable=2329  ## Called by the guard.
+		_fSafeRm_Do(){ printf 'took %s;' "$1"; }
+		for bad in "" "own/a" "${rmRoot}/own/../own/a" "${rmRoot}//own/a" "${rmRoot}/own/link" "${rmRoot}/via/a" "${rmRoot}/own/nope" "/usr/bin"; do
+			fSafeRm "${bad}" 2>/dev/null || true
+		done
+		fSafeRm "${rmRoot}/own/a" "${rmRoot}/own/gone" 2>/dev/null || true
+		fSafeRm_Under "${rmRoot}/vendor" "${rmRoot}/other/pkg" 2>/dev/null || true
+		fSafeRm_Under "${rmRoot}/vendor" "${rmRoot}/vendor"    2>/dev/null || true
+		fSafeRm_Under "${rmRoot}/via"    "${rmRoot}/via/a"     2>/dev/null || true
+	)
+	fSafeRm "${rmRoot}/own/gone/"                              || printf 'refused its own;'
+	fSafeRm_Under "${rmRoot}/vendor" "${rmRoot}/vendor/pkg"    || printf 'refused one under its parent;'
+	true
+)"
+[[ ! -e "${rmRoot}/own/gone" ]]   || rmBad+=" kept own/gone;"
+[[ ! -e "${rmRoot}/vendor/pkg" ]] || rmBad+=" kept vendor/pkg;"
+[[ -d "${rmRoot}/own/target" && -d "${rmRoot}/own/a" ]] || rmBad+=" removed a refused one;"
+if [[ -z "${rmBad}" ]]
+	then fPass
+	else fFail "${rmBad}"
+fi
+
+## Each run's folder in HOST_TEMP, numbered past a taken one, and the project's
+## stale ones gone: over 2 days old with no live run.pid. A live, a young and a
+## foreign-named one stay.
+fId dee1q "run folder made, stale ones removed"
+htRoot="${work}/ht"
+mkdir -p "${htRoot}/zuid/20260101-000000_001" "${htRoot}/zuid/20260101-000000_002" "${htRoot}/zuid/20260101-000000_003" \
+	"${htRoot}/zuid/keep-me" "${htRoot}/zuid/20261019-101112_001"
+printf '999999999\n' > "${htRoot}/zuid/20260101-000000_001/run.pid"
+printf '%s\n' "$$"   > "${htRoot}/zuid/20260101-000000_002/run.pid"
+touch -t 202601010000 "${htRoot}/zuid/20260101-000000_001" "${htRoot}/zuid/20260101-000000_002" "${htRoot}/zuid/keep-me"
+runBad=""
+if ! out="$(
+	fLoad fRunDir || { echo "no fRunDir in cicd.bash"; exit 2; }
+	# shellcheck disable=2329  ## Called by the lifted fRunDir.
+	fThrowError(){ printf '%s\n' "$1"; exit 1; }
+	# shellcheck disable=2030,2034  ## Read by the lifted function, in this subshell.
+	{ projectName="zuid"; HOST_TEMP="${htRoot}"; safeRmOwn=""; }
+	fRunDir 20261019-101112
+	## printenv, since it's the exported ones the stages see.
+	# shellcheck disable=2154  ## Set by the lifted fRunDir.
+	printf 'dir=%s\nvars=%s\nown=%s\npid=%s\n' "${_runDir}" "$(fPrintEnv TMPDIR TEMP TMP)" "${safeRmOwn}" "$(cat "${_runDir}/run.pid")"
+)"; then
+	runBad=" ${out};"
+else
+	want="${htRoot}/zuid/20261019-101112_002"
+	[[ "${out}" == *"dir=${want}"$'\n'* ]]                 || runBad+=" not ${want}: ${out};"
+	[[ "${out}" == *"vars=${want} ${want} ${want} "$'\n'* ]] || runBad+=" TMPDIR, TEMP or TMP not set: ${out};"
+	[[ "${out}" == *"own=${htRoot}/zuid"$'\n'* ]]          || runBad+=" the guard's own folder wasn't set;"
+	[[ "${out}" == *"pid=$$" ]]                            || runBad+=" run.pid isn't the run's;"
+	[[ ! -e "${htRoot}/zuid/20260101-000000_001" ]]         || runBad+=" kept a stale one;"
+	[[ -d "${htRoot}/zuid/20260101-000000_002" ]]           || runBad+=" removed a live one;"
+	[[ -d "${htRoot}/zuid/20260101-000000_003" ]]           || runBad+=" removed a young one;"
+	[[ -d "${htRoot}/zuid/keep-me" ]]                       || runBad+=" removed one not named like a run;"
+fi
+if [[ -z "${runBad}" ]]
+	then fPass
+	else fFail "${runBad}"
+fi
+
+## A whole run: the folder goes at the end, failed or interrupted too, and
+## --keep-temp keeps it and says where.
+fId dee1r "run folder gone after a run, kept with --keep-temp"
+e2eRoot="${work}/e2e"
+mkdir -p "${e2eRoot}"
+e2eBad=""
+env -u ZUID_CICD_QUIET HOST_TEMP="${e2eRoot}" bash "${cicd}" --list --only go > /dev/null 2>&1 < /dev/null || e2eBad+=" --list failed;"
+env -u ZUID_CICD_QUIET HOST_TEMP="${e2eRoot}" bash "${cicd}" --gate --commit > /dev/null 2>&1 < /dev/null && e2eBad+=" the refusal ran;"
+left="$(find "${e2eRoot}/zuid" -mindepth 1 2>&1 | tr '\n' ' ' || true)"
+[[ -z "${left}" ]] || e2eBad+=" left ${left};"
+out="$(env -u ZUID_CICD_QUIET HOST_TEMP="${e2eRoot}" bash "${cicd}" --keep-temp --gate --commit 2>&1 < /dev/null)" || true
+kept="$(find "${e2eRoot}/zuid" -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true)"
+if [[ -z "${kept}" || "${kept}" == *$'\n'* ]]; then e2eBad+=" --keep-temp kept '${kept}';"
+elif [[ "${out}" != *"kept ${kept} (--keep-temp)"* ]]; then e2eBad+=" --keep-temp didn't say where: ${out:0:200};"
+else fSafeRm "${kept}"
+fi
+if [[ -z "${e2eBad}" ]]
+	then fPass
+	else fFail "${e2eBad}"
+fi
+
+## Ctrl+C, and SIGTERM, which let the run go on after its cleanup until
+## 20261025. A stand-in find holds the run just after its folder is made, and
+## the signal goes to its whole group, as a terminal's does.
+fId dee1s "run folder gone after Ctrl+C or SIGTERM"
+intRoot="${work}/int"
+mkdir -p "${intRoot}/bin" "${intRoot}/temp"
+# shellcheck disable=2016  ## The stand-in's own text.
+printf '#!/usr/bin/env bash\n: > "%s/held"\nsleep 30\n' "${intRoot}" > "${intRoot}/bin/find"
+chmod +x "${intRoot}/bin/find"
+intBad="$(python3 -I -B - "${cicd}" "${intRoot}" <<'PY'
+import os, signal, subprocess, sys, time
+cicd, root = sys.argv[1], sys.argv[2]
+env = dict(os.environ, HOST_TEMP=root + "/temp", PATH=root + "/bin:" + os.environ["PATH"])
+env.pop("ZUID_CICD_QUIET", None)
+for sig in (signal.SIGINT, signal.SIGTERM):
+	if os.path.exists(root + "/held"): os.remove(root + "/held")
+	p = subprocess.Popen(["bash", cicd, "--list", "--only", "go"], env=env, stdin=subprocess.DEVNULL,
+		stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+		preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
+	for _ in range(200):
+		if os.path.exists(root + "/held"): break
+		time.sleep(0.05)
+	else:
+		os.killpg(p.pid, signal.SIGKILL); p.wait(); print("never reached the stand-in;"); sys.exit()
+	runs = os.listdir(root + "/temp/zuid")
+	os.killpg(p.pid, sig)
+	rc = p.wait(timeout=20)
+	name = signal.Signals(sig).name
+	if len(runs) != 1: print("%s: had %s during the run;" % (name, runs))
+	if rc == 0: print("%s: exited 0;" % name)
+	left = os.listdir(root + "/temp/zuid")
+	if left: print("%s: left %s;" % (name, left))
+PY
+)" || intBad+=" the rig failed;"
+if [[ -z "${intBad}" ]]
+	then fPass
+	else fFail "${intBad}"
+fi
+
+## Two runs in a scratch tree, the first stopped partway through a stage by
+## SIGTERM, the second left to fail at Docs. Each ends on its Cleanup line,
+## the first sweeps a stale run folder, and nothing else is left behind.
+fId dee46 "two runs, one killed partway, leave nothing behind"
+pileRoot="${work}/pile"
+mkdir -p "${pileRoot}/tree/cicd/utility/include" "${pileRoot}/tree/testdata" "${pileRoot}/bin" "${pileRoot}/tmp" "${pileRoot}/temp/zuid/20260101-000000_001"
+cp "${cicd}" "${pileRoot}/tree/cicd/"
+cp "${cicd%/cicd.bash}/utility/include/safe-rm.bash" "${pileRoot}/tree/cicd/utility/include/"
+cp "${cicd%/cicd.bash}/utility/test-ids.py" "${pileRoot}/tree/cicd/utility/"
+: > "${pileRoot}/tree/testdata/vectors.tsv"
+git init -q -b main "${pileRoot}/tree"
+git -C "${pileRoot}/tree" add cicd testdata
+git -C "${pileRoot}/tree" -c user.name=t -c user.email=t@t commit -q -m first
+printf '999999999\n' > "${pileRoot}/temp/zuid/20260101-000000_001/run.pid"
+touch -t 202601010000 "${pileRoot}/temp/zuid/20260101-000000_001"
+## Holds the Test IDs step, and passes anything else through.
+# shellcheck disable=2016  ## The stand-in's own text.
+printf '#!/usr/bin/env bash\nif [[ "$*" == *test-ids.py\\ check* && -n "${PILE_HOLD:-}" ]]; then : > "${PILE_HOLD}"; sleep 30; fi\nexec %s "$@"\n' \
+	"$(command -v python3)" > "${pileRoot}/bin/python3"
+chmod +x "${pileRoot}/bin/python3"
+pileBad="$(python3 -I -B - "${pileRoot}" <<'PY'
+import os, signal, subprocess, sys, time
+root = sys.argv[1]
+env = dict(os.environ, HOST_TEMP=root + "/temp", TMPDIR=root + "/tmp", PATH=root + "/bin:" + os.environ["PATH"])
+## Not ZUID_IN_CONTAINER either, when this harness runs in the image.
+for k in ("ZUID_CICD_QUIET", "ZUID_RUN_DIR", "ZUID_IN_CONTAINER"): env.pop(k, None)
+def snap():
+	out = set()
+	for top in ("temp", "tmp"):
+		for d, dirs, files in os.walk(os.path.join(root, top)):
+			out.update(os.path.relpath(os.path.join(d, n), root) for n in dirs + files)
+	return out
+def last(text):
+	lines = [l for l in text.splitlines() if l.strip()]
+	return lines[-1] if lines else ""
+before = snap() - {"temp/zuid/20260101-000000_001", "temp/zuid/20260101-000000_001/run.pid"}
+cmd = ["bash", "cicd/cicd.bash", "--backlog-run-quick", "docs", "--no-container"]
+held = root + "/held"
+p = subprocess.Popen(cmd, cwd=root + "/tree", env=dict(env, PILE_HOLD=held), stdin=subprocess.DEVNULL,
+	stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True, text=True)
+for _ in range(600):
+	if os.path.exists(held): break
+	time.sleep(0.05)
+else:
+	os.killpg(p.pid, signal.SIGKILL); p.wait(); print("never reached Test IDs;"); sys.exit()
+os.killpg(p.pid, signal.SIGTERM)
+out1, _ = p.communicate(timeout=30)
+if p.returncode == 0: print("the killed run exited 0;")
+said = last(out1)
+if not said.startswith("Cleanup ....: removed the run folder, "): print("the killed run ended '%s';" % said)
+if "1 stale run folder(s)" not in said: print("the stale folder wasn't said;")
+p = subprocess.run(cmd, cwd=root + "/tree", env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+	stderr=subprocess.STDOUT, text=True, timeout=120)
+said = last(p.stdout)
+if not said.startswith("Cleanup ....: removed the run folder, "): print("the second run ended '%s';" % said)
+left = sorted(snap() - before)
+if left: print("left %s;" % left)
+if os.path.exists(root + "/temp/zuid/20260101-000000_001"): print("kept the stale folder;")
+PY
+)" || pileBad+=" the rig failed;"
+if [[ -z "${pileBad}" ]]
+	then fPass
+	else fFail "${pileBad}"
+fi
+
+## Go's module cache in the volume keeps what go.sum names, by the cache's
+## own spelling of capitals, and the checksum db. Read-only folders too.
+fId dee45 "Go module cache pruned to what go.sum names"
+gmRoot="${work}/gomod"; gm="${gmRoot}/mod"
+mkdir -p "${gm}/go.uber.org/goleak@v1.3.0" "${gm}/go.uber.org/goleak@v1.2.0/sub" "${gm}/github.com/!burnt!sushi/toml@v1.0.0" \
+	"${gm}/github.com/!burnt!sushi/toml@v0.9.0" "${gm}/cache/download/go.uber.org/goleak/@v" "${gm}/cache/download/old.org/x/@v" \
+	"${gm}/cache/download/sumdb/sum.golang.org/lookup" "${gm}/example.com/gone@v0.0.1"
+for gmFile in v1.3.0.zip v1.3.0.mod v1.2.0.zip v1.2.0.mod list; do echo x > "${gm}/cache/download/go.uber.org/goleak/@v/${gmFile}"; done
+echo x > "${gm}/cache/download/old.org/x/@v/v0.1.0.zip"; echo x > "${gm}/cache/download/old.org/x/@v/list"
+echo x > "${gm}/cache/download/sumdb/sum.golang.org/lookup/a"
+head -c 100000 /dev/zero > "${gm}/go.uber.org/goleak@v1.2.0/sub/big"
+chmod -R a-w "${gm}/go.uber.org/goleak@v1.2.0"
+printf '%s\n' "go.uber.org/goleak v1.3.0 h1:x" "go.uber.org/goleak v1.3.0/go.mod h1:y" "github.com/BurntSushi/toml v1.0.0/go.mod h1:z" > "${gmRoot}/go.sum"
+gmBad=""
+out="$(bash "${cicd%/cicd.bash}/utility/gomod-prune.bash" "${gm}" "${gmRoot}/go.sum" 2>&1)" || gmBad+=" exited $?: ${out};"
+[[ "${out}" =~ ^pruned\ [1-9][0-9]*$ ]] || gmBad+=" said '${out}';"
+gmLeft="$(cd "${gm}" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')"
+gmWant="./cache ./cache/download ./cache/download/go.uber.org ./cache/download/go.uber.org/goleak ./cache/download/go.uber.org/goleak/@v"
+gmWant+=" ./cache/download/go.uber.org/goleak/@v/list ./cache/download/go.uber.org/goleak/@v/v1.3.0.mod ./cache/download/go.uber.org/goleak/@v/v1.3.0.zip"
+gmWant+=" ./cache/download/sumdb ./cache/download/sumdb/sum.golang.org ./cache/download/sumdb/sum.golang.org/lookup ./cache/download/sumdb/sum.golang.org/lookup/a"
+gmWant+=" ./github.com ./github.com/!burnt!sushi ./github.com/!burnt!sushi/toml@v1.0.0 ./go.uber.org ./go.uber.org/goleak@v1.3.0 "
+[[ "${gmLeft}" == "${gmWant}" ]] || gmBad+=" left '${gmLeft}';"
+## A go.sum that names nothing would take the lot.
+: > "${gmRoot}/empty.sum"
+bash "${cicd%/cicd.bash}/utility/gomod-prune.bash" "${gm}" "${gmRoot}/empty.sum" > /dev/null 2>&1 && gmBad+=" an empty go.sum ran;"
+[[ -d "${gm}/go.uber.org/goleak@v1.3.0" ]] || gmBad+=" an empty go.sum removed what's named;"
+if [[ -z "${gmBad}" ]]
+	then fPass
+	else fFail "${gmBad}"
+fi
+
+## A harness, the hook or the packager: inside the cicd.bash run's folder when
+## ZUID_RUN_DIR names one, and only that is its own. Alone, or with a
+## ZUID_RUN_DIR that's a link or not there, a run folder like cicd.bash's.
+fId dee2b "harness folder inside the run's, or its own run folder"
+subRoot="${work}/sub"
+mkdir -p "${subRoot}/ht" "${subRoot}/zuid/20261019-101112_001" "${subRoot}/elsewhere"
+ln -s "${subRoot}/zuid/20261019-101112_001" "${subRoot}/via"
+subBad=""
+fSubCase(){  ## ZUID_RUN_DIR
+	(
+		# shellcheck disable=2030,2031  ## Only this subshell's.
+		export ZUID_RUN_DIR="$1" HOST_TEMP="${subRoot}/ht"
+		fRunDir_Sub zuid cli-test || { echo "fRunDir_Sub failed"; exit 0; }
+		# shellcheck disable=2031  ## Set by fRunDir_Sub, in this subshell.
+		printf 'dir=%s own=%s tmp=%s run=%s pid=%s\n' "${safeRmRunDir}" "${safeRmOwn}" "$(fPrintEnv TMPDIR TEMP TMP)" \
+			"${ZUID_RUN_DIR}" "$(cat "${safeRmRunDir}/run.pid" 2>/dev/null || echo none)"
+	)
+}
+nested="${subRoot}/zuid/20261019-101112_001"
+out="$(fSubCase "${nested}")"
+want="dir=${nested}/cli-test_001 own=${nested} tmp=${nested}/cli-test_001 ${nested}/cli-test_001 ${nested}/cli-test_001  run=${nested} pid=none"
+[[ "${out}" == "${want}" ]] || subBad+=" nested said '${out}';"
+out="$(fSubCase "${nested}")"
+[[ "${out}" == "dir=${nested}/cli-test_002 "* ]] || subBad+=" a second one said '${out}';"
+for subParent in "" "${subRoot}/via" "${subRoot}/gone" "relative/dir"; do
+	out="$(fSubCase "${subParent}")"
+	if ! [[ "${out}" =~ ^dir=(${subRoot}/ht/zuid/[0-9]{8}-[0-9]{6}_[0-9]{3})\ own=${subRoot}/ht/zuid\ tmp=([^ ]+)\ .*\ run=([^ ]+)\ pid=([0-9]+)$ \
+		&& "${BASH_REMATCH[2]}" == "${BASH_REMATCH[1]}" && "${BASH_REMATCH[3]}" == "${BASH_REMATCH[1]}" ]]; then
+		subBad+=" ZUID_RUN_DIR '${subParent}' said '${out}';"
+	fi
+done
+[[ -z "$(find "${subRoot}/elsewhere" -mindepth 1)" ]] || subBad+=" wrote outside;"
+if [[ -z "${subBad}" ]]
+	then fPass
+	else fFail "${subBad}"
+fi
+
+## The harnesses, the hook, the packager and the installers remove a folder
+## only through a guard. Every recursive rm, and every Remove-Item -Recurse,
+## has to sit in one of the guard's own functions.
+fId dee2c "recursive removals only inside the guards"
+guardBad=""
+# shellcheck disable=2031  ## Only a subshell much earlier changes it.
+for guardFile in cicd/utility/cli-test.bash cicd/utility/pipeline-test.bash cicd/utility/installer-test.bash \
+	cicd/utility/git-hooks/pre-push cicd/utility/package.bash cicd/utility/include/safe-rm.bash cicd/cicd.bash install.bash install.ps1 \
+	cicd/utility/box-run.bash cicd/utility/box-release-test.bash cicd/utility/gomod-prune.bash; do
+	# shellcheck disable=2031  ## Likewise.
+	[[ -f "${repoRoot}/${guardFile}" ]] || { guardBad+=" no ${guardFile};"; continue; }
+	# shellcheck disable=2031  ## Likewise.
+	guardBad+="$(awk -v f="${guardFile}" '
+		/^[[:space:]]*#/ { next }
+		/^(function )?[A-Za-z_][A-Za-z0-9_-]*[[:space:]]*\(\)[[:space:]]*\{/ { fn = $0; sub(/^function /, "", fn); sub(/[[:space:]]*\(.*/, "", fn); one = /\}[[:space:]]*$/ }
+		/^function [A-Za-z-]+ *\{?$/ { fn = $2 }
+		/^}/ { fn = "" }
+		## Bracketed, so the pattern does not match itself.
+		/(^|[^A-Za-z-])rm -[A-Za-z]*[rR]|-exec[ ]rm|Remove-Item.*-Recurs[e]/ {
+			if (fn != "_fSafeRm_Do" && fn != "fSafeRm_Under") printf " %s:%d in %s;", f, NR, (fn == "" ? "top level" : fn)
+		}
+		## A function on one line ends with it.
+		one { fn = ""; one = 0 }' "${repoRoot}/${guardFile}")"
+done
+if [[ -z "${guardBad}" ]]
+	then fPass
+	else fFail "${guardBad}"
 fi
 
 ## The profile report sorted self time by the leaf's own name, and registry
@@ -2825,9 +3315,12 @@ git init -q --bare "${work}/hook/remote.git"
 git init -q -b main "${hookRepo}"
 git -C "${hookRepo}" config user.name t
 git -C "${hookRepo}" config user.email t@t
-mkdir -p "${hookRepo}/cicd/utility/git-hooks" "${hookRepo}/go" "${hookRepo}/project"
+mkdir -p "${hookRepo}/cicd/utility/git-hooks" "${hookRepo}/cicd/utility/include" "${hookRepo}/go" "${hookRepo}/project" "${work}/hook/temp"
 cp "${cicd%/cicd.bash}/utility/git-hooks/pre-push" "${cicd%/cicd.bash}/utility/git-hooks/no-gate-paths" "${hookRepo}/cicd/utility/git-hooks/"
-printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\n' "${gateLog}" > "${hookRepo}/cicd/cicd.bash"
+cp "${cicd%/cicd.bash}/utility/include/safe-rm.bash" "${hookRepo}/cicd/utility/include/"
+## Where it ran, apart from what it was asked, for dee2d.
+# shellcheck disable=2016  ## The stand-in's own text.
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\nprintf "%%s %%s\\n" "$0" "$TMPDIR" >> "%s"\n' "${gateLog}" "${work}/hook/gate.where" > "${hookRepo}/cicd/cicd.bash"
 chmod +x "${hookRepo}/cicd/cicd.bash"
 printf 'x\n' > "${hookRepo}/README.md"; printf 'package x\n' > "${hookRepo}/go/x.go"
 git -C "${hookRepo}" add -A
@@ -2836,7 +3329,7 @@ git -C "${hookRepo}" config core.hooksPath cicd/utility/git-hooks
 git -C "${hookRepo}" remote add origin "${work}/hook/remote.git"
 fHookPush(){  ## ref
 	: > "${gateLog}"
-	env -u SKIP_GATE TMPDIR="${work}/hook" git -C "${hookRepo}" push -q origin "$1" > /dev/null 2>&1 || printf 'push failed\n' >> "${gateLog}"
+	env -u SKIP_GATE -u ZUID_RUN_DIR HOST_TEMP="${work}/hook/temp" git -C "${hookRepo}" push -q origin "$1" > /dev/null 2>&1 || printf 'push failed\n' >> "${gateLog}"
 	tr '\n' ' ' < "${gateLog}"
 }
 hookBad=""
@@ -2855,6 +3348,19 @@ if [[ -z "${hookBad}" ]]
 	else fFail "${hookBad}"
 fi
 
+## The gate's worktree sits in a run folder like cicd.bash's, which goes after.
+fId dee2d "the hook gates in a run folder, removed after"
+hookWhere="$(tail -n 1 "${work}/hook/gate.where")"
+hookBad=""
+[[ "${hookWhere}" =~ ^(${work}/hook/temp/zuid/[0-9]{8}-[0-9]{6}_[0-9]{3})/tree/cicd/cicd\.bash\ (.*)$ && "${BASH_REMATCH[2]}" == "${BASH_REMATCH[1]}" ]] \
+	|| hookBad+=" ran as '${hookWhere//$'\n'/; }';"
+left="$(find "${work}/hook/temp/zuid" -mindepth 1 2>&1 | tr '\n' ' ' || true)"
+[[ -z "${left}" ]] || hookBad+=" left ${left};"
+if [[ -z "${hookBad}" ]]
+	then fPass
+	else fFail "${hookBad}"
+fi
+
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
 fLine ""
@@ -2862,6 +3368,9 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: The cleanup line, the Go module prune, and 2 runs with one killed leaving nothing.
+##		- 20261025 JC: The release stand-in prints the new --version lines, and only the first tops the notes.
+##		- 20261025 JC: Its folder is a run folder. The harness run folder, the guard scan, and the hook's run folder.
 ##		- 20261025 JC: Which runs start the macos workflow, and its start and result steps.
 ##		- 20261025 JC: Test IDs in minutes, PASS, FAIL and SKIP lines.
 ##		- 20261025 JC: The gate flags, and the pre-push hook's --merge-gate and docs skip.

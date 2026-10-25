@@ -55,8 +55,11 @@ esac; done
 ## The command keeps its compiled module under the user's cache dir. Point that
 ## somewhere of our own, so a run neither reads nor leaves anything in the real
 ## one.
-work="$(mktemp -d)"
-trap 'rm -rf "${work}"' EXIT
+# shellcheck source=cicd/utility/include/safe-rm.bash
+source "${repoRoot}/cicd/utility/include/safe-rm.bash"
+trap '[[ -z "${safeRmRunDir}" ]] || fSafeRm "${safeRmRunDir}"' EXIT
+fRunDir_Sub zuid cli-test || fDie "no run folder"
+work="${safeRmRunDir}"
 export HOME="${work}/home" XDG_CACHE_HOME="${work}/cache"
 mkdir -p "${HOME}"
 fCacheDir(){ if [[ "$(uname -s)" == Darwin ]]; then printf '%s' "${HOME}/Library/Caches/zuid"; else printf '%s' "${XDG_CACHE_HOME}/zuid"; fi ;}
@@ -369,14 +372,33 @@ fWantFailure ddb00 "--hash-chars is gone"         "Argument invalid" --hash-char
 fWantFailure ddb01 "multi-byte component named whole" "'%é'" --format '%é'
 fWantFailure ddb02 "zero --rand-chars" "out of range for --rand-chars" --rand-chars 0
 
-## --version is one bare line for scripts and the installers' head -n1. The
-## copyright lives in --about.
-fWantLines ddb03 "--version is one line"                  1 --version
+## --version is the version line, then the copyright line. Scripts and the
+## installers read the first one.
+fWantLines ddb03 "--version is two lines"                 2 --version
 ## A build that isn't for a release adds the date.
-fWantMatch ddb04 "--version is the version and build"     '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)? \(build [0-9a-z]+\)( \([0-9]{4}-[0-9]{2}-[0-9]{2}\))?$' --version
-fWantAbsent ddb05 "--version has no copyright"            "Copyright" --version
+fWantMatch ddb04 "--version is the version and build"     '^zuid v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)? build [0-9a-z]+( \([0-9]{4}-[0-9]{2}-[0-9]{2}\))?'$'\n' --version
+## Retired 20261025: --version ends with the copyright now, per 2026102416233108. dee3h.
+# fWantAbsent ddb05 "--version has no copyright"            "Copyright" --version
 fWantContains ddb06 "--about has the copyright"           "Copyright ©" --about
 fWantContains ddb07 "--about names both licenses"         "The Go module and the C library are Apache-2.0." --about
+
+versionText="$(fRun --version || true)"
+aboutText="$(fRun --about || true)"
+fId dee3h "--version ends with the copyright"
+copyLine="$(grep -m1 '^Copyright © ' <<< "${aboutText}" || true)"
+if [[ -n "${copyLine}" && "${versionText#*$'\n'}" == "${copyLine}" ]]
+	then fPass
+	else fFail "--version said '${versionText}', and --about's copyright is '${copyLine}'"
+fi
+
+## One line everywhere, so --about and --help can't drift from what scripts read.
+fId dee3j "--about and --help open with the version"
+aboutHead="$(sed -n '2,3p' <<< "${aboutText}")"
+helpSecond="$(fRun --help | sed -n 2p || true)"
+if [[ -n "${versionText}" && "${aboutHead}" == "${versionText}" && "${helpSecond}" == "${versionText%%$'\n'*}" ]]
+	then fPass
+	else fFail "--version '${versionText}', --about '${aboutHead}', --help '${helpSecond}'"
+fi
 fWantContains ddb08 "--donate says where to give"         "https://github.com/sponsors/jim-collier" --donate
 fWantContains ddb1n "--donate names Ko-fi too"          "https://ko-fi.com/jimcollier" --donate
 
@@ -487,3 +509,5 @@ fLine ""
 ##		- 20261023 JC: A relative --bin.
 ##		- 20261025 JC: A warm run's CPU against a cold one's.
 ##		- 20261025 JC: Test IDs in minutes. PASS, FAIL and SKIP lines.
+##		- 20261025 JC: Its folder is a run folder, removed through the guard.
+##		- 20261025 JC: --version adds the copyright line, and --about and --help open with its first.

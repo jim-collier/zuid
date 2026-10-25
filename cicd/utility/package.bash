@@ -138,8 +138,11 @@ fArchLabel(){ case "$1" in aarch64*) echo "arm64" ;; *) echo "x86_64" ;; esac ;}
 fOsLabel(){   case "$1" in *-macos*) echo "darwin" ;; *-freebsd*) echo "freebsd" ;; *-windows*) echo "windows" ;; *) echo "linux" ;; esac ;}
 fGoArch(){    case "$1" in arm64) echo "arm64" ;; *) echo "amd64" ;; esac ;}
 
-work="$(mktemp -d)"
-trap 'rm -rf "${work}"' EXIT
+# shellcheck source=cicd/utility/include/safe-rm.bash
+source "${root}/cicd/utility/include/safe-rm.bash"
+trap '[[ -z "${safeRmRunDir}" ]] || fSafeRm "${safeRmRunDir}"' EXIT
+fRunDir_Sub "${PKG}" package || fDie "no work folder"
+work="${safeRmRunDir}"
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -176,12 +179,19 @@ fCheckOutDir(){
 
 ## Only reached once the build has produced something to put here. Clears the
 ## contents rather than the directory itself, so a mount point or a directory
-## somebody granted permissions on survives being reused.
+## somebody granted permissions on survives being reused. Through the guard,
+## with the out dir as the one parent. A link is only unlinked.
 fClaimOutDir(){
+	local outReal="" entry=""
 	mkdir -p "${OUT}"
 	if fDirHasContent "${OUT}"; then
 		fOutDirIsOurs || fDie "${OUT} gained files while the build ran, and has no ${outMarker} marker. Refusing to empty it."
-		find "${OUT}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+		outReal="$(realpath -- "${OUT}")" || fDie "couldn't resolve ${OUT}"
+		while IFS= read -r -d '' entry; do
+			if [[ -L "${entry}" ]]; then rm -f -- "${entry}"
+			else fSafeRm_Under "${outReal}" "${entry}" || fDie "couldn't empty ${OUT}"
+			fi
+		done < <(find "${outReal}" -mindepth 1 -maxdepth 1 -print0)
 	fi
 	: > "${OUT}/${outMarker}"
 }
@@ -589,6 +599,7 @@ fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "
 
 
 ##	History:
+##		- 20261025 JC: Its work folder is a run folder, and dist/ or --out is emptied through the guard.
 ##		- 20261013 JC: Same bytes on a Mac too: archive symbol tables, dSYM paths and symlink modes.
 ##		- 20261013 JC: debug/ gets only the static lib's DWARF, zlib packed.
 ##		- 20261013 JC: Archives and packages get one time, owner 0, set modes and a sorted list.

@@ -105,16 +105,19 @@ No color, no bold, no box drawing. The help has to read the same in a terminal, 
 
 ## Version, about, donate
 
-`--version` prints one bare line and nothing else, with no leading or trailing blank:
+`--version` prints the version line, then the copyright line, with no leading or trailing blank:
 
 ~~~text
-1.0.0-alpha.1 (build dcrb0)
+zuid v1.0.0 build dcrb0
+Copyright © 2026 Jim Collier [ID: ...].
 ~~~
 
-That is so a script can take `head -n1` of it, which both installers do.
+A script can take `head -n1` of it, which both installers do. They also read the older `1.0.0-alpha.1 (build dcrb0)` form, which beta.1 and earlier print.
 
-A build that isn't for a release adds the date of its build number, in the local time zone of whoever runs it: `1.0.0-beta.1 (build debmp) (2026-10-23)`. The build number is a UTC minute, so the date is worked out when the command runs, not when it's built. `--about` and `--help` show the same line. `package.bash` builds with `-Drelease`, which leaves the date off.
+A build that isn't for a release adds the date of its build number, in the local time zone of whoever runs it: `zuid v1.0.0-beta.1 build debmp (2026-10-23)`. The build number is a UTC minute, so the date is worked out when the command runs, not when it's built. `package.bash` builds with `-Drelease`, which leaves the date off.
 
-`--about` is the longer form: version, copyright, project URL, both licenses, the no-warranty line, and a two-line description. The copyright lives here and nowhere else - not in `--help`, and not in the banner.
+`--about` and `--help` open with the same version line. The release notes and the Windows version resource have it too, without the date.
+
+`--about` is the longer form: version, copyright, project URL, both licenses, the no-warranty line, and a two-line description. The copyright is in `--version` and `--about`, but not in `--help` or the banner.
 
 `--donate` says how to support the project and stops. Nothing else ever mentions donating.

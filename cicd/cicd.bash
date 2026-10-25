@@ -32,6 +32,10 @@
 ##		- 20261025 JC: --quick fuzzes on a short budget, and dogfoods.
 ##		- 20261025 JC: PASS, FAIL and SKIP test lines, and test IDs in minutes.
 ##		- 20261025 JC: A full run starts the macos workflow on GitHub and waits for it. --no-remote skips it.
+##		- 20261025 JC: The harnesses make their folders inside the run's, through ZUID_RUN_DIR.
+##		- 20261025 JC: A run folder of its own in HOST_TEMP, removed at the end. Removals go through the safe removal guard.
+##		- 20261025 JC: The FreeBSD release tested on vmFreeBSD, under the host lock. A step can end in SKIP.
+##		- 20261025 JC: One cleanup line ends every run. Go's module cache in the volume pruned to go.sum. The run log keeps its last lines after Ctrl+C.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Global, since the exit trap reads it after fMain has gone.
@@ -41,6 +45,10 @@ declare -i inContainer=0; [[ "${ZUID_IN_CONTAINER:-}" == "1" ]] && inContainer=1
 declare    thisVersion="0.1.0"
 declare    copyrightYear="2026"
 declare    author="Jim Collier"
+
+## fSafeRm and fSafeRm_Under. Every recursive removal goes through them.
+# shellcheck source=cicd/utility/include/safe-rm.bash
+source "$(dirname "${BASH_SOURCE[0]}")/utility/include/safe-rm.bash" || { printf 'cicd.bash: no utility/include/safe-rm.bash beside it.\n' >&2; exit 1; }
 
 ## gitsby picks the git host account from the repo's path. A plain clone
 ## without it gets plain git and gh.
@@ -79,6 +87,13 @@ fConfig(){ :;
 	## "zuid-<version>-". --publish refuses a set with any of these missing, unless
 	## --allow-partial.
 	default_releaseAssets=("linux-x86_64.tgz" "linux-arm64.tgz" "freebsd-x86_64.tgz" "darwin-universal.tgz" "windows-x86_64.zip" "windows-arm64.zip")
+
+	## Test boxes, as ssh destinations. The host part is the box's name in the
+	## shared host lock. ZUID_BOX_FREEBSD replaces it, and set empty leaves the
+	## box out.
+	default_boxFreeBSD="bsdtest@vmFreeBSD"
+	## How long a box step waits for a box another session holds, then skips.
+	default_boxWaitSecs=600
 
 	## Vendored Wasmtime C API, pinned. Fetched into zig/vendor/ when absent.
 	## One checksum per platform, as <arch>-<os>=<sha256>, in Wasmtime's own names.
@@ -236,8 +251,8 @@ fPrint_Help(){
 		    --merge-gate      The pre-push check before main, the same checks as
 		                      --backlog-run-full. --ci is another name for it. See
 		                      below.
-		    --no-remote       Skip the other hosts and VMs, and the macOS workflow on
-		                      GitHub. See below.
+		    --no-remote       Skip the test boxes, and the macOS workflow on GitHub.
+		                      See below.
 		    -m, --message     Commit message. Implies --commit.
 		    --commit          Commit if everything passed. Refuses on a protected
 		                      branch: ${protectedBranches[*]}
@@ -260,8 +275,8 @@ fPrint_Help(){
 		    --leakcheck       Add the slow leak checks. On by default, so this is for
 		                      a quick run. See below.
 		    --no-leakcheck    Leave the slow leak checks out.
-		    --keep-temp       Keep this run's containers, rather than removing them
-		                      at the end. See below.
+		    --keep-temp       Keep this run's temp folder and containers, rather
+		                      than removing them at the end. See below.
 		    --list            Print the steps the other options would run, and the
 		                      test IDs in each, then stop. Nothing is run.
 		    -q, --quiet       No banner and no prompting. Without -m the commit
@@ -303,6 +318,16 @@ fPrint_Help(){
 		the commit, not uncommitted edits. --quick, --backlog-run-quick and --only
 		leave it out, and so does --no-remote.
 
+		A run that packages then tests the releases this machine can't run on the
+		test boxes, over ssh: FreeBSD on ${freebsdBox:-nothing, since ZUID_BOX_FREEBSD is empty}. Each box is held
+		through the shared host lock for its step, and a VM is put back the way it
+		was found, by the lock's VM state helper: ZUID_BOX_LOCK if set, else the
+		first *_vm-state.bash on PATH. Without one the box isn't held. A box another
+		session holds is waited for up to $((boxWaitSecs / 60)) minutes. A box that's taken or
+		doesn't answer is a SKIP, in its step and at the end, and the run goes on.
+		The job runs in a folder of its own under the box's temp root, removed
+		after. --no-remote leaves the boxes out.
+
 		Every run - quick or full, any branch - then archives the whole project:
 		repo/, private/, the lot, into ../versions/, and publishes it, committing
 		and pushing through the helper in cicd/utility/. Build caches and other
@@ -343,15 +368,26 @@ fPrint_Help(){
 		A stamp file in each one records which. ~/.cache/zig is shared, so it's
 		left alone.
 
+		Each run works in its own folder, \${HOST_TEMP}/${projectName}/<run>, where <run> is
+		the start time and a counter, such as 20261025-140500_001. HOST_TEMP falls
+		back to TMPDIR, then /tmp. TMPDIR, TEMP and TMP point into it. The folder
+		goes at the end, failed or interrupted too, unless --keep-temp, which
+		prints where it is. A run also removes the project's run folders over 2
+		days old whose run.pid names no live process. The harnesses, the hook and
+		package.bash make their folders inside it, or one like it when run alone.
+
 		Every container, image and volume a run makes is labeled dev.project=${projectName}
 		and dev.run=<run>, and each container is named ${projectName}-<run>-<step>. At the
 		end of a run, failed or interrupted too, its containers are stopped and
 		removed, unless --keep-temp. A run that passed then removes the project's
 		dangling images, and every tag of ${containerImage} and ${codeqlImage} but the current
 		one and the one before it. Then a docker builder prune keeps the last week
-		of build cache, and the ${containerVolume} volume is emptied when it's over
-		${zigCacheCapMB} MB. One line says what went and about what it freed. Nothing
-		without the project's label is touched.
+		of build cache. In the ${containerVolume} volume, Go's module cache loses every
+		module go/go.sum doesn't name, and then the volume is emptied when it's over
+		${zigCacheCapMB} MB. Nothing without the project's label is touched.
+
+		The last line of every run, failed or interrupted too, says what it
+		removed, files and docker both, and about what that freed.
 
 		--leakcheck is a soak test of each side, clang's cross-file analyzer, and
 		CodeQL. The soaks repeat what a caller does and fail when the heap after
@@ -407,6 +443,8 @@ fMain(){
 	local -a default_protectedBranches=()
 	local    default_releaseBranch=""
 	local -a default_releaseAssets=()
+	local    default_boxFreeBSD=""
+	local -i default_boxWaitSecs=0
 	local    default_wasmtimeVer=""
 	local -a default_wasmtimeSha256s=()
 	local    default_freebsdRepo=""
@@ -434,6 +472,8 @@ fMain(){
 	local -ra protectedBranches=("${default_protectedBranches[@]}")
 	local -r  releaseBranch="${default_releaseBranch}"
 	local -ra releaseAssets=("${default_releaseAssets[@]}")
+	local -r  freebsdBox="${ZUID_BOX_FREEBSD-${default_boxFreeBSD}}"
+	local -ri boxWaitSecs="${default_boxWaitSecs}"
 	local -r wasmtimeVer="${default_wasmtimeVer}"
 	local -ra wasmtimeSha256s=("${default_wasmtimeSha256s[@]}")
 	local -r  freebsdRepo="${default_freebsdRepo}"
@@ -473,8 +513,8 @@ fMain(){
 	local -r utilityDir="${repoRoot}/cicd/utility"
 	local -r incomingDir="${repoRoot}/dist-incoming"
 	local -r runStamp="$(fRunStamp)"
-	## Becomes the run folder's name with 2026102416233107.
-	local -r runName="${runStamp}"
+	fRunDir "${runStamp}"
+	local -r runName="${_runDir##*/}"
 
 	## No single stage gets the whole machine. fJobs works the counts out, here
 	## and again from fStep before each step, since the load moves.
@@ -577,6 +617,7 @@ fMain(){
 	if ((! inContainer)) && [[ "${containerMode}" == "auto" ]] && [[ -z "$(fContainer_Where)" ]]; then planContainer=1; fi
 	fSteps_Plan
 	if ((doList)); then fSteps_List; return 0; fi
+	_cleanSay=1
 	## The run in the image numbers its steps on from the outside's, which
 	## has listed the ones off and says when it's done.
 	local -i stepsHanded=0
@@ -589,7 +630,13 @@ fMain(){
 	((! stepsHanded)) || return 0
 
 	fEcho_Clean
-	fEcho "Passed."
+	local skipped=""
+	for skipped in "${_stepSkipped[@]}"; do fEcho_Clean "Skipped ....: ${skipped}"; done
+	case "${#_stepSkipped[@]}" in
+		0) fEcho "Passed." ;;
+		1) fEcho "Passed, with 1 step skipped." ;;
+		*) fEcho "Passed, with ${#_stepSkipped[@]} steps skipped." ;;
+	esac
 	fEcho_Clean
 
 }
@@ -650,6 +697,13 @@ fSteps(){
 		elif [[ "${onlyToolchain}" == "go" ]]; then packageWhy="--only go"
 		else packageWhy="${quickWhy}, unless --package"; fi
 		fStep_Off "Package" "${packageWhy}"
+	fi
+	## The boxes test what Package made, so they go where it does.
+	if ((! inContainer)); then
+		if   ((! doRemote)); then fStep_Off "FreeBSD box" "--no-remote"
+		elif [[ -z "${freebsdBox}" ]]; then fStep_Off "FreeBSD box" "ZUID_BOX_FREEBSD is empty"
+		elif ! fSteps_Packages; then fStep_Off "FreeBSD box" "nothing packaged"
+		else fStep "FreeBSD box: ${freebsdBox##*@}" fStage_Box_FreeBSD; fi
 	fi
 
 	if ((! _stepPlanning)); then
@@ -1344,13 +1398,12 @@ fContainer_Tidy(){
 	"${containerEngine}" builder prune -f --filter until=168h >/dev/null 2>&1 || true
 	fContainer_VolumeCap
 	local -r after="$(fDocker_Bytes)"
-	local freed="an unknown amount freed, since docker system df didn't answer" gone=""
-	if ((${#_dockerGone[@]})); then printf -v gone '%s, ' "${_dockerGone[@]}"; fi
+	## Said in the run's last line, by fCleanup_Say.
+	_cleanGone+=("${_dockerGone[@]}" "build cache over a week old")
+	_cleanDockerFreed="unknown"
 	if [[ -n "${before}" && -n "${after}" ]]; then
-		freed="about $(awk -v b="${before}" -v a="${after}" 'BEGIN { d = b - a; if (d < 0) d = 0; printf "%.1f GB", d / 1e9 }') freed"
+		_cleanDockerFreed="$(awk -v b="${before}" -v a="${after}" 'BEGIN { d = b - a; if (d < 0) d = 0; printf "%.0f", d }')"
 	fi
-	fEcho_Clean
-	fEcho_Clean "Docker .....: removed ${gone}build cache over a week old; ${freed}"
 	## Done, so the exit trap has nothing to ask.
 	_dockerRun="" _dockerGone=()
 }
@@ -1371,34 +1424,44 @@ fContainer_DropOlder(){  ## image, current tag
 }
 
 
-## The cache volume is emptied when it's over the cap, the same rule as the
-## Zig caches. From inside, since only there can its size be read. Everything
-## the runs wrote goes; the image's own root-owned folders stay. Go's module
-## cache is read-only, hence the chmod.
+## Go's module cache in the volume loses what go.sum doesn't name. Then the
+## volume is emptied when it's over the cap, the same rule as the Zig caches.
+## From inside, since only there can its size be read. Everything the runs
+## wrote goes; the image's own root-owned folders stay. Go's module cache is
+## read-only, hence the chmod.
 fContainer_VolumeCap(){
-	local label="" out=""
+	local label="" out="" line=""
 	label="$("${containerEngine}" volume inspect --format '{{index .Labels "dev.project"}}' "${containerVolume}" 2>/dev/null || true)"
 	if [[ "${label}" != "${projectName}" || -z "${containerTag}" ]]; then return 0; fi
-	local -a runArgs=(--init --user "$(id -u):$(id -g)" -v "${containerVolume}:/cache" --name "${projectName}-${runName}-cache-cap" --label "dev.project=${projectName}" --label "dev.run=${runName}")
+	local -a runArgs=(--init --user "$(id -u):$(id -g)" -v "${repoRoot}:${repoRoot}:ro" -v "${containerVolume}:/cache" --name "${projectName}-${runName}-cache-cap" --label "dev.project=${projectName}" --label "dev.run=${runName}")
 	if ((! keepTemp)); then runArgs=(--rm "${runArgs[@]}"); fi
 	runArgs+=(--cpus 1 --cpu-shares 256)
 	# shellcheck disable=2016  ## Expanded inside.
 	out="$("${containerEngine}" run "${runArgs[@]}" "${containerTag}" ionice -c 3 nice -n 19 sh -c '
+		bash "$2/cicd/utility/gomod-prune.bash" "$(go env GOMODCACHE)" "$2/go/go.sum" || true
 		kb="$(du -sk /cache | cut -f1)"
 		if [ "${kb}" -gt "$1" ]; then chmod -R u+w /cache 2>/dev/null; find /cache -xdev -mindepth 1 -user "$(id -u)" -delete; echo "emptied ${kb}"; fi
-	' sh "$((zigCacheCapMB * 1024))" 2>/dev/null || true)"
-	if [[ "${out}" == "emptied "* ]]; then _dockerGone+=("${containerVolume}'s contents, $((${out#emptied } / 1024)) MB"); fi
+	' sh "$((zigCacheCapMB * 1024))" "${repoRoot}" 2>/dev/null || true)"
+	while IFS= read -r line; do
+		case "${line}" in
+			"pruned "*)  _dockerGone+=("Go modules go.sum doesn't name, $(fCleanup_Mb "${line#pruned }")") ;;
+			"emptied "*) _dockerGone+=("${containerVolume}'s contents, $(fCleanup_Mb "${line#emptied }")") ;;
+		esac
+	done <<< "${out}"
 }
 
 
 ## Total bytes docker reports, or nothing when it doesn't answer. Shared
 ## layers count once, which is why the freed figure comes from this and not
 ## from what was removed. One call has come back empty, cause not found
-## (2026102416233101).
+## (2026102416233101), and again 20261025, so what it said goes to stderr.
 fDocker_Bytes(){
-	local sizes=""
-	sizes="$("${containerEngine}" system df --format '{{.Size}}' 2>/dev/null)" || return 0
-	if [[ -z "${sizes}" ]]; then return 0; fi
+	local sizes="" rc=0
+	sizes="$("${containerEngine}" system df --format '{{.Size}}' 2>&1)" || rc=$?
+	if ((rc)) || ! [[ "${sizes}" =~ ^[0-9.]+[kKMGT]?B($'\n'[0-9.]+[kKMGT]?B)*$ ]]; then
+		printf 'docker system df: exit %s, said "%s"\n' "${rc}" "${sizes//$'\n'/ | }" >&2
+		return 0
+	fi
 	awk '
 		{ n = $1 + 0; u = $1; sub(/^[0-9.]+/, "", u); u = toupper(u)
 		  m = (u == "KB") ? 1e3 : (u == "MB") ? 1e6 : (u == "GB") ? 1e9 : (u == "TB") ? 1e12 : 1
@@ -1498,7 +1561,9 @@ fStage_Shell(){
 		shellcheck "${repoRoot}/cicd/cicd.bash" "${repoRoot}/install.bash" \
 			"${utilityDir}/installer-test.bash" "${utilityDir}/cli-test.bash" \
 			"${utilityDir}/pipeline-test.bash" "${utilityDir}/package.bash" \
-			"${utilityDir}/c-checks.bash" "${utilityDir}/git-hooks/pre-push"
+			"${utilityDir}/c-checks.bash" "${utilityDir}/git-hooks/pre-push" \
+			"${utilityDir}/include/safe-rm.bash" "${utilityDir}/box-run.bash" \
+			"${utilityDir}/box-release-test.bash" "${utilityDir}/gomod-prune.bash"
 		fEcho_Clean "Clean."
 	fi
 
@@ -1932,7 +1997,7 @@ fStage_Go_Consumer(){
 	fTestPass
 
 	local consumerDir=""
-	consumerDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	consumerDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${consumerDir}")
 
 	cat > "${consumerDir}/main.go" <<-'EOF'
@@ -1972,7 +2037,7 @@ fStage_Go_Consumer(){
 	) || fTestFail "a program importing github.com/jim-collier/zuid/go/zuid did not build and run."
 	fTestPass
 
-	rm -rf "${consumerDir}"
+	fSafeRm "${consumerDir}"
 
 }
 
@@ -2180,7 +2245,7 @@ fVendor_Wasmtime(){  ## platform, destination
 		tar --no-same-owner --no-same-permissions -xf "${wtTar}" -C "${parentDir}"
 	fi
 	rm -f "${wtTar}"
-	rm -rf "${dest:?}"
+	if [[ -e "${dest}" ]]; then fSafeRm_Under "${vendorDir:?}" "${dest}"; fi
 	mv "${parentDir}/${wtName}" "${dest}"
 	printf '%s\n' "${wasmtimeVer}" > "${wtStamp}"
 	fEcho_Clean "Wasmtime ...: vendored ${platform}"
@@ -2208,7 +2273,7 @@ fVendor_FreeBSD(){  ## destination
 	_fMustBeInPath shasum
 	_fMustBeInPath tar
 	local -r unpackDir="${parentDir}/.freebsd-unpack"
-	rm -rf "${unpackDir:?}"
+	if [[ -e "${unpackDir}" ]]; then fSafeRm_Under "${vendorDir:?}" "${unpackDir}"; fi
 	mkdir -p "${unpackDir}"
 	local pin="" pkgName="" pkgSum="" pkgFile="" gotSum=""
 	for pin in "${freebsdPkgs[@]}"; do
@@ -2225,7 +2290,7 @@ fVendor_FreeBSD(){  ## destination
 	done
 
 	local -r usrLocal="${unpackDir}/usr/local"
-	rm -rf "${dest:?}"
+	if [[ -e "${dest}" ]]; then fSafeRm_Under "${vendorDir:?}" "${dest}"; fi
 	mkdir -p "${dest}/lib"
 	cp -R "${usrLocal}/include" "${dest}/"
 	cp "${usrLocal}/lib/libwasmtime.a" "${usrLocal}/lib/libzstd.a" "${dest}/lib/"
@@ -2237,7 +2302,7 @@ fVendor_FreeBSD(){  ## destination
 	## so this is upstream's text, LLVM exception and all.
 	cp "$(find "${usrLocal}/share/licenses" -path '*/libwasmtime-*/APACHE20' -print -quit)" "${dest}/LICENSE" \
 		|| fThrowError "The libwasmtime package has no APACHE20 license file."  "${FUNCNAME[0]}"
-	rm -rf "${unpackDir:?}"
+	fSafeRm_Under "${vendorDir:?}" "${unpackDir}"
 	printf '%s\n' "${want}" > "${stamp}"
 	fEcho_Clean "Wasmtime ...: vendored ${want} x86_64-freebsd"
 
@@ -2343,7 +2408,7 @@ fStage_Zig_Fuzz(){
 	cd "${zigDir}" || fThrowError "Missing the Zig tree: '${zigDir}'."  "${FUNCNAME[0]}"
 
 	local logDir=""
-	logDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	logDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${logDir}")
 	local -r fuzzLog="${logDir}/fuzz.log"
 
@@ -2358,7 +2423,7 @@ fStage_Zig_Fuzz(){
 			fId "${fuzzIds[i]}" "${fuzzNames[i]}, fuzzed for ${fuzzLimit} iterations"
 			fTestPass
 		done
-		rm -rf "${logDir}"
+		fSafeRm "${logDir}"
 		return 0
 	fi
 
@@ -2434,7 +2499,7 @@ fStage_Zig_Cli(){
 fStage_Zig_BuildStamp(){
 
 	local stampDir=""
-	stampDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	stampDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${stampDir}")
 
 	## Zig 0.17.0 on macOS spins forever copying its output into a pipe, and a
@@ -2460,7 +2525,7 @@ fStage_Zig_BuildStamp(){
 	) || fTestFail "the build failed with SOURCE_DATE_EPOCH empty."
 
 	local -r stamped="$("${stampDir}/bin/zuid" --version 2>&1 || true)"
-	if [[ "${stamped}" != *"(build "* ]]; then
+	if [[ "${stamped}" != *" build "* ]]; then
 		fTestFail "an empty SOURCE_DATE_EPOCH dropped the build number: --version said '${stamped}'. It should fall through to the commit date."
 	fi
 	fTestPass
@@ -2490,7 +2555,7 @@ fStage_Zig_BuildStamp(){
 		SOURCE_DATE_EPOCH=1700000000 zig build "-j${buildJobs}" --cache-dir "${stampDir}/cache" --prefix "${stampDir}/again" || exit 1
 	) || fTestFail "the build failed with SOURCE_DATE_EPOCH=1700000000."
 	local -r restamped="$("${stampDir}/again/bin/zuid" --version 2>&1 || true)"
-	if [[ "${restamped}" != *"(build bz4zn)"* ]]; then
+	if [[ "${restamped}" != *" build bz4zn"* ]]; then
 		fTestFail "--version said '${restamped}', so the build kept an old epoch."
 	fi
 	fTestPass
@@ -2500,12 +2565,12 @@ fStage_Zig_BuildStamp(){
 	fId debmw "build date is the viewer's local date"
 	local dated=""
 	dated="$(TZ=UTC0 "${stampDir}/again/bin/zuid" --version 2>&1 || true)"
-	[[ "${dated}" == *"(build bz4zn) (2023-11-14)" ]] || fTestFail "with TZ=UTC0, --version said '${dated}', not the 2023-11-14 build date."
+	[[ "${dated%%$'\n'*}" == *" build bz4zn (2023-11-14)" ]] || fTestFail "with TZ=UTC0, --version said '${dated}', not the 2023-11-14 build date."
 	dated="$(TZ=XXX-14 "${stampDir}/again/bin/zuid" --version 2>&1 || true)"
-	[[ "${dated}" == *"(build bz4zn) (2023-11-15)" ]] || fTestFail "at UTC+14, --version said '${dated}', not the 2023-11-15 build date."
+	[[ "${dated%%$'\n'*}" == *" build bz4zn (2023-11-15)" ]] || fTestFail "at UTC+14, --version said '${dated}', not the 2023-11-15 build date."
 	fTestPass
 
-	rm -rf "${stampDir}"
+	fSafeRm "${stampDir}"
 
 }
 
@@ -2559,7 +2624,7 @@ fStage_Zig_CApi(){
 
 	local -r smokeSrc="${zigDir}/lib/test/capi_smoke.c"
 	local buildDir=""
-	buildDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	buildDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	## An errexit abort skips a RETURN trap, so the cleanup is registered where
 	## the exit handler can also see it.
 	_scratchDirs+=("${buildDir}")
@@ -2678,7 +2743,7 @@ fStage_Zig_CApi(){
 	fi
 	fTestPass
 
-	rm -rf "${buildDir}"
+	fSafeRm "${buildDir}"
 
 }
 
@@ -2700,7 +2765,7 @@ fStage_Zig_CChecks(){
 	local -r testDir="${zigDir}/lib/test" incDir="${zigDir}/zig-out/include" libDir="${zigDir}/zig-out/lib"
 	local -ra cWarn=(-std=c99 -Wall -Wextra -Wpedantic -Werror)
 	local buildDir=""
-	buildDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	buildDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${buildDir}")
 
 	fId de5ay "capi_smoke.c shared, sanitized"
@@ -2735,7 +2800,7 @@ fStage_Zig_CChecks(){
 	fCCheck "${buildDir}" "the analyzer found something. What it said is above." \
 		bash "${cChecks}" clang-analyzer "${cWarn[@]}" -I "${zigDir}/lib/include" -- "${cFiles[@]}"
 
-	rm -rf "${buildDir}"
+	fSafeRm "${buildDir}"
 
 }
 
@@ -2778,7 +2843,7 @@ fLeakcheck_Go(){  ## artifact dir
 	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
 	local -rx GOMAXPROCS="${hardJobs}"
 	local soakDir=""
-	soakDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	soakDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${soakDir}")
 
 	## TestSoak skips without ZUID_SOAK_DIR. Its exit is held until the profiles
@@ -2801,7 +2866,7 @@ fLeakcheck_Go(){  ## artifact dir
 		mv "${soakDir}/heap-2n.pprof" "${profile2N}"
 		fEcho_Clean "Profiles ...: go tool pprof -top -base ${profileN} ${profile2N}"
 	fi
-	rm -rf "${soakDir}"
+	fSafeRm "${soakDir}"
 	((rc == 0)) || fThrowError "The Go soak test failed. What it said is above."  "${FUNCNAME[0]}"
 
 }
@@ -2820,7 +2885,7 @@ fLeakcheck_C(){  ## artifact dir
 	local -r soakSrc="${zigDir}/lib/test/capi_soak.c" incDir="${zigDir}/zig-out/include" libDir="${zigDir}/zig-out/lib"
 	local -ra cWarn=(-std=c99 -Wall -Wextra -Wpedantic -Werror)
 	local buildDir=""
-	buildDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	buildDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${buildDir}")
 
 	## heaptrack's data file is kept only on a failure. It runs to about 25 MB.
@@ -2847,7 +2912,7 @@ fLeakcheck_C(){  ## artifact dir
 	fCCheck "${buildDir}" "the analyzer found something. What it said is above." \
 		bash "${cChecks}" clang-ctu "${cWarn[@]}" -I "${zigDir}/lib/include" -- "${cFiles[@]}"
 
-	rm -rf "${buildDir}"
+	fSafeRm "${buildDir}"
 
 }
 
@@ -2867,7 +2932,7 @@ fLeakcheck_CodeQL(){  ## artifact dir
 
 	local -r runner="${utilityDir}/codeql.bash"
 	local workDir=""
-	workDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	workDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${workDir}")
 
 	if ((doGo)); then
@@ -2886,7 +2951,7 @@ fLeakcheck_CodeQL(){  ## artifact dir
 			-std=c99 -Wall -Wextra -Wpedantic -Werror -I "${zigDir}/lib/include" -- "${cFiles[@]}"
 	fi
 
-	rm -rf "${workDir}"
+	fSafeRm "${workDir}"
 
 }
 
@@ -2957,14 +3022,14 @@ fProfile_Cli(){
 	fi
 
 	local scratch=""
-	scratch="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	scratch="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${scratch}")
 
 	## perf needs kernel.perf_event_paranoid below 3 to record an unprivileged
 	## process. Say which knob rather than failing the build over a profile.
 	if ! perf record -q -g -o "${scratch}/perf.data" -- "${exe}" -f '%d%h%u%f%m%g%r' >/dev/null 2>"${scratch}/perf.err"; then
 		fEcho_Clean "CLI ........: skipped - perf could not record (kernel.perf_event_paranoid is $(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null || echo unknown))"
-		rm -rf "${scratch}"
+		fSafeRm "${scratch}"
 		return 0
 	fi
 	perf script -i "${scratch}/perf.data" 2>/dev/null \
@@ -2972,7 +3037,7 @@ fProfile_Cli(){
 		| inferno-flamegraph --title "zuid CLI" 2>/dev/null \
 		> "${profileDir}/flame_${runStamp}_cli.svg"
 	fEcho_Clean "CLI ........: flame_${runStamp}_cli.svg"
-	rm -rf "${scratch}"
+	fSafeRm "${scratch}"
 
 }
 
@@ -3052,7 +3117,7 @@ fStage_Package(){
 	local releaseSaid=""
 	if ! releaseSaid="$("${release}" --version 2>/dev/null)"; then
 		fTestSkip "this host can't run ${release##*/}"
-	elif [[ "${releaseSaid}" =~ ^[^\ ]+\ \(build\ [0-9a-z]+\)$ ]]; then
+	elif [[ "${releaseSaid%%$'\n'*}" =~ ^zuid\ v[^\ ]+\ build\ [0-9a-z]+$ ]]; then
 		fTestPass
 	else
 		fTestFail "--version said '${releaseSaid}'. package.bash has to build with -Drelease."
@@ -3061,7 +3126,7 @@ fStage_Package(){
 	## The macOS checks read one slice at a time. The x86_64 scan means nothing on
 	## arm64, and the minimum macOS has to be right for both.
 	local thinDir=""
-	thinDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	thinDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${thinDir}")
 	local -r macSlices=("x86_64" "arm64")
 
@@ -3190,7 +3255,7 @@ fStage_Package(){
 
 	fStage_Package_MacRun "${thinDir}" "${release}" "${packageVersion}"
 
-	rm -rf "${thinDir}"
+	fSafeRm "${thinDir}"
 
 }
 
@@ -3225,7 +3290,7 @@ fStage_Package_MacRun(){  ## scratch dir, release, version
 			fTestSkip "this Mac can't run ${slice}"
 		else
 			said="$(HOME="${runHome}" XDG_CACHE_HOME="${runHome}/cache" arch -"${slice}" "${release}" --version 2>&1)" || fTestFail "--version failed: ${said}"
-			[[ "${said}" == "${version} (build "*")" ]] || fTestFail "--version said '${said}', not ${version}."
+			[[ "${said%%$'\n'*}" == "zuid v${version} build "* ]] || fTestFail "--version said '${said}', not ${version}."
 			said="$(HOME="${runHome}" XDG_CACHE_HOME="${runHome}/cache" arch -"${slice}" "${release}" 2>&1)" || fTestFail "a default identifier failed: ${said}"
 			[[ -n "${said}" && "${said}" != *$'\n'* ]] || fTestFail "a default identifier came out as '${said}'."
 			fTestPass
@@ -3473,12 +3538,14 @@ fStage_Package_Windows(){  ## scratch dir
 	local hostRelease="${repoRoot}/dist/${distPrefix}linux-x86_64" versionWant="" yearWant="" aboutText=""
 	if [[ "$(uname -m)" == "aarch64" ]]; then hostRelease="${repoRoot}/dist/${distPrefix}linux-arm64"; fi
 	if ((isLinux)) && versionWant="$("${hostRelease}" --version 2>/dev/null)" && aboutText="$("${hostRelease}" --about 2>/dev/null)"; then
+		versionWant="${versionWant%%$'\n'*}"
 		yearWant="$(sed -n 's/^Copyright © \([0-9-]*\) Jim Collier .*/\1/p' <<< "${aboutText}")"
 	else
 		versionWant=""
 	fi
 	## FILEVERSION is 4 numbers, so a prerelease gets the flag in place of its tag.
-	local -r versionPlain="${versionWant%% *}"
+	local versionPlain="${versionWant#zuid v}"
+	versionPlain="${versionPlain%% *}"
 	local -r versionNumbers="${versionPlain%%-*}.0"
 	local flagsWant="0x0"
 	if [[ "${versionPlain}" == *-* ]]; then flagsWant="0x2"; fi
@@ -4380,6 +4447,79 @@ fStage_Hosted_Result(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Test boxes. Each is held through the shared host lock for its step, by the
+## lock's VM state helper, which also puts a VM back the way it was found.
+## box-run.bash does the ssh half. A box that's taken or doesn't answer is a
+## skip, never a failure, per the CICD rules for other hosts.
+
+## The helper: ZUID_BOX_LOCK, empty for none, else the first *_vm-state.bash on
+## PATH. It's found by that pattern, since its full name is the machine's own.
+fBox_Lock(){
+	if [[ -n "${ZUID_BOX_LOCK+x}" ]]; then printf '%s\n' "${ZUID_BOX_LOCK}"; return 0; fi
+	local dir="" found=""
+	local -a hits=()
+	local IFS=":"
+	for dir in ${PATH}; do
+		[[ -n "${dir}" && -d "${dir}" ]] || continue
+		hits=("${dir}"/*_vm-state.bash)
+		for found in "${hits[@]}"; do
+			if [[ -f "${found}" && -x "${found}" ]]; then printf '%s\n' "${found}"; return 0; fi
+		done
+	done
+	return 0
+}
+
+fBox_Skip(){ fTestSkip "$*"; fStep_Skip "$*" ;}
+
+## Runs <job dir>'s job.bash on the box, held for as long as that takes, and
+## ends the step's check from box-run.bash's verdict.
+fBox_Run(){  ## ssh destination, job dir
+	local -r dest="$1" jobDir="$2"
+	local -r box="${dest##*@}" verdictFile="${2%/}.verdict"
+	local lock="" verdict=""
+	local -i rc=0
+	local -a job=(bash "${utilityDir}/box-run.bash" "${dest}" "${jobDir}" "${verdictFile}")
+	lock="$(fBox_Lock)"
+	: > "${verdictFile}"
+	if [[ -n "${lock}" ]]; then
+		ZUID_BOX_KEEP="${keepTemp}" "${lock}" wrap "${box}" --wait "${boxWaitSecs}" --why "${projectName}: cicd ${runName}" -- "${job[@]}" || rc=$?
+	else
+		fEcho_Clean "Note .......: no host lock here, so ${box} isn't held"
+		ZUID_BOX_KEEP="${keepTemp}" "${job[@]}" || rc=$?
+	fi
+	read -r verdict < "${verdictFile}" || true
+	case "${verdict}" in
+		pass)
+			if ((rc)); then fEcho_Clean "Note .......: ${box} may not be back the way it was found, exit ${rc}, as said above"; fi
+			fTestPass ;;
+		fail\ *) fTestFail "${verdict#fail }" ;;
+		skip\ *) fBox_Skip "${verdict#skip }" ;;
+		*)
+			## The job never ran, so the lock or the VM never came.
+			if ((rc == 3)); then fBox_Skip "${box} stayed taken for $((boxWaitSecs / 60)) minutes"
+			else fBox_Skip "${box} couldn't be had or woken, exit ${rc}, as said above"; fi
+			;;
+	esac
+}
+
+## The FreeBSD release from this run, its command through cli-test.bash and
+## its libraries through capi_smoke.c, on FreeBSD itself.
+fStage_Box_FreeBSD(){
+	fId dee33 "FreeBSD release on its box: command surface and C module"
+	local -r tarball="${repoRoot}/dist/${distPrefix}freebsd-x86_64.tgz" jobDir="${_runDir}/box-freebsd"
+	if [[ ! -f "${tarball}" ]]; then fBox_Skip "no ${tarball##*/} in dist/"; return 0; fi
+	mkdir -p "${jobDir}/cicd/utility/include" "${jobDir}/testdata"
+	cp "${tarball}"                                  "${jobDir}/"
+	cp "${utilityDir}/box-release-test.bash"         "${jobDir}/job.bash"
+	cp "${utilityDir}/cli-test.bash"                 "${jobDir}/cicd/utility/"
+	cp "${utilityDir}/include/safe-rm.bash"          "${jobDir}/cicd/utility/include/"
+	cp "${repoRoot}/testdata/errors.tsv"             "${jobDir}/testdata/"
+	cp "${zigDir}/lib/test/capi_smoke.c"             "${jobDir}/"
+	fBox_Run "${freebsdBox}" "${jobDir}"
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Everything --publish needs that can be known before the build, so a refusal
 ## comes in seconds rather than after it. ZUID_GH names another gh, which is
 ## how the tests run this without reaching GitHub.
@@ -4531,7 +4671,7 @@ fStage_Publish(){
 	## The build number, read from the release binary, so it's the one users see.
 	local buildLine=""
 	if [[ -x "${repoRoot}/dist/${distPrefix}linux-x86_64" ]]; then
-		buildLine="$("${repoRoot}/dist/${distPrefix}linux-x86_64" --version 2>/dev/null | sed -n '1s/^\([^ ]*\) (build \([^)]*\))$/zuid v\1 build \2/p' || true)"
+		buildLine="$("${repoRoot}/dist/${distPrefix}linux-x86_64" --version 2>/dev/null | sed -n '1{/^zuid v[^ ]* build [0-9a-z]*$/p;}' || true)"
 	fi
 	if [[ -n "${buildLine}" ]]; then notes="${buildLine}"$'\n\n'"${notes}"; fi
 
@@ -4812,13 +4952,24 @@ fRunStamp(){
 	fi
 }
 
+## The run's folder, ${HOST_TEMP}/<project>/<stamp>_<NNN>, which TMPDIR, TEMP,
+## TMP and ZUID_RUN_DIR point at, so every mktemp -d and each harness's folder
+## lands in it. Globals, since the exit trap removes it. fRunDir_Make has the rest.
+fRunDir(){  ## stamp
+	fRunDir_Make "${projectName}" "${1:?}" || fThrowError "No run folder for ${1}."  "${FUNCNAME[0]}"
+	_runDir="${safeRmRunDir}"; _runPid="${BASHPID}"
+	fRunDir_Sweep
+}
+
 ## Tees the whole run to a dated log, so lint-report.bash has something to read
 ## and a failure can be looked at after the fact.
 fStartRunLog(){
 	local -r lintDir="${artifactDir}/lint"
 	mkdir -p "${lintDir}"
 	fRotate_Artifacts "${lintDir}" "run_"
-	exec > >(tee -a "${lintDir}/run_${runStamp}.log") 2>&1
+	## Ctrl+C or a TERM reaches the whole group. A tee that died with it took
+	## the run's last lines, the cleanup one too. It ends when the run does.
+	exec > >(trap '' INT TERM HUP; exec tee -a "${lintDir}/run_${runStamp}.log") 2>&1
 }
 
 ## Grandfather-father-son: every file from the last few days, then one a week,
@@ -4996,7 +5147,7 @@ fFindZig(){  ## minimum version
 	local -r have="$("${found}" version 2>/dev/null || true)"
 	fVersion_AtLeast "${have}" "${want}" || fThrowError "Zig ${want} or newer required, found '${have}' at ${found}."  "${FUNCNAME[0]}"
 	local linkDir=""
-	linkDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
+	linkDir="$(fMkTempDir)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${linkDir}")
 	ln -s "$(readlink -f "${found}")" "${linkDir}/zig"
 	export PATH="${linkDir}:${PATH}"
@@ -5040,6 +5191,7 @@ fZigCache_Tidy(){
 		if [[ -n "${why}" ]]; then
 			if ! fZigCache_Empty "${dir}"; then fEcho_Clean "Zig cache ..: couldn't empty ${dir}, ${why}"; continue; fi
 			fEcho_Clean "Zig cache ..: emptied ${dir}, ${why}"
+			_cleanGone+=("${dir#"${repoRoot}/"}, $(fCleanup_Mb "${kb}")"); _cleanKb=$((_cleanKb + kb))
 		fi
 		if [[ -n "${zigVer}" ]]; then printf '%s\n' "${zigVer}" > "${dir}/${zigCacheStamp}" || true; fi
 	done
@@ -5117,19 +5269,29 @@ function fSection(){
 ## step the run in the image does, without running it here.
 declare -a _stepTitles=() _stepFuncs=() _stepOffs=()
 declare -i _stepPlanning=0 _stepElsewhere=0 _stepAt=0 _stepTotal=0
-declare _stepOpen=""
+declare _stepOpen="" _stepSkipWhy=""
+## The steps that ended in SKIP, for the end of the run.
+declare -a _stepSkipped=()
 function fStep(){  ## title, function, args...
 	local -r title="$1"; shift
 	if ((_stepPlanning)); then _stepTitles+=("${title}"); _stepFuncs+=("${1:-}"); return 0; fi
 	_stepAt+=1
 	((! _stepElsewhere)) || return 0
 	fSection "$(fStep_Stamp): Step ${_stepAt} of ${_stepTotal}; Starting ${title}"
-	_stepOpen="${title}"
+	_stepOpen="${title}"; _stepSkipWhy=""
 	fJobs_Recheck
 	"$@"
 	_stepOpen=""
-	fEcho "$(fStep_Stamp): Step ${_stepAt} of ${_stepTotal}; PASS ${title}"
+	if [[ -n "${_stepSkipWhy}" ]]; then
+		_stepSkipped+=("${title} (${_stepSkipWhy})")
+		fEcho "$(fStep_Stamp): Step ${_stepAt} of ${_stepTotal}; SKIP ${title} (${_stepSkipWhy})"
+	else
+		fEcho "$(fStep_Stamp): Step ${_stepAt} of ${_stepTotal}; PASS ${title}"
+	fi
 }
+## A step that couldn't do its job, such as a box that didn't answer, ends in
+## SKIP rather than PASS.
+function fStep_Skip(){ _stepSkipWhy="$*" ;}
 function fStep_Off(){  ## title, flag or reason
 	if ((_stepPlanning)); then _stepOffs+=("${1} (${2})"); fi
 }
@@ -5177,10 +5339,17 @@ function fStep_UtcOffset(){
 
 declare -i _wasCleanupRun=0
 declare -a _scratchDirs=()
+## Set by fRunDir, for the exit trap.
+declare _runDir="" _runPid=""
 ## Set by fContainer_Image, for the exit trap.
 declare _dockerEngine="" _dockerProject="" _dockerRun="" _dockerPid=""
 declare -i _dockerSteps=0
 declare -a _dockerGone=()
+## What the run removed and freed, for the one line at its end. Docker's
+## freed bytes come from system df, "unknown" when it didn't answer.
+declare -a _cleanGone=()
+declare -i _cleanKb=0 _cleanSay=0
+declare _cleanDockerFreed=""
 
 function fThrowError(){
 	local    errMsg="${1:-}"
@@ -5197,23 +5366,59 @@ function fThrowError(){
 	exit 1
 }
 function _fRemoveScratchDirs(){
+	## --keep-temp keeps what a failed stage left, with the run folder.
+	if ((${keepTemp:-0})); then return 0; fi
 	## Only a bare mktemp -d's own tmp.* folder, in TMPDIR or /tmp. Checking for
 	## /tmp alone kept every one when TMPDIR was elsewhere, as it is on macOS.
 	local tmpRoot="${TMPDIR:-/tmp}"; tmpRoot="${tmpRoot%/}"
+	## fMkTempDir names it by its physical path.
+	tmpRoot="$(cd -P -- "${tmpRoot}" 2>/dev/null && pwd -P)" || tmpRoot="${TMPDIR:-/tmp}"; tmpRoot="${tmpRoot%/}"
 	local dir="" parent=""
 	for dir in "${_scratchDirs[@]}"; do
 		[[ -n "${dir}" && -d "${dir}" && ! -L "${dir}" && "${dir##*/}" == tmp.* ]] || continue
 		parent="${dir%/*}"; parent="${parent%/}"
-		if [[ "${parent}" == "${tmpRoot}" || "${parent}" == "/tmp" ]]; then rm -rf "${dir}"; fi
+		if [[ "${parent}" == "${tmpRoot}" || "${parent}" == "/tmp" ]]; then fSafeRm "${dir}" || true; fi
 	done
 	_scratchDirs=()
+}
+## The run folder goes last, unless --keep-temp. Only from the process that
+## made it, not a $(...)'s ERR trap while the run goes on.
+function _fRunDir_Remove(){
+	if [[ -z "${_runDir}" || "${BASHPID}" != "${_runPid}" ]]; then return 0; fi
+	local -i kb=0
+	if ((keepTemp)); then
+		fEcho_Clean "Temp .......: kept ${_runDir} (--keep-temp)"
+	elif [[ -d "${_runDir}" ]]; then
+		cd / 2>/dev/null || true
+		kb="$(du -sk "${_runDir}" 2>/dev/null | cut -f1 || true)"
+		if fSafeRm "${_runDir}"; then _cleanGone=("the run folder, $(fCleanup_Mb "${kb}")" "${_cleanGone[@]}"); _cleanKb=$((_cleanKb + kb)); fi
+	fi
+	_runDir=""
+}
+## The run's last line: what went, files and docker both, and about what that
+## freed. Not for --list, or a run that never got that far. The run in the
+## image is part of the outer one, which says it.
+function fCleanup_Say(){
+	if ((! _cleanSay || inContainer)) || [[ "${BASHPID}" != "${_runPid}" ]]; then return 0; fi
+	_cleanSay=0
+	if ((safeRmSweptN)); then _cleanGone+=("${safeRmSweptN} stale run folder(s), $(fCleanup_Mb "${safeRmSweptKb}")"); _cleanKb=$((_cleanKb + safeRmSweptKb)); fi
+	if ((${#_cleanGone[@]} == 0)); then fEcho_Clean "Cleanup ....: nothing removed"; return 0; fi
+	local gone="" freed="" unknown=""
+	printf -v gone '%s, ' "${_cleanGone[@]}"
+	if [[ "${_cleanDockerFreed}" == "unknown" ]]; then unknown=", plus an unknown amount from docker, since docker system df didn't answer"; fi
+	freed="$(awk -v k="${_cleanKb}" -v d="${_cleanDockerFreed}" 'BEGIN { b = k * 1024 + d; if (b >= 1e9) printf "about %.1f GB", b / 1e9; else if (b >= 1e6) printf "about %d MB", b / 1e6; else printf "under 1 MB" }')"
+	fEcho_Clean "Cleanup ....: removed ${gone%, }; ${freed} freed${unknown}"
+}
+function fCleanup_Mb(){  ## KB
+	if (($1 < 1024)); then printf 'under 1 MB'; else printf '%s MB' "$(($1 / 1024))"; fi
 }
 function _fTrap_Exit(){
 	if [[ "${_wasCleanupRun}" == "0" ]]; then  ## String compare is less to fail than integer
 		_wasCleanupRun=1
 		_fRemoveScratchDirs
 		fContainer_StopRun
-		if ((${#_dockerGone[@]})); then fEcho_Clean "Docker .....: removed ${_dockerGone[*]} of this run"; fi
+		_cleanGone+=("${_dockerGone[@]}"); _dockerGone=()
+		_fRunDir_Remove
 		_fSingleExitPoint "${@}"
 	fi
 }
@@ -5222,7 +5427,8 @@ function _fTrap_Error(){
 		_wasCleanupRun=1
 		_fRemoveScratchDirs
 		fContainer_StopRun
-		if ((${#_dockerGone[@]})); then fEcho_Clean "Docker .....: removed ${_dockerGone[*]} of this run"; fi
+		_cleanGone+=("${_dockerGone[@]}"); _dockerGone=()
+		_fRunDir_Remove
 		fEcho_ResetBlankCounter
 		_fSingleExitPoint "${@}"
 	fi
@@ -5237,6 +5443,15 @@ function _fSingleExitPoint(){
 		fStep_Fail
 		fEcho "User interrupted."
 		fEcho_Clean
+		fCleanup_Say
+		exit 1
+	elif [[ "${signal}" == "TERM" || "${signal}" == "SIGHUP" ]]; then
+		## A trap that returns lets the run go on, after its folder is gone.
+		fEcho_Force
+		fStep_Fail
+		fEcho "Stopped by ${signal#SIG}."
+		fEcho_Clean
+		fCleanup_Say
 		exit 1
 	elif [[ "${errNum}" != "0" ]]; then
 		## Every failing tool here exits 1, including the trailing-'&&' bug this
@@ -5249,6 +5464,7 @@ function _fSingleExitPoint(){
 		fEcho_Clean
 		fStep_Fail
 	fi
+	fCleanup_Say
 }
 function fDefineTrap_Error_Fatal(){
 	true

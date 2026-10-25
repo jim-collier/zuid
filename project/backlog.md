@@ -30,158 +30,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## Issues
 
-- CICD reset: standard flags, areas and `--list`
-	- ID: 2026102508153578
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: none left. A plain `--backlog-run-quick` in the image passed on 20261025 at b13fb46, 432 PASS and 4 SKIP, every step run.
-	- Needs external testing: The `macos` workflow on `dev`, the round branch since merged, for dedty under the Mac's bash and Python.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261025-081535
-	- Opened by: JC
-	- Parent ID: 2026102416233103
-	- Prereq IDs: 2026102508153575
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- `--backlog-run-quick [<area>...]` runs only the areas named, such as `go`, `zig`, `shell` or `docs`. `--help` lists the areas.
-		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
-	- Progress log:
-		- 20261025: The areas are `go`, `zig`, `shell`, `installers` and `docs`, from one table in `fConfig` that `--help` prints. `shell` is the Bash and PowerShell lint and `pipeline-test.bash`. `installers` is `installer-test.bash` and the bash 3.2 cases. `docs` is the docs checks and the content scrub. Preflight and the test ID check run whatever the areas.
-		- 20261025: Words after `--backlog-run-quick` or `--gate`, up to the next option, are areas. An unknown one is refused with the list, and so are areas with `--only`. The run in the image is handed the same areas.
-		- 20261025: `--list` plans the run as usual, then prints the plan, each step and the test IDs in it, and stops. No run log, no prompt. `test-ids.py steps` finds each step's IDs: cicd.bash's own checks from the step's function and what it calls, plus the harness or test suite it runs, named in `fSteps_List`.
-	- Decisions:
-		- 20261025: `installers` is an area of its own, apart from `shell`, since `installer-test.bash` is 70 s of a quick run.
-		- 20261025: Areas are only taken after `--backlog-run-quick` or `--gate`, per the requirement. A word after any other option is still refused.
-	- Swept: every `fStep` and `fStep_Off` in `fSteps` and `fSteps_Checks`, `fContainer_InnerArgs`, the dogfood reason that read `doZig`, `--help`, `development.md`, and the `fInitIn`, `fPlanIn` and `fContainerIn` rigs in `pipeline-test.bash`. The pre-push hook and the `macos` workflow pass no areas.
-	- Branch: round1025b
-	- Test case: dedtw (area parsing and refusals), dedtx (the steps each area runs, here and in the image, and the areas handed in), dedty (`--list` runs nothing, and every test ID is in some step). Each failed against the scripts before the change. dedtx also failed with the areas left out of the image's arguments and with the bash 3.2 step ungated, and dedty with the old function scan in `test-ids.py`.
-	- Verified: 20261025, `pipeline-test.bash` 131 of 131, shellcheck, `test-ids.py check` (481, all unique), the content scrub, and `cicd.bash --backlog-run-quick shell docs` on this machine and in the image, 8 of 8 steps each. `--list` with no other options took 0.24 s. Load about 11 on 32 CPUs.
-
-- CICD reset: standard flags, `--quick` fuzz and dogfood
-	- ID: 2026102508153580
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: The `macos` workflow on `dev`, the round branch since merged. Its `--quick` now fuzzes, and Zig fuzz has never run on a Mac.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261025-081535
-	- Opened by: JC
-	- Parent ID: 2026102416233103
-	- Prereq IDs: 2026102508153575
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- `--quick` keeps fuzzing at a short budget, and copies the release-optimized native build to dogfood. Today it drops both.
-		- `--backlog-run-quick` and `--merge-gate` still never dogfood.
-		- Earlier decisions this overrides: the private CI/CD notes, where `--quick` skips dogfood.
-	- Progress log:
-		- 20261025: `--quick` fuzzes Go for 5 s and Zig for 5K iterations, against 20 s and 50K in a full run. That's about 7 s and 17 s more on b23. `--no-fuzz` still drops it.
-		- 20261025: `--quick` dogfoods: the ReleaseSafe command from zig-out, or the release files with `--package`, the same as a full run. `--dogfood` now only undoes an earlier `--no-dogfood`.
-		- 20261025: `--container` hands `--no-fuzz` in on a quick run too, since `--quick` no longer says it.
-		- 20261025: debne wanted `doFuzz=0` for `--quick` and `--quick --no-demo`. Now `doFuzz=1`. The container rig's default is a plain `--quick` run, so fuzz on, and ddrj1 and de5cp are unchanged.
-	- Decisions:
-		- 20261025: `--backlog-run-quick` and `--gate` still don't fuzz, so a worker's gate stays near 4 minutes. Fuzzing waits for the round's full run, as before.
-		- 20261025: "Native" is read as this platform's build, not this CPU's. The dogfood build stays on the baseline target, per ddw1c.
-	- Swept: every `doQuick` and `doFuzz` read in `cicd.bash`, the fuzz skip reasons, `fContainer_InnerArgs`, `--help`, `development.md`, `install.md` and `design.md` -> "Testing". The pre-push hook passes `--merge-gate`, and the `macos` workflow `--no-dogfood`, so neither changes.
-	- Branch: round1025b
-	- Test case: dedv6 (what `--quick` and the gates plan), dedv7 (the quick fuzz budgets), dedv8 (`--no-fuzz` handed to the image on a quick run), and debne. Each failed against the old `cicd.bash` and passes now.
-	- Verified: 20261025, `pipeline-test.bash` 134 of 134, here and with `ZUID_IN_CONTAINER=1`. shellcheck, `test-ids.py check` (484, all unique), and the content scrub. `cicd.bash -q --quick --no-dogfood --no-sync --no-backup --only go --no-container` passed 14 of 14 steps, Go fuzz included. The same with `--only zig --container` passed 16 of 16 steps across the handoff to the image, Zig fuzz at 5K included. Load about 4 to 16 on 32 CPUs.
-
-- CICD reset: a test for every Done item
-	- ID: 2026102416233105
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: the `macos.yml` workflow, for dedvn on the universal build.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261024-162331
-	- Opened by: JC
-	- Related IDs: 2026100519164741, 2026101312344407
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per the regression bullet in `Testing` in the shared CICD rules. Every Done item in the new format names its test case. 3 old-format Done items don't: packaging for other platforms, the C module cross targets, and CLI startup time.
-		- Each of those gets a test where one could exist and would make sense, or a line saying why not.
-	- Progress log:
-		- 20261025: Packaging and the C module cross targets already had tests, one or more per target, in the Package step. Each item now names them.
-		- 20261025: The startup item had cache tests, but none that a warm run skips the compile. Every one of them passed with the cache never read. dedvn is new, and compares a warm run's CPU with a cold one's.
-	- Swept: every old-format and new-format Done item for a `Test case` line. Only these 3 lacked one.
-	- Branch: round1025b
-	- Test case: dedvn in `cli-test.bash`. It failed with the cache load turned off, and passes with it on. The other two items name existing tests.
-
-- CICD reset: test IDs
-	- ID: 2026102416233106
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, for the lines from the fuzz, leak check, packaging and profile steps, which a quick run doesn't reach.
-	- Needs external testing: The `macos` workflow on `dev`, the round branch since merged, for `test-ids.py` and the new pipeline cases under the Mac's Python and bash.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261024-162331
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per the ID and per-test line bullets in `Testing` in the shared CICD rules. Every test already has an ID and prints one line.
-		- An ID is whole minutes since 2000-01-01 00:00 UTC, in lowercase Crockford base 32, such as `decp8`. Today they're milliseconds in base 62.
-		- Every existing ID is converted once, from the time it already holds. When 2 come out the same, the newer one takes the next free minute.
-		- The ID check, the `Test case:` rows in this backlog and the private notes move to the new IDs together.
-		- Each test prints `PASS <id> <name>`, `FAIL <id> <name>` or `SKIP <id> <why>`, in place of `ok ....:`, `FAIL ..:` and `skip ..:`. The lint report reads the old lines, so it changes with them.
-		- Earlier decisions this overrides: the private test ID rule, from the 20260930 request.
-	- Progress log:
-		- 20261025: All 485 IDs, and 3 retired ones still named in comments and here, converted once from the times they held. 386 shared a minute with an older one and took the next free one, at most 37 minutes later. The old-to-new map is kept outside the repo.
-		- 20261025: `test-ids.py` encodes and decodes minutes in Crockford base 32. `new` skips minutes already taken in the tree, since `-n 5` now spans 5 minutes.
-		- 20261025: The stray ID check now reads any 5-symbol word that decodes into range. Zig's `defer` decodes to 2026-10-26, so plain words like it are listed in `WORDS` in `test-ids.py`, and a word joined by `_` no longer counts.
-		- 20261025: `fTestPass`, `fTestSkip` and `fTestFail` in `cicd.bash`, the three harnesses and `test-ids.py go|zig` print `PASS`, `FAIL` and `SKIP`. `lint-report.bash` drops the PASS lines in place of the `ok ....:` ones.
-	- Decisions:
-		- 20261025: A SKIP line keeps the test's name, with the reason after it in parentheses, so it reads `SKIP <id> <name> (<why>)`, not `SKIP <id> <why>`. The lines keep their two-space indent under the step.
-		- 20261025: dedw3 checks `dan8z`, the minute before the first commit, not `decp8`, since a `decp8` written into a harness would be read as a stray ID.
-	- Swept: every `ok ....:`, `FAIL ..:`, `skip ..:` and `???????` in `cicd/` and `.github/`, every 7-symbol pattern in the harnesses (the `--list` case had one), `lint-report.bash`, `development.md` and `design.md` (no line or ID format in either), and every tracked file for an old ID, none left.
-	- Branch: round1025b
-	- Test case: dedw3 (minutes in Crockford base 32, both ways), dedw4 (`new` skips taken minutes), dedw5 (plain words are not strays), dedw6 (PASS, FAIL and SKIP lines from `test-ids.py zig`). dedw3, dedw4 and dedw6 failed against the old `test-ids.py`, and so did dedty, the `--list` case. dedw5 failed with `WORDS` emptied.
-	- Verified: 20261025, `pipeline-test.bash` 138 of 138, `test-ids.py check` (489, all unique), shellcheck, and `cicd.bash --backlog-run-quick shell installers docs go`, 14 of 14 steps in the image, and `--backlog-run-quick zig`, 8 of 8. `lint-report.bash` on a made-up log counted the FAIL line and the real warning, not the PASS one. Load about 2 to 6 on 32 CPUs.
-
-- Run CICD on GitHub's free arm64 macOS runners.
-	- ID: 2026102318361185
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, with the round branch pushed first, so its start and result steps start a real `macos` run and wait for it (dedwh, dedwj).
-	- Needs external testing: The `macos` workflow on `dev`, the round branch since merged, which that run starts: the first full run on the Mac, Go and Zig fuzz, the Go soak and the profile included, and the docker checks skipping. By hand it's `gitsby raw gh workflow run macos.yml --ref dev`.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261023-183527
-	- Opened by: JC
-	- Related IDs: 2026101312344407
-	- Target OS: macOS
-	- Requirements  [Feature]:
-		- Build, run the tests, and smoke-test the CLI on the built binary.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-	- Progress log:
-		- 20261023: It would be the first run of the arm64 slice on Apple Silicon, which 2026101312344407 is stalled on.
-		- 20261023: `.github/workflows/macos.yml` runs `cicd.bash --quick --package` on `macos-15`, then `cli-test.bash` on the universal release. It runs on a push to any branch, skipping docs-only pushes, or by hand.
-		- 20261023: `--package` on a Mac now runs each slice it can, the x86_64 one under Rosetta on Apple Silicon, and links and runs `capi_smoke.c` against the tarball, static and shared, per slice. An Intel Mac links the arm64 one and skips running it.
-		- 20261023: The runner needed the Dockerfile's exact Go. setup-go turns off toolchain downloads, and the release check refuses any other Go for the reactor.
-		- 20261023: Found there: ddwj4 failed on `/Users/runner` in the release. Wasmtime is built on GitHub's runners, and its build paths stay in every binary that links it, so a runner's home matches them. When a vendored Wasmtime archive already has the home in it, only the checkout and Zig paths are looked for now. The run before the fix failed on it, and the one after passed.
-		- 20261023: Waits on signoff for the trigger: a push to any branch, docs-only pushes skipped. The arm64 macOS half of 2026101312344407 ran in this run.
-		- 20261024: Answered: use GitHub's free arm64 macOS runner, and other boxes, but not with `--quick`. So the workflow does the full run, less what needs docker.
-		- 20261024: The CICD reset's `macOS builds on GitHub` matches what's here. What's left is the answer above, and picking which flags start the workflow by how long they take, in place of every push to any branch.
-		- 20261025: The workflow drops `--quick`. It runs the full run with `--no-demo` and `--no-remote`, and the docker checks skip by themselves.
-		- 20261025: A full run, `--long`, `--backlog-run-full` and `--merge-gate` start it, as a step right after the sync, and a step after the checks waits for it. `--quick`, `--backlog-run-quick` and `--only` don't, and `--no-remote` turns it off.
-		- 20261025: It runs only when the remote's branch is at HEAD, since GitHub runs what it has. A detached HEAD, no gh, an unreachable remote, a refused dispatch, a cancelled run or no answer in 90 minutes is a SKIP. Only a finished run that failed is a FAIL.
-		- 20261025: The workflow starts by itself only on a push to main now, besides by hand. The hook's merge gate runs before main has the commit, so that push is what covers main.
-		- 20261025: dedty's full `--list` now runs with `ZUID_IN_CONTAINER` unset, since the run in the image never plans the steps only the outside runs. Its checks are the same.
-	- Verified:
-		- 20261025: `pipeline-test.bash` 140 of 140, here and with `ZUID_IN_CONTAINER=1`. shellcheck, `test-ids.py check` (493, all unique), and `cicd.bash --backlog-run-quick shell docs`, 8 of 8 steps. `--list` shows both steps on a full run and `--backlog-run-full`, and `Off` for `--quick` and `--no-remote`. The `gh run list` and `gh run view` queries the result step makes answered as expected against this repo's real runs. Load about 5 on 32 CPUs.
-		- Not verified: a real dispatch and wait, and the full run on the Mac.
-		- 20261023, run 40059817674 on `macos-15` at 878f5b9: `cicd.bash -q --quick --package --no-sync --no-backup --no-dogfood` passed, 473 ok, no failures. `cli-test.bash` passed 89 on the universal release, the arm64 slice natively.
-		- Locally: shellcheck, `test-ids.py check` (442, all unique), `pipeline-test.bash` 94 passed, the content scrub.
-		- Not verified: the new checks were not watched to fail.
-	- Decisions:
-		- 20261023: `macos-15`, not M4. GitHub's free arm64 runners are M1 class, and M4 is not offered free. 15 is the free arm64 image closest to the release's macOS 13.0 floor.
-		- 20261023: Zig comes from ziglang.org, checked against a pinned sha256 and cached between runs. No third-party setup action.
-		- 20261023: Lint, the Go checkers and the leak checks stay on Linux. The runner has no docker, and shellcheck there would not match the pinned one.
-		- 20261025: The full runs start it, since the hosted run takes about as long as they do. On a quick run it would double the wait.
-		- 20261025: The demo stays off on the runner. It renders with the build box's fonts and only rewrites `assets/demo.gif`.
-		- 20261025: The local run doesn't stop the hosted one when it fails or is interrupted. The workflow's own concurrency cancels it when a newer one starts on the branch.
-	- Swept: every `${HOME}` leak pattern in `cicd.bash` and `package.bash`. ddwj4 is the only one.
-		- 20261025: every `doRemote` read, the `--no-remote` help, `development.md`, `no-gate-paths` (still matches the `paths-ignore`), the pre-push hook (its merge gate skips the step, since main isn't pushed yet), and the `fPlanIn` and dedty rigs in `pipeline-test.bash`.
-	- Branch: round1025b, and round1023 before
-	- Commit: 878f5b9, then this round's
-	- Test case: debke and debkf run each slice, debkg to debkk link and run `capi_smoke.c` against the tarball per slice and link kind. ddwj4 failed on the runner before its fix and passed after. dedwk (which runs plan the two steps, and where) and dedwm (start and result against a local remote with gh stood in for: pushed, failed, cancelled, unlisted, refused, on a runner, unpushed, detached). Both failed against the old `cicd.bash`. dedwk failed again with `--quick` let through, and dedwm with the HEAD check taken out.
-
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -330,79 +178,54 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- A box that doesn't answer is a `SKIP` in its step and in the summary, and never stops the run, `--merge-gate` included.
 		- Each box gets a work folder of its own for the project, under its temp root.
 		- Windows tests use `b29w`, never `b29w-wif`. Nothing in the repo names `b29w-wif` today.
+	- Progress log:
+		- 20261025: Split in 4, one per box. The shared part comes with vmFreeBSD in 2026102514523202, then vmDebARM64 in 2026102514523204, b29w in 2026102514523207, and the Mac in 2026102514523209.
 
-- CICD reset: standard flags
-	- ID: 2026102416233103
+- CICD reset: other hosts, Linux arm64 on vmDebARM64
+	- ID: 2026102514523204
 	- Type: Enhancement
 	- Status: Queued
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261024-162331
+	- Opened: 20261025-145232
 	- Opened by: JC
-	- Related IDs: 2026101816243852, 2026101410495991, 2026102318361185
+	- Parent ID: 2026102416233100
+	- Prereq IDs: 2026102514523202
+	- Target OS: Linux arm64
 	- Requirements  [Feature]:
 		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per the flags in `CICD style guide` and per `Merge gate`, in the shared CICD rules.
-		- New flags: `--long`, with `--slow` as another name, `--backlog-run-quick [<area>...]`, `--backlog-run-full`, `--merge-gate`, `--no-container`, `--no-remote`, `--keep-temp` and `--list`. `--help` lists the areas.
-		- `--gate` and `--ci` stay as other names for `--backlog-run-quick` and `--merge-gate`, and say so in one line when used.
-		- `--quick` keeps fuzzing at a short budget, and copies the release-optimized native build to dogfood. Today it drops both.
-		- The default run stays under about an hour. A step that pushes it past moves to `--long`.
-		- The backlog and merge gate flags never dogfood, publish, commit, push, install, sync, rewrite a tracked file, or prompt. That covers the backup and `assets/demo.gif`.
-		- The pre-push hook runs `--merge-gate`, every check of the default run, on a push to main. A push whose commits change only docs and the other paths listed in one place the hook reads, such as `*.md`, `project/` and `assets/`, skips it. No gate on dev.
-		- Earlier decisions this overrides: the 20261019 call on 2026101816243852 that `--ci` is `--gate` again with no alias, the quick-only gate on main from 2026101410495991, and the private CI/CD notes, where `--quick` skips dogfood.
-	- Progress log:
-		- 20261025: `--no-container` is in, from 2026102406590100.
-		- 20261025: Split in 3. The gate flags, `--long`, `--no-remote` and the hook are 2026102508153575. Areas and `--list` are 2026102508153578. `--quick`'s fuzz and dogfood are 2026102508153580. `--keep-temp` was already in, from 2026102416233101.
-	- Decisions:
-		- 20261025: Nothing moves to `--long`. The default run took about 17 minutes on b23 on 20261023, well under the hour.
+		- On vmDebARM64, through the shared part, the Linux arm64 release passes `cli-test.bash` and the C smoke test, shared and static. The VM is emulated, so keep the job small.
 
-- CICD reset: temp files and safe removal
-	- ID: 2026102416233107
+- CICD reset: other hosts, Windows on b29w
+	- ID: 2026102514523207
 	- Type: Enhancement
 	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261024-162331
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-145232
 	- Opened by: JC
-	- Related IDs: 2026101916041200, 2026101912130117
+	- Parent ID: 2026102416233100
+	- Prereq IDs: 2026102514523202
+	- Related IDs: 2026101312344407
+	- Target OS: Windows x86_64
 	- Requirements  [Feature]:
 		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per `Temp files` and `Safe removal` in the shared CICD rules. Every scratch folder is already a `mktemp -d` that goes on exit.
-		- Each run makes one folder, `${HOST_TEMP}/zuid/<YYYYmmDD-HHMMSS>_<NNN>/`, with a plain `mkdir` and a counter, and points `TMPDIR`, `TEMP` and `TMP` at it. Stages and harnesses make theirs inside it.
-		- The run removes it at the end, on failure and Ctrl+C too. `--keep-temp` keeps it and prints where it is.
-		- Each run writes a `run.pid` in it, and removes the project's own stale run folders: over 2 days old, with no live process.
-		- Every recursive removal goes through the repo's own copy of the safe removal guard: the pipeline, the harnesses, the hook, the packager and the installers. One outside the temp root, such as `dist/` or an install dir, names the one parent it may remove under.
-		- 38 recursive removals in 10 files, none through a guard. File list in the private notes.
+		- On b29w, never `b29w-wif`, the x86_64 zip from the run's `--package` runs its command, and `install.ps1` installs it under 5.1 and 7, user and system, with both `PATH`s back as they were. The installer part is run by hand today, with `win-installer-test.bash` from the private notes.
+		- The box has no bash on PATH, so the job is PowerShell, sent and run with `-File`.
 
-- CICD reset: version line
-	- ID: 2026102416233108
+- CICD reset: other hosts, macOS on b26 or vmKt6m
+	- ID: 2026102514523209
 	- Type: Enhancement
 	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261024-162331
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-145232
 	- Opened by: JC
-	- Related IDs: 2026101410500009
+	- Parent ID: 2026102416233100
+	- Prereq IDs: 2026102514523202
+	- Related IDs: 2026102318361185
+	- Target OS: macOS
 	- Requirements  [Feature]:
 		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per the build number bullets in `Branches and releases` in the shared CICD rules. The build number and the date on a non-release build are already right.
-		- `--version` prints `zuid v<version> build <build>`, plus ` (YYYY-mm-DD)` on a non-release build, then the copyright line. Today it's `1.0.0-beta.1 (build ddytm)` alone.
-		- `--about`, the Windows version resource and the release notes use the same line.
-		- Both installers read the first line, so they change with it.
-		- Earlier decisions this overrides: `Version, about, donate` in `style-guide_cli.md`, the old Done item "Command help and version output cleaned up.", and the private notes on the bare line.
-
-- CICD reset: CICD process gaps
-	- ID: 2026102416233109
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261024-162331
-	- Opened by: JC
-	- Related IDs: 2026101916041200
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- What else the shared CICD rules ask for that no other reset item covers:
-			- A dependabot config for the hosted workflow, with dependency and toolchain bumps as PRs against dev, minor and patch grouped.
-			- One line at the end of a run saying what was removed and about what it freed, files as well as docker.
-			- Go's module cache in the volume pruned of what the current `go.sum` doesn't name.
-			- A check that cleanup holds: 2 runs, one killed partway, and nothing new piles up.
+		- On b26, or vmKt6m when b26 doesn't answer, the run builds and tests with `--package` from the commit being tested, and the universal tarball comes back into `dist-incoming/`, not by hand.
+		- The box needs Zig 0.17.0. b26 had 0.16.0 when last noted.
 
 - Identifiers from one tick have no counter.
 	- ID: 2026102409130649
@@ -426,6 +249,18 @@ Going forward, new issues in the new template at the bottom of this file, will g
 			- A format with `%c` can't repeat within a run, so the repeat warning never fires for it.
 	- Decisions:
 		- 20261024: The proposal above, as asked. Its C context change goes in design.md beside the old rule.
+
+- `install.ps1` wraps its link refusal in the generic write error.
+	- ID: 2026102516500000
+	- Type: Bug
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261025-165000
+	- Opened by: JC
+	- Related IDs: 2026102514072150
+	- Steps to reproduce [Bug]: Make the install dir a junction, then run `install.ps1 -Target system`.
+	- Expected [Bug]: One line saying the install dir is a link and was left alone.
+	- Actual [Bug]: "couldn't write C:\Program Files\zuid: zuid-install: refused to empty C:\Program Files\zuid: it's a link Close any running zuid, check the permissions, or try -Target user." The prefix shows twice, and the advice is for a different problem.
 
 - The FreeBSD release has no `.pkg`.
 	- ID: 2026101410500001
@@ -648,6 +483,185 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 91411c1
 	- Test case: `ddc8r`, `ddc8s`. Both watched to fail without the skip.
 	- Closed: 20261001-135500
+
+- CICD reset: test IDs
+	- ID: 2026102416233106
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Needs external testing: none. the `macos` workflow on `dev` at d5b6fe9, run 40233761521, a full run on the arm64 runner, passed all 22 steps, 527 PASS and 0 FAIL, with every line in the new form.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the ID and per-test line bullets in `Testing` in the shared CICD rules. Every test already has an ID and prints one line.
+		- An ID is whole minutes since 2000-01-01 00:00 UTC, in lowercase Crockford base 32, such as `decp8`. Today they're milliseconds in base 62.
+		- Every existing ID is converted once, from the time it already holds. When 2 come out the same, the newer one takes the next free minute.
+		- The ID check, the `Test case:` rows in this backlog and the private notes move to the new IDs together.
+		- Each test prints `PASS <id> <name>`, `FAIL <id> <name>` or `SKIP <id> <why>`, in place of `ok ....:`, `FAIL ..:` and `skip ..:`. The lint report reads the old lines, so it changes with them.
+		- Earlier decisions this overrides: the private test ID rule, from the 20260930 request.
+	- Progress log:
+		- 20261025: All 485 IDs, and 3 retired ones still named in comments and here, converted once from the times they held. 386 shared a minute with an older one and took the next free one, at most 37 minutes later. The old-to-new map is kept outside the repo.
+		- 20261025: `test-ids.py` encodes and decodes minutes in Crockford base 32. `new` skips minutes already taken in the tree, since `-n 5` now spans 5 minutes.
+		- 20261025: The stray ID check now reads any 5-symbol word that decodes into range. Zig's `defer` decodes to 2026-10-26, so plain words like it are listed in `WORDS` in `test-ids.py`, and a word joined by `_` no longer counts.
+		- 20261025: `fTestPass`, `fTestSkip` and `fTestFail` in `cicd.bash`, the three harnesses and `test-ids.py go|zig` print `PASS`, `FAIL` and `SKIP`. `lint-report.bash` drops the PASS lines in place of the `ok ....:` ones.
+	- Decisions:
+		- 20261025: A SKIP line keeps the test's name, with the reason after it in parentheses, so it reads `SKIP <id> <name> (<why>)`, not `SKIP <id> <why>`. The lines keep their two-space indent under the step.
+		- 20261025: dedw3 checks `dan8z`, the minute before the first commit, not `decp8`, since a `decp8` written into a harness would be read as a stray ID.
+	- Swept: every `ok ....:`, `FAIL ..:`, `skip ..:` and `???????` in `cicd/` and `.github/`, every 7-symbol pattern in the harnesses (the `--list` case had one), `lint-report.bash`, `development.md` and `design.md` (no line or ID format in either), and every tracked file for an old ID, none left.
+	- Branch: round1025b
+	- Test case: dedw3 (minutes in Crockford base 32, both ways), dedw4 (`new` skips taken minutes), dedw5 (plain words are not strays), dedw6 (PASS, FAIL and SKIP lines from `test-ids.py zig`). dedw3, dedw4 and dedw6 failed against the old `test-ids.py`, and so did dedty, the `--list` case. dedw5 failed with `WORDS` emptied.
+	- Verified: 20261025, `pipeline-test.bash` 138 of 138, `test-ids.py check` (489, all unique), shellcheck, and `cicd.bash --backlog-run-quick shell installers docs go`, 14 of 14 steps in the image, and `--backlog-run-quick zig`, 8 of 8. `lint-report.bash` on a made-up log counted the FAIL line and the real warning, not the PASS one. Load about 2 to 6 on 32 CPUs.
+	- Closed: 20261025-235000
+	- Verified: 20261025, `cicd.bash --backlog-run-full` at 80461a2 passed all 27 steps, 600 PASS and 0 FAIL, with the fuzz, leak check, packaging and profile lines all in the new form.
+	- Acceptance signoff: Self-closed 20261025. The lines read right on Linux and the Mac.
+
+- CICD reset: other hosts, the shared part and vmFreeBSD
+	- ID: 2026102514523202
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-145232
+	- Opened by: JC
+	- Parent ID: 2026102416233100
+	- Related IDs: 2026101410500001, 2026100413383471
+	- Target OS: FreeBSD
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- The part every box step shares: the host lock and the VM state helper around the box, a `SKIP` in the step's line and in the summary when the box doesn't answer, and a work folder of its own under the box's temp root. `--no-remote` turns the box steps off.
+		- On vmFreeBSD, the FreeBSD release from the run's `--package` passes `cli-test.bash` and the C smoke test, shared and static.
+	- Progress log:
+		- 20261025: A run that packages has a "FreeBSD box" step after Package, outside the image. It sends the FreeBSD tarball, `cli-test.bash` and `capi_smoke.c` to `bsdtest@vmFreeBSD`, and runs them there with the link lines `zuid.h` gives.
+		- 20261025: The box is held through the lock's VM state helper's `wrap`, which also starts or resumes the VM and puts it back. `cicd.bash` finds it as `ZUID_BOX_LOCK`, or the first `*_vm-state.bash` on PATH. Without one, the box runs unheld, with a note.
+		- 20261025: `cicd/utility/box-run.bash` does the ssh half for every box: a run folder of its own under the box's temp root, made and removed through the repo's guard, and a verdict of pass, fail or skip.
+		- 20261025: A box that's taken past 10 minutes, can't be woken, or doesn't answer is a SKIP. The step's closing line then says SKIP, not PASS, and the end of the run lists every skipped step. A job that fails fails the run.
+		- 20261025: `ZUID_BOX_FREEBSD` names another destination, and set empty turns the step off. `--no-remote` turns it off too.
+		- 20261025: The two new scripts are in the shellcheck stage and dee2c's removal scan.
+	- Decisions:
+		- 20261025: The calls above that may need a look are under `Check:` in the questions file: how the lock is found, the 10-minute wait, when the step runs, and fail against skip.
+	- Branch: round1025c
+	- Test case: dee33 (the box step itself, in a full run), dee34 (which runs have it), dee35 (pass, fail, down, taken and no lock, with ssh and the lock stood in for, and the box's folder gone after), dee36 (a skipped step's line). dee34, dee35 and dee36 each failed with their check broken, and pass after.
+	- Verified:
+		- 20261025: dee33 on the real vmFreeBSD, from off, against `dist/` from 09:39: 91 of 91 `cli-test.bash` cases on FreeBSD 15.1, both smoke tests, then the VM shut down and put back to off. An unknown box name and an unreachable address each came out as a SKIP.
+		- 20261025: `pipeline-test.bash` 150 of 150, `test-ids.py check` (509, all unique), shellcheck, the content scrub, and `cicd.bash --backlog-run-quick shell docs`, 7 of 8 steps before a scrub hit in this item's text, fixed and rescrubbed clean. Load about 2 to 11 on 32 CPUs.
+		- Not verified: the step inside a full run.
+	- Swept: every `doRemote` read in `fSteps`, the `--no-remote` help and `development.md`, the shellcheck list in `fStage_Shell`, dee2c's file list, and `fPlanIn`'s defaults. The macOS workflow's own skips keep their PASS step line, since it isn't a box.
+	- Closed: 20261025-235000
+	- Verified: 20261025, `cicd.bash --backlog-run-full` at 80461a2 passed all 27 steps, 600 PASS and 0 FAIL, dee33 included, on the real vmFreeBSD.
+	- Acceptance signoff: Self-closed 20261025. Pipeline-only.
+
+- CICD reset: standard flags, areas and `--list`
+	- ID: 2026102508153578
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Needs external testing: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-081535
+	- Opened by: JC
+	- Parent ID: 2026102416233103
+	- Prereq IDs: 2026102508153575
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- `--backlog-run-quick [<area>...]` runs only the areas named, such as `go`, `zig`, `shell` or `docs`. `--help` lists the areas.
+		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
+	- Progress log:
+		- 20261025: The areas are `go`, `zig`, `shell`, `installers` and `docs`, from one table in `fConfig` that `--help` prints. `shell` is the Bash and PowerShell lint and `pipeline-test.bash`. `installers` is `installer-test.bash` and the bash 3.2 cases. `docs` is the docs checks and the content scrub. Preflight and the test ID check run whatever the areas.
+		- 20261025: Words after `--backlog-run-quick` or `--gate`, up to the next option, are areas. An unknown one is refused with the list, and so are areas with `--only`. The run in the image is handed the same areas.
+		- 20261025: `--list` plans the run as usual, then prints the plan, each step and the test IDs in it, and stops. No run log, no prompt. `test-ids.py steps` finds each step's IDs: cicd.bash's own checks from the step's function and what it calls, plus the harness or test suite it runs, named in `fSteps_List`.
+	- Decisions:
+		- 20261025: `installers` is an area of its own, apart from `shell`, since `installer-test.bash` is 70 s of a quick run.
+		- 20261025: Areas are only taken after `--backlog-run-quick` or `--gate`, per the requirement. A word after any other option is still refused.
+	- Swept: every `fStep` and `fStep_Off` in `fSteps` and `fSteps_Checks`, `fContainer_InnerArgs`, the dogfood reason that read `doZig`, `--help`, `development.md`, and the `fInitIn`, `fPlanIn` and `fContainerIn` rigs in `pipeline-test.bash`. The pre-push hook and the `macos` workflow pass no areas.
+	- Branch: round1025b
+	- Test case: dedtw (area parsing and refusals), dedtx (the steps each area runs, here and in the image, and the areas handed in), dedty (`--list` runs nothing, and every test ID is in some step). Each failed against the scripts before the change. dedtx also failed with the areas left out of the image's arguments and with the bash 3.2 step ungated, and dedty with the old function scan in `test-ids.py`.
+	- Verified: 20261025, `pipeline-test.bash` 131 of 131, shellcheck, `test-ids.py check` (481, all unique), the content scrub, and `cicd.bash --backlog-run-quick shell docs` on this machine and in the image, 8 of 8 steps each. `--list` with no other options took 0.24 s. Load about 11 on 32 CPUs.
+	- Verified: 20261025, the `macos` workflow on `dev` at d5b6fe9, run 40233761521, a full run on the arm64 runner, passed all 22 steps, 527 PASS and 0 FAIL, dedty included.
+	- Acceptance signoff: Self-closed 20261025. Pipeline-only, checked on both hosts, and nothing a person would see differently.
+	- Closed: 20261025-215500
+
+- CICD reset: standard flags, `--quick` fuzz and dogfood
+	- ID: 2026102508153580
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-081535
+	- Opened by: JC
+	- Parent ID: 2026102416233103
+	- Prereq IDs: 2026102508153575
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- `--quick` keeps fuzzing at a short budget, and copies the release-optimized native build to dogfood. Today it drops both.
+		- `--backlog-run-quick` and `--merge-gate` still never dogfood.
+		- Earlier decisions this overrides: the private CI/CD notes, where `--quick` skips dogfood.
+	- Progress log:
+		- 20261025: `--quick` fuzzes Go for 5 s and Zig for 5K iterations, against 20 s and 50K in a full run. That's about 7 s and 17 s more on b23. `--no-fuzz` still drops it.
+		- 20261025: `--quick` dogfoods: the ReleaseSafe command from zig-out, or the release files with `--package`, the same as a full run. `--dogfood` now only undoes an earlier `--no-dogfood`.
+		- 20261025: `--container` hands `--no-fuzz` in on a quick run too, since `--quick` no longer says it.
+		- 20261025: debne wanted `doFuzz=0` for `--quick` and `--quick --no-demo`. Now `doFuzz=1`. The container rig's default is a plain `--quick` run, so fuzz on, and ddrj1 and de5cp are unchanged.
+	- Decisions:
+		- 20261025: `--backlog-run-quick` and `--gate` still don't fuzz, so a worker's gate stays near 4 minutes. Fuzzing waits for the round's full run, as before.
+		- 20261025: "Native" is read as this platform's build, not this CPU's. The dogfood build stays on the baseline target, per ddw1c.
+	- Swept: every `doQuick` and `doFuzz` read in `cicd.bash`, the fuzz skip reasons, `fContainer_InnerArgs`, `--help`, `development.md`, `install.md` and `design.md` -> "Testing". The pre-push hook passes `--merge-gate`, and the `macos` workflow `--no-dogfood`, so neither changes.
+	- Branch: round1025b
+	- Test case: dedv6 (what `--quick` and the gates plan), dedv7 (the quick fuzz budgets), dedv8 (`--no-fuzz` handed to the image on a quick run), and debne. Each failed against the old `cicd.bash` and passes now.
+	- Verified: 20261025, `pipeline-test.bash` 134 of 134, here and with `ZUID_IN_CONTAINER=1`. shellcheck, `test-ids.py check` (484, all unique), and the content scrub. `cicd.bash -q --quick --no-dogfood --no-sync --no-backup --only go --no-container` passed 14 of 14 steps, Go fuzz included. The same with `--only zig --container` passed 16 of 16 steps across the handoff to the image, Zig fuzz at 5K included. Load about 4 to 16 on 32 CPUs.
+	- Verified: 20261025, the `macos` workflow on `dev` at d5b6fe9, run 40233761521, a full run on the arm64 runner, passed all 22 steps, 527 PASS and 0 FAIL. Zig fuzz ran on a Mac for the first time and passed, step 18.
+	- Acceptance signoff: Self-closed 20261025. Pipeline-only, and the Mac run read right.
+	- Closed: 20261025-215500
+
+- CICD reset: a test for every Done item
+	- ID: 2026102416233105
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026100519164741, 2026101312344407
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the regression bullet in `Testing` in the shared CICD rules. Every Done item in the new format names its test case. 3 old-format Done items don't: packaging for other platforms, the C module cross targets, and CLI startup time.
+		- Each of those gets a test where one could exist and would make sense, or a line saying why not.
+	- Progress log:
+		- 20261025: Packaging and the C module cross targets already had tests, one or more per target, in the Package step. Each item now names them.
+		- 20261025: The startup item had cache tests, but none that a warm run skips the compile. Every one of them passed with the cache never read. dedvn is new, and compares a warm run's CPU with a cold one's.
+	- Swept: every old-format and new-format Done item for a `Test case` line. Only these 3 lacked one.
+	- Branch: round1025b
+	- Test case: dedvn in `cli-test.bash`. It failed with the cache load turned off, and passes with it on. The other two items name existing tests.
+	- Verified: 20261025, the `macos` workflow on `dev` at d5b6fe9, run 40233761521, a full run on the arm64 runner, passed all 22 steps, 527 PASS and 0 FAIL, dedvn on the universal build included.
+	- Acceptance signoff: Self-closed 20261025. Pipeline-only.
+	- Closed: 20261025-215500
+
+- CICD reset: standard flags
+	- ID: 2026102416233103
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101816243852, 2026101410495991, 2026102318361185
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the flags in `CICD style guide` and per `Merge gate`, in the shared CICD rules.
+		- New flags: `--long`, with `--slow` as another name, `--backlog-run-quick [<area>...]`, `--backlog-run-full`, `--merge-gate`, `--no-container`, `--no-remote`, `--keep-temp` and `--list`. `--help` lists the areas.
+		- `--gate` and `--ci` stay as other names for `--backlog-run-quick` and `--merge-gate`, and say so in one line when used.
+		- `--quick` keeps fuzzing at a short budget, and copies the release-optimized native build to dogfood. Today it drops both.
+		- The default run stays under about an hour. A step that pushes it past moves to `--long`.
+		- The backlog and merge gate flags never dogfood, publish, commit, push, install, sync, rewrite a tracked file, or prompt. That covers the backup and `assets/demo.gif`.
+		- The pre-push hook runs `--merge-gate`, every check of the default run, on a push to main. A push whose commits change only docs and the other paths listed in one place the hook reads, such as `*.md`, `project/` and `assets/`, skips it. No gate on dev.
+		- Earlier decisions this overrides: the 20261019 call on 2026101816243852 that `--ci` is `--gate` again with no alias, the quick-only gate on main from 2026101410495991, and the private CI/CD notes, where `--quick` skips dogfood.
+	- Progress log:
+		- 20261025: `--no-container` is in, from 2026102406590100.
+		- 20261025: Split in 3. The gate flags, `--long`, `--no-remote` and the hook are 2026102508153575. Areas and `--list` are 2026102508153578. `--quick`'s fuzz and dogfood are 2026102508153580. `--keep-temp` was already in, from 2026102416233101.
+	- Decisions:
+	- Test case: none of its own. Its 3 children have theirs.
+	- Closed: 20261025-215200
+		- 20261025: Nothing moves to `--long`. The default run took about 17 minutes on b23 on 20261023, well under the hour.
+	- 20261025: closed with its last children, 2026102508153578 and 2026102508153580.
 
 - CICD reset: container cleanup
 	- ID: 2026102416233101
@@ -1306,6 +1320,256 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: f4c69e3
 	- Test case: `ddb12`, `ddb14`.
 	- Closed: 20260930-155553
+
+- Run CICD on GitHub's free arm64 macOS runners.
+	- ID: 2026102318361185
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Needs external testing: none. the `macos` workflow on `dev` at d5b6fe9, run 40233761521, a full run on the arm64 runner, passed all 22 steps, 527 PASS and 0 FAIL, with Go and Zig fuzz, the Go soak and the profile, and the docker checks skipping.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261023-183527
+	- Opened by: JC
+	- Related IDs: 2026101312344407
+	- Target OS: macOS
+	- Requirements  [Feature]:
+		- Build, run the tests, and smoke-test the CLI on the built binary.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+	- Progress log:
+		- 20261023: It would be the first run of the arm64 slice on Apple Silicon, which 2026101312344407 is stalled on.
+		- 20261023: `.github/workflows/macos.yml` runs `cicd.bash --quick --package` on `macos-15`, then `cli-test.bash` on the universal release. It runs on a push to any branch, skipping docs-only pushes, or by hand.
+		- 20261023: `--package` on a Mac now runs each slice it can, the x86_64 one under Rosetta on Apple Silicon, and links and runs `capi_smoke.c` against the tarball, static and shared, per slice. An Intel Mac links the arm64 one and skips running it.
+		- 20261023: The runner needed the Dockerfile's exact Go. setup-go turns off toolchain downloads, and the release check refuses any other Go for the reactor.
+		- 20261023: Found there: ddwj4 failed on `/Users/runner` in the release. Wasmtime is built on GitHub's runners, and its build paths stay in every binary that links it, so a runner's home matches them. When a vendored Wasmtime archive already has the home in it, only the checkout and Zig paths are looked for now. The run before the fix failed on it, and the one after passed.
+		- 20261023: Waits on signoff for the trigger: a push to any branch, docs-only pushes skipped. The arm64 macOS half of 2026101312344407 ran in this run.
+		- 20261024: Answered: use GitHub's free arm64 macOS runner, and other boxes, but not with `--quick`. So the workflow does the full run, less what needs docker.
+		- 20261024: The CICD reset's `macOS builds on GitHub` matches what's here. What's left is the answer above, and picking which flags start the workflow by how long they take, in place of every push to any branch.
+		- 20261025: The workflow drops `--quick`. It runs the full run with `--no-demo` and `--no-remote`, and the docker checks skip by themselves.
+		- 20261025: A full run, `--long`, `--backlog-run-full` and `--merge-gate` start it, as a step right after the sync, and a step after the checks waits for it. `--quick`, `--backlog-run-quick` and `--only` don't, and `--no-remote` turns it off.
+		- 20261025: It runs only when the remote's branch is at HEAD, since GitHub runs what it has. A detached HEAD, no gh, an unreachable remote, a refused dispatch, a cancelled run or no answer in 90 minutes is a SKIP. Only a finished run that failed is a FAIL.
+		- 20261025: The workflow starts by itself only on a push to main now, besides by hand. The hook's merge gate runs before main has the commit, so that push is what covers main.
+		- 20261025: dedty's full `--list` now runs with `ZUID_IN_CONTAINER` unset, since the run in the image never plans the steps only the outside runs. Its checks are the same.
+	- Verified:
+		- 20261025: `pipeline-test.bash` 140 of 140, here and with `ZUID_IN_CONTAINER=1`. shellcheck, `test-ids.py check` (493, all unique), and `cicd.bash --backlog-run-quick shell docs`, 8 of 8 steps. `--list` shows both steps on a full run and `--backlog-run-full`, and `Off` for `--quick` and `--no-remote`. The `gh run list` and `gh run view` queries the result step makes answered as expected against this repo's real runs. Load about 5 on 32 CPUs.
+		- Not verified: a real dispatch and wait, and the full run on the Mac.
+		- 20261023, run 40059817674 on `macos-15` at 878f5b9: `cicd.bash -q --quick --package --no-sync --no-backup --no-dogfood` passed, 473 ok, no failures. `cli-test.bash` passed 89 on the universal release, the arm64 slice natively.
+		- Locally: shellcheck, `test-ids.py check` (442, all unique), `pipeline-test.bash` 94 passed, the content scrub.
+		- Not verified: the new checks were not watched to fail.
+	- Decisions:
+		- 20261023: `macos-15`, not M4. GitHub's free arm64 runners are M1 class, and M4 is not offered free. 15 is the free arm64 image closest to the release's macOS 13.0 floor.
+		- 20261023: Zig comes from ziglang.org, checked against a pinned sha256 and cached between runs. No third-party setup action.
+		- 20261023: Lint, the Go checkers and the leak checks stay on Linux. The runner has no docker, and shellcheck there would not match the pinned one.
+		- 20261025: The full runs start it, since the hosted run takes about as long as they do. On a quick run it would double the wait.
+		- 20261025: The demo stays off on the runner. It renders with the build box's fonts and only rewrites `assets/demo.gif`.
+		- 20261025: The local run doesn't stop the hosted one when it fails or is interrupted. The workflow's own concurrency cancels it when a newer one starts on the branch.
+	- Swept: every `${HOME}` leak pattern in `cicd.bash` and `package.bash`. ddwj4 is the only one.
+		- 20261025: every `doRemote` read, the `--no-remote` help, `development.md`, `no-gate-paths` (still matches the `paths-ignore`), the pre-push hook (its merge gate skips the step, since main isn't pushed yet), and the `fPlanIn` and dedty rigs in `pipeline-test.bash`.
+	- Branch: round1025b, and round1023 before
+	- Commit: 878f5b9, then this round's
+	- Test case: debke and debkf run each slice, debkg to debkk link and run `capi_smoke.c` against the tarball per slice and link kind. ddwj4 failed on the runner before its fix and passed after. dedwk (which runs plan the two steps, and where) and dedwm (start and result against a local remote with gh stood in for: pushed, failed, cancelled, unlisted, refused, on a runner, unpushed, detached). Both failed against the old `cicd.bash`. dedwk failed again with `--quick` let through, and dedwm with the HEAD check taken out.
+	- Closed: 20261025-235000
+	- Verified: 20261025, `cicd.bash --backlog-run-full` at 80461a2 passed all 27 steps, 600 PASS and 0 FAIL, dedwh and dedwj included. the `macos` workflow it started, run 40245348504 at 80461a2, passed.
+	- Acceptance signoff: Self-closed 20261025. Pipeline-only.
+
+- CICD reset: temp files and safe removal
+	- ID: 2026102416233107
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101916041200, 2026101912130117
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per `Temp files` and `Safe removal` in the shared CICD rules. Every scratch folder is already a `mktemp -d` that goes on exit.
+		- Each run makes one folder, `${HOST_TEMP}/zuid/<YYYYmmDD-HHMMSS>_<NNN>/`, with a plain `mkdir` and a counter, and points `TMPDIR`, `TEMP` and `TMP` at it. Stages and harnesses make theirs inside it.
+		- The run removes it at the end, on failure and Ctrl+C too. `--keep-temp` keeps it and prints where it is.
+		- Each run writes a `run.pid` in it, and removes the project's own stale run folders: over 2 days old, with no live process.
+		- Every recursive removal goes through the repo's own copy of the safe removal guard: the pipeline, the harnesses, the hook, the packager and the installers. One outside the temp root, such as `dist/` or an install dir, names the one parent it may remove under.
+		- 38 recursive removals in 10 files, none through a guard. File list in the private notes.
+	- Progress log:
+	- Closed: 20261025-235000
+		- 20261025: Split in 3. The run folder, its cleanup and the guard in `cicd.bash` are 2026102514072140. The harnesses and the hook are 2026102514072145. The packager and the installers are 2026102514072150.
+		- 20261025: All 3 children are in, and wait on the round's full run and the `macos` workflow. 2026102514072150 also waits on a Windows run of `install.ps1`.
+	- 20261025: closed with its 3 children.
+
+- CICD reset: run folder and guard in cicd.bash
+	- ID: 2026102514072140
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Needs external testing: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261025-140721
+	- Opened by: JC
+	- Parent ID: 2026102416233107
+	- Requirements  [Feature]:
+		- The parent's run folder, `TMPDIR`, `TEMP` and `TMP`, end-of-run removal, `--keep-temp`, `run.pid` and stale folder bullets, for `cicd.bash`.
+		- The repo's own copy of the safe removal guard, in one file the other scripts can source.
+		- Every recursive removal in `cicd.bash` goes through it. The Zig vendor folder names `zig/vendor` as its one parent.
+		- `dev.run` and container names use the run folder's name.
+	- Progress log:
+		- 20261025: Each run makes `${HOST_TEMP}/zuid/<stamp>_<NNN>` with a plain `mkdir`, writes `run.pid` there, and points `TMPDIR`, `TEMP` and `TMP` at it. `HOST_TEMP` falls back to `TMPDIR`, then `/tmp`. The path is resolved with `realpath` once.
+		- 20261025: The exit traps remove it, failed or interrupted too. `--keep-temp` keeps it, says where, and keeps what a failed stage left in it.
+		- 20261025: Then the project's run folders over 2 days old go, unless their `run.pid` names a live process. Only names shaped like a run folder.
+		- 20261025: The guard is `cicd/utility/include/safe-rm.bash`: `fSafeRm` for a temp path, and `fSafeRm_Under` for one under a named parent. All 16 recursive removals in `cicd.bash` use it. The 4 Zig vendor ones name `zig/vendor`. GNU `rm` gets `--one-file-system`, BSD `rm` gets `-x`.
+		- 20261025: `dev.run` and container names are the run folder's name now, such as `20261025-141812_001`.
+		- 20261025: Found while testing: a SIGTERM or SIGHUP ran the cleanup, then the run went on, and exited 0. Now it stops with exit 1, like Ctrl+C.
+		- 20261025: `cicd.bash` exits at once when the guard file is missing. A copy of the script without it ran on and left its folder, which ddhnc's copied tree showed. ddhnc copies the guard now.
+		- Verified: `pipeline-test.bash` 144 of 144, with `HOST_TEMP` set and with it and `TMPDIR` unset. `--backlog-run-quick shell go --no-container`, `--backlog-run-quick shell` and `--backlog-run-quick zig` in the image passed, and left no run folder or container. shellcheck on the stage's list, the guard added, is clean.
+		- Verified: Each new case failed with its fault put in: the guard's path rule taken out (dee1p), no live-process check (dee1q), no removal in the exit trap (dee1r, dee1s), and the old TERM handling (dee1s). Against the old `cicd.bash`, dee1q, dee1r and dee1s failed.
+		- 20261025: dee1q failed on the `macos` workflow (run 40241731556), and so did dee2b. The run folder was right: the test read `TMPDIR`, `TEMP` and `TMP` with one `printenv`, and the Mac's takes only one name. The harness reads them one at a time now (d6bd26c).
+		- Verified: with the old harness, dee1q and dee2b failed on vmKt6m under bash 5.3, and here with a one-name `printenv` stand-in on PATH. With the fix, `pipeline-test.bash` is 151 of 151 on vmKt6m, and 152 of 152 here, with the stand-in and without. shellcheck on the stage's list is clean.
+		- 20261025: The `macos` rerun (run 40243465349) then failed in the Go consumer step: the guard refused its scratch folder as a path through a link. macOS's bare `mktemp -d` ignores `TMPDIR` and uses its own temp folder, behind `/var`. All 11 in `cicd.bash` go through `fMkTempDir` in the guard's file now, which makes a `tmp.*` folder in `TMPDIR` by its physical path. The scratch cleanup reads `TMPDIR` the same way (90e1488).
+		- Verified: dee5h and dee5j failed against the old `cicd.bash` and pass now. `pipeline-test.bash` is 154 of 154, with `HOST_TEMP` and `TMPDIR` set and unset. `--backlog-run-quick shell go --no-container` passed and left nothing. shellcheck on the stage's list is clean.
+	- Decisions:
+		- 20261025: The guard prints nothing when it removes something, unlike the shared one. 2026102416233109's line at the end of a run says what went.
+		- 20261025: A `HOST_TEMP` that isn't there stops the run, rather than being made. It most likely means a disk that isn't mounted.
+	- Swept: every `rm -r` in `cicd.bash`. Every function `pipeline-test.bash` lifts that removes a folder: `_fRemoveScratchDirs` and `fStage_Zig_Fuzz`. The only copy of `cicd.bash` in the harnesses is ddhnc's. The harnesses, the hook, the packager and the installers are the other 2 children. For the `printenv` fix: every `printenv` in the repo. Only these 2 named more than one. For the `mktemp` fix: every `mktemp` in `cicd.bash`, the harnesses, the hook, `package.bash`, the guard, the box scripts and `install.bash`. Only the 11 in `cicd.bash` had no template, and dee5j now checks them all.
+	- Branch: round1025c
+	- Commit: 5b2f7c3, d6bd26c, 90e1488
+	- Test case: dee1p, dee1q, dee1r, dee1s, dee5h (scratch folders physical and inside `TMPDIR`) and dee5j (no `mktemp` without a template).
+	- Closed: 20261025-235000
+	- Verified: 20261025, `cicd.bash --backlog-run-full` at 80461a2 passed all 27 steps, 600 PASS and 0 FAIL. the `macos` workflow it started, run 40245348504 at 80461a2, passed, dee1p to dee1s and dee5h, dee5j included.
+	- Acceptance signoff: Self-closed 20261025. Pipeline-only.
+
+- CICD reset: guard in the harnesses and the hook
+	- ID: 2026102514072145
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Needs external testing: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261025-140721
+	- Opened by: JC
+	- Parent ID: 2026102416233107
+	- Related IDs: 2026102514072140
+	- Requirements  [Feature]:
+		- `cli-test.bash`, `pipeline-test.bash`, `installer-test.bash` and the pre-push hook remove only through the guard from 2026102514072140.
+		- Run alone, each makes its own run folder the same way. Run from `cicd.bash`, each makes its folder inside the run's.
+	- 20261025: the guard from 2026102514072140 is in at 5b2f7c3 and only its full run is left, so it no longer holds this back.
+	- Progress log:
+		- 20261025: The run folder code moved into the guard's file, so `cicd.bash` and the rest make it one way. `cicd.bash` exports `ZUID_RUN_DIR`. A harness, the hook or `package.bash` run from it makes `<name>_<NNN>` inside the run's folder, and may remove only under that. Run alone, each makes a run folder like `cicd.bash`'s, with a `run.pid`, and sweeps the stale ones.
+		- 20261025: Every recursive removal in the 3 harnesses and the hook goes through `fSafeRm`. Each exit trap is set before the folder is made, so an interrupt can't leave it.
+		- 20261025: The hook is Bash now, so it can source the guard. Ctrl+C or SIGTERM stops it with exit 1, after the cleanup.
+		- 20261025: Found while testing: the stale sweep ran before `cicd.bash`'s exit trap knew the new folder, so a Ctrl+C in that window left it. dee1s caught it. The sweep is its own call now, after.
+		- Verified: `pipeline-test.bash` 147 of 147, alone and with `ZUID_RUN_DIR` set. `installer-test.bash` 95 of 95. `cli-test.bash` 91 of 91. `cicd.bash --backlog-run-quick shell installers`, here and in the image, passed, with the harness folders inside the run's and nothing left after. shellcheck on the stage's list is clean.
+		- Verified: Against the old scripts, dee2c and dee2d failed. dee2b failed with the nesting taken out, and dee2c with only the old `cli-test.bash` put back.
+		- 20261025: dee2b failed on the `macos` workflow (run 40241731556), from the same `printenv` read as dee1q on 2026102514072140. Fixed there (d6bd26c). It passed on vmKt6m after, and failed before.
+	- Decisions:
+		- 20261025: The hook went from `sh` to Bash, rather than calling Bash for each guard call.
+		- 20261025: A harness run alone sweeps the project's stale run folders too, the same as `cicd.bash`.
+	- Swept: every `rm -r`, `-exec rm` and `Remove-Item -Recurse` in the 3 harnesses, the hook, `package.bash`, both installers, `cicd.bash` and the guard, which dee2c now checks. Every copy of a script in the harnesses that needs the guard beside it: ddhnc, ddgmp's `package.bash` and dedps's hook.
+	- Branch: round1025c
+	- Commit: a07c50e, d6bd26c
+	- Test case: dee2b (the folder, nested or alone), dee2c (no recursive removal outside a guard), dee2d (the hook's run folder, gone after).
+	- Closed: 20261025-235000
+	- Verified: 20261025, `cicd.bash --backlog-run-full` at 80461a2 passed all 27 steps, 600 PASS and 0 FAIL. the `macos` workflow it started, run 40245348504 at 80461a2, passed, dee2b to dee2d included.
+	- Acceptance signoff: Self-closed 20261025. Pipeline-only.
+
+- CICD reset: guard in the packager and the installers
+	- ID: 2026102514072150
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Needs external testing: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261025-140721
+	- Opened by: JC
+	- Parent ID: 2026102416233107
+	- Related IDs: 2026102514072140
+	- Requirements  [Feature]:
+		- `package.bash` removes its work folder through the guard, and empties `dist/` or `--out` through one that names that folder as its one parent.
+		- `install.bash` and `install.ps1` carry their own guard, since they run alone from a download. The install dir is the one parent each names. `install.bash` stays Bash 3.2.
+		- The 4 `rm -rf` in the 2 Dockerfiles run inside the image build, on fixed paths. Left as they are unless asked.
+	- 20261025: the guard from 2026102514072140 is in at 5b2f7c3 and only its full run is left, so it no longer holds this back.
+	- Progress log:
+		- 20261025: `package.bash` works in a run folder from the guard's file, removed through `fSafeRm`. `dist/` or `--out` is emptied one entry at a time through `fSafeRm_Under`, with that folder, resolved, as the parent. A link in it is only unlinked.
+		- 20261025: `install.bash` has its own `fSafeRm_Under`, Bash 3.2. The install dir is emptied one entry at a time with it as the parent, then filled or, on uninstall, `rmdir`ed. It has to be named `zuid` and not be a link. Its temp dir is `zuid-install.XXXXXX` in `TMPDIR`, removed through the same guard.
+		- 20261025: `install.ps1` has `Remove-Under` and `Clear-InstallDirectory`, ASCII only. They walk the tree and unlink a link rather than follow it, which Windows PowerShell 5.1's `Remove-Item -Recurse` can't promise. Its temp dir goes the same way.
+		- 20261025: Found while testing: the new temp dir's name starts with `zuid-`, and `install.bash` looked for the unpacked release as `zuid-*` from depth 0, so it took the temp dir itself. It looks from depth 1 now.
+		- Verified: `installer-test.bash` 95 of 95, the bash 3.2 cases included, and in the image. PSScriptAnalyzer finds nothing in `install.ps1`.
+		- Verified: Against the old scripts, dee2e, dee2f and dee2g failed. dee2h and dee2j pass either way here, since `rm -rf` and PowerShell 7 already don't follow a link. They're there for 5.1.
+	- Decisions:
+		- 20261025: An install dir reached through a link higher up, such as a linked home, is still allowed. It's resolved, and the resolved dir has to be named `zuid`. Only an install dir that is itself a link is refused.
+		- 20261025: The Dockerfiles' `rm -rf` are left as they are.
+	- Swept: dee2c checks every recursive removal in both installers and `package.bash`. The installers' other removals are a single file or link, with `rm -f` or `Remove-Item -Force`.
+	- Branch: round1025c
+	- Commit: a07c50e
+	- Test case: dee2e (`--out` emptied through the guard), dee2f and dee2g (an install dir that's a link is refused), dee2h and dee2j (a link inside is unlinked, and nothing's left in the temp dir).
+	- Closed: 20261025-235000
+	- Verified: 20261025, `cicd.bash --backlog-run-full` at 80461a2 passed all 27 steps, 600 PASS and 0 FAIL, its package step included. the `macos` workflow it started, run 40245348504 at 80461a2, passed, dee2e to dee2j included.
+	- Verified: 20261025, `install.ps1` on b29w at 80461a2, 44 of 44 under Windows PowerShell 5.1 and 7, user and system: install over an old tree with read-only entries and links, uninstall, and refusal of an install dir that's a junction. Against the old script only the refusal failed.
+	- Acceptance signoff: Self-closed 20261025. Checked on Linux, the Mac and Windows.
+
+- CICD reset: version line
+	- ID: 2026102416233108
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Needs external testing: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101410500009
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the build number bullets in `Branches and releases` in the shared CICD rules. The build number and the date on a non-release build are already right.
+		- `--version` prints `zuid v<version> build <build>`, plus ` (YYYY-mm-DD)` on a non-release build, then the copyright line. Today it's `1.0.0-beta.1 (build ddytm)` alone.
+		- `--about`, the Windows version resource and the release notes use the same line.
+		- Both installers read the first line, so they change with it.
+		- Earlier decisions this overrides: `Version, about, donate` in `style-guide_cli.md`, the old Done item "Command help and version output cleaned up.", and the private notes on the bare line.
+	- Progress log:
+		- 20261025: `--version` prints `zuid v1.0.0-beta.1 build dee3e (2026-10-25)`, then the copyright line from `--about`. `--about` and `--help` open with the same line, and the Windows resource has it without the date. The release notes take the first line as it is.
+		- 20261025: Both installers take either line, since beta.1 and earlier installs print the old one. Both are 1.3.1.
+		- 20261025: Asserts changed: ddb03 wants 2 lines, not 1. ddb04's pattern was `^<version> \(build <n>\)( \(<date>\))?$` and is `^zuid v<version> build <n>( \(<date>\))?` then a newline. ddybx wants a blank line after the build line, not just a newline. ddb05, "--version has no copyright", is commented out, since this reverses it.
+	- Decisions:
+		- 20261025: The copyright line is the one `--about` already had, ID included, so there's one copy. Check entry in questions.md.
+	- Swept: every `--version` reader. `install.bash`, `install.ps1`, `cicd.bash` (dcrga, ddwn8, debmw, debmx, debke, debkf, de5hy, de5hz, the notes), `cli-test.bash`, the stand-ins in `installer-test.bash` and `pipeline-test.bash`, `box-release-test.bash`, which prints the first line, `style-guide_cli.md` and `design.md`. The Go module and the C library have no version line.
+	- Verified: `cli-test.bash` passed 92 of 92 on the new build, and on the synced beta.1 build ddb03, ddb04, dee3h and dee3j failed. `installer-test.bash` passed 97 of 97. dee3k failed with install.bash reading only the new line, and dcrfx, dcrfz and dcrmj failed with the old install.bash. `pipeline-test.bash` passed 150 of 150, and ddybx failed with the old notes parse. `cicd.bash --backlog-run-quick zig docs` passed, with dcrga, ddwn8 and debmw. The bash 3.2 image reads both lines. A `-Drelease` Windows x86_64 build's resource has `zuid v1.0.0-beta.1 build dee3e`, the same as the Linux release's first line. shellcheck and PSScriptAnalyzer are clean.
+	- Branch: round1025c
+	- Commit: 11d7e9c
+	- Test case: dee3h, dee3j, dee3k, dee3m, with ddb03, ddb04 and ddybx updated. debmx, de5hy, de5hz, debke and debkf read the new line on a release build.
+	- Closed: 20261025-235000
+	- Verified: 20261025, `cicd.bash --backlog-run-full` at 80461a2 passed all 27 steps, 600 PASS and 0 FAIL, debmx, de5hy and de5hz included. the `macos` workflow it started, run 40245348504 at 80461a2, passed, debke and debkf included.
+	- Acceptance signoff: Self-closed 20261025. The new line matches the shared CICD rules, and both installers read the old and new forms.
+
+- CICD reset: CICD process gaps
+	- ID: 2026102416233109
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Needs external testing: none.
+	- Needs hand testing: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101916041200
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- What else the shared CICD rules ask for that no other reset item covers:
+			- A dependabot config for the hosted workflow, with dependency and toolchain bumps as PRs against dev, minor and patch grouped.
+			- One line at the end of a run saying what was removed and about what it freed, files as well as docker.
+			- Go's module cache in the volume pruned of what the current `go.sum` doesn't name.
+			- A check that cleanup holds: 2 runs, one killed partway, and nothing new piles up.
+	- Progress log:
+		- 20261025: `.github/dependabot.yml` covers the Go module, the actions and the Dockerfile's base image, weekly, with PRs against `dev` and minor and patch grouped per ecosystem. The `ARG` toolchain pins are past what it reads, so they stay hand bumps.
+		- 20261025: Every run ends on one `Cleanup ....:` line, failed or interrupted too. It names the run folder, stale run folders, Zig caches, containers, images, the volume's prune and cap and the week-old build cache, and about what they freed. It replaces the `Docker .....:` line. The run in the image prints none, since the outer run says it.
+		- 20261025: `cicd/utility/gomod-prune.bash` removes every module `go/go.sum` doesn't name from the volume's Go module cache, unpacked and downloaded. It runs in the volume step at the end of a run that passed, before the 2 GB cap.
+		- 20261025: Found while testing: Ctrl+C or a TERM to the group killed the run log's `tee`, so a stopped run's last lines never showed. The `tee` ignores them now.
+		- 20261025: `docker system df` came back empty again in one quick run in the image, then answered in every later call, 4 at once and one during `builder prune` included. Cause still not found. What it says now goes to stderr.
+		- 20261025: dednb now wants the `Cleanup ....:` line, where it wanted `Docker .....: removed ...; about 3.7 GB freed`, plus the prune's item. Its silent `df` case wants "under 1 MB freed, plus an unknown amount from docker", where it wanted "an unknown amount freed".
+		- Verified: `pipeline-test.bash` 152 of 152, also with `ZUID_IN_CONTAINER=1`. `--backlog-run-quick shell docs` in the image passed, ended on one cleanup line, and left no container. The prune in the image removed a module planted in `zuid-cicd-cache` and kept the named ones. shellcheck on the stage's list is clean.
+		- Verified: dee46 failed with the old `tee` put back, and dee45 with the capital escape taken out. Against the old `cicd.bash` the harness stops at dednb, which needs the new function.
+	- Decisions:
+		- 20261025: The calls to check are under `Check:` in `questions.md`: dependabot's reach, no line from the run in the image, the Zig lines kept, the `tee`, and dee46's shape.
+	- Swept: every place that printed or did a cleanup: `fContainer_Tidy`, `fContainer_VolumeCap`, both exit traps, `fZigCache_Tidy`, `_fRunDir_Remove` and `fRunDir_Sweep`. The only test that read the old line was dednb, and the only lift of `fZigCache_Tidy` is `fZigTidyIn`. dee2c and the shellcheck stage both list the new script.
+	- Branch: round1025c
+	- Commit: 1d57a5b
+	- Test case: dee45 (the prune), dee46 (2 runs, one killed, nothing left), dednb (the line).
+	- Closed: 20261025-235000
+	- Verified: 20261025, `cicd.bash --backlog-run-full` at 80461a2 passed all 27 steps, 600 PASS and 0 FAIL, ending on the cleanup line, with dee45 and dee46. the `macos` workflow it started, run 40245348504 at 80461a2, passed, dee45 and dee46 included. `dependabot.yml` parses as version 2, with gomod, github-actions and docker updates against dev, grouped.
+	- Acceptance signoff: Self-closed 20261025. The Dependabot page check waits for the next merge to main, and the config is the standard form.
 
 - Builds leave stale artifacts and side-effects behind.
 	- ID: 2026101916041200
