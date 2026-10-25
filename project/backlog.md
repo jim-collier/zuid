@@ -35,7 +35,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Type: Enhancement
 	- Status: Waiting on automated testing
 	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-quick`, with no areas, in the image, to show the plain run still runs every step.
-	- Needs external testing: The `macos` workflow on the round branch, for Etjcehu under the Mac's bash and Python.
+	- Needs external testing: The `macos` workflow on the round branch, for dedty under the Mac's bash and Python.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261025-081535
 	- Opened by: JC
@@ -54,7 +54,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: Areas are only taken after `--backlog-run-quick` or `--gate`, per the requirement. A word after any other option is still refused.
 	- Swept: every `fStep` and `fStep_Off` in `fSteps` and `fSteps_Checks`, `fContainer_InnerArgs`, the dogfood reason that read `doZig`, `--help`, `development.md`, and the `fInitIn`, `fPlanIn` and `fContainerIn` rigs in `pipeline-test.bash`. The pre-push hook and the `macos` workflow pass no areas.
 	- Branch: round1025b
-	- Test case: Etjcehs (area parsing and refusals), Etjceht (the steps each area runs, here and in the image, and the areas handed in), Etjcehu (`--list` runs nothing, and every test ID is in some step). Each failed against the scripts before the change. Etjceht also failed with the areas left out of the image's arguments and with the bash 3.2 step ungated, and Etjcehu with the old function scan in `test-ids.py`.
+	- Test case: dedtw (area parsing and refusals), dedtx (the steps each area runs, here and in the image, and the areas handed in), dedty (`--list` runs nothing, and every test ID is in some step). Each failed against the scripts before the change. dedtx also failed with the areas left out of the image's arguments and with the bash 3.2 step ungated, and dedty with the old function scan in `test-ids.py`.
 	- Verified: 20261025, `pipeline-test.bash` 131 of 131, shellcheck, `test-ids.py check` (481, all unique), the content scrub, and `cicd.bash --backlog-run-quick shell docs` on this machine and in the image, 8 of 8 steps each. `--list` with no other options took 0.24 s. Load about 11 on 32 CPUs.
 
 - CICD reset: standard flags, `--quick` fuzz and dogfood
@@ -76,20 +76,20 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: `--quick` fuzzes Go for 5 s and Zig for 5K iterations, against 20 s and 50K in a full run. That's about 7 s and 17 s more on b23. `--no-fuzz` still drops it.
 		- 20261025: `--quick` dogfoods: the ReleaseSafe command from zig-out, or the release files with `--package`, the same as a full run. `--dogfood` now only undoes an earlier `--no-dogfood`.
 		- 20261025: `--container` hands `--no-fuzz` in on a quick run too, since `--quick` no longer says it.
-		- 20261025: Etab8wo wanted `doFuzz=0` for `--quick` and `--quick --no-demo`. Now `doFuzz=1`. The container rig's default is a plain `--quick` run, so fuzz on, and EsJ9SjF and EtAUMRG are unchanged.
+		- 20261025: debne wanted `doFuzz=0` for `--quick` and `--quick --no-demo`. Now `doFuzz=1`. The container rig's default is a plain `--quick` run, so fuzz on, and ddrj1 and de5cp are unchanged.
 	- Decisions:
 		- 20261025: `--backlog-run-quick` and `--gate` still don't fuzz, so a worker's gate stays near 4 minutes. Fuzzing waits for the round's full run, as before.
-		- 20261025: "Native" is read as this platform's build, not this CPU's. The dogfood build stays on the baseline target, per EsXcjyV.
+		- 20261025: "Native" is read as this platform's build, not this CPU's. The dogfood build stays on the baseline target, per ddw1c.
 	- Swept: every `doQuick` and `doFuzz` read in `cicd.bash`, the fuzz skip reasons, `fContainer_InnerArgs`, `--help`, `development.md`, `install.md` and `design.md` -> "Testing". The pre-push hook passes `--merge-gate`, and the `macos` workflow `--no-dogfood`, so neither changes.
 	- Branch: round1025b
-	- Test case: EtjfGH0 (what `--quick` and the gates plan), EtjfGH1 (the quick fuzz budgets), EtjfGH2 (`--no-fuzz` handed to the image on a quick run), and Etab8wo. Each failed against the old `cicd.bash` and passes now.
+	- Test case: dedv6 (what `--quick` and the gates plan), dedv7 (the quick fuzz budgets), dedv8 (`--no-fuzz` handed to the image on a quick run), and debne. Each failed against the old `cicd.bash` and passes now.
 	- Verified: 20261025, `pipeline-test.bash` 134 of 134, here and with `ZUID_IN_CONTAINER=1`. shellcheck, `test-ids.py check` (484, all unique), and the content scrub. `cicd.bash -q --quick --no-dogfood --no-sync --no-backup --only go --no-container` passed 14 of 14 steps, Go fuzz included. The same with `--only zig --container` passed 16 of 16 steps across the handoff to the image, Zig fuzz at 5K included. Load about 4 to 16 on 32 CPUs.
 
 - CICD reset: a test for every Done item
 	- ID: 2026102416233105
 	- Type: Enhancement
 	- Status: Waiting on automated testing
-	- Needs external testing: the `macos.yml` workflow, for EtjiwMO on the universal build.
+	- Needs external testing: the `macos.yml` workflow, for dedvn on the universal build.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261024-162331
 	- Opened by: JC
@@ -100,10 +100,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Each of those gets a test where one could exist and would make sense, or a line saying why not.
 	- Progress log:
 		- 20261025: Packaging and the C module cross targets already had tests, one or more per target, in the Package step. Each item now names them.
-		- 20261025: The startup item had cache tests, but none that a warm run skips the compile. Every one of them passed with the cache never read. EtjiwMO is new, and compares a warm run's CPU with a cold one's.
+		- 20261025: The startup item had cache tests, but none that a warm run skips the compile. Every one of them passed with the cache never read. dedvn is new, and compares a warm run's CPU with a cold one's.
 	- Swept: every old-format and new-format Done item for a `Test case` line. Only these 3 lacked one.
 	- Branch: round1025b
-	- Test case: EtjiwMO in `cli-test.bash`. It failed with the cache load turned off, and passes with it on. The other two items name existing tests.
+	- Test case: dedvn in `cli-test.bash`. It failed with the cache load turned off, and passes with it on. The other two items name existing tests.
 
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
@@ -152,7 +152,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: The filed command, `ZUID_DOCKER=no-such-docker cicd.bash --only zig --quick --leakcheck`, left nothing in a TMPDIR of its own. Neither did a run of both sides with a missing docker named by path, or a run that failed partway. A watch on the folder saw no plain `tmp.*` file made at its top level in any of them, even for a moment. Every `tmp.*` folder was gone at the end.
 		- 20261019: Every `mktemp` in the tree is a `mktemp -d` that goes on the cleanup list. Nothing calls a plain `mktemp`. The file seen was in the temp root every session on this box shares, and was tied to the run only by its time, about 34 s after the run started.
 	- Branch: cicdtidy
-	- Test case: none. Nothing reproduced it, so there's no failure for a test to pin. EscPGS5 and EscPGS6 already pin the cleanup of scratch folders.
+	- Test case: none. Nothing reproduced it, so there's no failure for a test to pin. ddx66 and ddx67 already pin the cleanup of scratch folders.
 
 - Move `convertbase` to `lib/v0.2.0` once it is tagged.
 	- ID: 2026100519164742
@@ -281,7 +281,9 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - CICD reset: test IDs
 	- ID: 2026102416233106
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, for the lines from the fuzz, leak check, packaging and profile steps, which a quick run doesn't reach.
+	- Needs external testing: The `macos` workflow on the round branch, for `test-ids.py` and the new pipeline cases under the Mac's Python and bash.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261024-162331
 	- Opened by: JC
@@ -293,6 +295,18 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- The ID check, the `Test case:` rows in this backlog and the private notes move to the new IDs together.
 		- Each test prints `PASS <id> <name>`, `FAIL <id> <name>` or `SKIP <id> <why>`, in place of `ok ....:`, `FAIL ..:` and `skip ..:`. The lint report reads the old lines, so it changes with them.
 		- Earlier decisions this overrides: the private test ID rule, from the 20260930 request.
+	- Progress log:
+		- 20261025: All 485 IDs, and 3 retired ones still named in comments and here, converted once from the times they held. 386 shared a minute with an older one and took the next free one, at most 37 minutes later. The old-to-new map is kept outside the repo.
+		- 20261025: `test-ids.py` encodes and decodes minutes in Crockford base 32. `new` skips minutes already taken in the tree, since `-n 5` now spans 5 minutes.
+		- 20261025: The stray ID check now reads any 5-symbol word that decodes into range. Zig's `defer` decodes to 2026-10-26, so plain words like it are listed in `WORDS` in `test-ids.py`, and a word joined by `_` no longer counts.
+		- 20261025: `fTestPass`, `fTestSkip` and `fTestFail` in `cicd.bash`, the three harnesses and `test-ids.py go|zig` print `PASS`, `FAIL` and `SKIP`. `lint-report.bash` drops the PASS lines in place of the `ok ....:` ones.
+	- Decisions:
+		- 20261025: A SKIP line keeps the test's name, with the reason after it in parentheses, so it reads `SKIP <id> <name> (<why>)`, not `SKIP <id> <why>`. The lines keep their two-space indent under the step.
+		- 20261025: dedw3 checks `dan8z`, the minute before the first commit, not `decp8`, since a `decp8` written into a harness would be read as a stray ID.
+	- Swept: every `ok ....:`, `FAIL ..:`, `skip ..:` and `???????` in `cicd/` and `.github/`, every 7-symbol pattern in the harnesses (the `--list` case had one), `lint-report.bash`, `development.md` and `design.md` (no line or ID format in either), and every tracked file for an old ID, none left.
+	- Branch: round1025b
+	- Test case: dedw3 (minutes in Crockford base 32, both ways), dedw4 (`new` skips taken minutes), dedw5 (plain words are not strays), dedw6 (PASS, FAIL and SKIP lines from `test-ids.py zig`). dedw3, dedw4 and dedw6 failed against the old `test-ids.py`, and so did dedty, the `--list` case. dedw5 failed with `WORDS` emptied.
+	- Verified: 20261025, `pipeline-test.bash` 138 of 138, `test-ids.py check` (489, all unique), shellcheck, and `cicd.bash --backlog-run-quick shell installers docs go`, 14 of 14 steps in the image, and `--backlog-run-quick zig`, 8 of 8. `lint-report.bash` on a made-up log counted the FAIL line and the real warning, not the PASS one. Load about 2 to 6 on 32 CPUs.
 
 - Run CICD on GitHub's free arm64 macOS runners.
 	- ID: 2026102318361185
@@ -312,7 +326,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261023: `.github/workflows/macos.yml` runs `cicd.bash --quick --package` on `macos-15`, then `cli-test.bash` on the universal release. It runs on a push to any branch, skipping docs-only pushes, or by hand.
 		- 20261023: `--package` on a Mac now runs each slice it can, the x86_64 one under Rosetta on Apple Silicon, and links and runs `capi_smoke.c` against the tarball, static and shared, per slice. An Intel Mac links the arm64 one and skips running it.
 		- 20261023: The runner needed the Dockerfile's exact Go. setup-go turns off toolchain downloads, and the release check refuses any other Go for the reactor.
-		- 20261023: Found there: EsZni4i failed on `/Users/runner` in the release. Wasmtime is built on GitHub's runners, and its build paths stay in every binary that links it, so a runner's home matches them. When a vendored Wasmtime archive already has the home in it, only the checkout and Zig paths are looked for now. The run before the fix failed on it, and the one after passed.
+		- 20261023: Found there: ddwj4 failed on `/Users/runner` in the release. Wasmtime is built on GitHub's runners, and its build paths stay in every binary that links it, so a runner's home matches them. When a vendored Wasmtime archive already has the home in it, only the checkout and Zig paths are looked for now. The run before the fix failed on it, and the one after passed.
 		- 20261023: Waits on signoff for the trigger: a push to any branch, docs-only pushes skipped. The arm64 macOS half of 2026101312344407 ran in this run.
 		- 20261024: Answered: use GitHub's free arm64 macOS runner, and other boxes, but not with `--quick`. So the workflow does the full run, less what needs docker.
 		- 20261024: The CICD reset's `macOS builds on GitHub` matches what's here. What's left is the answer above, and picking which flags start the workflow by how long they take, in place of every push to any branch.
@@ -324,10 +338,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261023: `macos-15`, not M4. GitHub's free arm64 runners are M1 class, and M4 is not offered free. 15 is the free arm64 image closest to the release's macOS 13.0 floor.
 		- 20261023: Zig comes from ziglang.org, checked against a pinned sha256 and cached between runs. No third-party setup action.
 		- 20261023: Lint, the Go checkers and the leak checks stay on Linux. The runner has no docker, and shellcheck there would not match the pinned one.
-	- Swept: every `${HOME}` leak pattern in `cicd.bash` and `package.bash`. EsZni4i is the only one.
+	- Swept: every `${HOME}` leak pattern in `cicd.bash` and `package.bash`. ddwj4 is the only one.
 	- Branch: round1023
 	- Commit: 878f5b9
-	- Test case: EtaL127 and EtaL128 run each slice, EtaL129 to EtaL12C link and run `capi_smoke.c` against the tarball per slice and link kind. EsZni4i failed on the runner before its fix and passed after.
+	- Test case: debke and debkf run each slice, debkg to debkk link and run `capi_smoke.c` against the tarball per slice and link kind. ddwj4 failed on the runner before its fix and passed after.
 
 - CICD reset: temp files and safe removal
 	- ID: 2026102416233107
@@ -422,7 +436,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: 2026102416233102's log line "The image has no ionice" is closed history and stays. This item is the correction.
 	- Swept: every `ionice` and `nice -n` in `cicd/`. The `bash:3.2` runs in `installer-test.bash` keep plain `nice`, since that is a different image. Both zuid images answered `command -v ionice`.
 	- Branch: round1025b
-	- Test case: The `run` line asserts in `pipeline-test.bash` (EsJ9SjF, EtAj5P2, Etij2SC family, Etj0Hc2, and the cache cap and ps cases) now want `ionice -c 3 nice -n 19`. Updated for the change this item asked for, not newly written.
+	- Test case: The `run` line asserts in `pipeline-test.bash` (ddrj1, de5ea, dedm0 family, dedp8, and the cache cap and ps cases) now want `ionice -c 3 nice -n 19`. Updated for the change this item asked for, not newly written.
 	- Verified: 20261025, `pipeline-test.bash` 128 of 128, shellcheck, `test-ids.py check`.
 	- Closed: 20261025-102455
 
@@ -455,7 +469,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261024: Seen on b26, after an install, one run and an uninstall.
 
-- Etj0NB7 fails in the image, which has no `ps`.
+- dedpa fails in the image, which has no `ps`.
 	- ID: 2026102508540624
 	- Type: Bug
 	- Status: Done
@@ -466,17 +480,17 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Target OS: Linux
 	- Steps to reproduce [Bug]:
 		- Run `cicd/cicd.bash --backlog-run-quick --only go` where docker answers.
-	- Incorrect behavior [Bug]: The Pipeline step fails in the image on Etj0NB7, "ps: command not found", so the run stops there.
+	- Incorrect behavior [Bug]: The Pipeline step fails in the image on dedpa, "ps: command not found", so the run stops there.
 	- Expected behavior [Bug]: It passes in the image, as on the host.
 	- Reproduced [Bug]: Yes, 20261025, on b23, twice, while working 2026102416233104.
 	- Possible cause [Bug]: The test reads the nice value with `ps`, and the image has no procps. Preflight's own priority line uses `ps` too, with a fallback to nothing.
 	- Actual cause [Bug]:
 		- As above. The image has `renice`, `ionice` and `nice`, but no `ps`, so the renice worked and only the reading of it failed. Preflight in the image printed a blank nice value.
-	- Actual fix [Bug]: `fNiceOf` in `cicd.bash` reads the nice value with `ps` where there is one, and from `/proc/<pid>/stat` where there isn't. Preflight and Etj0NB7 both use it. Etj0NB7 also checks the `/proc` branch wherever `/proc` exists, with `ps` hidden. Preflight says `unknown` rather than nothing when neither works.
+	- Actual fix [Bug]: `fNiceOf` in `cicd.bash` reads the nice value with `ps` where there is one, and from `/proc/<pid>/stat` where there isn't. Preflight and dedpa both use it. dedpa also checks the `/proc` branch wherever `/proc` exists, with `ps` hidden. Preflight says `unknown` rather than nothing when neither works.
 	- Swept: every `ps` in `cicd/` and `.github/`. The only others are `docker ps`, and a stub of it in `pipeline-test.bash`.
 	- Branch: round1025-fix
 	- Commit: 26605ac
-	- Test case: Etj0NB7. It failed in the image before the fix, "ps: command not found", and passes after. With the `/proc` field index broken by hand it fails on the host too, "19|39|idle".
+	- Test case: dedpa. It failed in the image before the fix, "ps: command not found", and passes after. With the `/proc` field index broken by hand it fails on the host too, "19|39|idle".
 	- Verified: 20261025, `pipeline-test.bash` 128 of 128 on the host and in `zuid-cicd:8029eec721c8`. `cicd.bash --backlog-run-quick --only go` in the image passed, steps 1 to 14 of 14, with "Priority ...: nice 19, IO idle" from inside the image, at load 44. shellcheck, `test-ids.py check` and the scrub are clean.
 	- Closed: 20261025-090547
 
@@ -498,7 +512,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Actual fix [Bug]: A small function runs a command through sudo or not.
 	- Branch: tidyup
 	- Commit: c286dfe
-	- Test case: EshFEk5, which runs in the `bash:3.2` image when it's on hand. It failed before the fix.
+	- Test case: ddybv, which runs in the `bash:3.2` image when it's on hand. It failed before the fix.
 	- Acceptance signoff: Self-closed: reproduced, and the test failed before and passes after.
 	- Closed: 20261014-105000
 
@@ -530,14 +544,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Actual fix [Bug]: `package.bash` strips every binary built here. On Linux that's `llvm-objcopy`, for both ELF and Windows files. On a Mac it's `strip`, with `dsymutil` first. A program or shared library keeps its symbols and DWARF in `dist/debug/<release>/`, as `<name>.debug` or `<name>.dSYM`. A static library keeps its symbols, and only its DWARF goes there, as `libzuid.a.debug`. On Linux every ELF `.debug` file is zlib packed, which gdb reads as is. A Mac keeps a whole unstripped `libzuid.a`, since Apple's tools can't split an archive. Both Windows PDBs move there, the DLL's included, which was dropped before. The AVX and armv8-a scans take function names from the debug file.
 	- Branch: strip, dbgonly
 	- Commit: 60169a5, f9cd9fd
-	- Test case: EsZni4i, EsZni4j, EsZni4k and EsbEsag.
-		- EsZni4i fails on any file in the release with this machine's paths, any binary built here with debug sections, and any PDB. It failed on the tree before the fix, with 43 problems.
-		- EsZni4j checks each binary has its own debug info in `dist/debug/`. It failed with another release's `.debug` file, the command's PDB in place of the DLL's, and an archive copy missing.
-		- EsZni4k checks nothing under `dist/debug/` is uploaded or hashed by `--publish`. It and ErgqYtF failed with the publish stage reading all of `dist/`.
-		- EsbEsag checks each ELF file in `dist/debug/` has packed DWARF and no code. It failed on all 9 from the run before, the 3 whole archive copies among them.
-	- Swept: every asset in `dist/`, the bare binaries, tarballs, zips, `.deb` and `.rpm`, with the shared and static libraries. The scans that read names: ErbFB7B, ErlUUiR, ErgjCkU and ErmS0zB read the debug files now. EsXcjyV reads the unstripped dogfood build and is unchanged. `--publish` and the checksums in `package.bash` read only the top of `dist/`.
+	- Test case: ddwj4, ddwj5, ddwj6 and ddwx7.
+		- ddwj4 fails on any file in the release with this machine's paths, any binary built here with debug sections, and any PDB. It failed on the tree before the fix, with 43 problems.
+		- ddwj5 checks each binary has its own debug info in `dist/debug/`. It failed with another release's `.debug` file, the command's PDB in place of the DLL's, and an archive copy missing.
+		- ddwj6 checks nothing under `dist/debug/` is uploaded or hashed by `--publish`. It and ddfbm failed with the publish stage reading all of `dist/`.
+		- ddwx7 checks each ELF file in `dist/debug/` has packed DWARF and no code. It failed on all 9 from the run before, the 3 whole archive copies among them.
+	- Swept: every asset in `dist/`, the bare binaries, tarballs, zips, `.deb` and `.rpm`, with the shared and static libraries. The scans that read names: dde03, ddgez, ddfaa and ddgpb read the debug files now. ddw1c reads the unstripped dogfood build and is unchanged. `--publish` and the checksums in `package.bash` read only the top of `dist/`.
 	- Verified: `cicd.bash --package` passed on b23 and with `--container`, 20261013. The Linux x86_64 command is 18.8 MB, down from 28.9 MB. Through the debug file, the AVX scan found the same 235 functions as on the unstripped build, for a build for this CPU. The arm64 scan found the same 56 on a cortex_a76 build.
-	- Verified: 20261013, b26 `--package` at 2fa8524, with ErbFB7B and Esa8LVS skipped since both fail there for other items: EsZni4i, EsZni4j, ErfrKRQ, ErbFB7D and Erfhegq pass, and the stripped universal command runs. The full b23 run passed too.
+	- Verified: 20261013, b26 `--package` at 2fa8524, with dde03 and ddwmp skipped since both fail there for other items: ddwj4, ddwj5, ddf3k, dde05 and ddf2d pass, and the stripped universal command runs. The full b23 run passed too.
 	- Verified: 20261013, b29w, the stripped x86_64 zip under pwsh 7: `zuid.exe` ran every component, a cold and a warm module cache, base 2048tz and a salt, and refused a bad base. `capi_smoke.c` passed with mingw gcc against `zuid.dll` and against `libzuid.a`. On b23 `dist/debug/` went from 127 MB to 72 MB a run, and `cicd.bash --package` passed.
 	- Note: `codesign -v` calls the command's x86_64 slice unsigned. An Intel Mac doesn't need one. Whether it was signed before the strip wasn't checked.
 	- Acceptance signoff: Self-closed: tested on every platform but arm64 Windows, which nothing here can run.
@@ -562,7 +576,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- The synced dir is first in the dogfood list on any OS, and it syncs to the Mac and the arm64 VM too.
 	- Actual fix [Bug]: On Linux the Zig stage builds the command for `package.bash`'s target. Only a Linux x86_64 run puts it in the synced dir; others start at `~/.local/bin`.
 	- Branch: dogfoodcpu
-	- Test case: EsXcjyV, the AVX scan on the build dogfood copies. Failed on a build for the host: 235 functions used AVX.
+	- Test case: ddw1c, the AVX scan on the build dogfood copies. Failed on a build for the host: 235 functions used AVX.
 	- Verified: 20261013, the synced copy's only SHA-NI code is in Wasmtime's Rust `sha2`, which asks the CPU first. None in Zig's SHA-256.
 	- Acceptance signoff: Self-closed: tested, and the old box can't easily be reached for a rerun.
 	- Closed: 20261013-033301
@@ -589,7 +603,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261003: Untested idea: have the step write to its output file through `sh -c`, so Zig never writes to a pipe.
 		- 20261004: Reproduced again on b26: piped, a one-line header gave no output in 20 s; to a file it finished at once. `zig translate-c` has no output file option, so the step cannot just name one.
 		- 20261004: Not `sh -c`, since a native Windows build has no `sh`. A small Zig helper does the redirect on every host instead.
-		- 20261004: Found along the way: `Eq9nb3o` could not see the header step at all. The translator kept its own cache beside `build.zig`, so the test's fresh cache still got a warm translation. Fixed here, since the test pins what this step must keep.
+		- 20261004: Found along the way: `dcrga` could not see the header step at all. The translator kept its own cache beside `build.zig`, so the test's fresh cache still got a warm translation. Fixed here, since the test pins what this step must keep.
 		- 20261004: Also found: a cold global cache fails the empty `SOURCE_DATE_EPOCH` build anyway, in Zig's own libunwind build. Same on `main`. Logged as 2026100415475381.
 	- Actual cause [Bug]: `zig translate-c` copies its cached result to stdout with `fcopyfile` on macOS. Read in Zig's source, not traced: an error that is not "unsupported" makes the copy report zero bytes, and the caller asks again forever. Linux takes another path.
 	- Actual fix [Bug]: The three header steps run `zig translate-c` through `zig/tools/to_file.zig`, which gives it a file for stdout. Still a Run step, so it still drops `SOURCE_DATE_EPOCH`. The translator now gets the build's cache directory too.
@@ -597,8 +611,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: `captureStdOut` and `addSystemCommand` in `build.zig`, and every `zig` call in the scripts. The header steps were the only place Zig wrote a file to a pipe. `cicd.bash`'s `zig fmt` check now covers `zig/tools`.
 	- Branch: machang
 	- Commit: 47c1134
-	- Test case: new `Erm4m6a` fails if `build.zig` captures a command's stdout. It fails on the old `build.zig` and passes now. A Linux build cannot hang, so the hang itself waits on the b26 run. `Eq9nb3o` now fails when the step stops dropping `SOURCE_DATE_EPOCH`; before the cache fix it passed either way.
-	- Verified: 20261004 on b26, at 12d2b2d: the full pipeline with `--package` passed in about 7 minutes, with a fresh clone and a cold Zig cache for the project. The Zig stage finished, and `Erm4m6a` and `Eq9nb3o` passed. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
+	- Test case: new `ddgkf` fails if `build.zig` captures a command's stdout. It fails on the old `build.zig` and passes now. A Linux build cannot hang, so the hang itself waits on the b26 run. `dcrga` now fails when the step stops dropping `SOURCE_DATE_EPOCH`; before the cache fix it passed either way.
+	- Verified: 20261004 on b26, at 12d2b2d: the full pipeline with `--package` passed in about 7 minutes, with a fresh clone and a cold Zig cache for the project. The Zig stage finished, and `ddgkf` and `dcrga` passed. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
 	- Acceptance signoff: Self-closed: the macOS build finishes, and its tests pass.
 	- Closed: 20261004-175611
 
@@ -622,7 +636,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Actual fix [Bug]: `package.bash` names a target: glibc 2.28 on Linux, macOS 13.0 on a Mac, both with the baseline CPU. It now builds the macOS tarball and binary on a Mac too.
 	- Branch: baseline
 	- Commit: 668b432
-	- Test case: `ErbFB7B`, `ErbFB7C`, `ErbFB7D`, run with `--package`. Each watched to fail on a build for the host.
+	- Test case: `dde03`, `dde04`, `dde05`, run with `--package`. Each watched to fail on a build for the host.
 	- Closed: 20261002-194500
 
 - `%m` is the same on every Intel Mac with a T2 chip.
@@ -645,7 +659,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Actual fix [Bug]: Both sides skip `ac:de:48:00:11:22`. On the test Mac `%m` is now `ap1`'s address, index 5, which is ahead of `en0`. Both sides agree.
 	- Branch: t2mac
 	- Commit: 91411c1
-	- Test case: `ErU3R79`, `ErU3R7A`. Both watched to fail without the skip.
+	- Test case: `ddc8r`, `ddc8s`. Both watched to fail without the skip.
 	- Closed: 20261001-135500
 
 - CICD reset: container cleanup
@@ -654,7 +668,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Status: Done
 		- 20261025: The old unlabeled `zuid-cicd:856cd00870eb` and `zuid-codeql:de7763196c93-856cd00870eb` were removed by ID after the labeled pair passed.
 	- Needs local test suite run?: Done. `cicd/cicd.bash --backlog-run-quick` at f123531 ended with one `Docker .....:` line, and so did the full run. After them, `zuid-cicd:8029eec721c8` and `zuid-codeql:de7763196c93-8029eec721c8` had both labels, `docker volume ls --filter label=dev.project=zuid` listed `zuid-cicd-cache` and `zuid-zig-cache`, and `docker ps -a --filter label=dev.project=zuid` listed nothing.
-	- Needs external testing: Done. The `macos` workflow, run 40211475106 on `round1025-fix`, whose tree is round1025's head 45f01a1, passed, EtitVm7 included.
+	- Needs external testing: Done. The `macos` workflow, run 40211475106 on `round1025-fix`, whose tree is round1025's head 45f01a1, passed, dedn9 included.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261024-162331
 	- Opened by: JC
@@ -678,11 +692,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: Hand pass: `zuid-cicd-cache` (421 MB, 336 MB of it the old Zig cache at `/cache/home/.cache/zig`) was removed, so the next run makes it labeled. No container used it.
 		- 20261025: Left for a hand pass by ID: `zuid-cicd:856cd00870eb` (`6f89bc5604b3`) and `zuid-codeql:de7763196c93-856cd00870eb` (`d2cc10f16f9a`). They're unlabeled, so the rule never removes them, and `dev` and `main` still run on them. They go once a newer labeled image has passed.
 		- 20261025: On b23 one `docker system df` call in a run came back empty, and the line said the whole of docker was freed. 12 calls in a row and 2 at once all answered, so the cause is not found. The line now says the amount is unknown when either call is empty.
-		- 20261025: EsJ9SjE now wants no `rmi` during the stage, where it wanted `rmi zuid-cicd:0ld0ld0ld0ld`. Its build line, and those of EtAj5P2 and Etij2SC, have the two labels now.
-		- 20261025: EsJ9SjF's run line has `--name zuid-20261019-101112-container --label dev.project=zuid --label dev.run=20261019-101112` after the volumes now.
-		- 20261025: EtAj5P2 and EtaIbeg now want no `rmi` during the stage, where they wanted the old CodeQL tag, then the old main one. EtitVm9 checks that order at the end of the run instead.
-		- 20261025: EtitVm7 failed on the `macos` workflow since c50557e. The 4 names were apart, but the Mac's `wc -l` pads its count with spaces, so the count never matched "4". It strips them now, like the other counts. With a padding `wc` on PATH it failed before and passes after, and `pipeline-test.bash` is 128 of 128 both ways.
-		- Verified: `pipeline-test.bash` 115 of 115. With each of 4 faults put in, its own case failed: an unlabeled volume (EtitVm7), the one before not kept (EtitVm9), `--keep-temp` ignored (EtitVm8), and no call from the exit trap (EtitVm8). Against a scratch label on b23's docker, the volumes came up labeled, a left-running container was stopped and removed, and the line was printed.
+		- 20261025: ddrj0 now wants no `rmi` during the stage, where it wanted `rmi zuid-cicd:0ld0ld0ld0ld`. Its build line, and those of de5ea and dedm0, have the two labels now.
+		- 20261025: ddrj1's run line has `--name zuid-20261019-101112-container --label dev.project=zuid --label dev.run=20261019-101112` after the volumes now.
+		- 20261025: de5ea and debk4 now want no `rmi` during the stage, where they wanted the old CodeQL tag, then the old main one. dednb checks that order at the end of the run instead.
+		- 20261025: dedn9 failed on the `macos` workflow since c50557e. The 4 names were apart, but the Mac's `wc -l` pads its count with spaces, so the count never matched "4". It strips them now, like the other counts. With a padding `wc` on PATH it failed before and passes after, and `pipeline-test.bash` is 128 of 128 both ways.
+		- Verified: `pipeline-test.bash` 115 of 115. With each of 4 faults put in, its own case failed: an unlabeled volume (dedn9), the one before not kept (dednb), `--keep-temp` ignored (dedna), and no call from the exit trap (dedna). Against a scratch label on b23's docker, the volumes came up labeled, a left-running container was stopped and removed, and the line was printed.
 		- 20261025: The quick and full runs at f123531 passed in the image. Both ended with "removed build cache over a week old; about 0.0 GB freed". Only two labeled tags of each image exist, so none went.
 	- Decisions:
 		- 20261025: `dev.run` is the run's stamp for now. It becomes the run folder's name when 2026102416233107 makes one.
@@ -691,7 +705,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every `docker run` goes through `fContainer_RunArgs` (the stage and `fInImage`), except the volume check, which labels its own. Both image builds are labeled. installer-test's `bash:3.2` runs belong to that harness, with `--rm`, and are left to 2026102416233107. Every rig that lifts `fContainer_Image`, `fInImage` or `fContainer_RunArgs` sets the run and project. Every `wc` count in `cicd/` is stripped, compared with `-eq`, or compared with another count padded the same way.
 	- Branch: round1025
 	- Commit: c50557e
-	- Test case: EtitVm7 (labels and names), EtitVm8 (the run's containers at its end, and the traps), EtitVm9 (the passing run's tidy). Each failed with its part of the change broken.
+	- Test case: dedn9 (labels and names), dedna (the run's containers at its end, and the traps), dednb (the passing run's tidy). Each failed with its part of the change broken.
 	- Closed: 20261025-095950
 
 - CICD reset: step output
@@ -720,13 +734,13 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: The guess of image or not is made before the first step, for the count. If the image then doesn't build, the run falls back here as before, and says the new total.
 		- 20261025: The commit message prompt keeps a plain header, since it's a question, not a step. The cache tidy and "Passed." print after the last step.
 		- 20261025: Zig fuzz used to print a skip line per fuzz test on a quick run. Now it's a step that's off, like Go fuzz, so those skip lines are gone.
-		- 20261025: Asserts that moved with this: EtB5PUX wanted a rule of 74 in a pipe, 123 in a 123-wide terminal and 101 in the image, and the width handed in. Now 79 in all three, and no width handed. EsJ9SjF wanted `-e ZUID_COLUMNS=123`, and now wants the step and offset values. Etab8wp, Etika82, EtitVm8 and Etipgwm read their call sites from fMain, and now read them from fSteps.
-		- 20261025: Filed 2026102508540624: Etj0NB7 fails in the image, which has no `ps`.
+		- 20261025: Asserts that moved with this: de5h3 wanted a rule of 74 in a pipe, 123 in a 123-wide terminal and 101 in the image, and the width handed in. Now 79 in all three, and no width handed. ddrj1 wanted `-e ZUID_COLUMNS=123`, and now wants the step and offset values. debnf, dedm5, dedna and dedmy read their call sites from fMain, and now read them from fSteps.
+		- 20261025: Filed 2026102508540624: dedpa fails in the image, which has no `ps`.
 	- Decisions:
 		- 20261025: The first section is a plain header with the step count and how many are off, then one `Off` line each, with the flag or reason. Off by default, such as Publish, counts as off.
 	- Swept: every `fSection` call in `cicd.bash`, now only the plan and the commit prompt. The other scripts print status lines, not stages, per 2026101410495998. `lint-report.bash` counts "warning", which the new lines don't have. The pre-push hook, the workflow and `test-ids.py` read no header lines.
-	- Test case: Etj8iKE (step lines, the off list, PASS and FAIL, a step run elsewhere, and the image's local time), Etj8iKF (the steps counted for the image are the ones it runs, and the scrub stays here), and EtB5PUX (79 everywhere). Each failed with its part broken by hand, and passes now.
-	- Verified: 20261025, `pipeline-test.bash` 128 of 128. `cicd.bash --backlog-run-quick --only go --no-container` passed, steps 1 to 13 of 13. The same in the image numbered steps 1 to 6 of 14 across the handoff with local times, and stopped at Pipeline on Etj0NB7, with the FAIL line. shellcheck and `test-ids.py check` are clean.
+	- Test case: dedq5 (step lines, the off list, PASS and FAIL, a step run elsewhere, and the image's local time), dedq6 (the steps counted for the image are the ones it runs, and the scrub stays here), and de5h3 (79 everywhere). Each failed with its part broken by hand, and passes now.
+	- Verified: 20261025, `pipeline-test.bash` 128 of 128. `cicd.bash --backlog-run-quick --only go --no-container` passed, steps 1 to 13 of 13. The same in the image numbered steps 1 to 6 of 14 across the handoff with local times, and stopped at Pipeline on dedpa, with the FAIL line. shellcheck and `test-ids.py check` are clean.
 	- Branch: round1025
 	- Commit: 3938bf3
 	- Closed: 20261025-095700
@@ -750,7 +764,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: `--backlog-run-quick` is the old `--gate`, plus no demo. `--backlog-run-full` and `--merge-gate` are a full run with no sync, dogfood, backup or demo, and no prompt, so fuzz, profile, packaging and the leak checks all run. Each refuses `--commit`, `--push`, `-m`, `--backup`, `--dogfood` and `--publish`, and the full ones refuse `--quick`.
 		- 20261025: `--gate` and `--ci` print "is another name for" once the run log has started. `--long` and `--slow` are the default run, since no step is long enough to move out of it. `--no-remote` is taken and changes nothing yet, for 2026102416233100.
 		- 20261025: The hook runs `--merge-gate`. It skips a push to main whose commits change only paths in `cicd/utility/git-hooks/no-gate-paths`: `*.md`, `project/` and `assets/`, the same as the `macos` workflow's `paths-ignore`. A new main, or one whose old tip isn't in the clone, is gated.
-		- 20261025: Et6FB1m expected `--ci` to be refused, per the 20261019 reversal. It now expects `--ci` to be taken, as this item asks.
+		- 20261025: de4bt expected `--ci` to be refused, per the 20261019 reversal. It now expects `--ci` to be taken, as this item asks.
 		- 20261025: The full run passed in about 25 minutes at load 30 to 45.
 	- Decisions:
 		- 20261025: A gate's refusal names the flag as typed, so `--gate --commit` still says `--gate`.
@@ -760,7 +774,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every `--gate` and `--ci` in `repo/`. `cicd.bash` help, `development.md`, the hook and `pipeline-test.bash` are updated. What's left is in History lines. `fStage_Container` passes nothing new, since the gate flags only turn stages off outside, and the demo never runs inside.
 	- Branch: round1025
 	- Commit: ac384c8
-	- Test case: Etj4p9f (the refusals), Etj4p9g (what each gate flag runs), Etj4p9h (`--long`, `--slow`, and the alias line), Etj4p9i (the hook: a new main, docs only, docs and code, dev), Et6FB1m (`--ci` is taken). Each failed against the scripts before the change, and passes after.
+	- Test case: dedpp (the refusals), dedpq (what each gate flag runs), dedpr (`--long`, `--slow`, and the alias line), dedps (the hook: a new main, docs only, docs and code, dev), de4bt (`--ci` is taken). Each failed against the scripts before the change, and passes after.
 	- Verified: 20261025, `pipeline-test.bash` 126 of 126, `test-ids.py check` (476, all unique), shellcheck, the content scrub, and `cicd.bash --gate --only go --no-container`, which printed the alias line, passed, and left the tree as it was. Load about 41 on 32 CPUs.
 	- Closed: 20261025-095700
 
@@ -790,14 +804,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: The count goes into the image as `ZUID_JOBS`, which `codeql.bash` reads, and `ZUID_JOBS_CAP`, which the run inside never goes over. `codeql.bash` by hand uses 1.
 		- 20261025: Nothing runs side by side yet, so there is no count to share.
 		- 20261025: Test boxes work out their own count and load, on Linux, macOS and FreeBSD. cicd.bash doesn't run on Windows.
-		- 20261025: EsJ9SjF, EtAj5P2, EtAHpAi, EtB6KVG and EtitVm9 now expect `--cpus`, `--cpu-shares 256` and `nice -n 19` in their docker run lines, which had none.
+		- 20261025: ddrj1, de5ea, de5b3, de5h7 and dednb now expect `--cpus`, `--cpu-shares 256` and `nice -n 19` in their docker run lines, which had none.
 		- 20261025: The run log doesn't print the docker run lines, so `--cpus` and `--cpu-shares` were seen only through the pipeline-test cases, which passed in the run.
 	- Decisions:
 		- 20261025: The `-race` test run counts as a hard step, for its memory, though it wasn't on the list.
 	- Swept: every `-j`, `-p`, `-parallel` and `--threads` in cicd.bash, codeql.bash and package.bash, and every `docker run` in the repo: the container stage, `fInImage`, the cache cap check and installer-test's two bash 3.2 runs. package.bash keeps its own half only for a run by hand.
 	- Branch: round1025
 	- Commit: fc2e692
-	- Test case: Etj0Hby (the counts), Etj0Hbz (a bad load reading), Etj0Hc0 (checked again before each step), Etj0NB7 (the priority), Etj0Hc1 (Zig fuzz), Etj0Hc2 (steps in the image), Etj0Hc3 (`codeql.bash`). Each failed against the scripts before the change, and passes after.
+	- Test case: dedp4 (the counts), dedp5 (a bad load reading), dedp6 (checked again before each step), dedpa (the priority), dedp7 (Zig fuzz), dedp8 (steps in the image), dedp9 (`codeql.bash`). Each failed against the scripts before the change, and passes after.
 	- Verified: 20261025, `pipeline-test.bash` 122 of 122, the bash 3.2 installer cases, and `cicd.bash --gate --only go --no-container` with docker absent, at load 31 to 71 on 32 CPUs.
 	- Closed: 20261025-095700
 
@@ -819,7 +833,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261024: Raised to high by the CICD reset, per the Zig bullets in `Cleanup after a run` in the shared CICD rules. A cache is also emptied when the Zig that filled it isn't the current one, from a stamp file inside it, and that goes for every `.zig-cache/` in the tree. In the container, Zig's global cache gets a volume of its own, `zuid-zig-cache`, under the same 2 GB rule. Always the whole folder.
 		- 20261025: At the end of a run that built with Zig, every `.zig-cache` in the tree is emptied whole when it's over 2048 MB, or when its `.cicd-zig-version` names another Zig. Then it's stamped with this one. A linked cache is emptied through the link, and the link stays.
 		- 20261025: The image sets `ZIG_GLOBAL_CACHE_DIR=/zig-cache`, and every container run mounts `zuid-zig-cache` there. The run inside tidies it with the tree's caches. The run outside built nothing, so it skips.
-		- 20261025: EsJ9SjF's run line has `-v zuid-zig-cache:/zig-cache` after `-v zuid-cicd-cache:/cache` now. It had no Zig volume before.
+		- 20261025: ddrj1's run line has `-v zuid-zig-cache:/zig-cache` after `-v zuid-cicd-cache:/cache` now. It had no Zig volume before.
 		- 20261025: The old global cache, 336 MB at `/cache/home/.cache/zig` in `zuid-cicd-cache`, is no longer used. It's left for the hand pass in 2026102416233101, and so are labels on the new volume.
 		- Verified: `pipeline-test.bash` 112 of 112. In a build of the new image, Zig's global cache was `/zig-cache`, a new volume there was writable by the caller's uid, and the tidy emptied it over the cap and on a `0.16.0` stamp, and kept it otherwise. On b23 the tidy stamped `zig/.zig-cache`, 1.4 GB with no stamp, and left it whole.
 		- 20261025: The round's quick and full runs passed in the image at f123531. The volume and the tree's cache were both stamped `0.17.0` after.
@@ -831,7 +845,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every docker run goes through `fContainer_RunArgs`, for the stage and for `fInImage`, so the volume reaches both. Only the container stage runs Zig in the image. Removal goes only through `fZigCache_Empty`. All 3 test rigs that set `containerVolume` set the Zig volume too.
 	- Branch: round1025
 	- Commit: deb8b3a
-	- Test case: Etipgwi (over the cap, every cache in the tree, through a link, never `.git`), Etipgwj (another Zig's stamp, and none), Etipgwk (the image's volume, only inside), Etipgwl (the guard), Etipgwm (where fMain calls it). Each failed against the script before the change, and passes after.
+	- Test case: dedmt (over the cap, every cache in the tree, through a link, never `.git`), dedmv (another Zig's stamp, and none), dedmw (the image's volume, only inside), dedmx (the guard), dedmy (where fMain calls it). Each failed against the script before the change, and passes after.
 	- Closed: 20261025-095700
 
 - CICD runs on the host unless asked for the container.
@@ -863,7 +877,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every docker run goes through `fContainer_RunArgs`, for the stage and for `fInImage`. The SDE lookup is one helper for the package stage and the container. installer-test's `bash:3.2` is the only image a test starts itself. The `macos` workflow has no docker, so it takes the host.
 	- Branch: round1025
 	- Commit: e709b98
-	- Test case: Etij2SB (the flags), Etij2SC (the image where docker answers), Etij2SD (each fallback, with its note), Etij2SE (`--container`, `--no-container` and the run inside ask docker nothing), Etij2SF (checkers skip on a failed build), EtijCAL (the hook's Zig cache), EtimFcG (a linked Zig cache), EtimFcH (SDE), Etika82 (bash 3.2 outside). Each failed against the script before the change, and passes after.
+	- Test case: dedkz (the flags), dedm0 (the image where docker answers), dedm1 (each fallback, with its note), dedm2 (`--container`, `--no-container` and the run inside ask docker nothing), dedm3 (checkers skip on a failed build), dedm4 (the hook's Zig cache), dedmc (a linked Zig cache), dedmd (SDE), dedm5 (bash 3.2 outside). Each failed against the script before the change, and passes after.
 	- Verified: 20261025, the full run in the image at f123531, and the `macos` workflow run 40211475106.
 	- Closed: 20261025-095700
 
@@ -899,7 +913,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261018: `--cross` stays and changes nothing now. The other flags stay too.
 	- Branch: ciflags
 	- Commit: 36fe700, f08075d
-	- Test case: Et6FB1m (`--ci` is refused, since the 20261019 reversal), Et6FB1n (a plain run, `--quick` and `--ci` all cross-compile). EshGwj4, EshGwj5 and EshGwj6 moved to `--ci`, and back to `--gate`. Both new ones failed first.
+	- Test case: de4bt (`--ci` is refused, since the 20261019 reversal), de4bv (a plain run, `--quick` and `--ci` all cross-compile). ddyby, ddybz and ddyc0 moved to `--ci`, and back to `--gate`. Both new ones failed first.
 	- Acceptance signoff: Self-closed: flags work as the 20261019 reversal asked, and the tests pass.
 	- Closed: 20261024-072500
 
@@ -922,7 +936,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261005: one call taking the struct, not a second call beside the old one. Two ways to do one thing is what was being fixed.
 		- 20261005: the soname stays `libzuid.so.1`. The header now says the prereleases are not held to it. `v1.0.0-alpha.1` has the old call.
 	- Branch: fastcli
-	- Test case: EloUhj2, Eq9dPAO, Em32Nzd and the other C tests in `tests.zig` pass a request now, and so does `capi_smoke.c`. EloUhj2 failed with a negative width read as zero, and Em32Nzd with the old code.
+	- Test case: daqq9, dcref, dav7b and the other C tests in `tests.zig` pass a request now, and so does `capi_smoke.c`. daqq9 failed with a negative width read as zero, and dav7b with the old code.
 	- Acceptance signoff: Self-closed: matches Go's `Request`, as asked after the design review, and the prereleases aren't held to the ABI.
 	- Closed: 20261013-033301
 
@@ -948,7 +962,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261005: skipped when run as root, since under sudo HOME can be a directory another user writes.
 		- 20261005: `$XDG_CACHE_HOME/zuid`, else `~/.cache/zuid`; `~/Library/Caches/zuid` on macOS; `%LOCALAPPDATA%\zuid` on Windows. Nothing turns it off. Deleting it is safe.
 	- Branch: fastcli
-	- Test case: Ersmdcr, Ersmdcs, Ersmdct and Ersmdcu in `cli-test.bash`, and Ersmdcv in `tests.zig`. Each failed with its part of the cache broken.
+	- Test case: ddj72, ddj73, ddj74 and ddj75 in `cli-test.bash`, and ddj76 in `tests.zig`. Each failed with its part of the cache broken.
 	- Acceptance signoff: Self-closed: tested on 3 OSes, uses each one's usual cache dir, and a bad file only costs one slower run.
 	- Closed: 20261013-033301
 
@@ -967,7 +981,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Actual fix [Bug]: The help is a heredoc in each script.
 	- Branch: tidyup
 	- Commit: c286dfe
-	- Test case: EshFEjs, EshFEju, EshFEk6. Each failed before the fix.
+	- Test case: ddybe, ddybg, ddybw. Each failed before the fix.
 	- Acceptance signoff: Self-closed: reproduced, and the tests failed before and pass after.
 	- Closed: 20261014-105000
 
@@ -1002,16 +1016,16 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- `build.zig` builds compiler_rt as its own object step, with the settings Zig uses for its own copy, and adds it to the static library in place of `bundle_compiler_rt`.
 	- Branch: crtrt
 	- Commit: 57160c2
-	- Test case: EscFGGR.
+	- Test case: ddx4y.
 		- It fails when any `__anon_N` in the built `libzuid.a` is 2^20 or more, which takes a worker thread's number. It failed before the fix with 17 of 392 names, and passes after. It skips when there are no such names, in case Zig names them another way later.
 		- It can't see a difference that only 2 cold builds show. See Verified.
 	- Swept: only `libzuid.a` keeps compiler_rt as an object. The command, `libzuid.so` and the Windows DLL link Zig's own compiler_rt, and the names are gone after the link: stripped, each matched across 5 cold builds. The Windows, arm64 Linux and FreeBSD static libraries build with the new object, and none has a thread number in its names. The archive has only compiler_rt and zuid's own object.
 	- Verified:
-		- `cicd.bash --quick --only zig` passed on b23 with the fix, 271 ok, EscFGGR and the static library smoke tests included. Without the fix EscFGGR failed.
+		- `cicd.bash --quick --only zig` passed on b23 with the fix, 271 ok, ddx4y and the static library smoke tests included. Without the fix ddx4y failed.
 		- 3 cold builds with the fix gave the same `compiler_rt.o` bytes. 2 on `main` gave 2 different ones.
 		- A release build's `compiler_rt.o` has the same code, sections, relocations and symbols as Zig's own, apart from the names, for Linux x86_64 and arm64, FreeBSD, Windows x86_64 and arm64, and macOS x86_64 and arm64. A Debug build's `__clear_cache` lacks Zig's valgrind hint on Linux, FreeBSD and Windows x86_64.
 		- 20261013: 2 cold `cicd.bash --package` runs on b23, the first a full run, gave the same `libzuid.a` for all 5 targets. A `--container --package` run gave the same 5 again. Every release file matched between b23 and the container apart from the Windows exe and dll, which are 2026101305595483.
-		- 20261013: `cicd.bash --quick --package` passed on b26, EscFGGR and Esa8LVS included.
+		- 20261013: `cicd.bash --quick --package` passed on b26, ddx4y and ddwmp included.
 	- Acceptance signoff: Self-closed 20261013. The fix does what the item asked, and its test failed before it and passes after.
 	- Closed: 20261013-151453
 	- Note: 20261013, the debug info in every file built here still differs between 2 cold builds. `tools/to_file.zig` is built in Debug and its bytes differ from one cold build to the next. The translate-c steps hash those bytes, so the translated headers go under new cache paths, and the paths are in the DWARF. Stripped files match. Filed as 2026101313551112.
@@ -1046,16 +1060,16 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- `build.zig` builds `to_file` with LLVM, stripped. Nothing reads its debug info.
 	- Branch: tofile
 	- Commit: 12cd4a6
-	- Test case: EscLn6s.
-		- The Zig stage already builds into 2 new caches for Eq9nb3o, so each builds its own `to_file`. The check fails when the 2 differ, or when `to_file` has `__anon_` names, which a 1-CPU builder would number differently.
+	- Test case: ddx5r.
+		- The Zig stage already builds into 2 new caches for dcrga, so each builds its own `to_file`. The check fails when the 2 differ, or when `to_file` has `__anon_` names, which a 1-CPU builder would number differently.
 		- It failed both ways before the fix: the old `build.zig` gave 2 different files, and LLVM without strip kept the names. It passes after.
 		- A full cold build compare takes about 5 minutes for one target, too slow for the pipeline. See Verified.
 	- Swept: the only other Run steps are the test run, whose output nothing reads, and the macOS relink, a system command whose hash takes its arguments and inputs, not the program's bytes. compiler_rt is 2026101305595488.
 	- Verified:
 		- 2 cold release builds for `x86_64-linux-gnu.2.28` at one path, each with its own empty caches. Before the fix, the command, `libzuid.so` and `libzuid.a` differed, and only in the translated header folders. With those folder names swapped back, the command and `libzuid.so` matched byte for byte. After the fix all 3 matched, debug info included.
-		- `cicd.bash --quick --only zig` passed with the fix, 272 ok and 3 skips, EscLn6s and EscFGGR included.
+		- `cicd.bash --quick --only zig` passed with the fix, 272 ok and 3 skips, ddx5r and ddx4y included.
 		- 20261013: 2 cold `cicd.bash --package` runs on b23 with the same cache paths, each starting empty. Every file in `dist/debug/` matched for Linux, FreeBSD and both Windows `libzuid.a` files. Only the Windows PDBs differed, which is 2026101305595483. With 2 different cache paths the translated header folders differ too, as expected, since their hash takes the path of `to_file`.
-		- 20261013: `cicd.bash --quick --package` passed on b26, EscLn6s included.
+		- 20261013: `cicd.bash --quick --package` passed on b26, ddx5r included.
 	- Acceptance signoff: Self-closed 20261013. The cause was found and fixed, and the check failed before the fix.
 	- Closed: 20261013-151453
 
@@ -1088,27 +1102,27 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261013: 2 package runs on b23, the second under umask 077, gave 10 different files of 33: every tarball, zip, deb and rpm, and the checksums.
 		- 20261013: After the fix, b23 against the container: the bare Linux x86_64, arm64 and FreeBSD binaries and the FreeBSD tarball match. The Linux tarballs differ only in `libzuid.a`'s compiler_rt object. The Windows zips differ only there and in `zuid.exe` and `zuid.dll`, 20 bytes each. The deb and rpm match with the same nfpm. Tar and zip headers match.
 		- 20261013: b23's nfpm was left at 2.43.0, since it's installed outside the project.
-		- 20261013: b23's nfpm moved to the container's 2.47.0, from the same release file and hash. EsbF9Jy says so when a host's nfpm isn't the pinned one.
+		- 20261013: b23's nfpm moved to the container's 2.47.0, from the same release file and hash. ddwx8 says so when a host's nfpm isn't the pinned one.
 		- 20261013: Reproduced on b26 by packaging twice, the second under umask 077. The release file was the tarball, and in it only `libzuid.a` and the 2 dylib symlinks differed.
 	- Actual fix [Bug]:
 		- `package.bash` gives every file in a tarball, zip, deb and rpm one time: SOURCE_DATE_EPOCH, else the HEAD commit date, never the clock, and no earlier than 1980. Modes are 0755 or 0644 by whether the file runs. Tarballs are owner 0 by number with no names, sorted bytewise, and gzip keeps no name or time. Zips get the same list, with the zone pinned to UTC and no extra fields. nfpm gets the time, a fixed rpm build host and set modes on the license files.
 		- `build.zig` tells Zig not to reuse its answers unless `-Dbuild-epoch` is given. That costs about 40 ms on a build with nothing to do.
 		- `tools/to_file.zig` drops SOURCE_DATE_EPOCH for translate-c, so the step no longer keeps a copy of the environment.
 		- On a Mac, `package.bash` runs `strip` on an archive with `ZERO_AR_DATE=1`, runs `dsymutil` from the slice on a relative path, and sets symlinks to 0755.
-	- Note: 20261013, Esa8LVS failed on b26 at 2fa8524: 6 of 17 files differ under umask 077. 4 are the `.dSYM` relocation maps, `Relocations/<cpu>/*.yml`, and one is `checksums.txt`, so a release file differs too. The output named only 5.
+	- Note: 20261013, ddwmp failed on b26 at 2fa8524: 6 of 17 files differ under umask 077. 4 are the `.dSYM` relocation maps, `Relocations/<cpu>/*.yml`, and one is `checksums.txt`, so a release file differs too. The output named only 5.
 	- Branch: repro, macfix
 	- Commit: 0483497, 119c277
-	- Test case: Esa8LVS and EsaCjhS.
-		- Esa8LVS packages again after the first run, under umask 077 and, where a user namespace is allowed, as root on another host name. Every file has to match, debug info included. It failed before the fix with 10 of 33 files different, and with only the build.zig half of the fix with 23. About 24 s on b23 with a warm Zig cache.
+	- Test case: ddwmp and ddwn8.
+		- ddwmp packages again after the first run, under umask 077 and, where a user namespace is allowed, as root on another host name. Every file has to match, debug info included. It failed before the fix with 10 of 33 files different, and with only the build.zig half of the fix with 23. About 24 s on b23 with a warm Zig cache.
 		- It names every file that differs now. On b26 it failed before the Mac fix naming all 6, and passes after.
-		- EsaCjhS builds again in a cache that has seen another epoch, with SOURCE_DATE_EPOCH=1700000000, and wants that build number. It failed before the fix with the old one.
+		- ddwn8 builds again in a cache that has seen another epoch, with SOURCE_DATE_EPOCH=1700000000, and wants that build number. It failed before the fix with the old one.
 		- Neither catches a path or Zig's own output that differs between machines. The 2 split items have no check here for that reason.
-		- EsbF9Jy skips with a note when the host's nfpm isn't the one `cicd/container/Dockerfile` pins. It skipped on b23's old one, which reports its version as "dev".
+		- ddwx8 skips with a note when the host's nfpm isn't the one `cicd/container/Dockerfile` pins. It skipped on b23's old one, which reports its version as "dev".
 	- Swept: every `tar`, `zip` and nfpm call under `cicd/`. Only `package.bash` makes release files; `installer-test.bash` and `pipeline-test.bash` make their own fixtures. `build.zig` has no other step with its own environment. The macOS release goes through the same functions.
 		- Mac: `strip` on an archive and `dsymutil` are each called once, in `fStripSlice`. The other archives on a Mac come from Zig, which writes date 0, and `lipo`. The only symlinks are the dylib's soname links, made by `cp -P` in `fMergeSlices`. Linux symlinks have no mode to set.
-	- Verified: `cicd.bash --quick --only zig --package` passed on b23 and with `--container`, 20261013, Esa8LVS and EsaCjhS included. The comparison above is from those 2 runs, with a third host package run using nfpm 2.47.0 for the deb and rpm.
-		- `cicd.bash --quick --only zig --package` passed on b26 at 119c277, 20261013, 276 ok, Esa8LVS included. On b23, `cicd.bash --quick` passed, and so did `--quick --only zig --package`, Esa8LVS included.
-	- Acceptance signoff: Self-closed: reproduced, Esa8LVS failed before the fix and passes after on b26. The Windows and compiler_rt parts are 2026101305595483 and 2026101305595488.
+	- Verified: `cicd.bash --quick --only zig --package` passed on b23 and with `--container`, 20261013, ddwmp and ddwn8 included. The comparison above is from those 2 runs, with a third host package run using nfpm 2.47.0 for the deb and rpm.
+		- `cicd.bash --quick --only zig --package` passed on b26 at 119c277, 20261013, 276 ok, ddwmp included. On b23, `cicd.bash --quick` passed, and so did `--quick --only zig --package`, ddwmp included.
+	- Acceptance signoff: Self-closed: reproduced, ddwmp failed before the fix and passes after on b26. The Windows and compiler_rt parts are 2026101305595483 and 2026101305595488.
 	- Closed: 20261013-130845
 
 - FreeBSD packaging fails: the pinned Wasmtime package is gone from the repo.
@@ -1131,12 +1145,12 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Decisions:
 		- The FreeBSD release now builds against Wasmtime 49, the other platforms against 47.0.3.
 	- Branch: dogfoodcpu
-	- Test case: The FreeBSD checks under `--package`, ErlUUiQ to ErlUUiU. Not run on FreeBSD itself.
+	- Test case: The FreeBSD checks under `--package`, ddgey to ddgf2. Not run on FreeBSD itself.
 	- Verified: 20261013, on vmFreeBSD with the release from 2fa8524: `cli-test.bash` passed 90 of 90 against the tarball's command, and `capi_smoke.c` built with the base `cc` passed against `libzuid.so` and `libzuid.a`.
 	- Acceptance signoff: Self-closed: a repin, and the release passed on FreeBSD.
 	- Closed: 20261013-062950
 
-- `Eq9nb3o` fails on a new Zig install or with Zig's cache cleared.
+- `dcrga` fails on a new Zig install or with Zig's cache cleared.
 	- ID: 2026101008194300
 	- Type: Bug
 	- Status: Done
@@ -1147,14 +1161,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Target OS: Any
 	- Steps to reproduce [Bug]:
 		- Run `cicd.bash` with nothing in Zig's global cache for the Zig in use, such as a newly built container image.
-	- Incorrect behavior [Bug]: `Eq9nb3o` fails. Zig's debug libunwind build gets the empty `SOURCE_DATE_EPOCH`, and clang refuses it.
+	- Incorrect behavior [Bug]: `dcrga` fails. Zig's debug libunwind build gets the empty `SOURCE_DATE_EPOCH`, and clang refuses it.
 	- Expected behavior [Bug]: It passes, as it does on b23.
 	- Reproduced [Bug]: Yes, 20261010, in the container after the image was rebuilt.
 	- Actual cause [Bug]: The test counted on the debug libunwind already being in the global cache, as 2026100415475381 says. On b23 it always was. With a new Zig, nothing earlier in the run had built it.
 	- Actual fix [Bug]: The test does a plain build first, in a throwaway local cache. That fills the global cache, and the translate-c steps still run cold with the value empty. It adds about 5.5 s to a run.
 	- Verified: with a new cache volume, the old order failed and the new one passed. The next full container run passed.
 	- Branch: container
-	- Test case: `Eq9nb3o` itself. It failed in the container before the fix and passes after.
+	- Test case: `dcrga` itself. It failed in the container before the fix and passes after.
 	- Acceptance signoff: Self-closed: a change to the test only, checked from an empty cache.
 	- Closed: 20261010-082006
 
@@ -1172,20 +1186,20 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Incorrect behavior [Bug]: The build fails. Zig's own libunwind build passes the empty value to clang, which refuses it.
 	- Expected behavior [Bug]: The build finishes and takes the commit date, as it does with a warm global cache.
 	- Reproduced [Bug]: Yes, 20261004 on Linux, on `main` and on branch `machang`.
-	- Possible cause [Bug]: Since 0.17, `build.zig` cannot clear the variable for the compile steps, only for Run steps. `Eq9nb3o` misses it, since it gives the build a fresh local cache but keeps the warm global one.
+	- Possible cause [Bug]: Since 0.17, `build.zig` cannot clear the variable for the compile steps, only for Run steps. `dcrga` misses it, since it gives the build a fresh local cache but keeps the warm global one.
 	- Actual cause [Bug]: Upstream behavior, not this repo. Zig 0.17.0 runs clang with its own environment when it builds libunwind and libc into the global cache, and clang refuses an empty or non-numeric value. A cached copy never runs clang, and the value is not part of the cache key. zuid has no C sources of its own, so these are the only places clang runs.
 	- Progress log:
 		- 20261004: Reproduced on Linux: the build failed on `UnwindRegistersSave.S` and `UnwindRegistersRestore.S`, plus clang notes from the C files with no file name. With nothing set, the same cold build took 2 min 28 s. An empty program linking libc and libunwind fails the same way, in 4 s.
 		- 20261004: Read in 0.17.0's `src/Compilation.zig`: `evalZigLlvmProcess` spawns `zig clang` with no environment of its own, and the Maker spawns compile steps with its own environment too. Outside Debug, Zig passes `-Werror=date-time`, so the value cannot change those libraries.
 		- 20261004: No report found on Codeberg or the old GitHub tracker. Draft, not filed: "Zig's own libunwind and libc builds fail with an empty SOURCE_DATE_EPOCH on a cold global cache. `SOURCE_DATE_EPOCH= zig build-exe a.zig -lc -lunwind` with a new `ZIG_GLOBAL_CACHE_DIR` fails with clang's 'must be a non-negative decimal integer' error; with a warm cache it works. Whether a build passes depends on cache state. The variable is not in those libraries' cache keys, and `-Werror=date-time` keeps it from changing them outside Debug. Suggest not passing it to these sub-builds, or dropping an invalid one."
-		- 20261004: `Eq9nb3o` stays on the warm global cache. A direct `zig build` with the value empty fails cold whatever this repo does, so a cold `Eq9nb3o` could never pass. A cold run through the scripts would add about 2.5 min, mostly rebuilding Zig's build runner; Zig's own libc, libunwind and compiler_rt take about 8 s of that.
+		- 20261004: `dcrga` stays on the warm global cache. A direct `zig build` with the value empty fails cold whatever this repo does, so a cold `dcrga` could never pass. A cold run through the scripts would add about 2.5 min, mostly rebuilding Zig's build runner; Zig's own libc, libunwind and compiler_rt take about 8 s of that.
 	- Actual fix [Bug]: `cicd.bash`, in preflight, and `package.bash` drop an empty or non-numeric value before running zig, with a note for a non-numeric one, the same as `build.zig` treats it. The README says to unset it for a plain `zig build`.
 	- Verified: a full `cicd.bash --no-dogfood --no-backup -q` run with the value empty and a new global cache passed, in 6 min 13 s. The same in a clone of `main`, with `--only zig --quick`, failed in the first Zig build with clang's error.
-	- Note: 20261004, on b26 at 12d2b2d: the full `--package` run passed, with `ErmER3z`, `ErmER40` and `Eq9nb3o`. The variable was not set there, so that run did not try an empty one on a cold global cache.
+	- Note: 20261004, on b26 at 12d2b2d: the full `--package` run passed, with `ddgmn`, `ddgmp` and `dcrga`. The variable was not set there, so that run did not try an empty one on a cold global cache.
 	- Swept: every `zig` call in `cicd.bash` runs after preflight; `package.bash` is the other script that runs zig, and the harnesses run only stand-in zigs. `install.bash` and `install.ps1` do not build.
 	- Branch: emptyepoch
 	- Commit: e8f7545
-	- Test case: new `ErmER3z` and `ErmER40` in `pipeline-test.bash` check that `cicd.bash` and `package.bash` keep an empty, blank or non-numeric value from zig, and keep a number. Both failed on the old scripts and pass now.
+	- Test case: new `ddgmn` and `ddgmp` in `pipeline-test.bash` check that `cicd.bash` and `package.bash` keep an empty, blank or non-numeric value from zig, and keep a number. Both failed on the old scripts and pass now.
 	- Acceptance signoff: Self-closed: the pipeline builds with the value empty, and the cause is upstream.
 	- Closed: 20261004-184405
 
@@ -1217,11 +1231,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- The fix goes in `test-ids.py`, not the fixture, since its header promises ISO times.
 		- Python 3.9 is the floor for the pipeline, since that is what stock macOS has. `gen-demo-gif.py` is the one exception, at 3.11, and the demo stage is optional.
 	- Actual fix [Bug]: `--at` turns a trailing `Z` into `+00:00` before parsing. The fixture now uses `+00:00`, so a `Z` failure shows as its own test instead of killing the run.
-	- Verified: On b26 with Python 3.9.6, `pipeline-test.bash` failed `ErmeArM` and `ErmeArN` with the old `test-ids.py`, and passed all 48 with the fix. Here on 3.13 it passes all 48, and `ErmeArN` fails with the old script. `test-ids.py check` and shellcheck pass.
+	- Verified: On b26 with Python 3.9.6, `pipeline-test.bash` failed `ddgqv` and `ddgqw` with the old `test-ids.py`, and passed all 48 with the fix. Here on 3.13 it passes all 48, and `ddgqw` fails with the old script. `test-ids.py check` and shellcheck pass.
 	- Swept: `flame-report.py`, `pprof2flame.py`, `gen-demo-gif.py` and `test-ids.py`, for `fromisoformat`, `match`, `X | Y` unions, `zip(strict=)`, `datetime.UTC`, `tomllib`, parenthesized `with`, `pairwise` and `bit_count`. All four parse and start on b26's 3.9.6. The inline `python3 -c` lines in `cicd.bash`, `cli-test.bash` and `installer-test.bash` use nothing past 3.9.
 	- Branch: pyfloor
 	- Commit: 99f35d1
-	- Test case: `ErmeArM` (`--at` with `Z` matches `+00:00`) and `ErmeArN` (a bad `--at` gives one line, no traceback), in `pipeline-test.bash`. `ErmeArM` passes on 3.11 and newer either way; only a 3.9 or 3.10 run proves it.
+	- Test case: `ddgqv` (`--at` with `Z` matches `+00:00`) and `ddgqw` (a bad `--at` gives one line, no traceback), in `pipeline-test.bash`. `ddgqv` passes on 3.11 and newer either way; only a 3.9 or 3.10 run proves it.
 	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, on the Mac that found it.
 	- Closed: 20261004-181500
 
@@ -1237,13 +1251,13 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Run `install.bash` with no `--target`, as a user who can write `/usr/local/bin` but not `/opt`.
 	- Incorrect behavior [Bug]: It plans `/opt/zuid` and reaches for sudo.
 	- Expected behavior [Bug]: A user install, since the system location cannot be written.
-	- Reproduced [Bug]: Yes, by `Eq9l4yO` once it stopped skipping there.
+	- Reproduced [Bug]: Yes, by `dcrfv` once it stopped skipping there.
 	- Actual cause [Bug]:
 		- Only the link's directory was checked. `install.ps1` already checked both.
 	- Actual fix [Bug]: Both have to be writable, as in `install.ps1`.
 	- Branch: macos
 	- Commit: 277947e
-	- Test case: `Eq9l4yO`. It used to skip wherever `/usr/local/bin` was writable.
+	- Test case: `dcrfv`. It used to skip wherever `/usr/local/bin` was writable.
 	- Closed: 20260930-181124
 
 - A clean build failed with `SOURCE_DATE_EPOCH` set but empty.
@@ -1260,11 +1274,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Expected behavior [Bug]: The build falls back to the commit date, which `build.zig` already meant to do.
 	- Reproduced [Bug]: Yes, on Linux and macOS.
 	- Actual cause [Bug]:
-		- `build.zig` ignored the value for its own stamp but left it set for the compiler. A warm cache never runs clang, so `Eq9nb3o` passed anyway.
+		- `build.zig` ignored the value for its own stamp but left it set for the compiler. A warm cache never runs clang, so `dcrga` passed anyway.
 	- Actual fix [Bug]: `build.zig` drops an empty or non-numeric value before anything compiles.
 	- Branch: macos
 	- Commit: 277947e
-	- Test case: `Eq9nb3o`, now on its own cache. Watched to fail without the fix.
+	- Test case: `dcrga`, now on its own cache. Watched to fail without the fix.
 	- Closed: 20260930-181124
 
 - With no `shellcheck`, the pipeline skipped four more stages.
@@ -1303,7 +1317,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Actual fix [Bug]: The answer is cast to a string before the match, at both prompts.
 	- Branch: testids
 	- Commit: f4c69e3
-	- Test case: `ErOkWfZ`, `ErOkWfb`.
+	- Test case: `ddb12`, `ddb14`.
 	- Closed: 20260930-155553
 
 - Builds leave stale artifacts and side-effects behind.
@@ -1323,15 +1337,15 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261023: Every `mktemp -d` in `cicd.bash` is on the exit cleanup list, and each harness removes its own work dir on exit. Containers run with `--rm --init`.
 		- 20261023: `cicd/artifacts/` already rotates, and `dist/` is emptied before each package run. Fuzz finds are kept on purpose.
 		- 20261023: Found: a CodeQL image built on an older main image stayed until the next `--leakcheck` run. On b23 that was `zuid-codeql:953bf12e36c5-98809c2ceb21`, about 750 MB of its own. Every run that uses the main image now drops it, ahead of the old main tag. A quick Go run removed it on b23.
-		- 20261023: EtAj5P2's plain-run clause was "no mention of codeql at all". It's now "no CodeQL build or run", as its comment says, since a plain run removes a stale one now.
+		- 20261023: de5ea's plain-run clause was "no mention of codeql at all". It's now "no CodeQL build or run", as its comment says, since a plain run removes a stale one now.
 		- 20261023: Zig's caches never shrink. Split off as 2026102320181236, waiting on a question.
 		- 20261023: Docker's build cache is shared with sister projects, and their steps can't be told from ours. So it stays with the hand prune after a build.
-		- 20261023: Full run `cicd.bash -q --no-sync --no-dogfood --no-backup --no-demo` at 1942bb2 passed in 17 minutes, 439 ok, 13 skips, no failures. It built the CodeQL image fresh, since none was left from before. EtaIbeg passed in it. Nothing of the run's was left in its TMPDIR, `/tmp`, `/mnt/tmpfs/tmp` or `~/.cache`, no zuid container or process was left, and no volume was added. `assets/demo.gif` was unchanged.
+		- 20261023: Full run `cicd.bash -q --no-sync --no-dogfood --no-backup --no-demo` at 1942bb2 passed in 17 minutes, 439 ok, 13 skips, no failures. It built the CodeQL image fresh, since none was left from before. debk4 passed in it. Nothing of the run's was left in its TMPDIR, `/tmp`, `/mnt/tmpfs/tmp` or `~/.cache`, no zuid container or process was left, and no volume was added. `assets/demo.gif` was unchanged.
 		- 20261024: The build cache note above is superseded by 2026102416233101, from the CICD reset.
 	- Swept: the only 2 image builds are the main and CodeQL ones. Both lifts of `fContainer_Image` in `pipeline-test.bash` set `codeqlImage`. The run inside the container never calls it.
 	- Branch: round1023
 	- Commit: 0562b45
-	- Test case: EtaIbeg. It failed before the fix, keeping the stale CodeQL image, and passes after.
+	- Test case: debk4. It failed before the fix, keeping the stale CodeQL image, and passes after.
 	- Acceptance signoff: Self-closed: its child 2026102320181236 closed 20261025, and the round's full run left no zuid container, stray image or temp file behind.
 	- Closed: 20261025-095950
 
@@ -1360,7 +1374,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: On b29w as `collierjr`, under 5.1 and 7: `-Version` printed 1.3.0, and `-Help` printed the usage. `-Yes` said there's no stable release yet, installed beta.1, checked it against `checksums.txt`, and `zuid.exe --version` printed `1.0.0-beta.1 (build ddytm)`. A second run had nothing to do, and `-Uninstall -Yes` removed it. The prompt was skipped with `-Yes`, not answered by hand.
 	- Branch: tidyup
 	- Commit: c286dfe
-	- Test case: EshFEjt, EshFEjv, EshFEjw, EshFEjx, EshFEjy, EshFEjz, EshFEk0, EshFEk1, EshFEk2. `--arch`'s missing-value case, Eq9oNBi, is retired with the flag.
+	- Test case: ddybf, ddybh, ddybj, ddybk, ddybm, ddybn, ddybp, ddybq, ddybr. `--arch`'s missing-value case, dcrgd, is retired with the flag.
 	- Closed: 20261025-095700
 
 - Leak, memory, and correctness checks in CICD.
@@ -1441,7 +1455,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261019: Every run, quick and `--ci` included, runs goleak, the tests under `-race`, `go vet` and staticcheck on the module and on convertbase, and govulncheck. None is slow enough to be full-run only: `-race` adds about 6 s, and the rest take about 5 s together.
 		- 20261019: staticcheck and govulncheck are pinned in the container's Dockerfile, not in `fConfig` as 2026101410495995 asked, per the decision below.
-		- 20261019: `-race` needs cgo on Linux. Without cgo the tests run without it, and Et9R2xW skips with a note.
+		- 20261019: `-race` needs cgo on Linux. Without cgo the tests run without it, and de54e skips with a note.
 		- 20261019: The third-party code checked is what a user of the module builds, convertbase and shcl. It gets `go vet` and staticcheck's bug checks, not its style ones. goleak is only in the tests, so it's left out.
 		- 20261019: govulncheck fails on any advisory in a third-party module, called or not. It also fails on one in Go's own library that the module or the reactor calls. One in code nothing calls is only counted. The reactor is scanned as wasip1, the way it ships.
 		- 20261019: Each gate failed first on a planted fault: a leaked goroutine, a data race, a missing leak check, a copied lock, an unused value, and the same 2 plus an old `golang.org/x/text` in a copy of convertbase. A style-only finding there passed. Offline, govulncheck skipped. Without docker, all 3 image checks skipped.
@@ -1456,7 +1470,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every `go test` call in `cicd.bash`. The fuzz and benchmark runs pass with goleak in. The tests also compile for Windows and macOS with the new `TestMain`.
 	- Branch: leakgate
 	- Commit: a64c88c
-	- Test case: Et9R2xU (goleak), Et9R2xV (every package has it), Et9R2xW (`-race`), Et9R2xX and Et9R2xY (`go vet`), Et9R2xZ and Et9R2xa (staticcheck), Et9R2xb (govulncheck), Et9VtIq (the skip without docker). Et9luGK, Et9luGL and Et9luGM for how the report reads govulncheck. Each failed first.
+	- Test case: de54c (goleak), de54d (every package has it), de54e (`-race`), de54f and de54g (`go vet`), de54h and de54j (staticcheck), de54k (govulncheck), de54z (the skip without docker). de56z, de570 and de571 for how the report reads govulncheck. Each failed first.
 	- Acceptance signoff: Self-closed: each gate failed first on a planted fault, and all pass in every run since.
 	- Closed: 20261024-072500
 
@@ -1480,7 +1494,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every C build in `cicd.bash`. The Windows, FreeBSD and arm64 links of `capi_smoke.c` are for targets that can't run here, so they stay as plain link checks. The Go checks also call the image, from folders inside the repo, so they get no extra mount.
 	- Branch: csan
 	- Commit: d6dcb7c
-	- Test case: EtAHpAd, EtAHpAe and EtAHpAf (the sanitizers), EtAHpAg (gcc's analyzer), EtAHpAh (clang's), and EtAHpAi (the scratch dir is mounted into the image). Each failed first. The skip without docker is Et9VtIq's.
+	- Test case: de5ay, de5az and de5b0 (the sanitizers), de5b1 (gcc's analyzer), de5b2 (clang's), and de5b3 (the scratch dir is mounted into the image). Each failed first. The skip without docker is de54z's.
 	- Acceptance signoff: Self-closed: each gate failed first on a planted fault, and all pass in every run since.
 	- Closed: 20261024-072500
 
@@ -1517,7 +1531,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every `fInImage` call outside the CodeQL stage still gets the main image. Both images drop their old tags through one helper, and both pipeline tests that lift the image code lift it too. A plain `--container` run never builds or starts the CodeQL image.
 	- Branch: leakcheck
 	- Commit: 59c3e61, 516fef0, 51c712d
-	- Test case: EtAUMRA (the Go soak), EtAUMRB and EtAUMRE (the C soaks), EtAUMRC and EtAUMRD (the cross-file analyzer), EtAUMRF, EtAUMRG and EtAUMRH (the flag), EtAUMRI and EtAUMRJ (CodeQL on Go and C), EtAj5P2 (CodeQL's image), EtAj5P3 to EtAj5P6 (how its report is read). Each failed first.
+	- Test case: de5cg (the Go soak), de5ch and de5cm (the C soaks), de5cj and de5ck (the cross-file analyzer), de5cn, de5cp and de5cq (the flag), de5cr and de5cs (CodeQL on Go and C), de5ea (CodeQL's image), de5eb to de5ee (how its report is read). Each failed first.
 	- Acceptance signoff: Self-closed: each gate failed first on a planted fault. The 2 calls left open were sound: whole contexts soak without heaptrack, since under it heaptrack's own memory grew about 70 MB a round, and CodeQL's own image keeps 480 MB away from runs that don't use it.
 	- Closed: 20261024-072500
 
@@ -1538,7 +1552,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: Done. A full run has leakcheck, `--quick` and `--ci` leave it out unless `--leakcheck` is given, and `--no-leakcheck` drops it from any run. `--container` passes either flag in. Help, `development.md` and the pipeline tests match.
 	- Branch: leakdefault
 	- Commit: b021804
-	- Test case: EtAUMRF, EtAUMRH, EtAUMRG, EsJ9SjF.
+	- Test case: de5cn, de5cq, de5cp, ddrj1.
 	- Acceptance signoff: Self-closed: clear intent, and its tests pass.
 	- Closed: 20261024-072500
 
@@ -1546,7 +1560,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ID: 2026102318361186
 	- Type: Enhancement
 	- Status: Done
-	- Needs external testing: Done. The `macos` workflow passed at 1942bb2, run 40063604025, with EtaWcMt and EtaWcMu in it.
+	- Needs external testing: Done. The `macos` workflow passed at 1942bb2, run 40063604025, with debmw and debmx in it.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261023-183527
 	- Opened by: JC
@@ -1557,22 +1571,22 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261023: The date has to be worked out when `--version` runs, from the minutes in the build number, since the build machine's time zone isn't the viewer's.
 		- 20261023: Done. A non-release build prints `1.0.0-beta.1 (build debmp) (2026-10-23)`. The command takes the build number's minute and asks libc for the local date, so `TZ` and the system zone both count.
-		- 20261023: ErOiQba's pattern now allows the date. Old: ends in `\(build [0-9a-z]+\)$`. New: the same, then an optional ` \([0-9]{4}-[0-9]{2}-[0-9]{2}\)`.
+		- 20261023: ddb04's pattern now allows the date. Old: ends in `\(build [0-9a-z]+\)$`. New: the same, then an optional ` \([0-9]{4}-[0-9]{2}-[0-9]{2}\)`.
 	- Decisions:
 		- 20261023: A release build is one made with `-Drelease`, which only `package.bash` passes. The dogfood build and the release are both ReleaseSafe, and the tag doesn't exist yet when a release is packaged, so neither could tell them apart.
 		- 20261023: The date is its own pair of parens after the build number's, `(build debmp) (2026-10-23)`, rather than inside it.
 		- 20261023: `--about` and `--help` show the same line as `--version`. The Windows version resource stays without the date, since it's fixed at build time.
 	- Verified: `--version` gave 2026-10-23 in PDT and at UTC-12, and 2026-10-24 at UTC and UTC+14, for a commit at 2026-10-24 04:06 UTC. A `-Drelease` build has no date, and its `--about` differs only in that. The x86_64 Windows build gave the same dates with `TZ` unset and at UTC+14. Windows x86_64 and arm64 and FreeBSD cross-build, and `clock.h` gives `localtime_r` for both macOS slices.
-		- `cli-test.bash` passed 90 of 90 on both builds, and the old ErOiQba failed on the dated one.
-		- EtaWcMt passed on a dated build and failed on a `-Drelease` one, and EtaWcMu the other way round.
-		- `cicd.bash -q --quick --package --only zig --no-sync --no-backup --no-dogfood`: passed, 377 ok and no failures. EtaWcMt and EtaWcMu passed in it, and so did the Windows resource checks and Esa8LVS.
-		- 20261023, run 40063604025 on `macos-15` at 1942bb2: passed, with EtaWcMt, EtaWcMu and ErOiQba ok, and `cli-test.bash` 89 of 89 on the universal release.
-		- The full Linux run at 1942bb2 passed, with EtaWcMt, EtaWcMu and ErOiQba in it.
+		- `cli-test.bash` passed 90 of 90 on both builds, and the old ddb04 failed on the dated one.
+		- debmw passed on a dated build and failed on a `-Drelease` one, and debmx the other way round.
+		- `cicd.bash -q --quick --package --only zig --no-sync --no-backup --no-dogfood`: passed, 377 ok and no failures. debmw and debmx passed in it, and so did the Windows resource checks and ddwmp.
+		- 20261023, run 40063604025 on `macos-15` at 1942bb2: passed, with debmw, debmx and ddb04 ok, and `cli-test.bash` 89 of 89 on the universal release.
+		- The full Linux run at 1942bb2 passed, with debmw, debmx and ddb04 in it.
 	- Hand test build: 20261024, the synced `zuid` every box runs is `1.0.0-beta.1 (build debpy) (2026-10-23)`, from 88e397f, which has this change.
 	- Swept: every `--version` reader. The installers take the first word. The publish notes, the Windows resource check and the Mac slice check read a release build. The test stand-ins print fixed lines.
 	- Branch: round1023
 	- Commit: 3c898d6
-	- Test case: EtaWcMt builds with SOURCE_DATE_EPOCH=1700000000 and wants 2023-11-14 at UTC and 2023-11-15 at UTC+14. EtaWcMu wants no date from the release `package.bash` built. ErOiQba takes either form.
+	- Test case: debmw builds with SOURCE_DATE_EPOCH=1700000000 and wants 2023-11-14 at UTC and 2023-11-15 at UTC+14. debmx wants no date from the release `package.bash` built. ddb04 takes either form.
 	- Acceptance signoff: Self-closed: its tests failed first, and pass on Linux and the macOS runner. The synced build shows the date.
 	- Closed: 20261024-072500
 
@@ -1593,7 +1607,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: 1.26.9 over 1.27.2. A patch release changes the least, and 1.26 still gets security fixes.
 	- Branch: govuln
 	- Commit: ca65cae
-	- Test case: Et9R2xb fails on 1.26.2 and passes on 1.26.9. Et9luGN checks which Go builds the reactor.
+	- Test case: de54k fails on 1.26.2 and passes on 1.26.9. de572 checks which Go builds the reactor.
 	- Closed: 20261019
 
 - A pre-push gate for main.
@@ -1613,7 +1627,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261018: `--gate` is `--ci` now, per 2026101816243852.
 	- Branch: tidyup
 	- Commit: 5cf3883
-	- Test case: EshGwj4, EshGwj5, EshGwj6.
+	- Test case: ddyby, ddybz, ddyc0.
 	- Acceptance signoff: Self-closed: the hook has gated every push to main since 20261014, and the rename that followed was asked for.
 	- Closed: 20261018-170500
 
@@ -1634,7 +1648,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261014: Answer: yes. Ported. No `$IsWindows` on 5.1, TLS 1.2 forced, `-UseBasicParsing`, the arch from `PROCESSOR_ARCHITECTURE`, and no stderr redirect that 5.1 turns into a fatal error. On b29w both versions installed, re-ran as a no-op, printed `-Help` from a scriptblock, refused with no answer, and uninstalled.
 	- Branch: answers
 	- Commit: 044ef7f
-	- Test case: EshaOju, which checks `install.ps1` against PSScriptAnalyzer's 5.1 profile and failed on the old file. It can't see a read of `$IsWindows`, so the b29w run covers that.
+	- Test case: ddye4, which checks `install.ps1` against PSScriptAnalyzer's 5.1 profile and failed on the old file. It can't see a read of `$IsWindows`, so the b29w run covers that.
 	- Acceptance signoff: Self-closed: asked for directly, and passed on real 5.1.
 	- Closed: 20261014-115218
 
@@ -1653,7 +1667,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261014: Answer: yes. Both default to user, root and admins included. The README and help say so.
 	- Branch: answers
 	- Commit: 044ef7f
-	- Test case: EshaOjs, EshaOjt: no target, with a writable system location, gets a user install. Both failed before. Eq9l4yO and Eq9l4yP no longer skip as root.
+	- Test case: ddye2, ddye3: no target, with a writable system location, gets a user install. Both failed before. dcrfv and dcrfw no longer skip as root.
 	- Acceptance signoff: Self-closed: asked for directly, and the tests failed before and pass after.
 	- Closed: 20261014-115218
 
@@ -1673,8 +1687,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Faster code for newer CPUs is still fine, but it's picked at run time by a CPU feature test, never by the build target.
 		- Tests run the release build on an emulated Penryn and Phenom II, through Intel SDE or QEMU's `-cpu Penryn` and `-cpu phenom`.
 	- Progress log:
-		- 20261013: Release builds name a Zig target since 2026093018112406, so they get the baseline CPU, and EsXcjyV fails on AVX (2026101218531694). What's left:
-			- EsXcjyV only looks for AVX. Widen it to anything past the floor.
+		- 20261013: Release builds name a Zig target since 2026093018112406, so they get the baseline CPU, and ddw1c fails on AVX (2026101218531694). What's left:
+			- ddw1c only looks for AVX. Widen it to anything past the floor.
 			- Zig picks its SHA-256 code at compile time, so a baseline build never uses SHA-NI, even where it's there. A run-time pick needs both versions built in.
 			- Wasmtime is a prebuilt archive. Find out what CPU it needs, and what it does on one without SSE4.1.
 		- 20261013: The scan now fails on anything past x86-64-v1, not just AVX, at all 4 places it ran: the dogfood build, and the Linux, FreeBSD and Windows releases. Penryn has no POPCNT and Phenom II no SSSE3, so both are refused, and so are LZCNT, BMI, AES-NI, SHA and the rest.
@@ -1686,8 +1700,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261013: they also look in `~/.local/opt/intel-sde`, where SDE was unpacked here, so a plain run on b23 doesn't skip them. Nothing was put on PATH.
 			- SDE stops on an instruction the chip lacks, in compiled wasm code too. It doesn't catch LZCNT, which the scan does.
 			- Each run starts with a module cache made on a newer CPU. Wasmtime turns it down and compiles again.
-		- 20261013: ErbFB7B failed on b26 in 29 functions, such as zstd's `HIST_count_simple` on `pmaxud`. That is zstd inside Wasmtime's macOS archive, built for Penryn, as Rust's `x86_64-apple-darwin` target is. It doesn't ask the CPU first, so the Linux exceptions don't cover it. Every Mac that runs macOS 13 has far more than Penryn, so the scan is wrong rather than the release. Back to Queued.
-		- 20261013: the scan now finds SDE in `~/.local/opt/intel-sde` too, and the full b23 run had EsZyWyD and EsZyWyE pass with nothing set.
+		- 20261013: dde03 failed on b26 in 29 functions, such as zstd's `HIST_count_simple` on `pmaxud`. That is zstd inside Wasmtime's macOS archive, built for Penryn, as Rust's `x86_64-apple-darwin` target is. It doesn't ask the CPU first, so the Linux exceptions don't cover it. Every Mac that runs macOS 13 has far more than Penryn, so the scan is wrong rather than the release. Back to Queued.
+		- 20261013: the scan now finds SDE in `~/.local/opt/intel-sde` too, and the full b23 run had ddwkf and ddwkg pass with nothing set.
 		- 20261013: Of the 29, 26 are zstd functions that use SSE4.1 and nothing newer, such as `pmaxud`, `pminud`, `pmovzxbq`, `pinsrb` and `blendvps`. The other 3 are labels inside zstd's BMI2 assembly loops, `.L_4X1_loop_body` and the like, which only run when the CPU has BMI2. A Mac's debug file keeps those labels as symbols, so the scan took them for functions.
 		- 20261013: The macOS x86_64 slice is held to Penryn now, Core 2 plus SSE4.1. The labels count as part of the function they're in, as they do on Linux. Linux, FreeBSD and Windows stay at x86-64-v1.
 	- Decisions:
@@ -1695,14 +1709,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261013: Prescott stands in for Phenom II under SDE, which has no AMD chips. It lacks SSSE3 and SSE4.1 as Phenom II does, and POPCNT, which Phenom II has.
 	- Branch: oldcpu2, macfix
 	- Commit: 4bbd035, 7218b59, 119c277
-	- Test case: EsZyWyD and EsZyWyE, the release under emulated Penryn and Prescott. EsXcjyV, ErbFB7B, ErlUUiR and ErmS0zB now scan for anything past x86-64-v1.
-		- On a Mac, ErbFB7B scans the x86_64 slice for anything past Penryn. It failed on b26 at 2fa8524 in 29 functions against Core 2, and passes now. Watched fail on b26: a build for that Mac's own CPU, 279 functions, and the release without the label change, on the 3 BMI2 labels. Watched fail: `x86_64_v2` builds for Linux, FreeBSD and Windows failed the scan on SSE4.1 and SSSE3 code, which the AVX-only scan passed, and failed EsZyWyD on `popcnt`. A build for this CPU failed the scan in 282 functions. A Penryn build passed EsZyWyD and failed EsZyWyE on `pshufb`.
+	- Test case: ddwkf and ddwkg, the release under emulated Penryn and Prescott. ddw1c, dde03, ddgez and ddgpb now scan for anything past x86-64-v1.
+		- On a Mac, dde03 scans the x86_64 slice for anything past Penryn. It failed on b26 at 2fa8524 in 29 functions against Core 2, and passes now. Watched fail on b26: a build for that Mac's own CPU, 279 functions, and the release without the label change, on the 3 BMI2 labels. Watched fail: `x86_64_v2` builds for Linux, FreeBSD and Windows failed the scan on SSE4.1 and SSSE3 code, which the AVX-only scan passed, and failed ddwkf on `popcnt`. A build for this CPU failed the scan in 282 functions. A Penryn build passed ddwkf and failed ddwkg on `pshufb`.
 	- Swept: all 4 callers of the old AVX scan in `cicd.bash`, the Windows one through its PDB. The arm64 scan has its own list. No other script calls it.
-		- The Penryn floor is passed only by ErbFB7B, for macOS. The label change is in `fDisassemble`, which the arm64 scan uses too; ELF files have no `.L` labels. The x86-64-v1 filter gives the same output as before on SSE4.1, SSSE3, POPCNT, SSE4.2 and AVX lines.
+		- The Penryn floor is passed only by dde03, for macOS. The label change is in `fDisassemble`, which the arm64 scan uses too; ELF files have no `.L` labels. The x86-64-v1 filter gives the same output as before on SSE4.1, SSSE3, POPCNT, SSE4.2 and AVX lines.
 	- Verified: `cicd.bash --package --no-dogfood --no-backup -q` passed on b23 with SDE, 20261013, at 4bbd035 and again at 7218b59, 342 ok and 5 skipped for macOS or Windows.
 	- Acceptance signoff: Self-closed 20261013. Emulated Penryn and Prescott passed, and the scans fail on anything past the floor. Penryn for the Mac scan changes nothing a user sees, since every Mac on macOS 13 is far past it. A real Core 2 Duo or Phenom II can reopen it.
 	- Closed: 20261013-131118
-		- `cicd.bash --quick --only zig --package` passed on b26 at 119c277, 20261013, ErbFB7B included. On b23, `cicd.bash --quick` passed, 306 ok, and `--quick --only zig --package` passed, 307 ok, with ErbFB7B, ErlUUiR, ErmS0zB, ErgjCkU, EsZyWyD and EsZyWyE.
+		- `cicd.bash --quick --only zig --package` passed on b26 at 119c277, 20261013, dde03 included. On b23, `cicd.bash --quick` passed, 306 ok, and `--quick --only zig --package` passed, 307 ok, with dde03, ddgez, ddgpb, ddfaa, ddwkf and ddwkg.
 
 - `--salt` shows the secret in the process list.
 	- ID: 2026100519343984
@@ -1720,7 +1734,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261005: a file, not an environment variable. A variable changes the output with nothing on the command line to show it, which is the trouble a config file had.
 		- 20261005: an empty file is refused, since it would give unsalted output to someone who thinks it is salted. `--salt ''` still means no salt.
 	- Branch: fastcli
-	- Test case: ErsrUT2 to ErsrUT8 in `cli-test.bash`. ErsrUT4, ErsrUT5 and ErsrUT8 failed with the `\r` strip, the empty check and the both-flags check taken out.
+	- Test case: ddj7p to ddj7w in `cli-test.bash`. ddj7r, ddj7s and ddj7w failed with the `\r` strip, the empty check and the both-flags check taken out.
 	- Acceptance signoff: Self-closed: a secret-file flag with `-` for stdin is the usual way, and the tests cover each refusal.
 	- Closed: 20261013-033301
 
@@ -1751,7 +1765,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: errtable
 	- Commit: 698dc9a
 	- Swept: every core error and every code in `zuid.h` has a row, checked both ways. So does every `Err` in `zuid.go`, under the C name its comment gives. The command's own flag checks for precision, `--rand-chars` and the salt are held to the table in `cli-test.bash`.
-	- Test case: ErsxH5C in `zuid_test.go`, ErsxH5D, ErsxH5E and ErsxH5F in `tests.zig`, and Ersz07L to Ersz07U in `cli-test.bash`. Each failed with a fault planted: a Go text, an `Err` comment or a new `Err` with no row; a `codeFor` code, a dropped row or a wrong code against `zuid.h`; the old C base text; the command's horizon message taken out; a flag message reworded.
+	- Test case: ddj8d in `zuid_test.go`, ddj8e, ddj8f and ddj8g in `tests.zig`, and ddj8k to ddj8w in `cli-test.bash`. Each failed with a fault planted: a Go text, an `Err` comment or a new `Err` with no row; a `codeFor` code, a dropped row or a wrong code against `zuid.h`; the old C base text; the command's horizon message taken out; a flag message reworded.
 	- Verified: the Go and Zig tests, `cli-test.bash`, the test ID check, the format check and shellcheck all pass.
 	- Acceptance signoff: Self-closed: the 3 changed messages copy wording another surface already used, so nothing new was worded.
 	- Closed: 20261013-033301
@@ -1783,7 +1797,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261010: x86_64 only for now.
 		- 20261013: kept. Sister projects without a container item get one queued in their own backlog.
 	- Branch: container
-	- Test case: EsJ9SjE to EsJ9SjI and EsJ9cHS in `pipeline-test.bash`. Each one failed with its part of the stage broken.
+	- Test case: ddrj0 to ddrj4 and ddrj5 in `pipeline-test.bash`. Each one failed with its part of the stage broken.
 	- Acceptance signoff: Kept, 20261013.
 	- Closed: 20261013-033301
 
@@ -1803,7 +1817,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Decisions:
 		- 20261005: the kind is not put in front of the text, so nothing a caller prints changes.
 	- Branch: fastcli
-	- Test case: Ersmdcw, one case per kind but `ErrConvert`, which nothing outside the library can cause. It failed with a kind swapped and with one left off.
+	- Test case: ddj77, one case per kind but `ErrConvert`, which nothing outside the library can cause. It failed with a kind swapped and with one left off.
 	- Acceptance signoff: Self-closed: an addition that changes no existing text or behavior, with its test.
 	- Closed: 20261005-194500
 
@@ -1830,14 +1844,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261004: `%m` reads AF_LINK as on macOS. Two lines.
 		- 20261004: On `vmFreeBSD`: the tarball's command, every component including `%m`, the 30 Zig tests, and `capi_smoke.c` with the base `cc` against both libraries all pass. `cli-test.bash` panicked the kernel once; see 2026100413383471.
 		- 20261004: On `vmFreeBSD`: `cli-test.bash` against the tarball's command passed 69 of 69, 40 times over.
-		- 20261004: `pipeline-test.bash` case ErkRrml failed about half the time, before this work too. Its fixture ID came from the clock, and the stray scan skips a word with no digit or capital past its first letter. It now uses a fixed time.
+		- 20261004: `pipeline-test.bash` case ddg6z failed about half the time, before this work too. Its fixture ID came from the clock, and the stray scan skips a word with no digit or capital past its first letter. It now uses a fixed time.
 		- 20261004: The release from 7dbdc21 passed again on `vmFreeBSD`: `cli-test.bash` 69 of 69, 40 times over, the 30 Zig tests, and `capi_smoke.c` with the base `cc` against both libraries. The VM was already up to date, at 15.1-RELEASE-p4.
 	- Decisions:
 		- FreeBSD 14 as the floor, to match the package repo.
 		- Wasmtime stays, rather than an interpreter for this one platform.
 		- x86_64 only.
 	- Branch: freebsd
-	- Test case: ErlUUiQ to ErlUUiU under `--package` on Linux: an x86_64 FreeBSD build with zstd and its license, no AVX, no libc past FreeBSD 14, and the two links. Each failed on a release broken for it: no zstd license, a Linux binary, an AVX build, a FreeBSD 15 build, and a static and a shared library with no `zuid_*`. ErlUUiV, ErlUUiW, ErlUUiX and ErlX0RL in `installer-test.bash`, with a stand-in `uname`; the first three failed on the old `install.bash`. Ergbz3Z now uses OpenBSD.
+	- Test case: ddgey to ddgf2 under `--package` on Linux: an x86_64 FreeBSD build with zstd and its license, no AVX, no libc past FreeBSD 14, and the two links. Each failed on a release broken for it: no zstd license, a Linux binary, an AVX build, a FreeBSD 15 build, and a static and a shared library with no `zuid_*`. ddgf3, ddgf4, ddgf5 and ddgf8 in `installer-test.bash`, with a stand-in `uname`; the first three failed on the old `install.bash`. ddf9d now uses OpenBSD.
 	- Acceptance signoff: Self-closed: the release passed on FreeBSD 15.1, and the panic is tracked on its own.
 	- Closed: 20261004-184405
 
@@ -1862,7 +1876,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Acceptance signoff: Self-closed: the update check and the retest ran.
 	- Closed: 20261004-183600
 
-- `cli-test.bash` fails Ersmdcu when `--bin` is a relative path.
+- `cli-test.bash` fails ddj75 when `--bin` is a relative path.
 	- ID: 2026102321183047
 	- Type: Bug
 	- Status: Done
@@ -1872,18 +1886,18 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Related IDs: 2026102318361186
 	- Steps to reproduce [Bug]:
 		- From `repo/`, run `bash cicd/utility/cli-test.bash --bin zig/zig-out/bin/zuid`.
-	- Incorrect behavior [Bug]: Ersmdcu fails with "nothing under .../home/.cache/zuid", 89 of 90.
+	- Incorrect behavior [Bug]: ddj75 fails with "nothing under .../home/.cache/zuid", 89 of 90.
 	- Expected behavior [Bug]: 90 of 90, as with the same build's absolute path.
 	- Reproduced [Bug]: Yes, 20261023 on b23, 3 runs of 3. The absolute path passed.
 	- Possible cause [Bug]: The test runs `${bin}` after `cd "${work}"`, so a relative path names nothing there, and its `|| true` hides that. The round settings in memory.md give the relative form.
 	- Actual cause [Bug]:
 		- As guessed. A relative `--bin` named nothing after the `cd`, and `|| true` hid the failed run.
-	- Actual fix [Bug]: `cli-test.bash` makes `--bin` absolute before any case runs. Ersmdcu also fails on the run's exit code now, and says it.
-	- Verified: `--bin zig/zig-out/bin/zuid` from `repo/` failed 89 of 90 before the fix and passed 90 of 90 after. So did `./zig-out/bin/zuid` from `zig/`, and the absolute path still passed. Etab8wr failed against the old `cli-test.bash` and passes with the fix.
-	- Swept: every `cd` in `cli-test.bash`; Ersmdcu is the only case that runs the command from another dir. The `macos` workflow passes a relative `--bin` too, but Ersmdcu skips on a Mac.
+	- Actual fix [Bug]: `cli-test.bash` makes `--bin` absolute before any case runs. ddj75 also fails on the run's exit code now, and says it.
+	- Verified: `--bin zig/zig-out/bin/zuid` from `repo/` failed 89 of 90 before the fix and passed 90 of 90 after. So did `./zig-out/bin/zuid` from `zig/`, and the absolute path still passed. debnh failed against the old `cli-test.bash` and passes with the fix.
+	- Swept: every `cd` in `cli-test.bash`; ddj75 is the only case that runs the command from another dir. The `macos` workflow passes a relative `--bin` too, but ddj75 skips on a Mac.
 	- Branch: round1023
 	- Commit: faef0ac
-	- Test case: Etab8wr, in `pipeline-test.bash`, runs `cli-test.bash` with a relative `--bin` to a stand-in that keeps a module the way the command does, and wants Ersmdcu to pass. It skips on a Mac.
+	- Test case: debnh, in `pipeline-test.bash`, runs `cli-test.bash` with a relative `--bin` to a stand-in that keeps a module the way the command does, and wants ddj75 to pass. It skips on a Mac.
 	- Acceptance signoff: Self-closed: mechanical fix, and the test failed before it and passes after.
 	- Closed: 20261023-214307
 
@@ -1898,13 +1912,13 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Related IDs: 2026101816474402
 	- Incorrect behavior [Bug]: Inside `--container` the run stamp is UTC, so leakcheck reports and profiles from a container run are named hours off from a host run's and sort out of order.
 	- Expected behavior [Bug]: One clock for every run's file names.
-	- Reproduced [Bug]: Seen in the `--leakcheck` work, 20261019. EtB0hIu failed on the tree before the fix.
+	- Reproduced [Bug]: Seen in the `--leakcheck` work, 20261019. de5gg failed on the tree before the fix.
 	- Actual cause [Bug]: The image has no time zone data and gets no `TZ`, so `date` inside reads UTC. The host has no `TZ` either, since its zone comes from `/etc/localtime`, so handing a zone name in wouldn't have helped.
 	- Actual fix [Bug]: The run outside hands its own stamp to the run inside, which names every file with it. A malformed one is ignored, and so is one in the environment of a host run.
 	- Swept: every use of the run stamp in `cicd.bash`: the run log, the sync stash, the Zig crash copy, the leak checks, CodeQL, the profiles and the demo. They all read the one stamp. `package.bash` dates from `SOURCE_DATE_EPOCH`, which was already handed in, and `test-ids.py` is UTC on purpose.
 	- Branch: cicdtidy
 	- Commit: 04a10ae
-	- Test case: EtB0hIu. It failed before the fix and passes after, and fails again with either guard taken out. EsJ9SjF's expected `docker run` line has the stamp in it now.
+	- Test case: de5gg. It failed before the fix and passes after, and fails again with either guard taken out. ddrj1's expected `docker run` line has the stamp in it now.
 	- Acceptance signoff: Self-closed: its test failed before the fix and passes after.
 	- Closed: 20261019-124500
 
@@ -1921,7 +1935,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Actual fix [Bug]: It asks the copy in the install directory, as `install.ps1` already did.
 	- Branch: tidyup
 	- Commit: c286dfe
-	- Test case: EshFEk3, which failed before the fix. EshFEk4 pins the same for `install.ps1`.
+	- Test case: ddybs, which failed before the fix. ddybt pins the same for `install.ps1`.
 	- Acceptance signoff: Self-closed: reproduced, and the test failed before and passes after.
 	- Closed: 20261014-105000
 
@@ -1968,7 +1982,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Swept: `fFuzzIn` is the only `$( )` or subshell call in `pipeline-test.bash` that runs a stage with a `mktemp -d`. `cli-test.bash` and `installer-test.bash` lift no stages. All 7 `mktemp -d` in `cicd.bash` add to `_scratchDirs` right away, and `fThrowError` and `fTestFail` both exit through the cleanup trap. No `$( )` helper in `cicd.bash` makes a temp folder.
 	- Branch: tmpleak
 	- Commit: cfc2014, c2046c0
-	- Test case: EscPGS5 (fuzz cases leave nothing in TMPDIR) and EscPGS6 (cleanup takes `tmp.*` in TMPDIR and nothing else). Both failed before the fix and pass after.
+	- Test case: ddx66 (fuzz cases leave nothing in TMPDIR) and ddx67 (cleanup takes `tmp.*` in TMPDIR and nothing else). Both failed before the fix and pass after.
 	- Acceptance signoff: Self-closed 20261013. Cleanup still takes only the folders the run made itself and listed, and the tests failed before the fix.
 	- Closed: 20261013-143229
 
@@ -1998,7 +2012,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: trap7
 	- Commit: dd8fdcc
 	- Swept: every `ConvertFailed` in `host.zig`, `core.zig`, `capi.zig`, `messages.zig` and `errors.tsv`. `core.zig`'s own `BadInput` for a random draw past its buffer stays code 4, since it is a core limit and not the runtime. `zuid.h`'s comments for 4 and 7 still hold. `design.md`, `capi_smoke.c` and the Go side name neither code. A runtime that fails to start still makes `zuid_new` return NULL, as the header says.
-	- Test case: Ert2uRC in `host.zig`, pulled into the test binary from `tests.zig`. It failed with `call()` put back to code 4, and again with the backtrace kept. ErsxH5D, ErsxH5E and ErsxH5F hold the new row.
+	- Test case: ddj93 in `host.zig`, pulled into the test binary from `tests.zig`. It failed with `call()` put back to code 4, and again with the backtrace kept. ddj8e, ddj8f and ddj8g hold the new row.
 	- Verified: the format check, the build, the Zig tests, the Go tests, `cli-test.bash` and the test ID check all pass.
 	- Acceptance signoff: Self-closed: code 7 now means what `zuid.h` always said, the test failed before the fix, and no request reaches it.
 	- Closed: 20261013-033301
@@ -2033,7 +2047,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Expected behavior [Bug]: A profile of the per-identifier work with enough samples to read, and a report that counts registry time as that.
 	- Actual fix [Bug]: `-benchtime 1s`, about 1200 samples, with the registry under 1%. The registry bucket takes everything under it. `convertbase` internals such as `wordChunk` count as conversion now, not as app code.
 	- Branch: fastcli
-	- Test case: ErsspWK in `pipeline-test.bash`, a made-up flamegraph with 40% under `NewRegistry`. It failed with the bucket going by leaf names again.
+	- Test case: ddj7x in `pipeline-test.bash`, a made-up flamegraph with 40% under `NewRegistry`. It failed with the bucket going by leaf names again.
 	- Acceptance signoff: Self-closed: the test failed before the fix and passes after.
 	- Closed: 20261005-194500
 
@@ -2048,13 +2062,13 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Target OS: Any
 	- Steps to reproduce [Bug]:
 		- Run `cicd.bash` by way of the `zuid/repo` symlink to `github`.
-	- Incorrect behavior [Bug]: `ErmS0zI` fails with "found no .ps1 files, so this checked nothing."
+	- Incorrect behavior [Bug]: `ddgpj` fails with "found no .ps1 files, so this checked nothing."
 	- Expected behavior [Bug]: It finds `install.ps1` and `run-latest.ps1`, the same as from `github`.
 	- Reproduced [Bug]: Yes, from the 20261005-094233 run log.
 	- Actual cause [Bug]: The repo root came from a plain `pwd`, so it kept the symlink's path. `find` does not follow a symlink given as its starting point, so it listed the link and nothing under it. It was the only `find` started at the root itself.
 	- Actual fix [Bug]: The root comes from `pwd -P`.
 	- Branch: rootlink
-	- Test case: new `ErqU8vW` runs a copy of `cicd.bash` through a symlink and checks the root named by the sync refusal. It fails with the old line and passes now.
+	- Test case: new `ddhnc` runs a copy of `cicd.bash` through a symlink and checks the root named by the sync refusal. It fails with the old line and passes now.
 	- Acceptance signoff: Self-closed: the check finds both files from either path.
 	- Closed: 20261005-095500
 
@@ -2082,7 +2096,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every `.git` path test in `cicd/` and the rest of the repo. `package.bash` and the test harnesses had none. The vendored `n8git_backup-and-publish` tests `.git/HEAD` and stays as is, since `cicd.bash` no longer calls it from a worktree.
 	- Branch: worktree
 	- Commit: 9ff63b7
-	- Test case: Erm7vCh, Erm7vCi, Erm7vCk and Erm7vCl in `pipeline-test.bash`, which all failed before the fix. Erm7vCj checks a folder that is not a checkout's top is still refused.
+	- Test case: ddgkv, ddgkw, ddgky and ddgkz in `pipeline-test.bash`, which all failed before the fix. ddgkx checks a folder that is not a checkout's top is still refused.
 	- Acceptance signoff: Self-closed: it runs in a worktree, and skipping the backup there was confirmed.
 	- Closed: 20261004-184405
 
@@ -2099,14 +2113,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Run `cicd/utility/test-ids.py check`.
 	- Incorrect behavior [Bug]: It passes without reading those IDs, so a duplicate or a malformed one would go through.
 	- Expected behavior [Bug]: Every ID in the pipeline is checked, or the check fails.
-	- Reproduced [Bug]: 20261004, on `ErgjCkW` and `ErgjCkX` in `cicd.bash`.
+	- Reproduced [Bug]: 20261004, on `ddfac` and `ddfad` in `cicd.bash`.
 	- Actual cause [Bug]:
 		- The check only reads IDs at the start of an `fId` or `fWant*` line, and the array put them somewhere else.
 	- Actual fix [Bug]:
 		- The arm64 link checks use `fId`'s keyed form, like the cross targets.
 		- The check also fails on a word that looks like an ID but that no test line names, and on a `// test-id:` mark that is not above a test. A comment is let through, so a retired test can stay in one.
 	- Branch: idgaps
-	- Test case: `ErkRrmk` to `ErkRrmo` in `pipeline-test.bash`, against a scratch tree. `ErkRrml`, `ErkRrmm` and `ErkRrmo` failed on the old `test-ids.py`. `ErkRrmn` failed with the comment exemption taken out.
+	- Test case: `ddg6y` to `ddg72` in `pipeline-test.bash`, against a scratch tree. `ddg6z`, `ddg70` and `ddg72` failed on the old `test-ids.py`. `ddg71` failed with the comment exemption taken out.
 	- Closed: 20261004-090044
 
 - The Linux, macOS and FreeBSD tarballs have `libwasmtime.a` without Wasmtime's license.
@@ -2137,8 +2151,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every tarball, both zips, both `.deb` and both `.rpm`. The Windows check now reads for the text only Wasmtime's license has, as the new checks do. `install.bash` and `install.ps1` install the whole tree, so nothing changes there. The macOS tarball change is only read, not run.
 	- Branch: wtlicense
 	- Commit: 2dd0931
-	- Test case: ErmYT8O to ErmYT8V, one per release: the Linux x86_64 and arm64, FreeBSD and macOS tarballs, and each `.deb` and `.rpm`. Each Linux one failed on `main`'s release and passes now. ErmYT8R runs only on a Mac and has not run.
-	- Verified: 20261004 on b26, at 12d2b2d: ErmYT8R passed in the full `--package` run, and the macOS tarball lists `share/LICENSE-wasmtime.txt`, which is the Apache 2.0 text. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
+	- Test case: ddgq4 to ddgqb, one per release: the Linux x86_64 and arm64, FreeBSD and macOS tarballs, and each `.deb` and `.rpm`. Each Linux one failed on `main`'s release and passes now. ddgq7 runs only on a Mac and has not run.
+	- Verified: 20261004 on b26, at 12d2b2d: ddgq7 passed in the full `--package` run, and the macOS tarball lists `share/LICENSE-wasmtime.txt`, which is the Apache 2.0 text. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
 	- Acceptance signoff: Self-closed: every release has the license, and its tests pass.
 	- Closed: 20261004-175611
 
@@ -2213,15 +2227,15 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Requirements  [Feature]:
 		- Run PSScriptAnalyzer on `install.ps1` and `cicd/utility/run-latest.ps1` when it's installed, and fail on a finding. `install.ps1` is clean as of 20261014.
 	- Progress log:
-		- 20261014: `installer-test.bash` checks `install.ps1` against the 5.1 profile when PSScriptAnalyzer is installed (EshaOju). The general lint is still open.
+		- 20261014: `installer-test.bash` checks `install.ps1` against the 5.1 profile when PSScriptAnalyzer is installed (ddye4). The general lint is still open.
 		- 20261019: PSScriptAnalyzer 1.25.0 is pinned in the container image, from the PowerShell Gallery package by version and sha256. The gallery's own SHA512 for it matched the download. A new "PowerShell: lint" stage runs its default rules on every tracked PowerShell file, `install.ps1` and `run-latest.ps1` today, from the image like the Go checkers. Any finding fails it, and with no docker it skips with a note. Both files are clean. About 7 s on a busy box.
-		- 20261019: Unpacked it's about 300 MB, nearly all of it the compatibility profiles EshaOju's rules read. The image grew 310 MB on disk and 15 MB in content. Leaving the profiles out would change what those rules flag, since they compare against all of them together, so the package goes in whole.
-		- 20261019: With PSScriptAnalyzer in the image, EshaOju runs under `--container` now, where it used to skip. A host run still checks it with the host's PSScriptAnalyzer, when there is one.
+		- 20261019: Unpacked it's about 300 MB, nearly all of it the compatibility profiles ddye4's rules read. The image grew 310 MB on disk and 15 MB in content. Leaving the profiles out would change what those rules flag, since they compare against all of them together, so the package goes in whole.
+		- 20261019: With PSScriptAnalyzer in the image, ddye4 runs under `--container` now, where it used to skip. A host run still checks it with the host's PSScriptAnalyzer, when there is one.
 		- 20261019: Question: the style guide names `PSUseConsistentIndentation` with tabs, in a `PSScriptAnalyzerSettings.psd1`. On `install.ps1` it flags the 2 continuation lines of one pipeline, 565 and 566. Not added, since it means picking how a pipeline is indented. Say if it should be.
 		- 20261019: Answered: no, not if it's only for formatting PowerShell.
 	- Branch: cicdtidy
 	- Commit: b79038c
-	- Test case: EtB6KVF is the check. It failed on an unused variable planted in `install.ps1` and a syntax error planted in `run-latest.ps1`, and on the old image, which has no PSScriptAnalyzer. EtB6KVG runs the stage with a stand-in docker: every tracked PowerShell file is handed in, a finding fails it, and with no docker it skips.
+	- Test case: de5h6 is the check. It failed on an unused variable planted in `install.ps1` and a syntax error planted in `run-latest.ps1`, and on the old image, which has no PSScriptAnalyzer. de5h7 runs the stage with a stand-in docker: every tracked PowerShell file is handed in, a finding fails it, and with no docker it skips.
 	- Acceptance signoff: Self-closed: the stage failed on planted faults, and the indentation rule was answered no.
 	- Closed: 20261024-072500
 
@@ -2245,7 +2259,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: the other bash scripts. The 3 test harnesses and `package.bash` print a status line or two, not stages. In the source, the new functions are inside existing `#•••` sections, and the new `pipeline-test.bash` section has that file's rule.
 	- Branch: cicdtidy
 	- Commit: 3fbe497
-	- Test case: EtB5PUX. A pipe gets 74, a 123-wide terminal gets 123, the run inside the container takes the width it's handed and a host run doesn't, and `--container` hands it in. It failed before the change, and fails with the terminal read taken out.
+	- Test case: de5h3. A pipe gets 74, a 123-wide terminal gets 123, the run inside the container takes the width it's handed and a host run doesn't, and `--container` hands it in. It failed before the change, and fails with the terminal read taken out.
 	- Acceptance signoff: Self-closed: tested, and its test failed first.
 	- Closed: 20261024-072500
 
@@ -2276,7 +2290,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Verified: a build with no build number, a Debug build and a build of a version with no prerelease tag each gave the resource they should.
 	- Branch: winres
 	- Commit: 7df2b13
-	- Test case: EtBCCRm and EtBCCRn, one per Windows target, hold both files' resource to `--version` and `--about`, in ASCII with no time stamp. EtBCCRm failed with the resource left out.
+	- Test case: de5hy and de5hz, one per Windows target, hold both files' resource to `--version` and `--about`, in ASCII with no time stamp. de5hy failed with the resource left out.
 	- Acceptance signoff: Self-closed: Windows read both files' version info on b29w. The icon is 2026102407250000, waiting on a logo.
 	- Closed: 20261024-072500
 
@@ -2314,11 +2328,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261023: Packaging, the leak checks and dogfood already had a `--no-` flag. Every other full-run stage also runs on a quick run.
 	- Decisions:
 		- 20261023: No positive `--fuzz`, `--profile` or `--demo` to add them back to `--quick`, since nothing asked for it.
-	- Verified: `pipeline-test.bash` passed 98 of 98, and Etab8wo, Etab8wp and Etab8wq failed against the old `cicd.bash`. `cicd.bash -q --no-sync --no-backup --no-dogfood --no-leakcheck --no-fuzz --no-profile --no-demo` passed with `--only go`, and with `--only zig --no-package`. Neither ran the fuzz, profile or demo stages, the Zig fuzz tests showed as skipped for `--no-fuzz`, and `assets/demo.gif` was unchanged.
+	- Verified: `pipeline-test.bash` passed 98 of 98, and debne, debnf and debng failed against the old `cicd.bash`. `cicd.bash -q --no-sync --no-backup --no-dogfood --no-leakcheck --no-fuzz --no-profile --no-demo` passed with `--only go`, and with `--only zig --no-package`. Neither ran the fuzz, profile or demo stages, the Zig fuzz tests showed as skipped for `--no-fuzz`, and `assets/demo.gif` was unchanged.
 	- Swept: every `doQuick` in `cicd.bash`. The fuzz, profile and demo call sites read their own flags now, and `fStage_Container` passes the two that apply. Help and `development.md` list the flags.
 	- Branch: round1023
 	- Commit: faef0ac
-	- Test case: Etab8wo (the flags, alone and with `--quick` and `--gate`), Etab8wp (each stage call reads its own flag), Etab8wq (`--container` passes them in).
+	- Test case: debne (the flags, alone and with `--quick` and `--gate`), debnf (each stage call reads its own flag), debng (`--container` passes them in).
 	- Acceptance signoff: Self-closed: clear intent, and its tests pass.
 	- Closed: 20261023-214307
 
@@ -2330,12 +2344,12 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Opened: 20261014-105000
 	- Opened by: JC
 	- Requirements  [Feature]:
-		- Say so when the host's shellcheck isn't the Dockerfile's `SC_VER`, the way EsbF9Jy does for nfpm.
+		- Say so when the host's shellcheck isn't the Dockerfile's `SC_VER`, the way ddwx8 does for nfpm.
 	- Progress log:
-		- 20261019: The Bash lint now starts with EtB4gns, worded and built like EsbF9Jy. It skips with a note when the host's shellcheck isn't the pinned one, and when there's no shellcheck at all. It runs before the lint, since a lint warning stops the run and would hide the note.
+		- 20261019: The Bash lint now starts with de5h0, worded and built like ddwx8. It skips with a note when the host's shellcheck isn't the pinned one, and when there's no shellcheck at all. It runs before the lint, since a lint warning stops the run and would hide the note.
 	- Branch: cicdtidy
 	- Commit: 37527ce
-	- Test case: EtB4gns is the check. EtB4VLJ runs the shell stage with a stand-in shellcheck at 0.10.0 and at 0.11.0, and wants the skip line and the pass line. It failed before the check was there.
+	- Test case: de5h0 is the check. de5gz runs the shell stage with a stand-in shellcheck at 0.10.0 and at 0.11.0, and wants the skip line and the pass line. It failed before the check was there.
 	- Acceptance signoff: Self-closed: the item asked for one check in an existing form, and its test passes.
 	- Closed: 20261019-125300
 
@@ -2353,7 +2367,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: Done under 2026101816474400. The pin is in the container's Dockerfile rather than `fConfig`, per that item's 20261018 decision.
 	- Branch: leakgate
 	- Commit: a64c88c
-	- Test case: Et9R2xb.
+	- Test case: de54k.
 	- Acceptance signoff: Self-closed: covered by 2026101816474400.
 	- Closed: 20261019-062109
 
@@ -2369,7 +2383,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261014: The `go/` tag's message is now "Go module tag for v<version>". The beta.1 tag stays as pushed.
 	- Branch: gotagmsg
 	- Commit: 40af2af
-	- Test case: EsjRmx6. It failed against the old message.
+	- Test case: ddywc. It failed against the old message.
 	- Acceptance signoff: Self-closed: asked for directly, and tested.
 	- Closed: 20261014-192051
 
@@ -2391,7 +2405,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261014: Versioned names, by direct answer. The dogfood copy keeps the plain name.
 	- Branch: relnames
 	- Commit: 89b8a8a
-	- Test case: EsiX6rC to EsiX6rF, and EshcCTw now checks nothing else lands in the synced dir. Each failed first: the old installers asked for the old names, and with the alpha case removed the alpha install failed. EshcCTw failed with a versioned copy added.
+	- Test case: ddynb to ddyne, and ddyef now checks nothing else lands in the synced dir. Each failed first: the old installers asked for the old names, and with the alpha case removed the alpha install failed. ddyef failed with a versioned copy added.
 	- Acceptance signoff: Self-closed: asked for directly, and tested.
 	- Closed: 20261014-154033
 
@@ -2410,7 +2424,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261014: Answer: yes. A full run packages on Linux x86_64 and macOS. On Linux with no `llvm-objcopy` it skips with a note, so a fresh clone still passes. `--no-package` turns it off and `--quick` skips it.
 	- Branch: answers
 	- Commit: 044ef7f
-	- Test case: EshbzZU, EshbzZV, EshbzZW, EshbzZX, EshbzZY, Eshc39k, Eshc39l. With the default broken, EshbzZU and EshbzZW failed.
+	- Test case: ddye8, ddye9, ddyea, ddyeb, ddyec, ddyed, ddyee. With the default broken, ddye8 and ddyea failed.
 	- Acceptance signoff: Self-closed: asked for directly, and the tests catch a broken default.
 	- Closed: 20261014-115218
 
@@ -2431,7 +2445,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261014: No launcher, by direct answer.
 	- Branch: answers
 	- Commit: 044ef7f
-	- Test case: EshcCTw, EshcCTx. With only the first synced entry read, EshcCTw failed.
+	- Test case: ddyef, ddyeg. With only the first synced entry read, ddyef failed.
 	- Acceptance signoff: Self-closed: asked for directly, and tested.
 	- Closed: 20261014-115218
 
@@ -2448,7 +2462,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261014: `install.md` has packages, the install scripts, and building from source. `development.md` has prerequisites, building and testing, and house style. The README links both.
 	- Branch: answers
 	- Commit: 044ef7f
-	- Test case: EqA4qmP checks every link in the root docs. EqA4qmO now looks for the style guides in `development.md`, and Eq9m0j2 for the `go get` line in every root doc.
+	- Test case: dcrhx checks every link in the root docs. dcrhw now looks for the style guides in `development.md`, and dcrg3 for the `go get` line in every root doc.
 	- Acceptance signoff: Self-closed: asked for directly.
 	- Closed: 20261014-115218
 
@@ -2470,7 +2484,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: `Generate` is the only caller of the check. The Zig side already keeps the verdict per base.
 	- Branch: basecache
 	- Commit: 0a2223b
-	- Test case: Ersuqxd, TestBaseVerdictPerBase.
+	- Test case: ddj83, TestBaseVerdictPerBase.
 	- Acceptance signoff: Self-closed: the intent was clear, and the test fails with the cache keyed wrong and passes with the fix.
 	- Closed: 20261005-194540
 
@@ -2492,15 +2506,15 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261003: With no Xcode command line tools, or when building for macOS off a Mac, the build warns and keeps Zig's dylib.
 	- Decisions:
 		- Zig's Mach-O linker ignores `lib/zuid.map` and has no exported symbols list. A relink with Apple's `ld -exported_symbols_list` would do it.
-		- Low, because two-level namespace keeps the library's own calls bound to itself. `Eq9gPQn` passes on macOS.
+		- Low, because two-level namespace keeps the library's own calls bound to itself. `dcrex` passes on macOS.
 	- Verified:
-		- On b26, the full pipeline with `--package` passes. `Eq9gPQm` runs there now; the only skip left is the Linux-only glibc check.
+		- On b26, the full pipeline with `--package` passes. `dcrew` runs there now; the only skip left is the Linux-only glibc check.
 		- The release dylib's two slices export 12 symbols each, all `zuid_*`. Each keeps `@rpath/libzuid.1.dylib` and macOS 13.0, and the arm64 slice is ad-hoc signed. `capi_smoke.c` runs against the release dylib.
 		- The full Linux pipeline passes. The Linux build is unchanged.
 	- Swept: every place the dylib is built on a Mac goes through `zig build`: the Zig stage, the C module stage and both slices in `package.bash`. Nothing else links it.
 	- Branch: macexports
 	- Commit: f3f5558, e011230, 9fd8271
-	- Test case: `Eq9gPQm` runs on macOS now, and on both systems reads the allowed names from `lib/zuid.map` and checks every function `zuid.h` declares is exported. It failed on b26 with the old `build.zig` (828 stray exports) and passes with the fix. New `ErfrKRQ` checks each slice of the release dylib under `--package`: exports, install name with its versions, macOS 13.0, and the arm64 signature. Its export check failed on a release built with the old `build.zig`. Its install name check rejects the first relink's dylib, which had compatibility version 0.0.0.
+	- Test case: `dcrew` runs on macOS now, and on both systems reads the allowed names from `lib/zuid.map` and checks every function `zuid.h` declares is exported. It failed on b26 with the old `build.zig` (828 stray exports) and passes with the fix. New `ddf3k` checks each slice of the release dylib under `--package`: exports, install name with its versions, macOS 13.0, and the arm64 signature. Its export check failed on a release built with the old `build.zig`. Its install name check rejects the first relink's dylib, which had compatibility version 0.0.0.
 	- Acceptance signoff: Self-closed: the intent was clear, and the tests failed before the fix and pass after.
 	- Closed: 20261003-143030
 
@@ -2515,7 +2529,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- The notes open with `zuid v<version> build <build>`, read from the release binary.
 	- Branch: tidyup
 	- Commit: 5cf3883
-	- Test case: EshGwj3, which failed with the line removed.
+	- Test case: ddybx, which failed with the line removed.
 	- Acceptance signoff: Self-closed: the intent was clear and the test passes.
 	- Closed: 20261014-105000
 
@@ -2533,7 +2547,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261014: Both were clean already, on gcc 14, gcc 15, and clang.
 	- Branch: tidyup
 	- Commit: 5cf3883
-	- Test case: ElpGOHZ, Eq9gPQn, ElpGOHa, Eq9hexE now build with the warnings on.
+	- Test case: daqxb, dcrex, daqxc, dcrez now build with the warnings on.
 	- Acceptance signoff: Self-closed: mechanical.
 	- Closed: 20261014-105000
 
@@ -2624,7 +2638,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 0263572
 	- Acceptance signoff: Self-closed 20261013. Every check passed on x86_64 Windows and under Wine on arm64. The "open to change" calls are small and easy to undo.
 	- Closed: 20261013-123444
-	- Test case: ErmM9mS to ErmM9mV now read the x86_64 zip. New: ErmS0zB, no AVX in code built here, read through the PDB; ErmS0zC and ErmS0zD, every DLL loaded is Windows' own or in the zip, and every function asked of one in the zip is exported; ErmS0zE to ErmS0zH, the arm64 zip's files and machine type, `zuid.dll`'s exports, and `capi_smoke.c` linking against both libraries; ErmS0zI, every `.ps1` is ASCII. Each failed with its fault planted: a missing license, a missing or extra bare `.exe`, a stand-in `wasmtime.dll`, Wasmtime's DLL as `zuid.dll`, x86_64 libraries in the arm64 zip, an x86_64_v3 build, `ws2_32` dropped from the allowed list, and the old `install.ps1` or a byte-order mark. Erm9fTp, the download table, failed with the `.exe` ranked ahead of the zip. The Windows install run is by hand and has no ID.
+	- Test case: ddgnm to ddgnq now read the x86_64 zip. New: ddgpb, no AVX in code built here, read through the PDB; ddgpc and ddgpd, every DLL loaded is Windows' own or in the zip, and every function asked of one in the zip is exported; ddgpe to ddgph, the arm64 zip's files and machine type, `zuid.dll`'s exports, and `capi_smoke.c` linking against both libraries; ddgpj, every `.ps1` is ASCII. Each failed with its fault planted: a missing license, a missing or extra bare `.exe`, a stand-in `wasmtime.dll`, Wasmtime's DLL as `zuid.dll`, x86_64 libraries in the arm64 zip, an x86_64_v3 build, `ws2_32` dropped from the allowed list, and the old `install.ps1` or a byte-order mark. ddgm2, the download table, failed with the `.exe` ranked ahead of the zip. The Windows install run is by hand and has no ID.
 
 - Windows x86_64 build, cross-built on Linux.
 	- ID: 2026100416052035
@@ -2665,7 +2679,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every live read of the user name, `liveUsername` in Go and `readUsername` in Zig, with their fallbacks to the environment. `WithUsername`, `Env` and the C API's injected names do not pass through either. The `%u` notes in design.md, the help text and `zuid.h`; only design.md mentioned the domain.
 	- Branch: winbuild, then winuser
 	- Commit: 8ee3066, then 158a367
-	- Test case: ErmM9mS to ErmM9mV under `--package` on Linux: the build and what it is, the DLL's exports, and `capi_smoke.c` linking against each library. Each failed with its fault planted: no Windows headers, the Wasmtime hooks not allowed, `-liphlpapi` dropped, and the static link pointed at the import library. ElpGOHX, the live environment test, passed on vm925w. ErmqB7B and ErmqB7D, the domain dropped, on every platform. ErmqB7C and ErmqB7E, the same two names lower-cased on Windows, one of them outside ASCII; ErmqB7E also checks the live name has no domain. Each failed before the change, the Windows pair on vm925w.
+	- Test case: ddgnm to ddgnq under `--package` on Linux: the build and what it is, the DLL's exports, and `capi_smoke.c` linking against each library. Each failed with its fault planted: no Windows headers, the Wasmtime hooks not allowed, `-liphlpapi` dropped, and the static link pointed at the import library. daqx9, the live environment test, passed on vm925w. ddgsb and ddgsd, the domain dropped, on every platform. ddgsc and ddgse, the same two names lower-cased on Windows, one of them outside ASCII; ddgse also checks the live name has no domain. Each failed before the change, the Windows pair on vm925w.
 	- Acceptance signoff: Self-closed: Go and Zig agree on every component on Windows, `%u` included, and each change has a test that failed first.
 	- Closed: 20261005-075347
 
@@ -2691,7 +2705,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261004: a missing macOS file is one dash across both columns. Settled 20261004.
 	- Branch: dl-table
 	- Commit: de03ae4
-	- Test case: `pipeline-test.bash` Erm9fTp (rows and columns), Erm9fTq (spanned macOS cell), Erm9fTr (missing target), ErmpEWr (missing macOS file), Erm9fTs (changelog, table, then checksums.txt), ErmAuec (refusal when gh cannot name the repo). All failed before their change.
+	- Test case: `pipeline-test.bash` ddgm2 (rows and columns), ddgm3 (spanned macOS cell), ddgm4 (missing target), ddgs7 (missing macOS file), ddgm5 (changelog, table, then checksums.txt), ddgm7 (refusal when gh cannot name the repo). All failed before their change.
 	- Acceptance signoff: Self-closed: the table is built and checked, and the open layout question was answered.
 	- Closed: 20261004-184405
 
@@ -2724,8 +2738,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every `@cImport`, array `**`, upper-case optimize tag and `build_root` in `zig/`, and every Zig version mention outside the backlog. `cicd.bash` and `package.bash` are the only scripts that run `zig`, and both get the one the pipeline picked.
 	- Branch: zig017
 	- Commit: 161affa
-	- Test case: the existing suites, with no new test. `Eq9nb3o`, the empty `SOURCE_DATE_EPOCH` build, failed on the first port and passes now.
-	- Verified: 20261004 on b26, at 12d2b2d, with Zig 0.17.0: the full pipeline with `--package` passed, 269 ok and no failures. The only skips are Linux-only checks. It built the arm64 slice there, and `Erfhegq` passed. `lipo -info` gives x86_64 and arm64 for `zuid-darwin-universal` and for the tarball's `bin/zuid`, `lib/libzuid.a` and `libzuid.1.0.0.dylib`. The x86_64 slice ran `--version`, the default, `-n 3` and `--no-hash -f '%d %h %u %f %m %g %r'`. The arm64 slice still has not run on Apple Silicon. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
+	- Test case: the existing suites, with no new test. `dcrga`, the empty `SOURCE_DATE_EPOCH` build, failed on the first port and passes now.
+	- Verified: 20261004 on b26, at 12d2b2d, with Zig 0.17.0: the full pipeline with `--package` passed, 269 ok and no failures. The only skips are Linux-only checks. It built the arm64 slice there, and `ddf2d` passed. `lipo -info` gives x86_64 and arm64 for `zuid-darwin-universal` and for the tarball's `bin/zuid`, `lib/libzuid.a` and `libzuid.1.0.0.dylib`. The x86_64 slice ran `--version`, the default, `-n 3` and `--no-hash -f '%d %h %u %f %m %g %r'`. The arm64 slice still has not run on Apple Silicon. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
 	- Acceptance signoff: Self-closed: version move, approved 20261003, and its tests pass on Linux and macOS.
 	- Closed: 20261004-175611
 
@@ -2750,7 +2764,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- No BSD target. Wasmtime publishes no BSD build, so there is nothing to embed.
 	- Branch: nobsd
 	- Commit: f835fe0
-	- Test case: Ergbz3Z, Ergbz3a in `installer-test.bash`, with a stand-in `uname` reporting FreeBSD. The `install.ps1` refusal has no test, since pwsh's `$IsLinux` cannot be faked from outside.
+	- Test case: ddf9d, ddf9e in `installer-test.bash`, with a stand-in `uname` reporting FreeBSD. The `install.ps1` refusal has no test, since pwsh's `$IsLinux` cannot be faked from outside.
 	- Acceptance signoff: README text changed.
 	- Closed: 20261004-073955
 
@@ -2794,7 +2808,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every `uname -m` use, asset name and `vendor/wasmtime` path in `cicd/`, `build.zig`, both installers and `installer-test.bash`. The x86_64 release checks now read the x86_64 release on any Linux host.
 	- Branch: arm64
 	- Commit: 9631a0b
-	- Test case: `ErgjCkT` to `ErgjCkX` under `--package` on Linux: arch of every file and package, no instructions past armv8-a, glibc 2.28, and the two links. Each failed on a release broken for it: an x86_64 binary or `.deb` under the arm64 name, a build for a newer CPU, a build for glibc 2.39, an empty `libzuid.a`, and a shared library with no `zuid_*`. `ErgjCkY` and `ErgjCkZ` in `installer-test.bash`, with a stand-in `uname` reporting `aarch64`, failed with `install.bash` picking x86_64. `install.ps1` has no test, since pwsh's architecture cannot be faked from outside.
+	- Test case: `ddfa9` to `ddfad` under `--package` on Linux: arch of every file and package, no instructions past armv8-a, glibc 2.28, and the two links. Each failed on a release broken for it: an x86_64 binary or `.deb` under the arm64 name, a build for a newer CPU, a build for glibc 2.39, an empty `libzuid.a`, and a shared library with no `zuid_*`. `ddfae` and `ddfaf` in `installer-test.bash`, with a stand-in `uname` reporting `aarch64`, failed with `install.bash` picking x86_64. `install.ps1` has no test, since pwsh's architecture cannot be faked from outside.
 	- Acceptance signoff: Self-closed: the intent was clear, it builds what was asked, and it passed on an arm64 machine.
 	- Closed: 20261004-074509
 
@@ -2832,7 +2846,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- The vendor stage picks, fetches and checks the right archives for an Intel Mac, an Apple Silicon Mac and Linux.
 		- A real Linux `package.bash` run gives the same tarball layout as before, and its checks pass.
 		- `cicd/cicd.bash --cross` passes, 222 test IDs.
-		- 20261003, on b26 at c10d2ee: the full pipeline with `--package` passes. The vendor stage fetched and checked the arm64 Wasmtime itself. The only skips are `ErbFB7C` (Linux only), the CLI profile and the demo.
+		- 20261003, on b26 at c10d2ee: the full pipeline with `--package` passes. The vendor stage fetched and checked the arm64 Wasmtime itself. The only skips are `dde04` (Linux only), the CLI profile and the demo.
 		- 20261003, on b26: `lipo -info` lists x86_64 and arm64 for `dist/zuid-darwin-universal`, and for `bin/zuid`, `lib/libzuid.a`, `lib/libzuid.1.0.0.dylib` and `lib/libwasmtime.a` from the tarball.
 		- 20261003, on b26: the x86_64 slice runs. `--version` and a default identifier work, and `capi_smoke.c` built with clang `-arch x86_64` against the tarball's static and shared libraries runs and passes.
 		- 20261003, on b26: `capi_smoke.c` links with clang `-arch arm64`, static and shared.
@@ -2840,7 +2854,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every `vendor/wasmtime` path, `uname -m` use and asset name in `cicd/`, both installers and `installer-test.bash`. `cicd.bash` used to look up an arm64 Mac's pin under `arm64-macos`, which matches nothing; it says `aarch64` now.
 	- Branch: universal
 	- Commit: d1144f7
-	- Test case: `Erfhegq` checks every binary and library has both slices. `ErbFB7B` and `ErbFB7D` read each slice of a fat file now. Each was watched to fail on a broken universal release: a thin binary, a thin `libzuid.a` in the tarball, an arm64 slice asking for macOS 14.0, and an x86_64 slice built for x86_64_v3. They run under `--package` on a Mac.
+	- Test case: `ddf2d` checks every binary and library has both slices. `dde03` and `dde05` read each slice of a fat file now. Each was watched to fail on a broken universal release: a thin binary, a thin `libzuid.a` in the tarball, an arm64 slice asking for macOS 14.0, and an x86_64 slice built for x86_64_v3. They run under `--package` on a Mac.
 	- Closed: 20261003-162000
 
 - Build and test on macOS.
@@ -2861,7 +2875,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- The harnesses no longer depend on GNU `sed -i`, `wc` padding or `nproc`.
 	- Branch: macos
 	- Commit: 277947e
-	- Test case: the existing suites, run on macOS. `EqA3RdB` and `EqA3RdC` check the macOS names.
+	- Test case: the existing suites, run on macOS. `dcrhq` and `dcrhr` check the macOS names.
 	- Closed: 20260930-181124
 
 - A Linux arm64 test machine.
@@ -2943,7 +2957,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Cause: the writability test only ran when no target was named. Asked for by name it was taken on trust, and the write is the last thing the script does. There is no elevation on that side the way `install.bash` has sudo.
 	- Fixed: one predicate now answers both questions, and it tests the install directory as well as the link directory - a box where `/usr/local/bin` is writable but `/opt` is not used to pick a system install and fail late. With no target named it still falls back to a user install; asked for by name it stops before downloading and names `-Target user`.
 	- Note: found while writing the system-target cases. `install.bash` needs no equivalent.
-	- Test case: `EqANb7C`, `EqANb7D`, `EqANb7E`.
+	- Test case: `dcrmr`, `dcrms`, `dcrmt`.
 	- Opened: 20260917-203000
 	- Closed: 20260917-210000
 
@@ -2951,7 +2965,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Fixed: the command writes its own sentence and keeps the near match the library found, so a typo now reads `Unknown base 'nope'. Did you mean 'nice'?`. With no near match it says where the list is.
 	- Fixed: a blank base name is refused by the command too. It used to reach the library as empty and come back as `empty base name`.
 	- Note: `style-guide_cli.md` narrows its exception to a failure inside the wasm runtime, which is internal and not about anything the user typed.
-	- Test case: `EqABve4`, `EqABve5`, `EqABve6`.
+	- Test case: `dcrjr`, `dcrjs`, `dcrjt`.
 	- Opened: 20260917-133000
 	- Closed: 20260917-140000
 
@@ -2959,7 +2973,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Cause: reading the message refused rather than truncating, and the read failing threw away the code that came with it.
 	- Fixed: the text is clamped to what fits, on a codepoint boundary, and the code always survives.
 	- Note: found while testing the message above.
-	- Test case: `EqABve7`.
+	- Test case: `dcrjv`.
 	- Opened: 20260917-140000
 	- Closed: 20260917-140000
 
@@ -2973,7 +2987,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 - ✅ Contact address in `trademark.md` was still a placeholder.
 	- Fixed: `zuid@yottacore.com` in `trademark.md`, `contributing.md` and `code_of_conduct.md`. The last one still named the project it was copied from.
-	- Test case: `ErOj0WU`.
+	- Test case: `ddb0h`.
 	- Opened: 20260801-090104
 	- Closed: 20260917-124100
 
@@ -2988,7 +3002,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - ✅ A default install found no release while only a prerelease was published.
 	- Cause: the installers asked for `latest`, which only ever answers with a final release.
 	- Fixed: the release is chosen from the full list. Default takes the newest stable and falls back to the newest prerelease with a line saying so; `--release dev` takes whatever is newest either way.
-	- Test case: `ErOioHp`, `ErOioHq`, `ErOioHr`, `ErOioHs`.
+	- Test case: `ddb0c`, `ddb0d`, `ddb0e`, `ddb0f`.
 	- Opened: 20260805-014016
 	- Closed: 20260805-014958
 
@@ -2998,27 +3012,27 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Fixed: codes 2, 6, 12 and 13 are now asserted at the C surface, in both the Zig test and `capi_smoke.c`.
 		- Verified: three separate renumberings of `codeFor` each turn both runners red, and the codes they pin go green again once restored.
 		- Note: code 10 is left unpinned. It needs a machine that cannot supply a component, and nothing available can stage that.
-		- Test case: `Eq9dPAO`, `ElpGOHZ`, `ElpGOHa`.
+		- Test case: `dcref`, `daqxb`, `daqxc`.
 	- ✅ F8, blocking: the PowerShell installer finds no release at all once more than one is published.
 		- Origin: 39f7403, the fix for the earlier "default install found no release" bug. Confirmed.
 		- Cause: `Invoke-RestMethod` hands a JSON array to the pipeline as one object, so `@(irm ...)` inline gave a single element holding the whole list, and each release's `draft` flag was then tested as an array.
 		- Fixed: the response goes into a variable before it is wrapped. It was the only site of that pattern; the two `Invoke-WebRequest -OutFile` calls do not go through the pipeline.
 		- Done: `cicd/utility/installer-test.bash` is new, and runs both installers against a local four-release listing. It is a cicd stage, and the copies it patches assert every rewrite, so a script that moves its URLs fails the harness rather than testing nothing.
 		- Verified: reverting the lookup turns both ps1 cases red with "no published release found", which is the reported symptom. A single-release listing still reads correctly.
-		- Test case: `Eq9ejdJ`, `Eq9ejdL`.
+		- Test case: `dcren`, `dcreq`.
 	- ✅ F9, blocking: `package.bash` wipes whatever directory `--out` names, before it builds anything.
 		- Origin: 08c6996. Not seen by an earlier review. Confirmed.
 		- Fixed: a `--out` directory is only emptied when the script can show it is one of its own - it left a `.zuid-package-dir` marker there, or the directory is empty or new. Anything else is refused by name. The default `dist/` counts as the script's own, since the script picked that path rather than a caller.
 		- Fixed: the clearing moved to after the build, so a failed build now leaves the previous run's artifacts alone. The check still runs up front, so a mistyped `--out` fails in a second rather than after a ReleaseSafe build.
 		- Fixed: the contents are cleared rather than the directory itself, so a mount point or a directory with granted permissions survives being reused.
 		- Verified: four cases in `installer-test.bash`. Restoring the old `rm -rf "${OUT}"` turns the first two red. Repeated real runs against `dist/` replace the artifacts, and the marker is hashed by nothing and counted in nothing.
-		- Test case: `Eq9filc`, `Eq9fild`, `Eq9file`, `Eq9filf`.
+		- Test case: `dcrer`, `dcres`, `dcret`, `dcrev`.
 	- ✅ F1, should-fix: the shared C library exposes every Wasmtime function it contains, so a program with its own copy takes over the library's calls.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
 		- Fixed: `zig/lib/zuid.map`, a linker version script naming `zuid_*` global and everything else local. Exports went from 834 to 11. The local half is what matters: the library's internal calls now bind inside it and cannot be displaced at all.
 		- Done: two cicd checks. One asserts nothing but `zuid_*` is exported; the other is `zig/lib/test/capi_interpose.c`, a program that defines `wasm_config_new` and must still get a working context.
 		- Verified: dropping the version script reports 823 stray symbols and fails the stage. Before the fix that program got a NULL context and its own function was called.
-		- Test case: `Eq9gPQm`, `Eq9gPQn`.
+		- Test case: `dcrew`, `dcrex`.
 	- ✅ F2, should-fix: the static C library holds the Wasmtime archive inside itself, where no linker looks, and the release has no separate copy to link.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
 		- Fixed: the static module no longer links the Wasmtime archive, so `libzuid.a` holds its own two objects and went from 75 MB to 9.8 MB. Whoever links it supplies Wasmtime, which is what the header always said.
@@ -3027,14 +3041,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Fixed: the header's linking paragraph now says where `libwasmtime.a` comes from, and that the shared library exports only the entry points.
 		- Done: two cicd checks. One links the smoke test against a tree holding only what is released, with the header's own link line, deliberately not pointed at `vendor/`. The other refuses an archive with another archive inside it.
 		- Verified: restoring the nesting fails the archive check. The review's reproduction - a tree holding only `libzuid.a` and `zuid.h` - failed with "have you installed the static version of the wasmtime library ?" before, and the unpacked release tarball now links both static and shared.
-		- Test case: `Eq9hexE`, `Eq9hexF`.
+		- Test case: `dcrez`, `dcrf0`.
 	- ✅ F3, should-fix: a C context that is never freed is not reported as a leak, in tests or in debug builds.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
 		- Cause: nothing could call the debug allocator's own check. A C caller never says it is finished, so there is no last moment for a `deinit()` to run in.
 		- Fixed: `capi.liveContexts()` and `capi.leakCount()` let the tests ask instead, the second one straight through `DebugAllocator.detectLeaks()` so the stack traces the design promises are real. Both are debug-only, so a release build has no counter.
 		- Verified: the review's own injection - replacing the three `defer capi.zuid_free(z)` lines with `_ = &z` - reports "expected 0, found 3", and the allocator half names all three leaked addresses on its own when checked first.
 		- Note: the test deliberately does not free twice. The magic check reads memory the allocator has unmapped, so it segfaults rather than returning, which is the recorded reason the header promises no more than C's `free()`.
-		- Test case: `Eq9icWm`.
+		- Test case: `dcrf3`.
 	- ✅ F5, should-fix: the C module reports a buffer too small for any identifier over 4 KB, however large the caller's buffer, and that error never has a message.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
 		- Fixed: `zuid_generate` renders straight into the caller's buffer, less the byte the NUL needs, so the only limit is the one the header documents. The error path now re-terminates that buffer, since a failure part way through leaves its own partial output where a separate buffer used to hide it.
@@ -3042,7 +3056,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Swept: the command had the same fixed 4096 buffer and reported `BufferTooSmall` by its error name. It now grows the buffer until the identifier fits, up to 1 MB, and says so in words past that. The Go module returns a string and never had the limit.
 		- Done: `cicd/utility/cli-test.bash` is new - 15 cases over what the command prints and exits with, which nothing covered before - and is a cicd stage.
 		- Verified: before the fix all four probe cases returned code 5 with empty text, including two that should have rendered. Reverting the module fails the Zig test and three `capi_smoke.c` checks; reverting the command fails three CLI cases.
-		- Test case: `Eq9kVKi`, `Eq9kVKp`, `Eq9kVKq`, `Eq9kVKr`.
+		- Test case: `dcrfb`, `dcrfj`, `dcrfk`, `dcrfm`.
 	- ✅ F10, should-fix: the PowerShell installer picks a system install on Linux and macOS for users who cannot write there.
 		- Origin: 08c6996. Not seen by an earlier review. Confirmed.
 		- Cause: the test was whether `/usr/local/bin` exists, which it does everywhere, rather than whether it can be written. The install then failed after the whole download, with no elevation path of the kind `install.bash` has through sudo.
@@ -3050,13 +3064,13 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Verified: a new harness case. Before the fix nothing went under `HOME`; after it, the user install happens. It skips itself where the system location is writable, such as a run as root, since system is then the right answer.
 		- Note: an explicit `-Target system` never reaches the probe, so that path is unchanged. Not covered by a test, since a system install needs root.
 		- Note: the harness gave every case its own `HOME` only on paper - the counter naming them was incremented inside the command substitution that read it, so the subshell kept the new value and all of them shared one directory. Named directories now.
-		- Test case: `Eq9l4yO`, `Eq9l4yP`.
+		- Test case: `dcrfv`, `dcrfw`.
 	- ✅ F11, should-fix: re-running either installer on the installed version downloads and reinstalls it, though both say that is a no-op.
 		- Origin: 08c6996. Reopens the done installer item, whose re-run claim had no test. Confirmed.
 		- Cause: both read the installed version for the plan's "Replacing" line and neither compared it with the chosen tag.
 		- Fixed: both compare, and a match prints "Already installed" with the version and location, then exits without fetching anything. Reinstalling means `--uninstall` first, which the message says.
 		- Verified: the harness counts what the local server was asked for, so the no-op is measured rather than taken from the script's own output. Before the fix a re-run made two requests, the tarball and the checksums. A different version still installs over the old one, in both states, so the check is not a blanket refusal.
-		- Test case: `Eq9lTwm`, `Eq9lTwn`, `Eq9lTwo`, `Eq9lTwp`, `Eq9lTwq`, `Eq9lTwr`.
+		- Test case: `dcrfx`, `dcrfy`, `dcrfz`, `dcrg0`, `dcrg1`, `dcrg2`.
 	- ✅ F12, should-fix: the `go get` line in `README.md` leaves a program that imports the package unable to build, and the prerelease cannot be asked for by version.
 		- Origin: 2209333. Not seen by an earlier review. Confirmed.
 		- Cause: the line named the module root. `go get` on a root adds the module without what its package needs, so the build stopped on a missing `go.sum` entry for `convertbase`.
@@ -3064,19 +3078,19 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Done: a cicd stage builds and runs a scratch program importing the module, pointed at this tree so it covers what is about to merge. It also refuses a README that tells people to fetch the module root.
 		- Verified: reproduced both halves in a scratch module - the missing `go.sum` entry, and the tag resolving to a pseudo-version of `main`. The corrected command pulls `convertbase` v0.1.0, builds, and prints an identifier. Restoring the old README line fails the stage.
 		- Note: the `go/` tag itself is deferred, since pushing a public tag is a release decision.
-		- Test case: `Eq9m0j2`, `Eq9m0j3`.
+		- Test case: `dcrg3`, `dcrg4`.
 	- ✅ F13, should-fix: `zuid -f ''` prints an empty identifier and succeeds, where the Go and C modules treat an empty format as `%d`.
 		- Origin: 7677deb. Not seen by an earlier review. Confirmed.
 		- Fixed: the command treats an empty format as `%d`, so all three surfaces agree. A script running `zuid -f "$FMT"` with the variable unset no longer gets an empty identifier and success.
 		- Verified: three CLI cases, covering an empty format, an empty base, and both together. The first and third go red without the fix. An empty base already defaulted correctly.
-		- Test case: `Eq9mL16`, `Eq9mL17`, `Eq9mL18`.
+		- Test case: `dcrg5`, `dcrg6`, `dcrg7`.
 	- ✅ F14, should-fix: the Go module reads the host name again for every identifier, though the design says each source is read once.
 		- Origin: 27d8bc1. Not seen by an earlier review. Confirmed.
 		- Cause: `liveFQDN` and `liveMAC` were wrapped in `sync.OnceValues` and `liveHostname` was not, so a long-running process whose name changed emitted two `%h` fingerprints for one machine, and `%h` could disagree with the cached `%f`.
 		- Fixed: both `liveHostname` and `liveUsername` are wrapped now. The user name was not actually being re-read, since `user.Current` caches internally, but every source in the file answers the same way now.
 		- Done: `go/zuid/live_test.go`, inside the package, counts reads of each of the four sources and asserts at most one per process. Plus a case that two host-name reads agree, which is the property the caching exists for.
 		- Verified: unwrapping `liveHostname` reports "read the hostname 5 times". The vectors and `TestLiveSources` still pass.
-		- Test case: `Eq9mpyS`, `Eq9mpyT`.
+		- Test case: `dcrg8`, `dcrg9`.
 	- ✅ F6, nit: the C header says a context takes tens of milliseconds to create. It takes about half a second.
 		- Origin: 7677deb. Confirmed.
 		- Fixed: the header says around half a second, and names the reason - the module building its base registry - since that is why keeping one context matters.
@@ -3087,49 +3101,49 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Cause: the value was parsed with `catch 0`, so both an empty and an unparsable one became zero, which means "no build number".
 		- Fixed: an empty or whitespace-only value falls through to the commit date, as does an unparsable one, and that last case warns rather than passing silently. `-Dbuild-epoch` still wins over the variable, and a valid value still wins over the commit date.
 		- Done: a cicd check builds with the variable empty and asserts a build number. It fails on the old `build.zig`, reporting the bare version.
-		- Test case: `Eq9nb3o`.
+		- Test case: `dcrga`.
 	- ✅ F15, nit: `install.bash --release` with no value exits without a message.
 		- Origin: 08c6996. Confirmed.
 		- Cause: with one argument left, `shift 2` fails, and under `set -e` the script ended with nothing printed.
 		- Fixed: `fNeedValue` checks first, so the message names the flag and points at `--help`.
 		- Swept: `--target` and `--arch` did the same thing and are fixed with it. `install.ps1` needs nothing - PowerShell's own parameter binding already reports a missing argument by name.
 		- Verified: three harness cases, one per flag. All three go red on the old script, exiting 1 with empty output.
-		- Test case: `Eq9oNBg`, `Eq9oNBh`, `Eq9oNBi`.
+		- Test case: `dcrgb`, `dcrgc`, `dcrgd`.
 	- ✅ F16, nit: both installers remove or replace a `zuid` at the link path that they did not put there.
 		- Origin: 08c6996. Confirmed.
 		- Fixed: both work out whether the link is their own - a symlink pointing into the install directory - before touching anything, since once that directory is gone the link dangles and there is nothing left to recognize. Uninstall keeps anything else and says so.
 		- Fixed: install still replaces what is there, which is what an installer does, but the plan now names it rather than doing it quietly.
 		- Verified: four cases per installer. A plain file planted at the link path survives uninstall, the output says it is being kept, install names what it overwrites, and the installer's own link is still removed. All go red on the old scripts.
 		- Note: this is a real collision, not a hypothetical - `README.md` tells a source build that a full cicd run copies the command to `~/.local/bin`.
-		- Test case: `Eq9oNBj`, `Eq9oNBk`, `Eq9oNBl`, `Eq9oNBm`, `Eq9oNBn`, `Eq9oNBo`, `Eq9oNBp`, `Eq9oNBq`.
+		- Test case: `dcrge`, `dcrgf`, `dcrgg`, `dcrgh`, `dcrgj`, `dcrgk`, `dcrgm`, `dcrgn`.
 	- ✅ F17, nit: `README.md` says nothing is published yet, and `design.md` says "four things" before a list of five.
 		- Origin: 2209333. Confirmed.
 		- Fixed: "Packages and installers" says `v1.0.0-alpha.1` is published for x86_64 Linux, and points at the source build for every other platform. `design.md` says five.
 		- Done: a cicd check reads the count out of that sentence and compares it with the bullets under it. A number in front of a list drifts as soon as the list grows, and no linter counts.
 		- Verified: putting "four" back fails the stage with both numbers named.
-		- Test case: `Eq9ofeq`. The README wording has none.
+		- Test case: `dcrgp`. The README wording has none.
 	- Opened: 20260917-104114
 	- Closed: 20260917-121500
 
 - ✅ Code review 20260804. Twelve defects, from an adversarial pass over both implementations and the build script.
 	- ✅ Fixed: a raw-byte base produced identifiers full of control characters. Both sides now refuse it.
-		- Test case: `Em32NzX`, `Em32Nza`, `Eq9kVKx`.
+		- Test case: `dav75`, `dav78`, `dcrft`.
 	- ✅ Fixed: a clock far past the horizon wrapped on the Go side and rendered as the epoch instead of erroring.
-		- Test case: `Em32NzU`.
+		- Test case: `dav72`.
 	- ✅ Fixed: `WidthFor` never returned for a radix below two.
-		- Test case: `Em32NzY`.
+		- Test case: `dav76`.
 	- ✅ Fixed: the C module reported the previous call's error text for any failure that never reached the converter, and left the caller's buffer untouched.
-		- Test case: `Em32Nzc`.
+		- Test case: `dav7a`.
 	- ✅ Fixed: a clock past the horizon reported a conversion failure with no message. It has its own error code now.
-		- Test case: `Em32Nzb`, `Eq9dPAO`.
+		- Test case: `dav79`, `dcref`.
 	- ✅ Fixed: pointers coming back from the WebAssembly module were used to index host memory unchecked, and exports were read without checking their kind.
 		- Test case: none. It would take a hostile wasm module, and the one used is built here from a pinned release.
 	- ✅ Fixed: a failed clock read returned arithmetic over uninitialized memory.
 		- Test case: none. The clock call cannot be made to fail from a test.
 	- ✅ Fixed: `--commit` swallowed a following flag as its message, and `-h` or `-v` anywhere inside an argument value triggered help.
-		- Test case: `ErOjF6y`, `ErOjF6z`, `ErOjF70`.
+		- Test case: `ddb0k`, `ddb0m`, `ddb0n`.
 	- ✅ Fixed: a pre-release toolchain version passed a floor it was actually below.
-		- Test case: `ErOjF74`, `ErOjF75`.
+		- Test case: `ddb0s`, `ddb0t`.
 	- ✅ Fixed: a temporary directory leaked whenever the C module stage failed, and the error trap said nothing for the exit code every failing tool actually uses.
 		- Test case: none. It needs a compiler that fails part way through a stage.
 	- ✅ Fixed: the reactor build discarded its own error output, so a failure silently fell back to a stale module.
@@ -3155,10 +3169,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Decision: 20261003: the tags go on HEAD only when it is exactly what the remote branch has, not just somewhere in its history.
 	- Decision: 20261003: `--package` names its files for the version in `core.zig`, not for `git describe`. The Mac and Windows files are built before the tag exists, and have to match. A copied-in tarball from another version is refused.
 	- Note: 20261003, `ZUID_GH` names another `gh`. The tests use a stub with a local bare remote, so nothing reaches GitHub.
-	- Note: 20261003, the old check that `--publish` is refused (`ErOjF72`) is commented out with the reason.
+	- Note: 20261003, the old check that `--publish` is refused (`ddb0q`) is commented out with the reason.
 	- Note: 20261003, branch `publish`. The first real run waits on the Windows build, or on a go-ahead to publish with `--allow-partial`. The version in `core.zig` is still `1.0.0-alpha.1`, so a run today refuses on that tag.
 	- Decision: 20261004, the first real run waits on the Windows build. No `--allow-partial`.
-	- Test case: `ErgqYt2` to `ErgqYtH` and `ErgqjsR` in `pipeline-test.bash`. Each was seen to fail with its check broken.
+	- Test case: `ddfb7` to `ddfbp` and `ddfbq` in `pipeline-test.bash`. Each was seen to fail with its check broken.
 	- Note: 20261004, the Windows zips are built on Linux now, so every target goes in `dist/` and `dist-incoming/` is only for the macOS tarball. The first real run needs the version in `core.zig` moved to `1.0.0-beta.1`, and a go-ahead, since it publishes.
 	- Decision: 20261005, at the first real publish every "open to change" decision above becomes settled and loses the tag, so they stop coming back at each review.
 	- Done: 20261014: `v1.0.0-beta.1` published with `cicd.bash --quick --publish`, 15 files plus `checksums.txt`, build ddytm on every platform. A live `install.bash` from GitHub installed it. The open-to-change decisions above are settled now.
@@ -3169,7 +3183,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Decision: 20261003, yes, with every release, starting at `v1.0.0-beta.1`.
 	- Note: 20261003, the code is in: `--publish` pushes `go/v<version>` beside `v<version>` on the same commit. The tag goes out with the first real publish, and README's line saying there is no `go/` tag yet changes then.
 	- Done: 20261014: `go/v1.0.0-beta.1` is pushed, and `go get github.com/jim-collier/zuid/go/zuid@v1.0.0-beta.1` resolves through the proxy. `install.md` says how to pin.
-	- Test case: `ErgqYtE` in `pipeline-test.bash`.
+	- Test case: `ddfbk` in `pipeline-test.bash`.
 	- Opened: 20260917-104114
 	- Closed: 20261014-190252
 
@@ -3186,7 +3200,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Note: 20261004, every target is built now. Windows x86_64 and arm64 zips are cross-built on Linux, and the x86_64 one passed on vm925w. Left to run: the arm64 Windows build and the arm64 macOS slice, on real arm64 machines.
 	- Note: 20261005, the arm64 Windows zip and its C module ran under Wine on vmDebARM64. See 2026100416052036. The arm64 macOS slice still has no Apple Silicon machine to run on.
 	- Note: 20261013, every target builds, and every one but the arm64 runs passed on its own OS. Those runs moved to 2026101312344407.
-	- Test case: the Package step's checks, at least one per target. ErgjCkT for Linux arm64, ErlUUiQ for FreeBSD, ErmM9mS and ErmS0zE for the Windows zips, and Erfhegq for the macOS universal tarball, on a Mac. ErbFB7B, ErgjCkU, ErlUUiR and ErmS0zB hold each to its CPU floor, and ErmYT8O to ErmYT8V check the Wasmtime license in every archive. ErgqYt9 refuses a publish with a target missing. All of them predate 20261025 and were named, not written, then.
+	- Test case: the Package step's checks, at least one per target. ddfa9 for Linux arm64, ddgey for FreeBSD, ddgnm and ddgpe for the Windows zips, and ddf2d for the macOS universal tarball, on a Mac. dde03, ddfaa, ddgez and ddgpb hold each to its CPU floor, and ddgq4 to ddgqb check the Wasmtime license in every archive. ddfbe refuses a publish with a target missing. All of them predate 20261025 and were named, not written, then.
 	- Opened: 20260802-025417
 	- Closed: 20261013-123444
 
@@ -3197,13 +3211,13 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Note: 20261004, Windows x86_64 and arm64 are built too. `capi_smoke.c` passed on vm925w with mingw gcc against both libraries, and with MSVC against the DLL. Same arm64 gap as packaging.
 	- Note: 20261005, `capi_smoke.c` passed under Wine on vmDebARM64 against the arm64 Windows DLL and static library.
 	- Note: 20261013, the C module builds for every target and passed `capi_smoke.c` everywhere but on real arm64 machines. That moved to 2026101312344407.
-	- Test case: the Package step links `capi_smoke.c` against each cross-built release's static and shared library. ErgjCkW and ErgjCkX for Linux arm64, ErmM9mU, ErmM9mV, ErmS0zG and ErmS0zH for Windows, ErlUUiT and ErlUUiU for FreeBSD, and EtaL129 to EtaL12C for both macOS slices, on a Mac. ErmM9mT and ErmS0zF check the DLL's exports. All of them predate 20261025 and were named, not written, then.
+	- Test case: the Package step links `capi_smoke.c` against each cross-built release's static and shared library. ddfac and ddfad for Linux arm64, ddgnp, ddgnq, ddgpg and ddgph for Windows, ddgf1 and ddgf2 for FreeBSD, and debkg to debkk for both macOS slices, on a Mac. ddgnn and ddgpf check the DLL's exports. All of them predate 20261025 and were named, not written, then.
 	- Opened: 20260801-090104
 	- Closed: 20261013-123444
 
 - ✅ CLI startup is ~0.5 s, nearly all of it the module's own `_initialize` building the base registry inside the wasm. Options if it starts to matter: ask upstream about lazier registry construction, or cache a precompiled module per machine. Deferred until the surface settles.
 	- Done: 20261005, both. The command caches its compiled module, and upstream has a lazy registry waiting on a release. See 2026100519164741 and 2026100519164742.
-	- Test case: EtjiwMO in `cli-test.bash`, written 20261025. A warm run has to spend under half a cold run's CPU. With the cache load turned off it failed, cold 3653 ms and warm 3631 ms, while Ersmdcr to Ersmdcu all still passed. Those and Ersmdcv cover the cache file itself. Wall time has no test, since a busy box swings it, and the `_initialize` half waits on 2026100519164742.
+	- Test case: dedvn in `cli-test.bash`, written 20261025. A warm run has to spend under half a cold run's CPU. With the cache load turned off it failed, cold 3653 ms and warm 3631 ms, while ddj72 to ddj75 all still passed. Those and ddj76 cover the cache file itself. Wall time has no test, since a busy box swings it, and the `_initialize` half waits on 2026100519164742.
 	- Opened: 20260802-104116
 	- Closed: 20261005-191647
 
@@ -3224,10 +3238,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Done: 20261003: a full pipeline run fuzzes both Zig fuzz tests after the Zig tests, 50K iterations each. A quick run prints a skip line instead. It takes about 35 s here, and about 13 s more after a change to the Zig source.
 	- Decision: 20261003, open to change: 50K iterations, and Debug, since the leaked-context test counts contexts only there. A find fails the stage from the output, not the exit code. Its input is kept in `cicd/artifacts/fuzz/`, which nothing rotates, and printed as a string ready for the test's corpus. The limit is always attached with `=`, since a bare `--fuzz` starts a web server.
 	- Verified: a planted two-byte failure in the format test turned the stage red, with Zig's crash line, and the kept input failed the plain test run once added to the corpus. A planted panic in the C test, run through the same command, ended in the same `input saved to` line. No port was opened during a run. A full `cicd.bash --no-dogfood --no-backup -q` passes.
-	- Done: 20261004: each fuzz test prints its own line under its own ID, as the Go one does. They used to share one line under `ErgeVve`, so a find could not say whose it was. A find now fails the test that found it, and the other shows as skipped.
-	- Test case: `Eq9zVsH` and `Eq9zVsI` in the fuzz stage. `ErkRrmp` to `ErkRrmr` in `pipeline-test.bash` run the stage with a stand-in `zig`: a clean run, a find, and a broken run. All three failed on the old stage. `ErgeVve` is retired.
+	- Done: 20261004: each fuzz test prints its own line under its own ID, as the Go one does. They used to share one line under `ddf9q`, so a find could not say whose it was. A find now fails the test that found it, and the other shows as skipped.
+	- Test case: `dcrh7` and `dcrh8` in the fuzz stage. `ddg73` to `ddg75` in `pipeline-test.bash` run the stage with a stand-in `zig`: a clean run, a find, and a broken run. All three failed on the old stage. `ddf9q` is retired.
 	- Note: still needs a pipeline run on b26, like 2026100313583935.
-	- Done: 20261004: `Eq9zVsH` and `Eq9zVsI` passed in the fuzz stage on b26, 50K iterations each.
+	- Done: 20261004: `dcrh7` and `dcrh8` passed in the fuzz stage on b26, 50K iterations each.
 	- Verified: 20261004 on b26, at 12d2b2d: the full pipeline with `--package` passed. One test fixture line was changed for that run, for an unrelated failure logged as 2026100417561172.
 	- Opened: 20260917-131500
 	- Closed: 20261004-175611
@@ -3249,7 +3263,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Verified: an injected fault - the slot not cleared when it is aimed at a new base - turns three cases red, including a new one that alternates good, raw-byte and unknown bases on one host.
 	- Done: `--count`'s ceiling goes from 100000 to 1000000, which is the same half a minute of work the old ceiling stood for.
 	- Note: a single run still pays the probe once, so nothing there got faster. It is about a third of a millisecond against 600 ms of startup.
-	- Test case: `EqAew24`, `EqAb38l`. The speed itself is profiled, not asserted.
+	- Test case: `dcrpb`, `dcrp6`. The speed itself is profiled, not asserted.
 	- Opened: 20260917-224500
 	- Closed: 20260917-233000
 
@@ -3260,7 +3274,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Done: batching belongs to the command. The Go and C modules still hand back one identifier, since a caller there already has a loop.
 	- Swept: a reader that quits early used to end in Zig's own error trace and a non-zero exit. A closed pipe now ends the run quietly, on the identifiers and on `--help` alike.
 	- Verified: three injected faults - a dropped warning, a dropped ceiling check, and the old `try` on stdout - turn five of the new cases red between them. 30 cases in `cli-test.bash` before, 45 after.
-	- Test case: `EqAb38a`, `EqAb38b`, `EqAb38c`, `EqAb38d`, `EqAb38e`, `EqAb38f`, `EqAb38g`, `EqAb38h`, `EqAb38i`, `EqAb38j`, `EqAb38k`, `EqAb38l`, `EqAb38m`, `EqAb38n`, `EqAb38o`.
+	- Test case: `dcrnv`, `dcrnw`, `dcrnx`, `dcrny`, `dcrnz`, `dcrp0`, `dcrp1`, `dcrp2`, `dcrp3`, `dcrp4`, `dcrp5`, `dcrp6`, `dcrp7`, `dcrp8`, `dcrp9`.
 	- Opened: 20260801-090104
 	- Closed: 20260917-224500
 
@@ -3269,7 +3283,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Done: covers where the install goes, that the link is a symlink onto it, that nothing is written under `HOME`, that a re-run fetches nothing, and that uninstall takes both the directory and the link. `install.bash` also has to elevate, and say so in the plan beforehand; the user target has to not.
 	- Verified: three injected faults - a system target writing into `HOME`, a missing `sudo` prefix, and an uninstall that leaves the link - each fail the new cases.
 	- Note: 28 cases before, 49 after.
-	- Test case: `EqANb6u` through `EqANb7B`.
+	- Test case: `dcrm6` through `dcrmq`.
 	- Opened: 20260804-224440
 	- Closed: 20260917-210000
 
@@ -3278,7 +3292,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Done: `--salt` on the command, `Request.Salt` in Go, `zuid_set_salt` in the C module. Empty by default, and an empty salt hashes the name on its own, so the existing 190 vectors are untouched.
 	- Done: 11 new vectors cover the salted case, including an empty salt, a one-byte difference, a wide base and a literal name ignoring it.
 	- Note: a salt on a command line shows in the process list. Said so in the help and in `design.md`.
-	- Test case: `EqAI7se`, `EqAI7sf`, `EqAI7sg`, `EqAI7sh`, `EqAI7si`, `EqAI7sj`, `EqAI7sk`, `EqAI7sl`.
+	- Test case: `dcrkg`, `dcrkh`, `dcrkj`, `dcrkk`, `dcrkm`, `dcrkn`, `dcrkp`, `dcrkq`.
 	- Opened: 20260802-135041
 	- Closed: 20260917-184500
 
@@ -3286,14 +3300,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Done: `style-guide_cli.md` covers streams and exit codes, flag spelling and value attachment, the shape of an error message, the order of the help screen, and what `--version`, `--about` and `--donate` each print.
 	- Done: every claim in it was read off the built command rather than from the source, so it describes what a user meets.
 	- Note: it turned up one message that does not follow the convention. Filed as a bug; the guide names it as the exception meanwhile.
-	- Test case: `EqA4qmO`. The guide's content was read off the command by hand.
+	- Test case: `dcrhw`. The guide's content was read off the command by hand.
 	- Opened: 20260917-104114
 	- Closed: 20260917-133000
 
 - ✅ Nothing points at `style_guide.md`. `README.md` should, and so should `contributing.md`, whose style section is still a commented-out stub.
 	- Done: `README.md` has a House style section under development setup, listing both style guides and `contributing.md`.
 	- Done: `contributing.md`'s stub is a real Style section now, pointing at both guides, with the commit message rules under it.
-	- Test case: `EqA4qmO`.
+	- Test case: `dcrhw`.
 	- Opened: 20260917-104114
 	- Closed: 20260917-133000
 
@@ -3303,7 +3317,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Verified: the C module stage checks the soname and the symlink chain against the version constant. Dropping the version from `build.zig` turns it red.
 	- Note: `package.bash` copies with `cp -P` now. A plain `cp` followed the new symlinks and put three copies of a 28 MB library in the tarball.
 	- Origin: code review 20260917-104114, idea I4.
-	- Test case: `EqA3RdB`, `EqA3RdC`.
+	- Test case: `dcrhq`, `dcrhr`.
 	- Opened: 20260917-104114
 	- Closed: 20260917-130524
 
@@ -3313,7 +3327,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Verified: `installer-test.bash` reads the nfpm contents list and fails if a header is listed with no library. Putting the header entry back turns it red.
 	- Note: a proper `-dev` package is the real answer eventually. Listed under Future.
 	- Origin: code review 20260917-104114, idea I7.
-	- Test case: `EqA3RdA`.
+	- Test case: `dcrhp`.
 	- Opened: 20260917-104114
 	- Closed: 20260917-130524
 
@@ -3322,28 +3336,28 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Done: the Zig side has the matching pair, over the core parser and over `zuid_generate`, which also check that a call failing part way through handed every wasm region back.
 	- Note: the Zig pair only replays its corpus - fuzz mode does not compile on 0.16.0. Split out as its own item above.
 	- Origin: code review 20260917-104114, ideas I3 and I5.
-	- Test case: `Eq9zVsG`, `Eq9zVsH`, `Eq9zVsI`.
+	- Test case: `dcrh6`, `dcrh7`, `dcrh8`.
 	- Opened: 20260917-104114
 	- Closed: 20260917-131500
 
 - ✅ Check only the widths of components the format uses. A hash width that suits one base failed a plain timestamp in another.
 	- Done: both sides scan the format first and check only the widths it spends. `--no-hash` puts the hashed width out of reach the same way. The checks still come before rendering.
 	- Origin: code review 20260917-104114, idea I1.
-	- Test case: `Eq9xBUf`, `ErOhqzQ`.
+	- Test case: `dcrgy`, `ddazm`.
 	- Opened: 20260917-104114
 	- Closed: 20260917-124100
 
 - ✅ Refuse bases with tabs or line breaks among their digits, not only the raw-byte one.
 	- Done: `98keyboard` is refused on both sides. Its zero digit is `0`, so the alphabet gets read rather than just that one symbol. There is no export that hands back the alphabet, so the Zig side asks the tokenizer one control byte at a time; the Go side reads the same single-byte digits, so neither refuses what the other accepts.
 	- Origin: code review 20260917-104114, idea I2. Next to the raw-byte refusal from the 20260804 review.
-	- Test case: `Eq9xBUe`, `Eq9xBUg`, `Eq9xBUi`.
+	- Test case: `dcrgx`, `dcrgz`, `dcrh1`.
 	- Opened: 20260917-104114
 	- Closed: 20260917-124100
 
 - ✅ Name the unknown component in the command's error, as the Go module does.
 	- Done: the command walks the format the way the core does and quotes the verb. A multi-byte one prints whole.
 	- Origin: code review 20260917-104114, idea I6.
-	- Test case: `Eq9xBUh`, `ErOiQbX`.
+	- Test case: `dcrh0`, `ddb01`.
 	- Opened: 20260917-104114
 	- Closed: 20260917-124100
 
@@ -3354,13 +3368,13 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Closed: 20260917-101749
 
 - ✅ `--donate`, and a fuller `--about`, the same as shcl.
-	- Test case: `ErOiQbc`, `ErOiQbd`, `ErOiQbe`.
+	- Test case: `ddb06`, `ddb07`, `ddb08`.
 	- Opened: 20260917-095900
 	- Closed: 20260917-101749
 
 - ✅ Make the licensing clear. The GPL file at the repo root read as covering everything.
 	- Done: renamed to `license.md`, which now maps each directory to its license. The modules stay Apache-2.0.
-	- Test case: `ErOj0WT`, `ErOiQbd`.
+	- Test case: `ddb0g`, `ddb07`.
 	- Opened: 20260917-100900
 	- Closed: 20260917-101749
 
@@ -3369,7 +3383,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Done: `--version` prints only the version and build number. The copyright and license moved to `--about`.
 	- Done: help and about have a blank line before and after, and the options list has no gaps.
 	- Note: the build number is minutes since 2000 in base 32, taken from the commit date.
-	- Test case: `ErOiQbW`, `ErOiQbZ`, `ErOiQba`, `ErOiQbb`, `ErOiQbg`.
+	- Test case: `ddb00`, `ddb03`, `ddb04`, `ddb05`, `ddb0a`.
 	- Opened: 20260917-094035
 	- Closed: 20260917-094035
 
@@ -3377,7 +3391,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ✅ `install.bash` for Linux, BSD, macOS, and WSL; `install.ps1` for those plus Windows.
 	- ✅ Both verify the download against the published checksums, state their plan, and ask before touching anything. Re-running one changes nothing, and `--uninstall` reverses it.
 	- ✅ Both run end to end against the published prerelease: lookup, download, checksum, unpack, link, re-install over an existing copy, and uninstall. Tested against a throwaway home directory rather than a clean machine, so the system-wide destinations are still untried.
-	- Test case: `Eq9ejdI`, `Eq9ejdJ`, `Eq9ejdK`, `Eq9ejdL`, `ErOkWfU`, `ErOkWfV`, `ErOkWfY`, `ErOkWfZ`, `Eq9lTwm`, `Eq9lTwn`, `Eq9oNBp`, `Eq9oNBq`.
+	- Test case: `dcrem`, `dcren`, `dcrep`, `dcreq`, `ddb0x`, `ddb0y`, `ddb11`, `ddb12`, `dcrfx`, `dcrfy`, `dcrgm`, `dcrgn`.
 	- Opened: 20260801-090104
 	- Closed: 20260805-014958
 
@@ -3397,7 +3411,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Done: `-b=32c`, `--base=32c`, `-b 32c`, and `--base 32c` are all the same thing. A leading-dash argument splits at its first `=`; anything else passes through, so a format string with an `=` in it still works either way.
 	- Fixed: flags that take no value now say so instead of ignoring one silently.
 	- Done: the demo and the README examples use the attached form - it makes which value belongs to which flag obvious at a glance, which matters most in a ten-second look.
-	- Test case: `ErOiQbN`, `ErOiQbO`, `ErOiQbP`, `ErOiQbQ`, `ErOiQbR`, `ErOiQbS`, `ErOiQbT`, `ErOiQbU`, `ErOiQbV`, `EqAb38d`.
+	- Test case: `ddazq`, `ddazr`, `ddazs`, `ddazt`, `ddazv`, `ddazw`, `ddazx`, `ddazy`, `ddazz`, `dcrny`.
 	- Opened: 20260805-004156
 	- Closed: 20260805-004817
 
@@ -3410,7 +3424,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ✅ One time encoding (units since the Unix epoch, UTC), replacing the predecessor's four algorithms. Precision stays selectable, with the same values: -1 minute, 0 second (default), 1 millisecond.
 	- ✅ Fixed-width zero padding, which is what actually makes output sortable. Width is derived rather than tabulated, so moving the horizon or a strength target moves the widths with it.
 	- ✅ The three open questions are settled: horizon year 3000, precision as above, same-tick repeats stay literal with a warning once multi-emit exists.
-	- Test case: `ElmNxqS`, `EloUhiz`, `ElmNxqU`, `Em32NzU`, `Em32Nzb`, `Elom8tE`, `ErOiQbL`, `ErOiQbM`.
+	- Test case: `daq6x`, `daqq6`, `daq6z`, `dav72`, `dav79`, `daqsa`, `ddazn`, `ddazp`.
 	- Opened: 20260801-090515
 	- Closed: 20260804-234122
 
@@ -3420,7 +3434,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- ✅ Time-only rows, across the narrow curated bases and all three precisions, including truncation and horizon-boundary rows. Sort guarantee checked against them.
 		- ✅ Rows for the other components, then for the wide bases, then for the derived widths: 190 in total. An `env` column has the injected host, user, FQDN, hardware address, random stream, and width options, so a row states only what it cares about.
 		- ✅ Expected values come from a third independent derivation, worked from `design.md` rather than from either implementation, so agreement between the two cannot just mean they are wrong the same way.
-	- Test case: `ElmNxqS`, `EloUhiz`.
+	- Test case: `daq6x`, `daqq6`.
 	- Opened: 20260801-090104
 	- Closed: 20260804-234122
 
@@ -3431,7 +3445,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ✅ Zig stage vendors what it needs rather than assuming a system install.
 	- ✅ Zig stage builds ReleaseSafe, replays the vectors under both Wasmtime compilers, checks `zig fmt`, and then compiles the C smoke test with the system gcc or clang in both link modes. It skips that last part with a note if neither compiler is installed.
 	- ✅ Packaging for the host platform. `--package` builds a tarball, the bare binary, `.deb`, `.rpm`, and checksums.
-	- Test case: `ErOjF74`, `ErOjF76`, `ErOjF77`, `EloUhiz`, `ElpGOHZ`, `ElpGOHa`, `EloMht2`, `EloMht3`, `EloMht4`.
+	- Test case: `ddb0s`, `ddb0v`, `ddb0w`, `daqq6`, `daqxb`, `daqxc`, `daqp5`, `daqp6`, `daqp7`.
 	- Opened: 20260801-090104
 	- Closed: 20260804-224440
 
@@ -3450,7 +3464,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - ✅ Environment values are read once per process rather than once per component.
 	- Note: enumerating network interfaces cost twenty times the base conversion it fed, and resolving a qualified name could block on the network.
 	- Verified: the full seven-component format went from about 700 to about 210 microseconds.
-	- Test case: `Eq9mpyS`, `Eq9mpyT`, `ErOhqzP`. The speed is profiled, not asserted.
+	- Test case: `dcrg8`, `dcrg9`, `ddazk`. The speed is profiled, not asserted.
 	- Opened: 20260804-213000
 	- Closed: 20260804-224440
 
@@ -3460,7 +3474,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Closed: 20260804-224440
 
 - ✅ Real README, replacing the template. Installation, development setup, and the demo animation are in it.
-	- Test case: `EqA4qmP`. The rest is prose.
+	- Test case: `dcrhx`. The rest is prose.
 	- Opened: n/a
 	- Closed: 20260804-224440
 
@@ -3471,7 +3485,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ✅ `%r` draws enough bytes to fill its symbols. One byte each still covers everything up to 256; above that a symbol is more than eight bits and the leading one would otherwise never vary.
 	- ✅ `go.mod` pins the published release; the local `replace` directive is gone. The reactor wasm is built from that same pinned version instead of copied from a neighboring checkout.
 	- ✅ Vectors grew 115 -> 187. The new rows come from a third independent derivation, which reproduces all 115 existing rows before generating any new one.
-	- Test case: `ElmNxqS`, `EloUhiz`, `Em2hrcO`, `Em2hrcP`, `Em2hrcQ`, `Em2hrcR`, `ErOj0WV`.
+	- Test case: `daq6x`, `daqq6`, `dav4h`, `dav4j`, `dav4k`, `dav4m`, `ddb0j`.
 	- Opened: 20260802-143233
 	- Closed: 20260804-210541
 
@@ -3479,7 +3493,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Decided: the RFC 4648 base 64 variants were dropped. Their alphabet does not sort, and they need the same 8 characters as base 62, which does.
 	- Decided: the wide families were added once truncation worked in them. `tt` up to 512, `tz` above it - below 512 the two are one alphabet under two names, at 512 they genuinely differ, and past it only `tz` continues.
 	- ✅ Alphabets reconciled against `convertbase`. Its `32w` is the same 32 symbols the vectors assume, reached by the same alias, so every row reproduces through the real library rather than a local table.
-	- Test case: `ElmNxqX`, `ErOiQbf`, `ErOiQbh`.
+	- Test case: `daq72`, `ddb09`, `ddb0b`.
 	- Opened: 20260801-090104
 	- Closed: 20260804-210541
 
@@ -3488,7 +3502,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ✅ Sent them zuid's requirements: base metadata (radix and padding symbol) for fixed-width padding, a symbol count rather than a byte count, a stable error enum, and the error text. No streaming needed - inputs are about 13 bytes, so the one-shot surface alone unblocks this side.
 	- ✅ Upstream now has a working reactor build. Streaming is still in progress there, but zuid does not use it, so the gate on the Zig side is lifted.
 	- ✅ Released, and it exports the symbol slice, the right-align call, and the combined convert-and-fit call this side asked for. zuid builds the module from that pinned release rather than embedding a prebuilt copy.
-	- Test case: `EloUhj1`. Every Zig test runs through the module it produced.
+	- Test case: `daqq8`. Every Zig test runs through the module it produced.
 	- Opened: 20260801-090104
 	- Closed: 20260804-210541
 
@@ -3496,14 +3510,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ✅ Go side imports `convertbase` directly, now at the published `lib/v0.1.0` rather than through a local `replace`. Goal 3 met: the package works as imported, no changes needed to it.
 	- ✅ Padding, truncation, and symbol slicing all come from the library too, so the one piece of policy both implementations share is defined in exactly one place.
 	- ✅ Zig side reaches it through a reactor WebAssembly module, hosted by a vendored Wasmtime. Goal 4 met: the module is embedded in the binary, all vectors reproduce through it, and its region ledger stays at zero.
-	- Test case: `ElmNxqS`, `EloUhiz`, `EloUhj1`.
+	- Test case: `daq6x`, `daqq6`, `daqq8`.
 	- Opened: 20260801-090104
 	- Closed: 20260804-210541
 
 - ✅ The remaining components are done on both sides, and the vectors grew from 72 rows to 115.
 	- ✅ The `Converter` interface now takes a from-base, since hashes, hardware addresses, and UUIDs all arrive as hex rather than decimal.
 	- ✅ Zig gained an `Env` interface next to it, so the core still touches neither the runtime nor the operating system.
-	- Test case: `ElmNxqS`, `EloUhiz`, `ElpGOHX`.
+	- Test case: `daq6x`, `daqq6`, `daqx9`.
 	- Opened: 20260802-020157
 	- Closed: 20260802-135041
 
@@ -3514,29 +3528,29 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ✅ `%m` takes the lowest-numbered non-loopback interface rather than the predecessor's default-route one, which would need the routing table on three platforms.
 	- ✅ `%g` is a real UUID v4, rendered as the 128-bit number rather than the dashed text form, which does not sort.
 	- ✅ Padding and truncation both come from the conversion library, in one call that right-aligns a value to an exact symbol count. Truncation used to be refused in a base with multi-byte digits; the library slices by symbol now, so every component works in every base.
-	- Test case: `ElmNxqT`, `ElpGOHQ`, `ElmNxqV`, `Eq9kVKs`, `ElpGOHX`.
+	- Test case: `daq6y`, `daqx2`, `daq70`, `dcrfn`, `daqx9`.
 	- Opened: 20260801-090104
 	- Closed: 20260802-135041
 
 - ✅ Host, user, and FQDN hashed by default, with an explicit opt-out. SHA-256, rightmost few symbols; `--no-hash` emits the names literally and `--hash-chars` resizes them.
-	- Test case: `ElpGOHR`, `Eq9kVKk`.
+	- Test case: `daqx3`, `dcrfd`.
 	- Opened: 20260801-090104
 	- Closed: 20260802-135041
 
 - ✅ Confirm the hashed host/user components cannot be reversed to the originals.
 	- ✅ Not reversible by construction: a hashed component keeps about 47 bits of a 256-bit SHA-256 whatever the base, discarding more than 200, so nothing can be inverted back to a unique name.
 	- Note: a dictionary attack was the open half of this, and `--salt` closed it on 20260917.
-	- Test case: none. It holds by construction. The width it rests on is pinned by `Em3M9HE` and `Em3M9HG`.
+	- Test case: none. It holds by construction. The width it rests on is pinned by `dav9h` and `dav9k`.
 	- Opened: 20260801-090104
 	- Closed: 20260802-135041
 
 - ✅ Every environment source injectable, so output is reproducible under test. Go has `WithClock`/`WithFixedTime`/`WithRandom`/`WithHostname`/`WithUsername`/`WithFQDN`/`WithMAC`; Zig has an `Env` interface alongside the existing `Converter`, with `env.zig` as its one live implementation.
-	- Test case: `ElmNxqS`, `EloUhiz`. The vectors only reproduce because every source is injected.
+	- Test case: `daq6x`, `daqq6`. The vectors only reproduce because every source is injected.
 	- Opened: 20260801-090104
 	- Closed: 20260802-135041
 
 - ✅ Random component from a cryptographic source. Go uses `crypto/rand`; Zig uses `getentropy` through libc, because 0.16 moved randomness onto `Io` the same way it moved the clocks, and the C module has no `Io` to hand it.
-	- Test case: `ElpGOHS`, `ElpGOHY`. Which source is used is read from the code, not tested.
+	- Test case: `daqx4`, `daqxa`. Which source is used is read from the code, not tested.
 	- Opened: 20260801-090104
 	- Closed: 20260802-135041
 
@@ -3544,7 +3558,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ✅ The CLI exists: `zuid [-b base] [-f format] [-p precision] [--no-hash] [--hash-chars n] [--rand-chars n]`, all seven components plus `%%` literals, unknown verbs rejected with a clear message.
 	- ✅ Precision flag: `-p -1|0|1` for minute/second/millisecond, default second - same surface and default as the predecessor.
 	- ✅ Two hashing flags rather than the predecessor's six. Per-component widths were exactly the sort of accretion this was meant to improve on.
-	- Test case: `ElmNxqV`, `ElmNxqW`, `Eq9kVKs`, `Eq9kVKt`, `Eq9kVKv`, `ErOiQbL`, `ErOiQbM`.
+	- Test case: `daq70`, `daq71`, `dcrfn`, `dcrfp`, `dcrfr`, `ddazn`, `ddazp`.
 	- Opened: 20260801-090104
 	- Closed: 20260802-135041
 
@@ -3553,7 +3567,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ✅ A cicd stage checks it every run, so the C ABI cannot rot unnoticed. It deliberately uses the system compiler - `zig cc` would prove nothing about a foreign toolchain.
 	- ✅ Every component reachable from C, with the width options sticky on the context the way precision already was.
 	- Note: cross targets are still open.
-	- Test case: `EloUhj2`, `ElpGOHZ`, `ElpGOHa`, `Eq9hexE`.
+	- Test case: `daqq9`, `daqxb`, `daqxc`, `dcrez`.
 	- Opened: 20260801-090104
 	- Closed: 20260802-135041
 
@@ -3561,7 +3575,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ✅ Every vector row reproduces through the embedded module, under both of Wasmtime's compilers.
 	- ✅ The C header verified from plain gcc, shared and static.
 	- ✅ Every CLI run exercises the upstream module end to end, which was the point of making the CLI Zig-only.
-	- Test case: `EloUhiz`, `ElpGOHZ`, `ElpGOHa`.
+	- Test case: `daqq6`, `daqxb`, `daqxc`.
 	- Opened: 20260802-101509
 	- Closed: 20260802-104116
 
@@ -3578,33 +3592,33 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ✅ Tests turned out to need no allocator; the vectors file is embedded at build time.
 	- ✅ What 0.16 actually catches: leaks and double frees, yes; use-after-free reads and writes, no. `never_unmap`/`retain_metadata` widen double-free reporting, they do not detect dangling access. There is no AddressSanitizer for Zig code, and `zig cc -fsanitize=address` does not link.
 	- Note: the sanitizer run on the vendored Wasmtime is deferred.
-	- Test case: `Eq9icWm`. Use-after-free cannot be caught, as the item says.
+	- Test case: `dcrf3`. Use-after-free cannot be caught, as the item says.
 	- Opened: 20260802-012055
 	- Closed: 20260802-104116
 
 - ✅ Both modules Apache-2.0; the command stays GPL-2.0-or-later.
 	- ✅ Per-directory license files, all `.txt`: repo root and `zig/cmd/` GPL-2.0-or-later; `go/` and `zig/lib/` each Apache-2.0 with a `NOTICE.txt`. Placed ahead of the Zig source so the split is locked in.
 	- ✅ Dropping the Go command removed the one awkward case - a GPL command inside the Apache module directory - so no prose has to explain the split anymore.
-	- Test case: `ErOj0WT`.
+	- Test case: `ddb0g`.
 	- Opened: 20260801-090104
 	- Closed: 20260802-100930
 
 - ✅ Go module, importable without cgo, keeping static cross-compilation. Builds `CGO_ENABLED=0` for linux/arm64, windows/amd64, and darwin/arm64, now driven by `cicd.bash --cross`.
-	- Test case: `ErOgfbn`, `EloMht2`, `EloMht3`, `EloMht4`.
+	- Test case: `ddazf`, `daqp5`, `daqp6`, `daqp7`.
 	- Opened: 20260801-090104
 	- Closed: 20260802-025417
 
 - ✅ Go side brought up: `go/zuid`. Every vector row reproduces, `gofmt` and `go vet` clean.
 	- ✅ Startup is 57 ms, nearly all of it building the base registry. Irrelevant now that nothing user-facing routes through Go.
 	- ✅ The `zuid-go` command was later dropped: the CLI is Zig-only, so that every use of it also exercises the upstream WebAssembly module. The module's own tests replay the vectors, which is the differential check from the Go side.
-	- Test case: `ElmNxqS`.
+	- Test case: `daq6x`.
 	- Opened: n/a
 	- Closed: 20260802-020157
 
 - ✅ Move Zig 0.13.0 -> 0.16.0. Installed and verified; 0.13.0 kept alongside so the symlink flips back.
 	- ✅ The 0.16 surfaces this project uses: `main(std.process.Init)`, the process arena, `Io.File.Writer`, `DebugAllocator`, and a render path that takes no allocator.
 	- ✅ `zig fmt` uses four spaces and cannot be configured, so Zig source is spaces, not tabs. See `style_guide.md`.
-	- Test case: `ErOjF74`, `ErOjF75`. The version floor itself is checked every run.
+	- Test case: `ddb0s`, `ddb0t`. The version floor itself is checked every run.
 	- Opened: 20260801-090104
 	- Closed: 20260802-014045
 
@@ -3621,12 +3635,12 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Fixed: the default width is now derived from a target - 47 bits for a hashed name, 35 for `%r`, which is what 8 and 6 base-62 symbols have always held - so the strength stays put and the width moves: 12 and 9 symbols in base 16, 5 and 4 in 2048tz. Base 62 is unchanged.
 		- Note: this is the rule `%d`, `%m`, and `%g` already followed, so all seven components now size themselves one way instead of two.
 		- Note: 72 vector rows changed and 3 were added, 190 in total. `--hash-chars` and `--rand-chars` still override; zero now means "use the derived width" on every surface.
-		- Test case: `Em3M9HE`, `Em3M9HG`, `ElpGOHV`, `ElmNxqS`, `EloUhiz`.
+		- Test case: `dav9h`, `dav9k`, `daqx7`, `daq6x`, `daqq6`.
 	- ✅ Code review 20260804 item 7: a hashed component wider than the digest is refused.
 		- Cause: `Fit` left-fills, so asking for more symbols than a SHA-256 supplies in that base gave leading padding - at 64 symbols in 2048tz, 40 constant then 24 real. The identifier got longer with no more fingerprint behind it, and nothing said so.
 		- Fixed: the ceiling is now derived per base, 64 symbols in base 16 down to 24 in 2048tz, and asking past it is an error naming the number. Refusing rather than capping matches how a past-horizon clock, an unknown verb, and a raw-byte base are already handled.
 		- Done: vectors gained a row per wide base sitting exactly on the ceiling.
-		- Test case: `Em3M9HF`, `Em3M9HH`.
+		- Test case: `dav9j`, `dav9m`.
 	- ✅ Code review 20260804 item 17: one crossing into the WebAssembly module per component instead of four.
 		- Cause: every component converted, then asked the radix, then counted symbols, then fitted - and each call marshalled the base name in and a result region back out.
 		- Done: the module's combined convert-and-fit call does the work in one crossing. The radix is cached on the host, and `%d`'s overflow check became arithmetic against the horizon, which is the same test the symbol count was making.

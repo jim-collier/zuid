@@ -33,7 +33,7 @@ const soakMarginBytes = 128 << 10
 // cicd.bash --leakcheck does. go tool pprof -base heap-n.pprof heap-2n.pprof
 // shows what grew.
 //
-// test-id: EtAUMRA
+// test-id: de5cg
 func TestSoak(t *testing.T) {
 	dir := os.Getenv("ZUID_SOAK_DIR")
 	if dir == "" {

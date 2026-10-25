@@ -29,7 +29,7 @@ func (s steadyBytes) Read(p []byte) (int, error) {
 //
 //	go test -run=xxx -fuzz=FuzzGenerate -fuzztime=30s ./zuid
 //
-// test-id: Eq9zVsG
+// test-id: dcrh6
 func FuzzGenerate(f *testing.F) {
 	for _, format := range []string{"%d", "%", "%%", "%z", "%d-%h-%u-%f-%m-%g-%r", "%%%%%d", "\x00%d", "%\xff"} {
 		f.Add(format, "62")

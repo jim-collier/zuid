@@ -126,7 +126,7 @@ fn toUtf8(wide: []const u16, out: []u8) core.Error![]const u8 {
 }
 
 // A name from Go's user.Current or the environment can include the domain.
-// test-id: ErmqB7B
+// test-id: ddgsb
 test "Windows account drops domain" {
     const L = std.unicode.utf8ToUtf16LeStringLiteral;
     try std.testing.expectEqualSlices(u16, L("Alice"), bareAccountName(u16, L("HOST\\Alice")));
@@ -136,7 +136,7 @@ test "Windows account drops domain" {
 
 // Windows ignores case in account names. Go's zuid_windows_test.go checks the
 // same pairs, since both sides have to lower-case outside ASCII alike.
-// test-id: ErmqB7C
+// test-id: ddgsc
 test "a Windows account name is lower-cased" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
     const L = std.unicode.utf8ToUtf16LeStringLiteral;

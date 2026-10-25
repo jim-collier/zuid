@@ -14,7 +14,7 @@ import (
 // A goroutine still running once every test is done fails the run, whoever
 // started it. Per-test VerifyNone doesn't mix with t.Parallel.
 //
-// test-id: Et9R2xU
+// test-id: de54c
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }

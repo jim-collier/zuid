@@ -18,7 +18,7 @@ import (
 //
 // The host name was never wrapped, so %h re-read it for every identifier
 // and could disagree with the cached %f.
-// test-id: Eq9mpyS
+// test-id: dcrg8
 func TestLiveSourcesReadOncePerProcess(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -50,7 +50,7 @@ func TestLiveSourcesReadOncePerProcess(t *testing.T) {
 
 // Two reads of the same source have to agree, which is the property the caching
 // exists for: %h and %f describing one machine rather than two.
-// test-id: Eq9mpyT
+// test-id: dcrg9
 func TestLiveHostnameIsStable(t *testing.T) {
 	first, err := liveHostname()
 	if err != nil {
@@ -67,7 +67,7 @@ func TestLiveHostnameIsStable(t *testing.T) {
 
 // The T2 bridge address is the same on every Intel Mac that has one, and its
 // interface numbers below en0, so it has to be passed over for the next one.
-// test-id: ErU3R79
+// test-id: ddc8r
 func TestPickMACSkipsSharedAddress(t *testing.T) {
 	en0 := net.HardwareAddr{0x38, 0xf9, 0xd3, 0xc3, 0xd1, 0xad}
 	interfaces := []net.Interface{
@@ -85,7 +85,7 @@ func TestPickMACSkipsSharedAddress(t *testing.T) {
 
 // On Windows user.Current gives DOMAIN\name, and Zig's GetUserNameW the name
 // alone. %u is the name alone on both.
-// test-id: ErmqB7D
+// test-id: ddgsd
 func TestBareAccountNameDropsDomain(t *testing.T) {
 	cases := map[string]string{
 		`HOST\Alice`: "Alice",

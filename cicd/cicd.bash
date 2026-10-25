@@ -30,6 +30,7 @@
 ##		- 20261025 JC: --backlog-run-quick, --backlog-run-full, --merge-gate, --long, --no-remote. --gate and --ci are other names.
 ##		- 20261025 JC: Areas for --backlog-run-quick. --list.
 ##		- 20261025 JC: --quick fuzzes on a short budget, and dogfoods.
+##		- 20261025 JC: PASS, FAIL and SKIP test lines, and test IDs in minutes.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Global, since the exit trap reads it after fMain has gone.
@@ -1435,7 +1436,7 @@ fPreflight(){
 ## without one.
 declare testId="" testName=""
 fId(){  ## [key key=id...] | id, name
-	testId="???????"
+	testId="?????"
 	testName="${*: -1}"
 	if (($# == 2)); then testId="$1"; return 0; fi
 	local -r key="$1"
@@ -1445,9 +1446,9 @@ fId(){  ## [key key=id...] | id, name
 	done
 	return 0
 }
-fTestPass(){ fEcho_Clean "  ok ....: ${testId} ${testName}" ;}
-fTestSkip(){ fEcho_Clean "  skip ..: ${testId} ${testName} ($*)" ;}
-fTestFail(){ fEcho_Clean "  FAIL ..: ${testId} ${testName}"; fThrowError "$*"  "${FUNCNAME[1]}" ;}
+fTestPass(){ fEcho_Clean "  PASS ${testId} ${testName}" ;}
+fTestSkip(){ fEcho_Clean "  SKIP ${testId} ${testName} ($*)" ;}
+fTestFail(){ fEcho_Clean "  FAIL ${testId} ${testName}"; fThrowError "$*"  "${FUNCNAME[1]}" ;}
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -1456,7 +1457,7 @@ fStage_Shell(){
 	## shellcheck's warnings change between versions, so a host on another one
 	## can pass what the container fails. Before the lint, which stops the run
 	## on a warning. Not fatal, the same as nfpm's.
-	fId EtB4gns "host shellcheck matches the pin"
+	fId de5h0 "host shellcheck matches the pin"
 	local pinned="" have=""
 	pinned="$(sed -n 's/^ARG SC_VER=//p' "${repoRoot}/cicd/container/Dockerfile" || true)"
 	if [[ -z "$(command -v shellcheck 2>/dev/null || true)" ]]; then
@@ -1499,7 +1500,7 @@ fStage_Shell_PowerShell(){
 	local -a psFiles=()
 	mapfile -t psFiles < <(git -C "${repoRoot}" ls-files --full-name '*.ps1' '*.psm1' '*.psd1' | sed "s|^|${repoRoot}/|")
 
-	fId EtB6KVF "PSScriptAnalyzer on our PowerShell"
+	fId de5h6 "PSScriptAnalyzer on our PowerShell"
 	if [[ -n "${checkerSkipWhy}" ]]; then fTestSkip "${checkerSkipWhy}"; return 0; fi
 	if ((${#psFiles[@]} == 0)); then fTestFail "git ls-files found no PowerShell files, so this would lint nothing."; fi
 	local fileList=""
@@ -1550,7 +1551,7 @@ fStage_Docs(){
 	## Both style guides were written and then pointed at from two places. A
 	## guide nothing links to is one nobody reads, which is how the CLI one came
 	## to be missing in the first place.
-	fId EqA4qmO "style guides linked from both docs"
+	fId dcrhw "style guides linked from both docs"
 	local guide="" from=""
 	for from in development.md contributing.md; do
 		for guide in style_guide.md style-guide_cli.md; do
@@ -1561,7 +1562,7 @@ fStage_Docs(){
 	fTestPass
 
 	## And every relative link in the root documents goes somewhere.
-	fId EqA4qmP "root doc links resolve"
+	fId dcrhx "root doc links resolve"
 	local doc="" target="" missing=0
 	for doc in "${repoRoot}"/*.md; do
 		while read -r target; do
@@ -1576,7 +1577,7 @@ fStage_Docs(){
 
 	## A GPL file at the root read as covering everything, modules included. The
 	## root has only the map now, and each licensed directory has its own text.
-	fId ErOj0WT "licenses match license.md"
+	fId ddb0g "licenses match license.md"
 	local licenseFile="" licenseWant="" licenseBad=""
 	[[ -f "${repoRoot}/license.md" ]] || licenseBad+=" license.md is missing;"
 	if compgen -G "${repoRoot}/LICENSE*" >/dev/null; then licenseBad+=" a LICENSE file is back at the root;"; fi
@@ -1596,7 +1597,7 @@ fStage_Docs(){
 	## The contact address was a placeholder on a domain that was never ours,
 	## and code_of_conduct.md still named the project it was copied from. In
 	## text people read it is written with the circled A, not a plain @.
-	fId ErOj0WU "one contact address everywhere"
+	fId ddb0h "one contact address everywhere"
 	local contactDoc="" contactBad=""
 	for contactDoc in trademark.md contributing.md code_of_conduct.md; do
 		[[ -f "${repoRoot}/${contactDoc}" ]] || continue
@@ -1614,7 +1615,7 @@ fStage_Docs(){
 	## Windows PowerShell reads a file with no byte-order mark in the local code
 	## page, where some UTF-8 bytes turn into quote marks, and irm keeps a mark
 	## that then breaks the README's one-line install. Plain ASCII avoids both.
-	fId ErmS0zI "PowerShell is plain ASCII"
+	fId ddgpj "PowerShell is plain ASCII"
 	local psFile="" psBad=""
 	local -i psCount=0
 	while IFS= read -r psFile; do
@@ -1625,7 +1626,7 @@ fStage_Docs(){
 	[[ -z "${psBad}" ]] || fTestFail "not ASCII:${psBad}."
 	fTestPass
 
-	fId Eq9ofeq "design.md rejection count"
+	fId dcrgp "design.md rejection count"
 	local -r design="${repoRoot}/project/design.md"
 	if [[ ! -f "${design}" ]]; then
 		fTestSkip "project/design.md is not present"
@@ -1722,7 +1723,7 @@ fStage_Go(){
 	## convertbase comes from its published release, never a local checkout. The
 	## reactor wasm is built from that same pin, which is what keeps the two
 	## sides on one library version, and a replace directive would split them.
-	fId ErOj0WV "convertbase pinned to a release"
+	fId ddb0j "convertbase pinned to a release"
 	if grep -qE '^[[:space:]]*replace' go.mod; then
 		fTestFail "go.mod has a replace directive."
 	fi
@@ -1744,7 +1745,7 @@ fStage_Go(){
 
 	## Each package's TestMain fails the run on a goroutine left behind. A
 	## package without one would let that through unseen.
-	fId Et9R2xV "goleak in every Go package"
+	fId de54d "goleak in every Go package"
 	local pkgDir="" noLeakCheck=""
 	local -i pkgCount=0
 	while IFS= read -r pkgDir; do
@@ -1774,12 +1775,12 @@ fStage_Go(){
 		fEcho_Clean "IDs ........: skipped, no python3"
 		go test "${testFlags[@]}" ./...
 	fi
-	fId Et9R2xW "Go tests ran with -race"
+	fId de54e "Go tests ran with -race"
 	if [[ -n "${raceSkipWhy}" ]]; then fTestSkip "${raceSkipWhy}"; else fTestPass; fi
 
 	## The module promises it needs no cgo, which is what keeps a static cross
 	## build possible. fStage_Go_Cross checks the other targets.
-	fId ErOgfbn "builds with cgo off"
+	fId ddazf "builds with cgo off"
 	CGO_ENABLED=0 go build -p "${buildJobs}" ./... || fTestFail "the Go module needs cgo."
 	fTestPass
 
@@ -1800,11 +1801,11 @@ fStage_Go_Checks(){
 	local -a thirdParty=()
 	mapfile -t thirdParty < <(go list -deps -f '{{with .Module}}{{if not .Main}}{{$.ImportPath}}{{end}}{{end}}' ./... | sort -u)
 
-	fId Et9R2xX "go vet passes"
+	fId de54f "go vet passes"
 	go vet ./... || fTestFail "go vet found something in the module."
 	fTestPass
 
-	fId Et9R2xY "go vet on dependencies"
+	fId de54g "go vet on dependencies"
 	if ((${#thirdParty[@]} == 0)); then fTestFail "go list found no third-party packages, so this would vet nothing."; fi
 	go vet "${thirdParty[@]}" || fTestFail "go vet found something in: ${thirdParty[*]}"
 	fTestPass
@@ -1812,7 +1813,7 @@ fStage_Go_Checks(){
 	local checkerSkipWhy=""
 	fGoCheckers_Ready
 
-	fId Et9R2xZ "staticcheck passes"
+	fId de54h "staticcheck passes"
 	if [[ -n "${checkerSkipWhy}" ]]; then
 		fTestSkip "${checkerSkipWhy}"
 	else
@@ -1820,7 +1821,7 @@ fStage_Go_Checks(){
 		fTestPass
 	fi
 
-	fId Et9R2xa "staticcheck bug checks on dependencies"
+	fId de54j "staticcheck bug checks on dependencies"
 	if [[ -n "${checkerSkipWhy}" ]]; then
 		fTestSkip "${checkerSkipWhy}"
 	else
@@ -1830,7 +1831,7 @@ fStage_Go_Checks(){
 
 	## The reactor is scanned as the wasm it ships as, since its files are
 	## wasip1 only.
-	fId Et9R2xb "govulncheck finds no advisory"
+	fId de54k "govulncheck finds no advisory"
 	if [[ -n "${checkerSkipWhy}" ]]; then fTestSkip "${checkerSkipWhy}"; return 0; fi
 	if [[ -z "$(command -v python3 2>/dev/null || true)" ]]; then fTestSkip "no python3 to read its report"; return 0; fi
 	local report="" reactorReport="" rc=0
@@ -1902,7 +1903,7 @@ fStage_Go_Consumer(){
 	## The docs' command has to name the package, not the module root. On the root
 	## go get adds the module without what its package needs, and the build stops
 	## on a missing go.sum entry for convertbase.
-	fId Eq9m0j2 "go get path in the docs"
+	fId dcrg3 "go get path in the docs"
 	local readme=""
 	for readme in "${repoRoot}"/*.md; do
 		if grep -q 'go get github.com/jim-collier/zuid/go$' "${readme}"; then
@@ -1942,7 +1943,7 @@ fStage_Go_Consumer(){
 	## Pointed at this tree rather than the published module, so the check says
 	## whether what is about to be merged can be imported, and needs no network
 	## beyond what the module cache already holds.
-	fId Eq9m0j3 "importing the module works"
+	fId dcrg4 "importing the module works"
 	(
 		cd "${consumerDir}" || exit 1
 		go mod init zuid-consumer-check >/dev/null 2>&1 || exit 1
@@ -1975,7 +1976,7 @@ fStage_Go_Fuzz(){
 	local -i attempt=0
 
 	## The same test the plain run replayed, so it keeps that test's ID.
-	fId "$(python3 "${utilityDir}/test-ids.py" lookup FuzzGenerate 2>/dev/null || printf '???????')" \
+	fId "$(python3 "${utilityDir}/test-ids.py" lookup FuzzGenerate 2>/dev/null || printf '?????')" \
 		"FuzzGenerate, fuzzed for ${fuzzTime}"
 
 	while ((attempt < 2)); do
@@ -2007,7 +2008,7 @@ fStage_Go_Cross(){
 	for target in "${crossTargets[@]}"; do
 		goos="${target%%/*}"
 		goarch="${target##*/}"
-		fId "${target}" linux/arm64=EloMht2 windows/amd64=EloMht3 darwin/arm64=EloMht4 "${target} build, cgo off"
+		fId "${target}" linux/arm64=daqp5 windows/amd64=daqp6 darwin/arm64=daqp7 "${target} build, cgo off"
 		CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build -p "${buildJobs}" ./... || fTestFail "${target} does not build."
 		fTestPass
 	done
@@ -2026,7 +2027,7 @@ fReactor_Toolchain(){
 	local handSet="${GOTOOLCHAIN:-}"
 	[[ "${handSet}" != "auto" ]] || handSet=""
 	goToolchain="${handSet:-go${pin}}"
-	fId Et9luGN "reactor wasm built with the pinned Go"
+	fId de572 "reactor wasm built with the pinned Go"
 	local used=""
 	if ! used="$(GOTOOLCHAIN="${goToolchain}" go env GOVERSION 2>&1)"; then
 		((! doPackage)) || fTestFail "Could not get ${goToolchain} for a release: ${used}"
@@ -2239,7 +2240,7 @@ fStage_Zig(){
 	local -a releaseTarget=()
 	if [[ "$(uname -s)" == "Linux" ]]; then releaseTarget=("-Dtarget=$(uname -m)-linux-gnu.2.28"); fi
 	zig build "-j${buildJobs}" -Doptimize=ReleaseSafe "${releaseTarget[@]}"
-	fId EsXcjyV "dogfood build is plain x86-64"
+	fId ddw1c "dogfood build is plain x86-64"
 	if [[ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]]; then
 		fTestSkip "only a Linux x86_64 build goes to the synced dir"
 	elif ! command -v objdump >/dev/null 2>&1; then
@@ -2255,7 +2256,7 @@ fStage_Zig(){
 	## Zig numbers a value interned off the main thread with the thread's number
 	## in the top bits, and a worker thread is whichever was free. Below 2^20 is
 	## the main thread on any machine with up to 4096 threads.
-	fId EscFGGR "stable __anon names in libzuid.a"
+	fId ddx4y "stable __anon names in libzuid.a"
 	if ! command -v nm >/dev/null 2>&1; then
 		fTestSkip "no nm"
 	else
@@ -2348,7 +2349,7 @@ fStage_Zig_Fuzz(){
 	if [[ -z "${findLine}" ]]; then
 		## A build error or a broken runner, not a find, so no one test is to blame.
 		for i in "${!fuzzIds[@]}"; do
-			fEcho_Clean "  FAIL ..: ${fuzzIds[i]} ${fuzzNames[i]}, fuzzed for ${fuzzLimit} iterations"
+			fEcho_Clean "  FAIL ${fuzzIds[i]} ${fuzzNames[i]}, fuzzed for ${fuzzLimit} iterations"
 		done
 		fThrowError "zig build test --fuzz=${fuzzLimit} exited ${exitCode}."  "${FUNCNAME[0]}"
 	fi
@@ -2358,7 +2359,7 @@ fStage_Zig_Fuzz(){
 	local failName="${findLine#*test \'}"
 	failName="${failName%%\' *}"
 	failName="${failName#*.test.}"
-	local failId="???????"
+	local failId="?????"
 	for i in "${!fuzzIds[@]}"; do
 		if [[ "${fuzzNames[i]}" == "${failName}" ]]; then failId="${fuzzIds[i]}"; fi
 	done
@@ -2422,14 +2423,14 @@ fStage_Zig_BuildStamp(){
 	## Zig 0.17.0 on macOS spins forever copying its output into a pipe, and a
 	## captured stdout is a pipe. tools/to_file.zig gives it a file instead. A
 	## Linux build never hangs, so look for the call.
-	fId Erm4m6a "no build step pipes stdout"
+	fId ddgkf "no build step pipes stdout"
 	local -r buildCode="$(grep -v '^[[:space:]]*//' "${zigDir}/build.zig" || true)"
 	if [[ "${buildCode}" == *captureStdOut* ]]; then
 		fTestFail "build.zig captures a command's stdout. zig translate-c hangs on macOS when that is a pipe; run it through tools/to_file.zig."
 	fi
 	fTestPass
 
-	fId Eq9nb3o "build with an empty SOURCE_DATE_EPOCH"
+	fId dcrga "build with an empty SOURCE_DATE_EPOCH"
 	## Its own cache, since translate-c chokes on the empty value, and a cached
 	## translation never runs it. The global cache has to be warm: clang refuses
 	## the value too, in Zig's own libunwind and libc builds, which no build.zig
@@ -2451,7 +2452,7 @@ fStage_Zig_BuildStamp(){
 	## is in every file's debug info. Both caches above are new, so each built
 	## its own to_file. __anon_ names include the compiler's thread numbers, and a
 	## builder with 1 CPU gets other ones, so a match here alone isn't enough.
-	fId EscLn6s "tools/to_file is reproducible"
+	fId ddx5r "tools/to_file is reproducible"
 	local -a toFiles=()
 	mapfile -t toFiles < <(find "${stampDir}/warm/o" "${stampDir}/cache/o" -type f \( -name to_file -o -name to_file.exe \) 2>/dev/null || true)
 	if ((${#toFiles[@]} != 2)); then
@@ -2466,7 +2467,7 @@ fStage_Zig_BuildStamp(){
 	## Zig 0.17 reuses build.zig's answers from the last run unless told not to,
 	## and it doesn't watch the environment or git. So the same cache again, with
 	## only the epoch changed. bz4zn is 1700000000 in minutes since 2000.
-	fId EsaCjhS "build number follows SOURCE_DATE_EPOCH in a warm cache"
+	fId ddwn8 "build number follows SOURCE_DATE_EPOCH in a warm cache"
 	(
 		cd "${zigDir}" || exit 1
 		SOURCE_DATE_EPOCH=1700000000 zig build "-j${buildJobs}" --cache-dir "${stampDir}/cache" --prefix "${stampDir}/again" || exit 1
@@ -2479,7 +2480,7 @@ fStage_Zig_BuildStamp(){
 
 	## bz4zn is 2023-11-14 22:13 UTC, already the 15th at UTC+14. A date fixed
 	## at build time would be the same in both.
-	fId EtaWcMt "build date is the viewer's local date"
+	fId debmw "build date is the viewer's local date"
 	local dated=""
 	dated="$(TZ=UTC0 "${stampDir}/again/bin/zuid" --version 2>&1 || true)"
 	[[ "${dated}" == *"(build bz4zn) (2023-11-14)" ]] || fTestFail "with TZ=UTC0, --version said '${dated}', not the 2023-11-14 build date."
@@ -2555,7 +2556,7 @@ fStage_Zig_CApi(){
 
 	## Shared: self-contained, so the header and -lzuid are all it needs.
 	## An rpath rather than LD_LIBRARY_PATH, which macOS does not read.
-	fId ElpGOHZ "capi_smoke.c against the shared library"
+	fId daqxb "capi_smoke.c against the shared library"
 	"${systemCc}" "${cWarn[@]}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
 		-L "${libDir}" -lzuid -Wl,-rpath,"${libDir}" -o "${buildDir}/smoke-shared" || fTestFail "did not compile."
 	"${buildDir}/smoke-shared" || fTestFail "the smoke test failed."
@@ -2564,7 +2565,7 @@ fStage_Zig_CApi(){
 	## Only the entry points are visible. The library used to export all of
 	## Wasmtime, which let any program holding one of those names displace the
 	## calls it makes internally.
-	fId Eq9gPQm "shared library exports match zuid.map"
+	fId dcrew "shared library exports match zuid.map"
 	local exportList="" exportProblem=""
 	if ((isMac)); then
 		exportList="$(nm -gU "${libDir}/libzuid.dylib" | awk '{ sub(/^_/, "", $NF); print $NF }')"
@@ -2586,12 +2587,12 @@ fStage_Zig_CApi(){
 	## macOS puts the major before the suffix, and calls the soname an install name.
 	local libName="libzuid.so" majorName="libzuid.so.${abiMajor}"
 	if ((isMac)); then libName="libzuid.dylib"; majorName="libzuid.${abiMajor}.dylib"; fi
-	fId EqA3RdB "${libName} is a symlink onto ${majorName}"
+	fId dcrhq "${libName} is a symlink onto ${majorName}"
 	if [[ ! -L "${libDir}/${libName}" || ! -e "${libDir}/${majorName}" ]]; then
 		fTestFail "build.zig's .version is what makes that chain."
 	fi
 	fTestPass
-	fId EqA3RdC "soname is ${majorName}"
+	fId dcrhr "soname is ${majorName}"
 	if ((isMac)); then
 		local -r installName="$(otool -D "${libDir}/${libName}" | sed -n '2p')"
 		if [[ "${installName}" != "@rpath/${majorName}" ]]; then
@@ -2612,7 +2613,7 @@ fStage_Zig_CApi(){
 	## names must not change what the library calls. On a Mac two-level
 	## namespace already keeps them bound inside, export list or not.
 	local -r interposeSrc="${zigDir}/lib/test/capi_interpose.c"
-	fId Eq9gPQn "caller's own Wasmtime name doesn't clash"
+	fId dcrex "caller's own Wasmtime name doesn't clash"
 	if [[ -f "${interposeSrc}" ]]; then
 		"${systemCc}" "${cWarn[@]}" -I "${zigDir}/zig-out/include" "${interposeSrc}" \
 			-L "${libDir}" -lzuid -Wl,-rpath,"${libDir}" -o "${buildDir}/interpose" || fTestFail "did not compile."
@@ -2625,7 +2626,7 @@ fStage_Zig_CApi(){
 	## Static: the consumer supplies wasmtime and the system libraries itself.
 	## No -lunwind here on purpose - libgcc already provides __register_frame,
 	## and the header says so.
-	fId ElpGOHa "capi_smoke.c against the static library"
+	fId daqxc "capi_smoke.c against the static library"
 	"${systemCc}" "${cWarn[@]}" -I "${zigDir}/zig-out/include" "${smokeSrc}" \
 		"${zigDir}/zig-out/lib/libzuid.a" "${zigDir}/vendor/wasmtime/lib/libwasmtime.a" \
 		-lpthread -ldl -lm -o "${buildDir}/smoke-static" || fTestFail "did not link."
@@ -2638,7 +2639,7 @@ fStage_Zig_CApi(){
 	## itself, where no linker looks, and the release had no separate copy,
 	## so this is the check that would have caught it. Deliberately not pointed
 	## at vendor/.
-	fId Eq9hexE "capi_smoke.c with the header's link line"
+	fId dcrez "capi_smoke.c with the header's link line"
 	local -r relTree="${buildDir}/release"
 	mkdir -p "${relTree}/lib" "${relTree}/include"
 	cp "${zigDir}/zig-out/include/zuid.h"                  "${relTree}/include/"
@@ -2654,7 +2655,7 @@ fStage_Zig_CApi(){
 	fTestPass
 
 	## And nothing nested, since that is what made the archive unusable.
-	fId Eq9hexF "no nested archive in libzuid.a"
+	fId dcrf0 "no nested archive in libzuid.a"
 	if ar t "${zigDir}/zig-out/lib/libzuid.a" | grep -q '\.a$'; then
 		fTestFail "libzuid.a has another archive inside it. Only its own objects belong there."
 	fi
@@ -2685,17 +2686,17 @@ fStage_Zig_CChecks(){
 	buildDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${buildDir}")
 
-	fId EtAHpAd "capi_smoke.c shared, sanitized"
+	fId de5ay "capi_smoke.c shared, sanitized"
 	fCCheck "${buildDir}" "it did not build, or a sanitizer reported something. What it said is above." \
 		bash "${cChecks}" sanitize smoke-shared "${cWarn[@]}" -I "${incDir}" "${testDir}/capi_smoke.c" \
 		-L "${libDir}" -lzuid -Wl,-rpath,"${libDir}"
 
-	fId EtAHpAe "capi_smoke.c static, sanitized"
+	fId de5az "capi_smoke.c static, sanitized"
 	fCCheck "${buildDir}" "it did not build, or a sanitizer reported something. What it said is above." \
 		bash "${cChecks}" sanitize smoke-static "${cWarn[@]}" -I "${incDir}" "${testDir}/capi_smoke.c" \
 		"${libDir}/libzuid.a" "${zigDir}/vendor/wasmtime/lib/libwasmtime.a" -lpthread -ldl -lm
 
-	fId EtAHpAf "capi_interpose.c sanitized"
+	fId de5b0 "capi_interpose.c sanitized"
 	if [[ -f "${testDir}/capi_interpose.c" ]]; then
 		fCCheck "${buildDir}" "it did not build, or a sanitizer reported something. What it said is above." \
 			bash "${cChecks}" sanitize interpose "${cWarn[@]}" -I "${incDir}" "${testDir}/capi_interpose.c" \
@@ -2708,12 +2709,12 @@ fStage_Zig_CChecks(){
 	local -a cFiles=()
 	mapfile -t cFiles < <(git -C "${repoRoot}" ls-files --full-name '*.c' | sed "s|^|${repoRoot}/|")
 
-	fId EtAHpAg "gcc -fanalyzer finds nothing"
+	fId de5b1 "gcc -fanalyzer finds nothing"
 	if ((${#cFiles[@]} == 0)); then fTestFail "git ls-files found no .c files, so this would analyze nothing."; fi
 	fCCheck "${buildDir}" "the analyzer found something. What it said is above." \
 		bash "${cChecks}" gcc-analyzer "${cWarn[@]}" -I "${zigDir}/lib/include" -- "${cFiles[@]}"
 
-	fId EtAHpAh "clang analyzer is clean"
+	fId de5b2 "clang analyzer is clean"
 	fCCheck "${buildDir}" "the analyzer found something. What it said is above." \
 		bash "${cChecks}" clang-analyzer "${cWarn[@]}" -I "${zigDir}/lib/include" -- "${cFiles[@]}"
 
@@ -2806,25 +2807,25 @@ fLeakcheck_C(){  ## artifact dir
 	_scratchDirs+=("${buildDir}")
 
 	## heaptrack's data file is kept only on a failure. It runs to about 25 MB.
-	fId EtAUMRB "C call soak under heaptrack"
+	fId de5ch "C call soak under heaptrack"
 	fCCheck "${buildDir}" "the heap grew, or a call failed. What it said is above, and heaptrack's report is in ${leakDir}." \
 		bash "${cChecks}" soak-calls soak "${leakDir}/c-soak-report_${runStamp}.txt" "${leakDir}/c-soak-data_${runStamp}.zst" \
 		"${cWarn[@]}" -I "${incDir}" "${soakSrc}" -L "${libDir}" -lzuid -Wl,-rpath,"${libDir}"
 
 	## A missing zuid_free shows here, at about 13 MB a round.
-	fId EtAUMRE "C context churn doesn't leak"
+	fId de5cm "C context churn doesn't leak"
 	fCCheck "${buildDir}" "the heap grew, or a call failed. What it said is above." \
 		bash "${cChecks}" soak-contexts soak "${cWarn[@]}" -I "${incDir}" "${soakSrc}" -L "${libDir}" -lzuid -Wl,-rpath,"${libDir}"
 
 	## No first-party .c file calls into another yet, so on its own the next
 	## check can't show it follows calls across files. This one does.
-	fId EtAUMRC "cross-file analyzer catches a planted bug"
+	fId de5cj "cross-file analyzer catches a planted bug"
 	fCCheck "${buildDir}" "the cross-file analysis isn't following calls between files. What it said is above." \
 		bash "${cChecks}" ctu-canary
 
 	local -a cFiles=()
 	mapfile -t cFiles < <(git -C "${repoRoot}" ls-files --full-name '*.c' | sed "s|^|${repoRoot}/|")
-	fId EtAUMRD "cross-file analysis of our C"
+	fId de5ck "cross-file analysis of our C"
 	if ((${#cFiles[@]} == 0)); then fTestFail "git ls-files found no .c files, so this would analyze nothing."; fi
 	fCCheck "${buildDir}" "the analyzer found something. What it said is above." \
 		bash "${cChecks}" clang-ctu "${cWarn[@]}" -I "${zigDir}/lib/include" -- "${cFiles[@]}"
@@ -2853,7 +2854,7 @@ fLeakcheck_CodeQL(){  ## artifact dir
 	_scratchDirs+=("${workDir}")
 
 	if ((doGo)); then
-		fId EtAUMRI "CodeQL on Go"
+		fId de5cr "CodeQL on Go"
 		fCCheck "${workDir}" "CodeQL found something, or didn't see every file compile. What it said is above." \
 			bash "${runner}" go "${goDir}" "${workDir}/go" "${leakDir}/codeql-go_${runStamp}.sarif" "${reactorPackage}"
 	fi
@@ -2861,7 +2862,7 @@ fLeakcheck_CodeQL(){  ## artifact dir
 	if ((doZig)); then
 		local -a cFiles=()
 		mapfile -t cFiles < <(git -C "${repoRoot}" ls-files --full-name '*.c' | sed "s|^|${repoRoot}/|")
-		fId EtAUMRJ "CodeQL on C"
+		fId de5cs "CodeQL on C"
 		if ((${#cFiles[@]} == 0)); then fTestFail "git ls-files found no .c files, so this would analyze nothing."; fi
 		fCCheck "${workDir}" "CodeQL found something, or didn't see every file compile. What it said is above." \
 			bash "${runner}" c "${repoRoot}" "${workDir}/c" "${leakDir}/codeql-c_${runStamp}.sarif" \
@@ -3030,7 +3031,7 @@ fStage_Package(){
 
 	## Only a build for a release leaves the date off. The publish stage reads
 	## the build number from --version, and the Windows resource is held to it.
-	fId EtaWcMu "release --version has no build date"
+	fId debmx "release --version has no build date"
 	local releaseSaid=""
 	if ! releaseSaid="$("${release}" --version 2>/dev/null)"; then
 		fTestSkip "this host can't run ${release##*/}"
@@ -3047,7 +3048,7 @@ fStage_Package(){
 	_scratchDirs+=("${thinDir}")
 	local -r macSlices=("x86_64" "arm64")
 
-	fId Erfhegq "macOS release is universal"
+	fId ddf2d "macOS release is universal"
 	if [[ "${osLabel}" != "darwin" ]]; then
 		fTestSkip "macOS only"
 	else
@@ -3073,7 +3074,7 @@ fStage_Package(){
 
 	local floorName="x86-64-v1" floorKind=""
 	if [[ "${osLabel}" == "darwin" ]]; then floorName="Penryn"; floorKind="penryn"; fi
-	fId ErbFB7B "CPU floor is ${floorName}"
+	fId dde03 "CPU floor is ${floorName}"
 	if ((! haveObjdump)); then
 		fTestSkip "no objdump"
 	elif [[ "${osLabel}" == "linux" && "$(uname -m)" != "x86_64" && "$(objdump --help 2>/dev/null || true)" != *elf64-x86-64* ]]; then
@@ -3097,7 +3098,7 @@ fStage_Package(){
 
 	## Matches package.bash.
 	local -r glibcFloor="2.28"
-	fId ErbFB7C "glibc ${glibcFloor} at most"
+	fId dde04 "glibc ${glibcFloor} at most"
 	if [[ "${osLabel}" != "linux" ]]; then
 		fTestSkip "Linux only"
 	elif ((! haveObjdump)); then
@@ -3124,7 +3125,7 @@ fStage_Package(){
 	fStage_Package_Again "${thinDir}" "${packageVersion}"
 
 	local -r macFloor="13.0"
-	fId ErbFB7D "asks for macOS ${macFloor}"
+	fId dde05 "asks for macOS ${macFloor}"
 	if [[ "${osLabel}" != "darwin" ]]; then
 		fTestSkip "macOS only"
 	else
@@ -3142,7 +3143,7 @@ fStage_Package(){
 	## build.zig links the macOS dylib a second time, for the export list. That
 	## link has to keep the rest: the install name, the macOS floor, and the
 	## ad-hoc signature an arm64 Mac needs to load it at all.
-	fId ErfrKRQ "dylib slices: exports, install name, floor, signature"
+	fId ddf3k "dylib slices: exports, install name, floor, signature"
 	if [[ "${osLabel}" != "darwin" ]]; then
 		fTestSkip "macOS only"
 	else
@@ -3200,7 +3201,7 @@ fStage_Package_MacRun(){  ## scratch dir, release, version
 		canRun=0
 		if ((isMac)) && arch -"${slice}" /usr/bin/true 2>/dev/null; then canRun=1; fi
 
-		fId "${slice}" x86_64=EtaL127 arm64=EtaL128 "macOS release, ${slice} slice runs"
+		fId "${slice}" x86_64=debke arm64=debkf "macOS release, ${slice} slice runs"
 		if ((! isMac)); then
 			fTestSkip "macOS only"
 		elif ((! canRun)); then
@@ -3214,7 +3215,7 @@ fStage_Package_MacRun(){  ## scratch dir, release, version
 		fi
 
 		for linkKind in static shared; do
-			fId "${slice}-${linkKind}" x86_64-static=EtaL129 x86_64-shared=EtaL12A arm64-static=EtaL12B arm64-shared=EtaL12C "capi_smoke.c, macOS ${slice} ${linkKind}"
+			fId "${slice}-${linkKind}" x86_64-static=debkg x86_64-shared=debkh arm64-static=debkj arm64-shared=debkk "capi_smoke.c, macOS ${slice} ${linkKind}"
 			if ((! isMac)); then fTestSkip "macOS only"; continue; fi
 			[[ -n "${macLib}" ]] || fTestFail "the tarball has no libzuid.a."
 			## Named as files, since -lzuid takes the dylib beside the archive.
@@ -3262,7 +3263,7 @@ fStage_Package_OldCpu(){  ## x86_64 release, scratch dir
 			pnr) chipName="Core 2 Duo (Penryn)" ;;
 			p4p) chipName="Pentium 4 (Prescott)" ;;
 		esac
-		fId "${chip}" pnr=EsZyWyD p4p=EsZyWyE "runs on an emulated ${chipName}"
+		fId "${chip}" pnr=ddwkf p4p=ddwkg "runs on an emulated ${chipName}"
 		if [[ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]]; then
 			fTestSkip "Linux x86_64 only"
 			continue
@@ -3488,7 +3489,7 @@ fStage_Package_Windows(){  ## scratch dir
 
 		## x86_64 is one file and gets a bare copy. arm64 needs wasmtime.dll
 		## beside it, so a bare copy would not run.
-		fId "${winArch}" x86_64=ErmM9mS arm64=ErmS0zE "Windows ${winArch} zip contents"
+		fId "${winArch}" x86_64=ddgnm arm64=ddgpe "Windows ${winArch} zip contents"
 		if ((! isLinux)); then
 			fTestSkip "Linux only"
 		elif ((! haveZip)); then
@@ -3514,7 +3515,7 @@ fStage_Package_Windows(){  ## scratch dir
 
 		## What Explorer's Properties tab shows. It has to say what --version and
 		## --about say, in ASCII, with no time stamp and no ID in the copyright.
-		fId "${winArch}" x86_64=EtBCCRm arm64=EtBCCRn "Windows ${winArch} version resource"
+		fId "${winArch}" x86_64=de5hy arm64=de5hz "Windows ${winArch} version resource"
 		if ((! isLinux)); then
 			fTestSkip "Linux only"
 		elif ((! haveZip)); then
@@ -3557,7 +3558,7 @@ Translation 0409 04b0"
 		## apply. Wasmtime's own objects mark four debugger hooks, which come
 		## along on x86_64. Nothing can displace them, since Windows binds a
 		## DLL's calls inside it.
-		fId "${winArch}" x86_64=ErmM9mT arm64=ErmS0zF "Windows ${winArch} zuid.dll exports"
+		fId "${winArch}" x86_64=ddgnn arm64=ddgpf "Windows ${winArch} zuid.dll exports"
 		if ((! isLinux)); then
 			fTestSkip "Linux only"
 		elif ((! haveZip)); then
@@ -3575,7 +3576,7 @@ Translation 0409 04b0"
 
 		## Every DLL a program or library loads has to be one Windows has or one
 		## in the zip, and one in the zip has to export what is asked of it.
-		fId "${winArch}" x86_64=ErmS0zC arm64=ErmS0zD "Windows ${winArch} imports resolve"
+		fId "${winArch}" x86_64=ddgpc arm64=ddgpd "Windows ${winArch} imports resolve"
 		if ((! isLinux)); then
 			fTestSkip "Linux only"
 		elif ((! haveZip)); then
@@ -3634,7 +3635,7 @@ Translation 0409 04b0"
 		for link in "${links[@]}"; do
 			linkKind="${link%%:*}"
 			read -r -a linkFlags <<< "${link#*:}"
-			fId "${winArch}-${linkKind}" x86_64-static=ErmM9mU x86_64-shared=ErmM9mV arm64-static=ErmS0zG arm64-shared=ErmS0zH "capi_smoke.c, Windows ${winArch} ${linkKind}"
+			fId "${winArch}-${linkKind}" x86_64-static=ddgnp x86_64-shared=ddgnq arm64-static=ddgpg arm64-shared=ddgph "capi_smoke.c, Windows ${winArch} ${linkKind}"
 			if ((! isLinux)); then
 				fTestSkip "Linux only"
 				continue
@@ -3656,7 +3657,7 @@ Translation 0409 04b0"
 		done
 	done
 
-	fId ErmS0zB "Windows x86_64 is plain x86-64"
+	fId ddgpb "Windows x86_64 is plain x86-64"
 	if ((! isLinux)); then
 		fTestSkip "Linux only"
 	elif ((! haveZip)); then
@@ -3707,7 +3708,7 @@ fStage_Package_FreeBSD(){  ## scratch dir
 	## Zig leaves the ELF header's OS/ABI at System V, so that says nothing.
 	## FreeBSD knows its programs by their ABI note and loader, and a shared
 	## library by the libc it needs: libc.so.7, where Linux has libc.so.6.
-	fId ErlUUiQ "FreeBSD build and tarball"
+	fId ddgey "FreeBSD build and tarball"
 	if ((! isLinux)); then
 		fTestSkip "Linux only"
 	elif ((! haveReadelf)); then
@@ -3734,7 +3735,7 @@ fStage_Package_FreeBSD(){  ## scratch dir
 		fTestPass
 	fi
 
-	fId ErlUUiR "FreeBSD is plain x86-64"
+	fId ddgez "FreeBSD is plain x86-64"
 	if ((! isLinux)); then
 		fTestSkip "Linux only"
 	elif ((! haveObjdump)); then
@@ -3754,7 +3755,7 @@ fStage_Package_FreeBSD(){  ## scratch dir
 	## FreeBSD versions libc's symbols by release: FBSD_1.7 is 14, FBSD_1.8 is
 	## 15. A symbol from a newer one would keep the release off 14.
 	local -r fbsdFloor="1.7"
-	fId ErlUUiS "FreeBSD libc floor FBSD_${fbsdFloor}"
+	fId ddgf0 "FreeBSD libc floor FBSD_${fbsdFloor}"
 	if ((! isLinux)); then
 		fTestSkip "Linux only"
 	elif ((! haveReadelf)); then
@@ -3785,7 +3786,7 @@ fStage_Package_FreeBSD(){  ## scratch dir
 	for link in "${links[@]}"; do
 		linkKind="${link%%:*}"
 		read -r -a linkFlags <<< "${link#*:}"
-		fId "${linkKind}" static=ErlUUiT shared=ErlUUiU "capi_smoke.c, FreeBSD ${linkKind}"
+		fId "${linkKind}" static=ddgf1 shared=ddgf2 "capi_smoke.c, FreeBSD ${linkKind}"
 		if ((! isLinux)); then
 			fTestSkip "Linux only"
 			continue
@@ -3840,7 +3841,7 @@ fStage_Package_Stripped(){  ## scratch dir
 		grepArgs+=(-e "${HOME}")
 	fi
 
-	fId EsZni4i "no local paths or debug info in the release"
+	fId ddwj4 "no local paths or debug info in the release"
 	if [[ -z "${lister}" ]]; then
 		fTestSkip "no objdump"
 		return 0
@@ -3899,7 +3900,7 @@ fStage_Package_Stripped(){  ## scratch dir
 		if [[ -z "${readobj}" ]] && command -v "llvm-readobj${version}" >/dev/null 2>&1; then readobj="llvm-readobj${version}"; fi
 		if [[ -z "${pdbutil}" ]] && command -v "llvm-pdbutil${version}" >/dev/null 2>&1; then pdbutil="llvm-pdbutil${version}"; fi
 	done
-	fId EsZni4j "debug info in dist/debug/"
+	fId ddwj5 "debug info in dist/debug/"
 	problems=()
 	local release="" debugRoot="" debugFile="" sub="" arch="" want="" got=""
 	local -a debugRoots=()
@@ -3972,7 +3973,7 @@ fStage_Package_Stripped(){  ## scratch dir
 
 	## The backup archives dist/ on every run, so an ELF .debug file keeps only
 	## DWARF, packed. A whole unstripped libzuid.a went there until 20261013.
-	fId EsbEsag "debug files are packed DWARF only"
+	fId ddwx7 "debug files are packed DWARF only"
 	problems=()
 	checked=0
 	local readelf=""
@@ -4014,7 +4015,7 @@ fStage_Package_Again(){  ## scratch dir, version
 	local -r distDir="${repoRoot}/dist" againDir="${scratchDir}/again"
 	local -r packager="${utilityDir}/package.bash"
 
-	fId Esa8LVS "repackaging gives the same bytes"
+	fId ddwmp "repackaging gives the same bytes"
 	local how="umask 077"
 	local -a runner=(bash -c 'umask 077 && exec "$@"' again)
 	if unshare -r -u true 2>/dev/null; then
@@ -4047,7 +4048,7 @@ fStage_Package_Again(){  ## scratch dir, version
 	## nfpm's version is in every .deb and .rpm it writes, so a host on another
 	## one makes packages that differ from the container's. Not fatal: a clone
 	## elsewhere may have any nfpm at all.
-	fId EsbF9Jy "host nfpm matches the pin"
+	fId ddwx8 "host nfpm matches the pin"
 	local pinned="" have=""
 	pinned="$(sed -n 's/^ARG NFPM_VER=//p' "${repoRoot}/cicd/container/Dockerfile" || true)"
 	if ! command -v nfpm >/dev/null 2>&1; then fTestSkip "no nfpm"; return 0; fi
@@ -4087,7 +4088,7 @@ fStage_Package_Licenses(){  ## scratch dir
 	local archive="" kind="" arch="" file="" found="" text="" tree="" packageList=""
 	for archive in linux-x86_64 linux-arm64 freebsd-x86_64 darwin-universal deb-x86_64 deb-arm64 rpm-x86_64 rpm-arm64; do
 		kind="${archive%%-*}"; arch="${archive#*-}"
-		fId "${archive}" linux-x86_64=ErmYT8O linux-arm64=ErmYT8P freebsd-x86_64=ErmYT8Q darwin-universal=ErmYT8R deb-x86_64=ErmYT8S deb-arm64=ErmYT8T rpm-x86_64=ErmYT8U rpm-arm64=ErmYT8V "Wasmtime license in ${archive}"
+		fId "${archive}" linux-x86_64=ddgq4 linux-arm64=ddgq5 freebsd-x86_64=ddgq6 darwin-universal=ddgq7 deb-x86_64=ddgq8 deb-arm64=ddgq9 rpm-x86_64=ddgqa rpm-arm64=ddgqb "Wasmtime license in ${archive}"
 		case "${kind}" in
 			darwin) if ((! isMac));   then fTestSkip "macOS only"; continue; fi ;;
 			*)      if ((! isLinux)); then fTestSkip "Linux only"; continue; fi ;;
@@ -4158,7 +4159,7 @@ fStage_Package_Arm64(){  ## scratch dir, glibc floor
 		armLib="$(find "${armTree}" -mindepth 2 -maxdepth 2 -type d -name lib -print -quit)"
 	fi
 
-	fId ErgjCkT "Linux arm64 build and packages"
+	fId ddfa9 "Linux arm64 build and packages"
 	if ((! isLinux)); then
 		fTestSkip "Linux only"
 	elif ((! haveReadelf)); then
@@ -4204,7 +4205,7 @@ fStage_Package_Arm64(){  ## scratch dir, glibc floor
 	if [[ -z "${armObjdump}" ]] && ((haveObjdump)) && [[ "$(objdump --help 2>/dev/null || true)" == *elf64-littleaarch64* ]]; then
 		armObjdump="objdump"
 	fi
-	fId ErgjCkU "Linux arm64 is plain armv8-a"
+	fId ddfaa "Linux arm64 is plain armv8-a"
 	if ((! isLinux)); then
 		fTestSkip "Linux only"
 	elif [[ -z "${armObjdump}" ]]; then
@@ -4229,7 +4230,7 @@ fStage_Package_Arm64(){  ## scratch dir, glibc floor
 	fi
 
 	## readelf, not objdump: GNU objdump on another architecture may not read it.
-	fId ErgjCkV "Linux arm64 needs glibc ${glibcFloor} at most"
+	fId ddfab "Linux arm64 needs glibc ${glibcFloor} at most"
 	if ((! isLinux)); then
 		fTestSkip "Linux only"
 	elif ((! haveReadelf)); then
@@ -4262,7 +4263,7 @@ fStage_Package_Arm64(){  ## scratch dir, glibc floor
 	for link in "${links[@]}"; do
 		linkKind="${link%%:*}"
 		read -r -a linkFlags <<< "${link#*:}"
-		fId "${linkKind}" static=ErgjCkW shared=ErgjCkX "capi_smoke.c, Linux arm64 ${linkKind}"
+		fId "${linkKind}" static=ddfac shared=ddfad "capi_smoke.c, Linux arm64 ${linkKind}"
 		if ((! isLinux)); then
 			fTestSkip "Linux only"
 			continue
