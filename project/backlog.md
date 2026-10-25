@@ -434,22 +434,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: round1025
 	- Commit: 3938bf3
 
-- Etj0NB7 fails in the image, which has no `ps`.
-	- ID: 2026102508540624
-	- Type: Bug
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261025-085406
-	- Opened by: JC
-	- Related IDs: 2026102416233102, 2026102416233104
-	- Target OS: Linux
-	- Steps to reproduce [Bug]:
-		- Run `cicd/cicd.bash --backlog-run-quick --only go` where docker answers.
-	- Incorrect behavior [Bug]: The Pipeline step fails in the image on Etj0NB7, "ps: command not found", so the run stops there.
-	- Expected behavior [Bug]: It passes in the image, as on the host.
-	- Reproduced [Bug]: Yes, 20261025, on b23, twice, while working 2026102416233104.
-	- Possible cause [Bug]: The test reads the nice value with `ps`, and the image has no procps. Preflight's own priority line uses `ps` too, with a fallback to nothing.
-
 - CICD reset: other hosts and VMs
 	- ID: 2026102416233100
 	- Type: Enhancement
@@ -658,6 +642,22 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Decisions:
 		- 20261024: The proposal above, as asked. Its C context change goes in design.md beside the old rule.
 
+- Comments and notes say the image has no `ionice`, but it does.
+	- ID: 2026102509054739
+	- Type: Bug
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261025-090547
+	- Opened by: JC
+	- Related IDs: 2026102416233102, 2026102508540624
+	- Target OS: Linux
+	- Steps to reproduce [Bug]:
+		- Run `command -v ionice` in `zuid-cicd:8029eec721c8`.
+	- Incorrect behavior [Bug]: It's `/usr/bin/ionice`, from util-linux. `fInImage` in `cicd.bash` says "The image has no ionice" and runs only `nice -n 19` inside, and 2026102416233102's log says the same.
+	- Expected behavior [Bug]: Either the containers also get `ionice -c 3` inside, or the comment says why not.
+	- Reproduced [Bug]: Yes, 20261025, on b23. Preflight inside the image printed "IO idle".
+	- Possible cause [Bug]: The comment was written from an assumption, not a check.
+
 - The FreeBSD release has no `.pkg`.
 	- ID: 2026101410500001
 	- Type: Enhancement
@@ -686,6 +686,30 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- A system install leaves other users' caches alone and says where they are.
 	- Progress log:
 		- 20261024: Seen on b26, after an install, one run and an uninstall.
+
+- Etj0NB7 fails in the image, which has no `ps`.
+	- ID: 2026102508540624
+	- Type: Bug
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-085406
+	- Opened by: JC
+	- Related IDs: 2026102416233102, 2026102416233104, 2026102509054739
+	- Target OS: Linux
+	- Steps to reproduce [Bug]:
+		- Run `cicd/cicd.bash --backlog-run-quick --only go` where docker answers.
+	- Incorrect behavior [Bug]: The Pipeline step fails in the image on Etj0NB7, "ps: command not found", so the run stops there.
+	- Expected behavior [Bug]: It passes in the image, as on the host.
+	- Reproduced [Bug]: Yes, 20261025, on b23, twice, while working 2026102416233104.
+	- Possible cause [Bug]: The test reads the nice value with `ps`, and the image has no procps. Preflight's own priority line uses `ps` too, with a fallback to nothing.
+	- Actual cause [Bug]:
+		- As above. The image has `renice`, `ionice` and `nice`, but no `ps`, so the renice worked and only the reading of it failed. Preflight in the image printed a blank nice value.
+	- Actual fix [Bug]: `fNiceOf` in `cicd.bash` reads the nice value with `ps` where there is one, and from `/proc/<pid>/stat` where there isn't. Preflight and Etj0NB7 both use it. Etj0NB7 also checks the `/proc` branch wherever `/proc` exists, with `ps` hidden. Preflight says `unknown` rather than nothing when neither works.
+	- Swept: every `ps` in `cicd/` and `.github/`. The only others are `docker ps`, and a stub of it in `pipeline-test.bash`.
+	- Branch: round1025-fix
+	- Test case: Etj0NB7. It failed in the image before the fix, "ps: command not found", and passes after. With the `/proc` field index broken by hand it fails on the host too, "19|39|idle".
+	- Verified: 20261025, `pipeline-test.bash` 128 of 128 on the host and in `zuid-cicd:8029eec721c8`. `cicd.bash --backlog-run-quick --only go` in the image passed, steps 1 to 14 of 14, with "Priority ...: nice 19, IO idle" from inside the image, at load 44. shellcheck, `test-ids.py check` and the scrub are clean.
+	- Closed: 20261025-090547
 
 - README and GitHub About wording.
 	- ID: 2026101410495988

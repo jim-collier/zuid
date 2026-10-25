@@ -1296,9 +1296,9 @@ fPreflight(){
 	fi
 	fJobs_Line
 	local niceNow="" ioNow=""
-	niceNow="$(ps -o nice= -p "$$" 2>/dev/null || true)"
+	niceNow="$(fNiceOf "$$")"
 	if command -v ionice &>/dev/null; then ioNow="$(ionice -p "$$" 2>/dev/null || true)"; fi
-	fEcho_Clean "Priority ...: nice ${niceNow// /}${ioNow:+, IO ${ioNow%%:*}}"
+	fEcho_Clean "Priority ...: nice ${niceNow:-unknown}${ioNow:+, IO ${ioNow%%:*}}"
 
 	if ((doGo)); then
 		_fMustBeInPath go
@@ -4735,6 +4735,21 @@ fLoadAvg(){
 fLowPriority(){
 	renice 19 -p "$$" >/dev/null 2>&1 || true
 	if command -v ionice &>/dev/null; then ionice -c 3 -p "$$" >/dev/null 2>&1 || true; fi
+}
+
+## The image has no ps, so Linux without it reads /proc. The command name in
+## stat can hold spaces and parens, hence cutting at the last ") ".
+fNiceOf(){  ## pid
+	local stat=""
+	if command -v ps &>/dev/null; then
+		stat="$(ps -o nice= -p "$1" 2>/dev/null || true)"
+		printf '%s\n' "${stat// /}"
+	elif [[ -r "/proc/$1/stat" ]]; then
+		stat="$(< "/proc/$1/stat")"
+		local -a fields=()
+		read -r -a fields <<< "${stat##*) }"
+		printf '%s\n' "${fields[16]:-}"
+	fi
 }
 
 
