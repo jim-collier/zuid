@@ -441,10 +441,9 @@ fMain(){
 	local -r runStamp="$(fRunStamp)"
 	## Becomes the run folder's name with 2026102416233107.
 	local -r runName="${runStamp}"
-	fSection_Init
 
 	## No single stage gets the whole machine. fJobs works the counts out, here
-	## and again from fSection before each step, since the load moves.
+	## and again from fStep before each step, since the load moves.
 	local -i cpuCount=1 buildJobs=1 hardJobs=1 machineBusy=0
 	local    loadNow=""
 	fJobs
@@ -534,42 +533,168 @@ fMain(){
 	if ((! inContainer)); then fStartRunLog; fi
 	if [[ -n "${aliasNote}" ]]; then fEcho_Clean; fEcho_Clean "${aliasNote}"; fi
 
-	## Plain 'if', not '&&' - a trailing false in a function trips the ERR trap.
-	if ((doSync));                 then fStage_Sync;      fi
-	## After the sync, which can bring a new Dockerfile.
-	fContainer_Pick
-	readonly doContainer doPackage packageSkipWhy imageSkipWhy
-	if ((doContainer)); then
-		fStage_Container
-		fStage_Shell_Bash32
+	## The image or not is picked again by the Container step, after the sync,
+	## which can bring a new Dockerfile. This guess is only for the count.
+	local -i planContainer="${doContainer}"
+	if ((! inContainer)) && [[ "${containerMode}" == "auto" ]] && [[ -z "$(fContainer_Where)" ]]; then planContainer=1; fi
+	fSteps_Plan
+	## The run in the image numbers its steps on from the outside's, which
+	## has listed the ones off and says when it's done.
+	local -i stepsHanded=0
+	if ((inContainer)) && [[ "${ZUID_STEP_FIRST:-}" =~ ^[0-9]{1,4}$ && "${ZUID_STEP_TOTAL:-}" =~ ^[0-9]{1,4}$ ]]; then
+		_stepAt=$((10#${ZUID_STEP_FIRST})); _stepTotal=$((10#${ZUID_STEP_TOTAL})); stepsHanded=1
 	else
-		fPreflight
-		fStage_Shell
-		if ((doGo));                   then fStage_Go;        fi
-		if ((doZig));                  then fStage_Zig;       fi
-		if ((doCross)) && ((doGo));    then fStage_Go_Cross;  fi
-		if ((doLeakcheck));            then fStage_Leakcheck; fi
-		if ((doProfile));              then fStage_Profile;   fi
+		fSteps_Print
 	fi
-	## The demo draws with this machine's fonts, so a container never renders it.
-	if ((doDemo)) && ((! inContainer)); then fStage_Demo; fi
-	if ((doPackage)) && ((! doContainer)); then fStage_Package; fi
-	if [[ -n "${packageSkipWhy}" ]]; then fEcho_Clean; fEcho_Clean "Package ....: skipped, ${packageSkipWhy}"; fi
-	## After the last stage that runs Zig. With the image, the run inside does it.
-	if ((doZig)) && ((! doContainer)); then fZigCache_Tidy; fi
-	## Only once the run's image has passed, since older tags go then.
-	fContainer_Tidy
-	if ((doPublish));              then fStage_Publish;   fi
-	if ((doZig)) && ((doDogfood)); then fStage_Dogfood;   fi
-	if ((doBackup));               then fStage_Backup;    fi
-	if ((backupInWorktree));       then fEcho_Clean; fEcho_Clean "Backup .....: skipped in a linked worktree"; fi
-	if ((doCommit));               then fStage_Commit;    fi
-	if ((doPush));                 then fStage_Push;      fi
+	fSteps
+	((! stepsHanded)) || return 0
 
 	fEcho_Clean
 	fEcho "Passed."
 	fEcho_Clean
 
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Every step, in order, and the one place that says which run. It goes
+## through once to plan, so each step knows its number and the total and the
+## ones turned off are listed first, then again to run them.
+## Plain 'if', not '&&' - a trailing false in a function trips the ERR trap.
+fSteps(){
+
+	local quickWhy="--quick"; if ((doGate)); then quickWhy="${gateFlag}"; fi
+	local inImage=0
+	if ((doContainer)) || { ((_stepPlanning)) && ((planContainer)); }; then inImage=1; fi
+
+	if ((doSync)); then fStep "Remote sync" fStage_Sync; else fStep_Off "Remote sync" "${gateFlag:---no-sync}"; fi
+	if ((! inContainer)); then fStep "Container" fContainer_PickStep; fi
+	## The pick may have fallen back to this machine.
+	if ((! _stepPlanning)); then inImage="${doContainer}"; fi
+
+	if ((inImage)); then
+		## The cicd.bash in the image runs these, and numbers them the same.
+		if ((! _stepPlanning)); then fStage_Container; fi
+		_stepElsewhere=1
+		fSteps_Checks
+		if fSteps_Packages; then fStep "Package" fStage_Package; fi
+		_stepElsewhere=0
+		fStep "Installers: bash 3.2" fStage_Shell_Bash32
+		fSteps_Scrub
+	else
+		fSteps_Checks
+	fi
+
+	## The demo draws with this machine's fonts, so a container never renders it.
+	if ((! inContainer)); then
+		if ((doDemo)); then fStep "Demo" fStage_Demo
+		elif ((doQuick)); then fStep_Off "Demo" "${quickWhy}"
+		else fStep_Off "Demo" "${gateFlag:---no-demo}"; fi
+	fi
+	if ((! inImage)) && fSteps_Packages; then fStep "Package" fStage_Package; fi
+	if ! fSteps_Packages; then
+		local packageWhy="${packageSkipWhy}"
+		if   [[ -n "${packageWhy}" ]]; then :
+		elif ((noPackage)); then packageWhy="--no-package"
+		elif [[ "${onlyToolchain}" == "go" ]]; then packageWhy="--only go"
+		else packageWhy="${quickWhy}, unless --package"; fi
+		fStep_Off "Package" "${packageWhy}"
+	fi
+
+	if ((! _stepPlanning)); then
+		## After the last stage that runs Zig. With the image, the run inside does it.
+		if ((doZig)) && ((! doContainer)); then fZigCache_Tidy; fi
+		## Only once the run's image has passed, since older tags go then.
+		fContainer_Tidy
+	fi
+
+	if ((inContainer)); then return 0; fi
+	if ((doPublish)); then fStep "Publish" fStage_Publish; else fStep_Off "Publish" "only with --publish"; fi
+	if ((doZig)) && ((doDogfood)); then fStep "Dogfood" fStage_Dogfood
+	elif ((! doZig)); then fStep_Off "Dogfood" "--only go"
+	elif ((doGate)) || ((doFullGate)); then fStep_Off "Dogfood" "${gateFlag}"
+	elif ((doQuick)); then fStep_Off "Dogfood" "--quick, unless --dogfood"
+	else fStep_Off "Dogfood" "--no-dogfood"; fi
+	if ((doBackup)); then fStep "Backup and publish" fStage_Backup
+	elif ((backupInWorktree)); then fStep_Off "Backup and publish" "a linked worktree"
+	elif ((doGate)) || ((doFullGate)); then fStep_Off "Backup and publish" "${gateFlag}"
+	elif ((commitAsked)) || ((doPush)); then fStep_Off "Backup and publish" "--commit or --push"
+	else fStep_Off "Backup and publish" "--no-backup"; fi
+	if ((doCommit)); then fStep "Commit" fStage_Commit; else fStep_Off "Commit" "only with --commit"; fi
+	if ((doPush)); then fStep "Push" fStage_Push; else fStep_Off "Push" "only with --push"; fi
+
+}
+
+
+## Preflight through profile, here or in the image.
+fSteps_Checks(){
+
+	fStep "Preflight"                         fPreflight
+	fStep "Bash: lint"                        fStage_Shell
+	fStep "PowerShell: lint"                  fStage_Shell_PowerShell
+	fStep "Test IDs"                          fStage_TestIds
+	fStep "Pipeline"                          fStage_Shell_Pipeline
+	fStep "Installers"                        fStage_Shell_Installers
+	fStep "Docs: claims that can be counted"  fStage_Docs
+	## The image can't see the folder beside the repo, so there it runs after.
+	if ((! _stepElsewhere)) && ((! inContainer)); then fSteps_Scrub; fi
+
+	if ((doGo)); then
+		fStep "Go: build, vet, format, test"       fStage_Go
+		fStep "Go: vet, staticcheck, govulncheck"  fStage_Go_Checks
+		fStep "Go: a consumer of the module"       fStage_Go_Consumer
+		if ((doFuzz)); then fStep "Go: fuzz" fStage_Go_Fuzz; else fStep_Off "Go: fuzz" "$(fSteps_FuzzWhy)"; fi
+	else
+		fStep_Off "Go stages" "--only zig"
+	fi
+	if ((doZig)); then
+		fStep "Zig: vendor"                           fStage_Zig_Vendor
+		fStep "Zig: build and test"                   fStage_Zig
+		fStep "Zig: command surface"                  fStage_Zig_Cli
+		fStep "Zig: C module from a system compiler"  fStage_Zig_CApi
+		fStep "Zig: C sanitizers and analyzers"       fStage_Zig_CChecks
+		if ((doFuzz)); then fStep "Zig: fuzz" fStage_Zig_Fuzz; else fStep_Off "Zig: fuzz" "$(fSteps_FuzzWhy)"; fi
+	else
+		fStep_Off "Zig stages" "--only go"
+	fi
+	if ((doCross)) && ((doGo)); then fStep "Go: cross-compile" fStage_Go_Cross; fi
+	if ((doLeakcheck)); then fStep "Leak check: soak tests, cross-file analysis and CodeQL" fStage_Leakcheck
+	elif ((doQuick)) && ((! leakAsked)); then fStep_Off "Leak check" "${quickWhy}, unless --leakcheck"
+	else fStep_Off "Leak check" "--no-leakcheck"; fi
+	if ((doProfile)); then fStep "Profile" fStage_Profile
+	elif ((doQuick)); then fStep_Off "Profile" "${quickWhy}"
+	else fStep_Off "Profile" "--no-profile"; fi
+
+}
+
+## A public clone has no private folder beside it.
+fSteps_Scrub(){
+	if [[ -x "${repoRoot}/../private/hooks/scrub.bash" ]]; then fStep "Content scrub" fContentScrub
+	else fStep_Off "Content scrub" "no private/hooks/scrub.bash beside the repo"; fi
+}
+
+fSteps_FuzzWhy(){ if ((doQuick)); then printf '%s\n' "${quickWhy}"; else printf '%s\n' "--no-fuzz"; fi ;}
+
+## The image has every tool packaging needs, so a run there packages where
+## this machine couldn't.
+fSteps_Packages(){
+	if ((doPackage)); then return 0; fi
+	if ((_stepPlanning)) && ((planContainer)) && [[ -n "${packageSkipWhy}" ]]; then return 0; fi
+	return 1
+}
+
+fSteps_Plan(){
+	_stepPlanning=1; _stepTitles=(); _stepOffs=()
+	fSteps
+	_stepPlanning=0
+	_stepTotal="${#_stepTitles[@]}"
+}
+
+## The first section: how many steps, and which are off and why.
+fSteps_Print(){
+	local off=""
+	fSection "$(fStep_Stamp): ${_stepTotal} steps, ${#_stepOffs[@]} turned off"
+	for off in "${_stepOffs[@]}"; do fEcho_Clean "Off ........: ${off}"; done
 }
 
 
@@ -808,8 +933,6 @@ fAskForCommitMessage(){
 ## built here.
 fStage_Sync(){
 
-	fSection "Remote sync"
-
 	## Asks git, since a linked worktree has a .git file, not a directory.
 	[[ "$(git -C "${repoRoot}" rev-parse --show-cdup 2>/dev/null || echo no)" == "" ]] || fThrowError "Not a git repo: '${repoRoot}'."  "${FUNCNAME[0]}"
 
@@ -868,24 +991,61 @@ fStage_Sync(){
 fContainer_Pick(){
 
 	if ((inContainer)); then return 0; fi
-	fSection "Container"
 	if [[ "${containerMode}" == "off" ]]; then fEcho_Clean "Container ..: off (--no-container), so this runs here"; return 0; fi
 	if [[ "${containerMode}" == "on" ]];  then return 0; fi
 
 	local why=""
-	if   ((doPublish));                                                 then why="--publish runs on this machine"
-	elif [[ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]];             then why="the image is Linux x86_64 only"
-	elif [[ -z "$(command -v "${containerEngine}" 2>/dev/null || true)" ]]; then why="no ${containerEngine}"
-	elif ! "${containerEngine}" info >/dev/null 2>&1;                   then why="${containerEngine} isn't answering"
+	why="$(fContainer_Where)"
 	## The checkers would only try the same build again.
-	elif ! fContainer_Image soft;                                       then why="the image didn't build"; imageSkipWhy="${why}"
-	fi
+	if [[ -z "${why}" ]] && ! fContainer_Image soft; then why="the image didn't build"; imageSkipWhy="${why}"; fi
 	if [[ -n "${why}" ]]; then fEcho_Clean "Container ..: not used, ${why}, so this runs here"; return 0; fi
 
 	doContainer=1
 	## The image has every tool packaging needs.
 	if [[ -n "${packageSkipWhy}" ]]; then packageSkipWhy=""; doPackage=1; fi
 
+}
+
+
+## Why the image can't be used, short of building it, or nothing.
+fContainer_Where(){
+	if   ((doPublish));                                                 then echo "--publish runs on this machine"
+	elif [[ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]];             then echo "the image is Linux x86_64 only"
+	elif [[ -z "$(command -v "${containerEngine}" 2>/dev/null || true)" ]]; then echo "no ${containerEngine}"
+	elif ! "${containerEngine}" info >/dev/null 2>&1;                   then echo "${containerEngine} isn't answering"
+	fi
+}
+
+
+## The Container step. The images are built here rather than in the run, so
+## their output is in this step. A fallback to this machine changes the count.
+fContainer_PickStep(){
+	fContainer_Pick
+	if ((doContainer != planContainer)); then
+		planContainer="${doContainer}"
+		fSteps_Plan
+		fEcho_Clean "Steps ......: ${_stepTotal} now, run here"
+	fi
+	((doContainer)) || return 0
+	if [[ -z "${containerTag}" ]]; then fContainer_Image; fi
+	if ((doLeakcheck)); then fCodeql_Image; fi
+	local -a innerArgs=()
+	fContainer_InnerArgs innerArgs
+	fEcho_Clean "Runs .......: cicd.bash ${innerArgs[*]}"
+}
+
+
+fContainer_InnerArgs(){  ## array to fill
+	local -n innerArgs_m2q="$1"
+	innerArgs_m2q=(-q --no-sync --no-backup --no-dogfood)
+	if [[ -n "${onlyToolchain}" ]]; then innerArgs_m2q+=(--only "${onlyToolchain}"); fi
+	if ((doQuick));   then innerArgs_m2q+=(--quick);   fi
+	if ((doPackage)); then innerArgs_m2q+=(--package); fi
+	if ((doLeakcheck)); then innerArgs_m2q+=(--leakcheck); else innerArgs_m2q+=(--no-leakcheck); fi
+	## --quick already says these. The demo stays out here anyway.
+	if ((! doQuick)) && ((! doFuzz));    then innerArgs_m2q+=(--no-fuzz);    fi
+	if ((! doQuick)) && ((! doProfile)); then innerArgs_m2q+=(--no-profile); fi
+	if ((keepTemp)); then innerArgs_m2q+=(--keep-temp); fi
 }
 
 
@@ -900,12 +1060,15 @@ fStage_Container(){
 	## The run inside can't start another container, so CodeQL's image is the
 	## one it runs in. It's the main image with CodeQL added.
 	local runTag="${containerTag}"
-	if ((doLeakcheck)); then fCodeql_Image; runTag="${codeqlTag}"; fi
+	if ((doLeakcheck)); then
+		if [[ -z "${codeqlTag}" ]]; then fCodeql_Image; fi
+		runTag="${codeqlTag}"
+	fi
 
 	local -a runArgs=()
 	fContainer_RunArgs runArgs container "${buildJobs}"
 
-	local -a innerEnv=(-e ZUID_IN_CONTAINER=1 -e "USER=${USER:-builder}" -e "ZUID_RUN_STAMP=${runStamp}" -e "ZUID_COLUMNS=${_sectionWidth}")
+	local -a innerEnv=(-e ZUID_IN_CONTAINER=1 -e "USER=${USER:-builder}" -e "ZUID_RUN_STAMP=${runStamp}" -e "ZUID_STEP_FIRST=${_stepAt}" -e "ZUID_STEP_TOTAL=${_stepTotal}" -e "ZUID_STEP_UTC_OFFSET=$(fStep_UtcOffset)")
 	if [[ -n "${SOURCE_DATE_EPOCH+set}" ]]; then innerEnv+=(-e "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"); fi
 	## SDE is a kit on this machine, not in the image, so it goes in where it is.
 	local sde=""
@@ -921,20 +1084,12 @@ fStage_Container(){
 		if [[ "${ZIG_LOCAL_CACHE_DIR}" != "${repoRoot}/"* ]]; then runArgs+=(-v "${ZIG_LOCAL_CACHE_DIR}:${ZIG_LOCAL_CACHE_DIR}"); fi
 	fi
 
-	local -a innerArgs=(-q --no-sync --no-backup --no-dogfood)
-	if [[ -n "${onlyToolchain}" ]]; then innerArgs+=(--only "${onlyToolchain}"); fi
-	if ((doQuick));   then innerArgs+=(--quick);   fi
-	if ((doPackage)); then innerArgs+=(--package); fi
-	if ((doLeakcheck)); then innerArgs+=(--leakcheck); else innerArgs+=(--no-leakcheck); fi
-	## --quick already says these. The demo stays out here anyway.
-	if ((! doQuick)) && ((! doFuzz));    then innerArgs+=(--no-fuzz);    fi
-	if ((! doQuick)) && ((! doProfile)); then innerArgs+=(--no-profile); fi
-	if ((keepTemp)); then innerArgs+=(--keep-temp); fi
-	fEcho_Clean "Runs .......: cicd.bash ${innerArgs[*]}"
+	local -a innerArgs=()
+	fContainer_InnerArgs innerArgs
 
 	"${containerEngine}" run "${runArgs[@]}" "${innerEnv[@]}" -w "${repoRoot}" \
 		"${runTag}" nice -n 19 bash "${repoRoot}/cicd/cicd.bash" "${innerArgs[@]}" \
-		|| fThrowError "The run in the container failed; its output is above."  "${FUNCNAME[0]}"
+		|| { _wasLastEchoBlank=1; fThrowError "The run in the container failed; its output is above."  "${FUNCNAME[0]}"; }
 
 }
 
@@ -1131,8 +1286,6 @@ fDocker_Bytes(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fPreflight(){
 
-	fSection "Preflight"
-
 	## Asks git, since a linked worktree has a .git file, not a directory.
 	[[ "$(git -C "${repoRoot}" rev-parse --show-cdup 2>/dev/null || echo no)" == "" ]] || fThrowError "Not a git repo: '${repoRoot}'."  "${FUNCNAME[0]}"
 
@@ -1194,8 +1347,6 @@ fTestFail(){ fEcho_Clean "  FAIL ..: ${testId} ${testName}"; fThrowError "$*"  "
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Shell(){
 
-	fSection "Bash: lint"
-
 	## shellcheck's warnings change between versions, so a host on another one
 	## can pass what the container fails. Before the lint, which stops the run
 	## on a warning. Not fatal, the same as nfpm's.
@@ -1227,13 +1378,6 @@ fStage_Shell(){
 		fEcho_Clean "Clean."
 	fi
 
-	fStage_Shell_PowerShell
-	fStage_TestIds
-	fStage_Shell_Pipeline
-	fStage_Shell_Installers
-	fStage_Docs
-	fContentScrub
-
 }
 
 
@@ -1242,8 +1386,6 @@ fStage_Shell(){
 ## pinned in the image, like the Go checkers, so with no docker it skips.
 ## installer-test.bash checks install.ps1 against Windows PowerShell 5.1 too.
 fStage_Shell_PowerShell(){
-
-	fSection "PowerShell: lint"
 
 	local checkerSkipWhy=""
 	fGoCheckers_Ready
@@ -1276,7 +1418,6 @@ fStage_Shell_PowerShell(){
 fContentScrub(){
 	local -r scrub="${repoRoot}/../private/hooks/scrub.bash"
 	[[ -x "${scrub}" ]] || return 0
-	fSection "Content scrub"
 	"${scrub}" "${repoRoot}" || fThrowError "The content scrub found something."  "${FUNCNAME[0]}"
 }
 
@@ -1285,8 +1426,6 @@ fContentScrub(){
 ## Every test has an ID, and no two share one. A test added without one fails
 ## here rather than printing a line nobody can refer to.
 fStage_TestIds(){
-
-	fSection "Test IDs"
 
 	if [[ -z "$(command -v python3 2>/dev/null || true)" ]]; then
 		fEcho_Clean "Skipped ....: python3 not installed."
@@ -1301,8 +1440,6 @@ fStage_TestIds(){
 ## A number written in front of a list drifts the moment the list grows, and no
 ## linter counts. design.md said "four things" above five bullets.
 fStage_Docs(){
-
-	fSection "Docs: claims that can be counted"
 
 	## Both style guides were written and then pointed at from two places. A
 	## guide nothing links to is one nobody reads, which is how the CLI one came
@@ -1423,8 +1560,6 @@ fStage_Docs(){
 ## notice them going wrong until the wrong commit had been made.
 fStage_Shell_Pipeline(){
 
-	fSection "Pipeline"
-
 	local -r runner="${utilityDir}/pipeline-test.bash"
 	if [[ ! -f "${runner}" ]]; then
 		fEcho_Clean "Skipped ....: pipeline-test.bash is not present."
@@ -1440,8 +1575,6 @@ fStage_Shell_Pipeline(){
 ## a real download, so they get a local one. Nothing here touches the network or
 ## anything outside its own scratch tree.
 fStage_Shell_Installers(){
-
-	fSection "Installers"
 
 	local -r runner="${utilityDir}/installer-test.bash"
 	if [[ ! -f "${runner}" ]]; then
@@ -1464,8 +1597,6 @@ fStage_Shell_Installers(){
 ## start, so it skips these and they run here after it.
 fStage_Shell_Bash32(){
 
-	fSection "Installers: bash 3.2"
-
 	local -r runner="${utilityDir}/installer-test.bash"
 	if [[ ! -f "${runner}" ]] || [[ -z "$(command -v python3 2>/dev/null || true)" ]]; then
 		fEcho_Clean "Skipped ....: needs installer-test.bash and python3 here."
@@ -1479,8 +1610,6 @@ fStage_Shell_Bash32(){
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Go(){
-
-	fSection "Go: build, vet, format, test"
 
 	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
 
@@ -1548,10 +1677,6 @@ fStage_Go(){
 	CGO_ENABLED=0 go build -p "${buildJobs}" ./... || fTestFail "the Go module needs cgo."
 	fTestPass
 
-	fStage_Go_Checks
-	fStage_Go_Consumer
-	if ((doFuzz)); then fStage_Go_Fuzz; fi
-
 }
 
 
@@ -1562,8 +1687,6 @@ fStage_Go(){
 ## are pinned in the container image and run from there, never from the host.
 ## Each takes a second or two warm, so quick runs keep them.
 fStage_Go_Checks(){
-
-	fSection "Go: vet, staticcheck, govulncheck"
 
 	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
 
@@ -1670,8 +1793,6 @@ fInImage(){  ## folder, command...
 ## about that.
 fStage_Go_Consumer(){
 
-	fSection "Go: a consumer of the module"
-
 	## The docs' command has to name the package, not the module root. On the root
 	## go get adds the module without what its package needs, and the build stops
 	## on a missing go.sum entry for convertbase.
@@ -1738,8 +1859,6 @@ fStage_Go_Consumer(){
 ## fuzz tests, which fStage_Zig_Fuzz runs in fuzz mode.
 fStage_Go_Fuzz(){
 
-	fSection "Go: fuzz"
-
 	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
 
 	local -r fuzzTime="20s"
@@ -1772,8 +1891,6 @@ fStage_Go_Fuzz(){
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Go_Cross(){
-
-	fSection "Go: cross-compile"
 
 	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
 
@@ -1818,8 +1935,6 @@ fReactor_Toolchain(){
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Zig_Vendor(){
-
-	fSection "Zig: vendor"
 
 	local -r vendorDir="${zigDir}/vendor"
 	mkdir -p "${vendorDir}"
@@ -2006,10 +2121,6 @@ fVendor_FreeBSD(){  ## destination
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Zig(){
 
-	fStage_Zig_Vendor
-
-	fSection "Zig: build and test"
-
 	cd "${zigDir}" || fThrowError "Missing the Zig tree: '${zigDir}'."  "${FUNCNAME[0]}"
 
 	## ReleaseSafe is what a release uses; the vectors replay through it too.
@@ -2070,11 +2181,6 @@ fStage_Zig(){
 		fThrowError "zig fmt would rewrite: ${unformattedZig//$'\n'/, }"  "${FUNCNAME[0]}"
 	fi
 
-	fStage_Zig_Cli
-	fStage_Zig_CApi
-	fStage_Zig_CChecks
-	fStage_Zig_Fuzz
-
 }
 
 
@@ -2083,8 +2189,6 @@ fStage_Zig(){
 ## the leaked-context test counts contexts only there and fails in a release
 ## build. A find still exits 0, so the output is read for it.
 fStage_Zig_Fuzz(){
-
-	fSection "Zig: fuzz"
 
 	local -r fuzzLimit="50K"
 
@@ -2180,8 +2284,6 @@ fStage_Zig_Fuzz(){
 ## The vectors cover the two modules. What the command itself prints, and what
 ## it exits with, is only checked here.
 fStage_Zig_Cli(){
-
-	fSection "Zig: command surface"
 
 	local -r runner="${utilityDir}/cli-test.bash"
 	if [[ ! -f "${runner}" ]]; then
@@ -2314,8 +2416,6 @@ fExportProblems(){  ## exported names, one per line
 ## The C module is one of the released artifacts, so a foreign toolchain has to
 ## be able to use it. Deliberately not 'zig cc' - that would prove nothing.
 fStage_Zig_CApi(){
-
-	fSection "Zig: C module from a system compiler"
 
 	local systemCc=""
 	if   command -v gcc   &>/dev/null; then systemCc="gcc"
@@ -2464,8 +2564,6 @@ fStage_Zig_CApi(){
 ## image 5 times, so quick runs keep it.
 fStage_Zig_CChecks(){
 
-	fSection "Zig: C sanitizers and analyzers"
-
 	local checkerSkipWhy=""
 	local -ri imageJobs="${hardJobs}"
 	fGoCheckers_Ready
@@ -2529,8 +2627,6 @@ fCCheck(){  ## folder, why it failed, command...
 ## after round N by more than a margin. The first rounds fill caches, so it's
 ## never 0 against N. What they find goes in cicd/artifacts/leakcheck/.
 fStage_Leakcheck(){
-
-	fSection "Leak check: soak tests, cross-file analysis and CodeQL"
 
 	local -r leakDir="${artifactDir}/leakcheck"
 	mkdir -p "${leakDir}"
@@ -2672,8 +2768,6 @@ fLeakcheck_CodeQL(){  ## artifact dir
 ## Go module through its own benchmarks, and the command itself through perf.
 fStage_Profile(){
 
-	fSection "Profile"
-
 	local -r profileDir="${artifactDir}/profiling"
 	mkdir -p "${profileDir}"
 
@@ -2758,8 +2852,6 @@ fProfile_Cli(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Demo(){
 
-	fSection "Demo"
-
 	local -r generator="${utilityDir}/gen-demo-gif.py"
 	local -r scenario="${repoRoot}/cicd/demo-scenario.toml"
 	local -r exe="${zigDir}/zig-out/bin/zuid"
@@ -2805,8 +2897,6 @@ fStage_Demo(){
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Package(){
-
-	fSection "Package"
 
 	local -r packager="${utilityDir}/package.bash"
 	[[ -x "${packager}" ]] || fThrowError "Missing the packager: '${packager}'."  "${FUNCNAME[0]}"
@@ -4154,8 +4244,6 @@ fPublish_Preflight(){
 ## until the plan has been shown and agreed to.
 fStage_Publish(){
 
-	fSection "Publish"
-
 	local -r tag="v${publishVersion}"
 	local -r goTag="go/v${publishVersion}"
 	local -r distDir="${repoRoot}/dist"
@@ -4389,8 +4477,6 @@ fPublish_Downloads(){  ## download URL, asset...
 ## none of those dirs still built and tested fine.
 fStage_Dogfood(){
 
-	fSection "Dogfood"
-
 	local -i placed=0
 	local entry="" file="" name="" dir=""
 	## A container run packages into the same dist/.
@@ -4444,8 +4530,6 @@ fDogfoodCopy(){  ## from, to
 ## --commit and --push are refused alongside it.
 fStage_Backup(){
 
-	fSection "Backup and publish"
-
 	local -r helper="${utilityDir}/n8git_backup-and-publish"
 	[[ -x "${helper}" ]] || fThrowError "Missing the backup helper: '${helper}'."  "${FUNCNAME[0]}"
 	_fMustBeInPath rar
@@ -4476,8 +4560,6 @@ fStage_Backup(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Commit(){
 
-	fSection "Commit"
-
 	local -r branch="$(git -C "${repoRoot}" rev-parse --abbrev-ref HEAD)"
 	if [[ "${branch}" == "HEAD" ]]; then
 		fThrowError "HEAD is detached. Check out a branch before committing."  "${FUNCNAME[0]}"
@@ -4503,8 +4585,6 @@ fStage_Commit(){
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 fStage_Push(){
-
-	fSection "Push"
 
 	local -r remote="$(git -C "${repoRoot}" remote | head -n1)"
 	[[ -n "${remote}" ]] || fThrowError "No remote to push to."  "${FUNCNAME[0]}"
@@ -4621,7 +4701,7 @@ fJobs_Line(){
 
 ## Before each step. Says so only when a count moved.
 fJobs_Recheck(){
-	## fSection runs outside fMain too, in the test rigs.
+	## fStep runs outside fMain too, in the test rigs.
 	[[ -n "${loadNow:-}" ]] || return 0
 	local -ri wasBuild="${buildJobs}" wasHard="${hardJobs}"
 	fJobs
@@ -4808,26 +4888,71 @@ function fEcho_Force()             { fEcho_ResetBlankCounter; fEcho "${*:-}";   
 function fEcho_Clean_Force()       { fEcho_ResetBlankCounter; fEcho_Clean "${*:-}";                        }
 function fEcho_ResetBlankCounter() { _wasLastEchoBlank=0;                                                  }
 
-## A stage header is a blank line, a rule as wide as the terminal, then the
-## title, the way silkterm's fSection prints one. A log or a pipe has no width,
-## so it gets silkterm's 74. Set before the run log's tee, since after it
-## nothing is a terminal. The run in the container is handed the width.
-declare _sectionRule="" _sectionWidth=""
-function fSection_Init(){
-	local width=""
-	if [[ -t 1 ]]; then width="$(stty size 2>/dev/null < /dev/tty || true)"; width="${width#* }"; fi
-	if ((inContainer)) && [[ -z "${width}" ]]; then width="${ZUID_COLUMNS:-}"; fi
-	[[ "${width}" =~ ^[1-9][0-9]{0,3}$ ]] || width=74
-	_sectionWidth="${width}"
-	printf -v _sectionRule '%*s' "${width}" ''
-	_sectionRule="${_sectionRule// /•}"
-}
+## A section is a blank line, a rule, then the title, the way silkterm's
+## fSection prints one. The rule is 79 wide everywhere, logs included.
+declare -r _sectionRule="•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••"
 function fSection(){
-	[[ -n "${_sectionRule}" ]] || fSection_Init
 	fEcho_Clean
 	fEcho_Clean "${_sectionRule}"
 	fEcho "$*"
+}
+
+## Steps are numbered "N of M", M counting only the ones that run. fSteps
+## goes through once with _stepPlanning set, to fill the titles and the
+## reasons for the ones off, then again to run them. _stepElsewhere counts a
+## step the run in the image does, without running it here.
+declare -a _stepTitles=() _stepOffs=()
+declare -i _stepPlanning=0 _stepElsewhere=0 _stepAt=0 _stepTotal=0
+declare _stepOpen=""
+function fStep(){  ## title, function, args...
+	local -r title="$1"; shift
+	if ((_stepPlanning)); then _stepTitles+=("${title}"); return 0; fi
+	_stepAt+=1
+	((! _stepElsewhere)) || return 0
+	fSection "$(fStep_Stamp): Step ${_stepAt} of ${_stepTotal}; Starting ${title}"
+	_stepOpen="${title}"
 	fJobs_Recheck
+	"$@"
+	_stepOpen=""
+	fEcho "$(fStep_Stamp): Step ${_stepAt} of ${_stepTotal}; PASS ${title}"
+}
+function fStep_Off(){  ## title, flag or reason
+	if ((_stepPlanning)); then _stepOffs+=("${1} (${2})"); fi
+}
+## For the exit traps.
+function fStep_Fail(){
+	[[ -n "${_stepOpen}" ]] || return 0
+	fEcho_Force "$(fStep_Stamp): Step ${_stepAt} of ${_stepTotal}; FAIL ${_stepOpen}"
+	_stepOpen=""
+	fEcho_Clean
+}
+## Local time to the hundredth, YYYYmmDD-HHMMSS.NN. No date call where bash
+## has EPOCHREALTIME, which some locales write with a comma. The image has no
+## zone of its own, so the outside hands its offset in.
+function fStep_Stamp(){
+	local stamp="" hundredths=""
+	local -i secs=0 offset=0
+	if [[ "${EPOCHREALTIME:-}" =~ ^([0-9]+)[.,]([0-9]{2}) ]]; then
+		secs="${BASH_REMATCH[1]}"; hundredths="${BASH_REMATCH[2]}"
+		if [[ "${ZUID_STEP_UTC_OFFSET:-}" =~ ^(-?)([0-9]{1,5})$ ]]; then
+			offset=$((10#${BASH_REMATCH[2]})); if [[ -n "${BASH_REMATCH[1]}" ]]; then offset=$((-offset)); fi
+			TZ=UTC0 printf -v stamp '%(%Y%m%d-%H%M%S)T.%s' "$((secs + offset))" "${hundredths}"
+		else
+			printf -v stamp '%(%Y%m%d-%H%M%S)T.%s' "${secs}" "${hundredths}"
+		fi
+	else
+		stamp="$(date +%Y%m%d-%H%M%S).00"
+	fi
+	printf '%s\n' "${stamp}"
+}
+## This machine's offset from UTC in seconds, such as -25200.
+function fStep_UtcOffset(){
+	local zone=""
+	printf -v zone '%(%z)T' -1
+	if [[ ! "${zone}" =~ ^([+-])([0-9]{2})([0-9]{2})$ ]]; then echo 0; return 0; fi
+	local -i offset=$((10#${BASH_REMATCH[2]} * 3600 + 10#${BASH_REMATCH[3]} * 60))
+	if [[ "${BASH_REMATCH[1]}" == "-" ]]; then offset=$((-offset)); fi
+	printf '%s\n' "${offset}"
 }
 
 
@@ -4895,7 +5020,9 @@ function _fSingleExitPoint(){
 	local -r errMsg="${*:-}"
 	if [[ "${signal}" == "INT" ]]; then
 		fEcho_Force
+		fStep_Fail
 		fEcho "User interrupted."
+		fEcho_Clean
 		exit 1
 	elif [[ "${errNum}" != "0" ]]; then
 		## Every failing tool here exits 1, including the trailing-'&&' bug this
@@ -4906,6 +5033,7 @@ function _fSingleExitPoint(){
 		fEcho_Clean "Error ......: '${errMsg}'"
 		fEcho_Clean "At line# ...: '${lineNum}'"
 		fEcho_Clean
+		fStep_Fail
 	fi
 }
 function fDefineTrap_Error_Fatal(){

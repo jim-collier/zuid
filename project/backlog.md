@@ -398,6 +398,57 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: Etj4p9f (the refusals), Etj4p9g (what each gate flag runs), Etj4p9h (`--long`, `--slow`, and the alias line), Etj4p9i (the hook: a new main, docs only, docs and code, dev), Et6FB1m (`--ci` is taken). Each failed against the scripts before the change, and passes after.
 	- Verified: 20261025, `pipeline-test.bash` 126 of 126, `test-ids.py check` (476, all unique), shellcheck, the content scrub, and `cicd.bash --gate --only go --no-container`, which printed the alias line, passed, and left the tree as it was. Load about 41 on 32 CPUs.
 
+- CICD reset: step output
+	- ID: 2026102416233104
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full` once, in the image as it picks by default, for the Zig, leak check and package steps and the numbering after the image's run. It stops at the Pipeline step in the image until 2026102508540624 is fixed.
+	- Needs external testing: the `macos` workflow on the round branch's push, for the step lines under the Mac's bash.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101410495998
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the step lines in `CICD style guide` in the shared CICD rules. Stage headers already have the blank line, the rule of `•` and the bracketed title.
+		- The rule is 79 `•` wide, always.
+		- Each step opens with `[ <local time to the hundredth>: Step N of M; Starting <name> ]` and closes with the same line saying `PASS` or `FAIL`.
+		- A step that's turned off isn't counted in M. The first section lists those, with the flag or reason for each.
+		- One blank line between sections, and one at the end.
+		- Earlier decisions this overrides: 2026101410495998, which sizes the rule to the terminal, and to 74 in a pipe or a log.
+	- Progress log:
+		- 20261025: One list of steps, in order, with the flags that turn each on or off. It goes through once to count and list the ones off, then again to run them, so the count can't drift from what runs. The stages lost their own headers and their calls to each other.
+		- 20261025: The rule is 79 wide everywhere, and the image is no longer handed a width.
+		- 20261025: The run in the image is handed the step it starts at, the total and the UTC offset, so its numbers carry on from the outside's and its times are local too. It no longer prints its own "Passed.", and a failure there no longer doubles the blank line.
+		- 20261025: The content scrub never ran in the image, since it can't see the private folder beside the repo. It now runs on this machine after the image's run, like the bash 3.2 cases.
+		- 20261025: The guess of image or not is made before the first step, for the count. If the image then doesn't build, the run falls back here as before, and says the new total.
+		- 20261025: The commit message prompt keeps a plain header, since it's a question, not a step. The cache tidy and "Passed." print after the last step.
+		- 20261025: Zig fuzz used to print a skip line per fuzz test on a quick run. Now it's a step that's off, like Go fuzz, so those skip lines are gone.
+		- 20261025: Asserts that moved with this: EtB5PUX wanted a rule of 74 in a pipe, 123 in a 123-wide terminal and 101 in the image, and the width handed in. Now 79 in all three, and no width handed. EsJ9SjF wanted `-e ZUID_COLUMNS=123`, and now wants the step and offset values. Etab8wp, Etika82, EtitVm8 and Etipgwm read their call sites from fMain, and now read them from fSteps.
+		- 20261025: Filed 2026102508540624: Etj0NB7 fails in the image, which has no `ps`.
+	- Decisions:
+		- 20261025: The first section is a plain header with the step count and how many are off, then one `Off` line each, with the flag or reason. Off by default, such as Publish, counts as off.
+	- Swept: every `fSection` call in `cicd.bash`, now only the plan and the commit prompt. The other scripts print status lines, not stages, per 2026101410495998. `lint-report.bash` counts "warning", which the new lines don't have. The pre-push hook, the workflow and `test-ids.py` read no header lines.
+	- Test case: Etj8iKE (step lines, the off list, PASS and FAIL, a step run elsewhere, and the image's local time), Etj8iKF (the steps counted for the image are the ones it runs, and the scrub stays here), and EtB5PUX (79 everywhere). Each failed with its part broken by hand, and passes now.
+	- Verified: 20261025, `pipeline-test.bash` 128 of 128. `cicd.bash --backlog-run-quick --only go --no-container` passed, steps 1 to 13 of 13. The same in the image numbered steps 1 to 6 of 14 across the handoff with local times, and stopped at Pipeline on Etj0NB7, with the FAIL line. shellcheck and `test-ids.py check` are clean.
+	- Branch: round1025
+
+- Etj0NB7 fails in the image, which has no `ps`.
+	- ID: 2026102508540624
+	- Type: Bug
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-085406
+	- Opened by: JC
+	- Related IDs: 2026102416233102, 2026102416233104
+	- Target OS: Linux
+	- Steps to reproduce [Bug]:
+		- Run `cicd/cicd.bash --backlog-run-quick --only go` where docker answers.
+	- Incorrect behavior [Bug]: The Pipeline step fails in the image on Etj0NB7, "ps: command not found", so the run stops there.
+	- Expected behavior [Bug]: It passes in the image, as on the host.
+	- Reproduced [Bug]: Yes, 20261025, on b23, twice, while working 2026102416233104.
+	- Possible cause [Bug]: The test reads the nice value with `ps`, and the image has no procps. Preflight's own priority line uses `ps` too, with a fallback to nothing.
+
 - CICD reset: other hosts and VMs
 	- ID: 2026102416233100
 	- Type: Enhancement
@@ -470,23 +521,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- `--quick` keeps fuzzing at a short budget, and copies the release-optimized native build to dogfood. Today it drops both.
 		- `--backlog-run-quick` and `--merge-gate` still never dogfood.
 		- Earlier decisions this overrides: the private CI/CD notes, where `--quick` skips dogfood.
-
-- CICD reset: step output
-	- ID: 2026102416233104
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261024-162331
-	- Opened by: JC
-	- Related IDs: 2026101410495998
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per the step lines in `CICD style guide` in the shared CICD rules. Stage headers already have the blank line, the rule of `•` and the bracketed title.
-		- The rule is 79 `•` wide, always.
-		- Each step opens with `[ <local time to the hundredth>: Step N of M; Starting <name> ]` and closes with the same line saying `PASS` or `FAIL`.
-		- A step that's turned off isn't counted in M. The first section lists those, with the flag or reason for each.
-		- One blank line between sections, and one at the end.
-		- Earlier decisions this overrides: 2026101410495998, which sizes the rule to the terminal, and to 74 in a pipe or a log.
 
 - CICD reset: a test for every Done item
 	- ID: 2026102416233105
