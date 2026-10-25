@@ -105,6 +105,53 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: round1025b
 	- Test case: dedvn in `cli-test.bash`. It failed with the cache load turned off, and passes with it on. The other two items name existing tests.
 
+- Run CICD on GitHub's free arm64 macOS runners.
+	- ID: 2026102318361185
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, with the round branch pushed first, so its start and result steps start a real `macos` run and wait for it (dedwh, dedwj).
+	- Needs external testing: The `macos` workflow on the round branch, which that run starts: the first full run on the Mac, Go and Zig fuzz, the Go soak and the profile included, and the docker checks skipping. By hand it's `gitsby raw gh workflow run macos.yml --ref round1025b`.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261023-183527
+	- Opened by: JC
+	- Related IDs: 2026101312344407
+	- Target OS: macOS
+	- Requirements  [Feature]:
+		- Build, run the tests, and smoke-test the CLI on the built binary.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+	- Progress log:
+		- 20261023: It would be the first run of the arm64 slice on Apple Silicon, which 2026101312344407 is stalled on.
+		- 20261023: `.github/workflows/macos.yml` runs `cicd.bash --quick --package` on `macos-15`, then `cli-test.bash` on the universal release. It runs on a push to any branch, skipping docs-only pushes, or by hand.
+		- 20261023: `--package` on a Mac now runs each slice it can, the x86_64 one under Rosetta on Apple Silicon, and links and runs `capi_smoke.c` against the tarball, static and shared, per slice. An Intel Mac links the arm64 one and skips running it.
+		- 20261023: The runner needed the Dockerfile's exact Go. setup-go turns off toolchain downloads, and the release check refuses any other Go for the reactor.
+		- 20261023: Found there: ddwj4 failed on `/Users/runner` in the release. Wasmtime is built on GitHub's runners, and its build paths stay in every binary that links it, so a runner's home matches them. When a vendored Wasmtime archive already has the home in it, only the checkout and Zig paths are looked for now. The run before the fix failed on it, and the one after passed.
+		- 20261023: Waits on signoff for the trigger: a push to any branch, docs-only pushes skipped. The arm64 macOS half of 2026101312344407 ran in this run.
+		- 20261024: Answered: use GitHub's free arm64 macOS runner, and other boxes, but not with `--quick`. So the workflow does the full run, less what needs docker.
+		- 20261024: The CICD reset's `macOS builds on GitHub` matches what's here. What's left is the answer above, and picking which flags start the workflow by how long they take, in place of every push to any branch.
+		- 20261025: The workflow drops `--quick`. It runs the full run with `--no-demo` and `--no-remote`, and the docker checks skip by themselves.
+		- 20261025: A full run, `--long`, `--backlog-run-full` and `--merge-gate` start it, as a step right after the sync, and a step after the checks waits for it. `--quick`, `--backlog-run-quick` and `--only` don't, and `--no-remote` turns it off.
+		- 20261025: It runs only when the remote's branch is at HEAD, since GitHub runs what it has. A detached HEAD, no gh, an unreachable remote, a refused dispatch, a cancelled run or no answer in 90 minutes is a SKIP. Only a finished run that failed is a FAIL.
+		- 20261025: The workflow starts by itself only on a push to main now, besides by hand. The hook's merge gate runs before main has the commit, so that push is what covers main.
+		- 20261025: dedty's full `--list` now runs with `ZUID_IN_CONTAINER` unset, since the run in the image never plans the steps only the outside runs. Its checks are the same.
+	- Verified:
+		- 20261025: `pipeline-test.bash` 140 of 140, here and with `ZUID_IN_CONTAINER=1`. shellcheck, `test-ids.py check` (493, all unique), and `cicd.bash --backlog-run-quick shell docs`, 8 of 8 steps. `--list` shows both steps on a full run and `--backlog-run-full`, and `Off` for `--quick` and `--no-remote`. The `gh run list` and `gh run view` queries the result step makes answered as expected against this repo's real runs. Load about 5 on 32 CPUs.
+		- Not verified: a real dispatch and wait, and the full run on the Mac.
+		- 20261023, run 40059817674 on `macos-15` at 878f5b9: `cicd.bash -q --quick --package --no-sync --no-backup --no-dogfood` passed, 473 ok, no failures. `cli-test.bash` passed 89 on the universal release, the arm64 slice natively.
+		- Locally: shellcheck, `test-ids.py check` (442, all unique), `pipeline-test.bash` 94 passed, the content scrub.
+		- Not verified: the new checks were not watched to fail.
+	- Decisions:
+		- 20261023: `macos-15`, not M4. GitHub's free arm64 runners are M1 class, and M4 is not offered free. 15 is the free arm64 image closest to the release's macOS 13.0 floor.
+		- 20261023: Zig comes from ziglang.org, checked against a pinned sha256 and cached between runs. No third-party setup action.
+		- 20261023: Lint, the Go checkers and the leak checks stay on Linux. The runner has no docker, and shellcheck there would not match the pinned one.
+		- 20261025: The full runs start it, since the hosted run takes about as long as they do. On a quick run it would double the wait.
+		- 20261025: The demo stays off on the runner. It renders with the build box's fonts and only rewrites `assets/demo.gif`.
+		- 20261025: The local run doesn't stop the hosted one when it fails or is interrupted. The workflow's own concurrency cancels it when a newer one starts on the branch.
+	- Swept: every `${HOME}` leak pattern in `cicd.bash` and `package.bash`. ddwj4 is the only one.
+		- 20261025: every `doRemote` read, the `--no-remote` help, `development.md`, `no-gate-paths` (still matches the `paths-ignore`), the pre-push hook (its merge gate skips the step, since main isn't pushed yet), and the `fPlanIn` and dedty rigs in `pipeline-test.bash`.
+	- Branch: round1025b, and round1023 before
+	- Commit: 878f5b9, then this round's
+	- Test case: debke and debkf run each slice, debkg to debkk link and run `capi_smoke.c` against the tarball per slice and link kind. ddwj4 failed on the runner before its fix and passed after. dedwk (which runs plan the two steps, and where) and dedwm (start and result against a local remote with gh stood in for: pushed, failed, cancelled, unlisted, refused, on a runner, unpushed, detached). Both failed against the old `cicd.bash`. dedwk failed again with `--quick` let through, and dedwm with the HEAD check taken out.
+
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -307,41 +354,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: round1025b
 	- Test case: dedw3 (minutes in Crockford base 32, both ways), dedw4 (`new` skips taken minutes), dedw5 (plain words are not strays), dedw6 (PASS, FAIL and SKIP lines from `test-ids.py zig`). dedw3, dedw4 and dedw6 failed against the old `test-ids.py`, and so did dedty, the `--list` case. dedw5 failed with `WORDS` emptied.
 	- Verified: 20261025, `pipeline-test.bash` 138 of 138, `test-ids.py check` (489, all unique), shellcheck, and `cicd.bash --backlog-run-quick shell installers docs go`, 14 of 14 steps in the image, and `--backlog-run-quick zig`, 8 of 8. `lint-report.bash` on a made-up log counted the FAIL line and the real warning, not the PASS one. Load about 2 to 6 on 32 CPUs.
-
-- Run CICD on GitHub's free arm64 macOS runners.
-	- ID: 2026102318361185
-	- Type: Enhancement
-	- Status: Queued
-	- Needs external testing: No. The `macos` workflow passed at 878f5b9, run 40059817674.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261023-183527
-	- Opened by: JC
-	- Related IDs: 2026101312344407
-	- Target OS: macOS
-	- Requirements  [Feature]:
-		- Build, run the tests, and smoke-test the CLI on the built binary.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-	- Progress log:
-		- 20261023: It would be the first run of the arm64 slice on Apple Silicon, which 2026101312344407 is stalled on.
-		- 20261023: `.github/workflows/macos.yml` runs `cicd.bash --quick --package` on `macos-15`, then `cli-test.bash` on the universal release. It runs on a push to any branch, skipping docs-only pushes, or by hand.
-		- 20261023: `--package` on a Mac now runs each slice it can, the x86_64 one under Rosetta on Apple Silicon, and links and runs `capi_smoke.c` against the tarball, static and shared, per slice. An Intel Mac links the arm64 one and skips running it.
-		- 20261023: The runner needed the Dockerfile's exact Go. setup-go turns off toolchain downloads, and the release check refuses any other Go for the reactor.
-		- 20261023: Found there: ddwj4 failed on `/Users/runner` in the release. Wasmtime is built on GitHub's runners, and its build paths stay in every binary that links it, so a runner's home matches them. When a vendored Wasmtime archive already has the home in it, only the checkout and Zig paths are looked for now. The run before the fix failed on it, and the one after passed.
-		- 20261023: Waits on signoff for the trigger: a push to any branch, docs-only pushes skipped. The arm64 macOS half of 2026101312344407 ran in this run.
-		- 20261024: Answered: use GitHub's free arm64 macOS runner, and other boxes, but not with `--quick`. So the workflow does the full run, less what needs docker.
-		- 20261024: The CICD reset's `macOS builds on GitHub` matches what's here. What's left is the answer above, and picking which flags start the workflow by how long they take, in place of every push to any branch.
-	- Verified:
-		- 20261023, run 40059817674 on `macos-15` at 878f5b9: `cicd.bash -q --quick --package --no-sync --no-backup --no-dogfood` passed, 473 ok, no failures. `cli-test.bash` passed 89 on the universal release, the arm64 slice natively.
-		- Locally: shellcheck, `test-ids.py check` (442, all unique), `pipeline-test.bash` 94 passed, the content scrub.
-		- Not verified: the new checks were not watched to fail.
-	- Decisions:
-		- 20261023: `macos-15`, not M4. GitHub's free arm64 runners are M1 class, and M4 is not offered free. 15 is the free arm64 image closest to the release's macOS 13.0 floor.
-		- 20261023: Zig comes from ziglang.org, checked against a pinned sha256 and cached between runs. No third-party setup action.
-		- 20261023: Lint, the Go checkers and the leak checks stay on Linux. The runner has no docker, and shellcheck there would not match the pinned one.
-	- Swept: every `${HOME}` leak pattern in `cicd.bash` and `package.bash`. ddwj4 is the only one.
-	- Branch: round1023
-	- Commit: 878f5b9
-	- Test case: debke and debkf run each slice, debkg to debkk link and run `capi_smoke.c` against the tarball per slice and link kind. ddwj4 failed on the runner before its fix and passed after.
 
 - CICD reset: temp files and safe removal
 	- ID: 2026102416233107

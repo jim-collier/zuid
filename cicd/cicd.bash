@@ -31,6 +31,7 @@
 ##		- 20261025 JC: Areas for --backlog-run-quick. --list.
 ##		- 20261025 JC: --quick fuzzes on a short budget, and dogfoods.
 ##		- 20261025 JC: PASS, FAIL and SKIP test lines, and test IDs in minutes.
+##		- 20261025 JC: A full run starts the macos workflow on GitHub and waits for it. --no-remote skips it.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Global, since the exit trap reads it after fMain has gone.
@@ -235,7 +236,8 @@ fPrint_Help(){
 		    --merge-gate      The pre-push check before main, the same checks as
 		                      --backlog-run-full. --ci is another name for it. See
 		                      below.
-		    --no-remote       Skip the other hosts and VMs. No step uses one yet.
+		    --no-remote       Skip the other hosts and VMs, and the macOS workflow on
+		                      GitHub. See below.
 		    -m, --message     Commit message. Implies --commit.
 		    --commit          Commit if everything passed. Refuses on a protected
 		                      branch: ${protectedBranches[*]}
@@ -293,6 +295,13 @@ fPrint_Help(){
 		--package also runs the Linux x86_64 release under Intel's SDE, emulating a
 		Core 2 Duo and a Pentium 4, when it finds one: ZUID_SDE if set, else sde64
 		on PATH, else ~/.local/opt/intel-sde/sde64. Without it those 2 checks skip.
+
+		A full run, --backlog-run-full and --merge-gate also start the macos
+		workflow on GitHub's arm64 Mac runner, for this branch as pushed, and wait
+		for it at the end. It takes about as long as the run here. It skips with a
+		note when the remote's branch isn't at HEAD, or there's no gh, and it runs
+		the commit, not uncommitted edits. --quick, --backlog-run-quick and --only
+		leave it out, and so does --no-remote.
 
 		Every run - quick or full, any branch - then archives the whole project:
 		repo/, private/, the lot, into ../versions/, and publishes it, committing
@@ -503,7 +512,6 @@ fMain(){
 	local    gateFlag=""
 	local    aliasNote=""
 	local -i doLong=0
-	# shellcheck disable=2034  ## For the steps on other hosts, which aren't in yet.
 	local -i doRemote=1
 	local -i doLeakcheck=1
 	local -i leakAsked=0
@@ -599,6 +607,16 @@ fSteps(){
 	if ((doContainer)) || { ((_stepPlanning)) && ((planContainer)); }; then inImage=1; fi
 
 	if ((doSync)); then fStep "Remote sync" fStage_Sync; else fStep_Off "Remote sync" "${gateFlag:---no-sync}"; fi
+	## The Mac run on GitHub takes about as long as a full run here, so only a
+	## full run starts it, first, and waits for it last.
+	local hostedWhy=""
+	if   ((! doRemote)); then hostedWhy="--no-remote"
+	elif ((doQuick)); then hostedWhy="${quickWhy}"
+	elif [[ -n "${onlyToolchain}" ]]; then hostedWhy="--only ${onlyToolchain}"; fi
+	if ((! inContainer)); then
+		if [[ -n "${hostedWhy}" ]]; then fStep_Off "macOS on GitHub" "${hostedWhy}"
+		else fStep "macOS on GitHub: start" fStage_Hosted_Start; fi
+	fi
 	if ((! inContainer)); then fStep "Container" fContainer_PickStep; fi
 	## The pick may have fallen back to this machine.
 	if ((! _stepPlanning)); then inImage="${doContainer}"; fi
@@ -642,6 +660,7 @@ fSteps(){
 	fi
 
 	if ((inContainer)); then return 0; fi
+	if [[ -z "${hostedWhy}" ]]; then fStep "macOS on GitHub: result" fStage_Hosted_Result; fi
 	if ((doPublish)); then fStep "Publish" fStage_Publish; else fStep_Off "Publish" "only with --publish"; fi
 	if ((doZig)) && ((doDogfood)); then fStep "Dogfood" fStage_Dogfood
 	elif [[ "${onlyToolchain}" == "go" ]]; then fStep_Off "Dogfood" "--only go"
@@ -833,9 +852,7 @@ fInit(){
 			--merge-gate)        doFullGate=1; gateFlag="${currentArg}" ;;
 			--ci)                doFullGate=1; gateFlag="${currentArg}"; aliasNote="--ci is another name for --merge-gate." ;;
 			--long|--slow)  doLong=1  ;;
-			--no-remote)
-				# shellcheck disable=2034  ## For the steps on other hosts, which aren't in yet.
-				doRemote=0 ;;
+			--no-remote)  doRemote=0 ;;
 			--leakcheck)  doLeakcheck=1; leakAsked=1 ;;
 			--no-leakcheck) doLeakcheck=0; leakAsked=1 ;;
 			--no-fuzz)    doFuzz=0    ;;
@@ -4288,6 +4305,77 @@ fCoreVersion(){
 	version="$(sed -n 's/^pub const version = "\([^"]*\)".*/\1/p' "${zigDir}/lib/src/core.zig" 2>/dev/null || true)"
 	[[ -n "${version}" ]] || return 1
 	printf '%s\n' "${version}"
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The macos workflow on GitHub's arm64 runner. A full run starts it first and
+## waits for it last, so the two overlap. GitHub runs what it has, so the
+## remote's branch has to be at HEAD. Like a box that doesn't answer, anything
+## short of a finished run that failed is a skip, not a failure.
+declare hostedSha="" hostedBranch="" hostedSince="" hostedSkipWhy=""
+declare -r hostedWorkflow="macos.yml"
+declare -ri hostedCapSecs=5400
+
+## gh finds the repo from the folder it runs in, and gitsby the account.
+fHosted_Gh(){ (cd "${repoRoot}" && fGh "$@") ;}
+
+fStage_Hosted_Start(){
+	fId dedwh "macOS workflow started on GitHub"
+	local branch="" remote="" remoteSha=""
+	hostedSkipWhy=""; hostedBranch=""
+	hostedSha="$(git -C "${repoRoot}" rev-parse HEAD)"
+	branch="$(git -C "${repoRoot}" symbolic-ref --short -q HEAD || true)"
+	if   [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then hostedSkipWhy="already on a GitHub runner"
+	elif [[ ! -f "${repoRoot}/.github/workflows/${hostedWorkflow}" ]]; then hostedSkipWhy="no .github/workflows/${hostedWorkflow}"
+	elif [[ -z "${ZUID_GH:-}" ]] && ! command -v gh >/dev/null 2>&1; then hostedSkipWhy="no gh"
+	elif [[ -z "${branch}" ]]; then hostedSkipWhy="HEAD is detached, so there's no branch to run it on"
+	elif ! remote="$(git -C "${repoRoot}" config "branch.${branch}.remote")"; then hostedSkipWhy="${branch} tracks no remote"
+	elif ! remoteSha="$(git -C "${repoRoot}" ls-remote "${remote}" "refs/heads/${branch}")"; then hostedSkipWhy="could not reach ${remote}"
+	elif [[ "${remoteSha%%[[:space:]]*}" != "${hostedSha}" ]]; then hostedSkipWhy="${remote}/${branch} isn't at HEAD ${hostedSha:0:12}, so push first"
+	fi
+	if [[ -n "${hostedSkipWhy}" ]]; then fTestSkip "${hostedSkipWhy}"; return 0; fi
+	## A minute early, for a clock that runs ahead of GitHub's.
+	hostedSince="$(TZ=UTC printf '%(%Y-%m-%dT%H:%M:%SZ)T' "$((EPOCHSECONDS - 60))")"
+	if ! fHosted_Gh workflow run "${hostedWorkflow}" --ref "${branch}" >/dev/null; then
+		hostedSkipWhy="gh could not start it, and said why above"
+		fTestSkip "${hostedSkipWhy}"; return 0
+	fi
+	hostedBranch="${branch}"
+	fEcho_Clean "Hosted .....: ${hostedWorkflow} on ${remote}/${branch} at ${hostedSha:0:12}"
+	if [[ -n "$(git -C "${repoRoot}" status --porcelain --untracked-files=no)" ]]; then
+		fEcho_Clean "Note .......: it runs the commit, not the uncommitted edits here"
+	fi
+	fTestPass
+}
+
+fStage_Hosted_Result(){
+	fId dedwj "macOS workflow passed on GitHub"
+	if [[ -z "${hostedBranch}" ]]; then fTestSkip "${hostedSkipWhy:-not started}"; return 0; fi
+	local runId="" state="" status="" conclusion="" url=""
+	local -i waited=0
+	## GitHub lists a dispatched run some seconds after it's asked for.
+	while :; do
+		runId="$(fHosted_Gh run list --workflow "${hostedWorkflow}" --branch "${hostedBranch}" --event workflow_dispatch --commit "${hostedSha}" \
+			--json databaseId,createdAt --jq "map(select(.createdAt >= \"${hostedSince}\")) | .[0].databaseId // empty")" || runId=""
+		[[ -z "${runId}" ]] || break
+		if ((waited >= 120)); then fTestSkip "GitHub listed no run of it 2 minutes after it was started"; return 0; fi
+		sleep 10; waited+=10
+	done
+	waited=0
+	while :; do
+		state="$(fHosted_Gh run view "${runId}" --json status,conclusion,url --jq '.status + "|" + .conclusion + "|" + .url')" || state=""
+		IFS='|' read -r status conclusion url <<< "${state}" || true
+		[[ "${status}" != "completed" ]] || break
+		if ((waited == 0)); then fEcho_Clean "Waiting ....: on ${url:-run ${runId}}"; fi
+		if ((waited >= hostedCapSecs)); then fTestSkip "still '${status:-unknown}' after $((hostedCapSecs / 60)) minutes: ${url:-run ${runId}}"; return 0; fi
+		sleep 30; waited+=30
+	done
+	fEcho_Clean "Run ........: ${url}"
+	## The workflow cancels a run on the branch when a newer one starts.
+	if [[ "${conclusion}" == "cancelled" ]]; then fTestSkip "cancelled on GitHub: ${url}"; return 0; fi
+	[[ "${conclusion}" == "success" ]] || fTestFail "${hostedWorkflow} ended '${conclusion}' on GitHub: ${url}"
+	fTestPass
 }
 
 

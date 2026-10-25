@@ -59,10 +59,13 @@ cicd/cicd.bash --package            # build the release files into dist/, even o
 cicd/cicd.bash --no-package         # a full run without them
 cicd/cicd.bash --no-demo            # a full run that leaves assets/demo.gif alone. --no-fuzz and --no-profile work the same way
 cicd/cicd.bash --no-backup          # skip the archive, commit, and push
+cicd/cicd.bash --no-remote          # a full run that doesn't start the macos workflow on GitHub
 cicd/cicd.bash --commit -m "message"  # commit too, refusing on main and dev
 ~~~
 
 The pre-push hook in `cicd/utility/git-hooks/` runs `--merge-gate` on the commit being pushed to main, in a scratch worktree. A push whose commits change only the paths in `cicd/utility/git-hooks/no-gate-paths`, such as docs, skips it, and so does a push to any other branch. Turn it on once per clone with `git config core.hooksPath cicd/utility/git-hooks`.
+
+A full run, `--backlog-run-full` and `--merge-gate` also start `.github/workflows/macos.yml` on GitHub's free arm64 macOS runner, since no box here is an Apple Silicon Mac. It starts first and is waited for last, since it takes about as long as the run here. It runs the branch as GitHub has it, so it skips with a note when the remote's branch isn't at HEAD, and it never sees uncommitted edits. The hook's merge gate runs before main has the commit, so a push to main starts it instead. A quick run, `--backlog-run-quick` and `--only` leave it out, and so does `--no-remote`. On the runner it's the full run less what needs docker, which skips there, and less the demo.
 
 Underneath it's only `cd go && go build ./...` and `cd zig && zig build`. The Zig half needs `cicd/cicd.bash` to have run at least once first, since that is what populates `zig/vendor/`. Zig refuses an empty or non-numeric `SOURCE_DATE_EPOCH` the first time it builds its own C libraries, so unset it rather than leave it empty. `cicd/cicd.bash` drops one like that by itself.
 

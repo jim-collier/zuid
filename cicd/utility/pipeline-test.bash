@@ -990,7 +990,7 @@ fPlanIn(){  ## inContainer, planContainer, then name=value settings
 			inContainer="$1"; planContainer="$2"; doContainer=0; repoRoot="${work}/plan/repo"
 			doSync=1; doGate=0; doFullGate=0; gateFlag=""; doQuick=0; doDemo=1; doPackage=0; noPackage=0; packageSkipWhy=""
 			onlyToolchain=""; doGo=1; doZig=1; doFuzz=1; doCross=1; doLeakcheck=1; leakAsked=0; doProfile=1
-			doPublish=0; doDogfood=1; doBackup=1; backupInWorktree=0; commitAsked=0; doCommit=0; doPush=0
+			doPublish=0; doDogfood=1; doBackup=1; backupInWorktree=0; commitAsked=0; doCommit=0; doPush=0; doRemote=1
 			_stepTitles=(); _stepOffs=(); _stepPlanning=0; _stepElsewhere=0; _stepAt=0; _stepTotal=0
 			read -r -a runAreas <<< "${planAreas:-}"; areaWhy="not in --backlog-run-quick ${planAreas:-}"
 		}
@@ -1005,6 +1005,7 @@ fPlanIn(){  ## inContainer, planContainer, then name=value settings
 		fStep(){ if ((_stepPlanning)); then _stepTitles+=("$( ((_stepElsewhere)) && echo '*')$1"); fi; }
 		fSteps_Plan
 		printf '%s\n' "${_stepTitles[@]}"
+		if [[ -n "${planOffs:-}" ]]; then printf 'off:%s\n' "${_stepOffs[@]}"; fi
 	)
 }
 ## A scrub beside the repo, which only this machine can see.
@@ -1069,7 +1070,9 @@ grep -qE '^[0-9]+\. Go: build, vet, format, test$' <<< "${out}" || listBad+=" no
 grep -qx '      daq6x TestVectors' <<< "${out}" || listBad+=" no TestVectors under it;"
 grep -qE '^[0-9]+\. Zig' <<< "${out}" && listBad+=" a Zig step with only go named;"
 grep -qE ' steps, [0-9]+ tests\. Nothing was run\.$' <<< "${out}" || listBad+=" no closing line;"
-out="$(bash "${cicd}" --list --no-container --package --leakcheck < /dev/null 2>&1)" && rc=0 || rc=$?
+## As this machine plans it, since the run in the image never plans the
+## steps only the outside runs, such as the macOS workflow's.
+out="$(env -u ZUID_IN_CONTAINER bash "${cicd}" --list --no-container --package --leakcheck < /dev/null 2>&1)" && rc=0 || rc=$?
 ((rc == 0)) || listBad+=" the full list exited ${rc};"
 listed="$(sed -n 's/^      \([0-9a-hjkmnp-tv-z]\{5\}\) .*/\1/p' <<< "${out}" | sort -u)"
 known="$(python3 -I -B -c 'import importlib.util as u, sys; s = u.spec_from_file_location("t", sys.argv[1]); t = u.module_from_spec(s); s.loader.exec_module(t); print("\n".join(sorted({i for i, *_ in t.fScan() if i})))' "${cicd%/cicd.bash}/utility/test-ids.py")"
@@ -1080,6 +1083,107 @@ logsAfter="$(find "${cicd%/cicd.bash}/artifacts" -maxdepth 1 -newer "${cicd}" 2>
 if [[ -z "${listBad}" ]]
 	then fPass
 	else fFail "${listBad}"
+fi
+
+## Only a run about as long as the Mac one on GitHub starts it, outside the
+## image, and collects it after the image's steps.
+fId dedwk "which runs start the macOS workflow"
+hostedBad=""
+for hostedCase in "|yes" "doGate=1 doQuick=1 gateFlag=--backlog-run-quick|--backlog-run-quick" "doQuick=1|--quick" "doRemote=0|--no-remote" "onlyToolchain=go doZig=0|--only go" "doFullGate=1 gateFlag=--merge-gate doSync=0|yes"; do
+	hostedWant="${hostedCase#*|}"
+	# shellcheck disable=2086  ## Settings, split on purpose.
+	outside="$(planOffs=1 fPlanIn 0 1 ${hostedCase%%|*})" || { hostedBad+=" '${hostedCase}': ${outside};"; continue; }
+	if [[ "${hostedWant}" == "yes" ]]; then
+		## First after the sync, and last before publish.
+		[[ "$(grep -v '^off:' <<< "${outside}" | grep -m1 -v '^Remote sync$')" == "macOS on GitHub: start" ]] || hostedBad+=" '${hostedCase}': start isn't first;"
+		[[ "$(grep -v '^off:' <<< "${outside}" | sed -n '/^macOS on GitHub: result$/,$p' | grep -cvxE 'macOS on GitHub: result|Publish|Dogfood|Backup and publish|Commit|Push')" == "0" ]] \
+			&& grep -qx 'macOS on GitHub: result' <<< "${outside}" || hostedBad+=" '${hostedCase}': result isn't after the checks;"
+	else
+		grep -q '^macOS on GitHub' <<< "${outside}" && hostedBad+=" '${hostedCase}' starts it;"
+		grep -qxF "off:macOS on GitHub (${hostedWant})" <<< "${outside}" || hostedBad+=" '${hostedCase}' doesn't say it's off for ${hostedWant};"
+	fi
+done
+inside="$(fPlanIn 1 0 doSync=0 doDogfood=0 doBackup=0)" || true
+grep -q 'macOS on GitHub' <<< "${inside}" && hostedBad+=" the image starts it;"
+if [[ -z "${hostedBad}" ]]
+	then fPass
+	else fFail "${hostedBad}"
+fi
+
+## The steps against a scratch repo pushed to a local bare remote, with gh
+## stood in for. It's asked for only when the remote's branch is at HEAD, and
+## only a finished run that failed fails the step.
+fId dedwm "macOS workflow start and result"
+hostedBad=""
+hostedDir="${work}/hosted"
+mkdir -p "${hostedDir}/bin"
+cat > "${hostedDir}/bin/gh" <<'EOF_hgh'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${HOSTED_GH_LOG:?}"
+case "${1:-} ${2:-}" in
+	"workflow run") exit "${HOSTED_GH_DISPATCH:-0}" ;;
+	"run list")     printf '%s\n' "${HOSTED_GH_RUN:-}"; exit 0 ;;
+	"run view")     printf 'completed|%s|https://example.invalid/run/7\n' "${HOSTED_GH_CONCLUSION:?}"; exit 0 ;;
+esac
+exit 1
+EOF_hgh
+chmod +x "${hostedDir}/bin/gh"
+git init -q --bare "${hostedDir}/remote.git"
+git init -q -b round "${hostedDir}/repo"
+git -C "${hostedDir}/repo" config user.name t
+git -C "${hostedDir}/repo" config user.email t@t
+mkdir -p "${hostedDir}/repo/.github/workflows"
+printf 'name: macos\n' > "${hostedDir}/repo/.github/workflows/macos.yml"
+git -C "${hostedDir}/repo" add -A
+git -C "${hostedDir}/repo" commit -q -m first
+git -C "${hostedDir}/repo" remote add origin "${hostedDir}/remote.git"
+git -C "${hostedDir}/repo" push -q -u origin round 2>/dev/null
+fHostedIn(){  ## then the result's lines follow the start's
+	(
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{ repoRoot="${hostedDir}/repo"; hostedSha=""; hostedBranch=""; hostedSince=""; hostedSkipWhy=""; hostedWorkflow="macos.yml"; hostedCapSecs=60; }
+		local fn=""
+		for fn in fGh fHosted_Gh fStage_Hosted_Start fStage_Hosted_Result fId fTestPass fTestSkip fTestFail; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		# shellcheck disable=2329  ## Called by the lifted functions.
+		{ fEcho_Clean(){ printf '%s\n' "$*"; }; fThrowError(){ printf 'error: %s\n' "$1"; exit 1; }; sleep(){ :; }; }
+		: > "${HOSTED_GH_LOG}"
+		fStage_Hosted_Start
+		fStage_Hosted_Result
+	) 2>&1
+}
+export HOSTED_GH_LOG="${hostedDir}/gh.log"
+## Pushed, and GitHub says it passed.
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_RUN=7 HOSTED_GH_CONCLUSION=success GITHUB_ACTIONS="" fHostedIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -qx '  PASS dedwh macOS workflow started on GitHub' <<< "${out}" && grep -qx '  PASS dedwj macOS workflow passed on GitHub' <<< "${out}"; } || hostedBad+=" passed: exited ${rc}, said '${out//$'\n'/ | }';"
+grep -qx 'workflow run macos.yml --ref round' "${HOSTED_GH_LOG}" || hostedBad+=" passed: not asked for on the branch;"
+grep -q "^run list .*--branch round --event workflow_dispatch --commit $(git -C "${hostedDir}/repo" rev-parse HEAD) " "${HOSTED_GH_LOG}" || hostedBad+=" passed: the run looked for isn't HEAD's dispatch;"
+## It failed there, which fails the step.
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_RUN=7 HOSTED_GH_CONCLUSION=failure GITHUB_ACTIONS="" fHostedIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -qx '  FAIL dedwj macOS workflow passed on GitHub' <<< "${out}"; } || hostedBad+=" failed: exited ${rc}, said '${out//$'\n'/ | }';"
+## Cancelled for a newer run, or never listed, is a skip.
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_RUN=7 HOSTED_GH_CONCLUSION=cancelled GITHUB_ACTIONS="" fHostedIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dedwj .*(cancelled on GitHub' <<< "${out}"; } || hostedBad+=" cancelled: exited ${rc}, said '${out//$'\n'/ | }';"
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_RUN="" HOSTED_GH_CONCLUSION=success GITHUB_ACTIONS="" fHostedIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dedwj .*(GitHub listed no run' <<< "${out}"; } || hostedBad+=" unlisted: exited ${rc}, said '${out//$'\n'/ | }';"
+## gh refused, which is a skip in both steps.
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_DISPATCH=1 HOSTED_GH_CONCLUSION=success GITHUB_ACTIONS="" fHostedIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && [[ "$(grep -c '^  SKIP dedw[hj] .*(gh could not start it' <<< "${out}")" == "2" ]]; } || hostedBad+=" refused: exited ${rc}, said '${out//$'\n'/ | }';"
+## On a runner already, it never asks.
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_CONCLUSION=success GITHUB_ACTIONS=true fHostedIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dedwh .*(already on a GitHub runner)$' <<< "${out}" && ! grep -q '^workflow run' "${HOSTED_GH_LOG}"; } || hostedBad+=" runner: exited ${rc}, said '${out//$'\n'/ | }';"
+## A commit the remote doesn't have yet.
+git -C "${hostedDir}/repo" commit -q --allow-empty -m second
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_CONCLUSION=success GITHUB_ACTIONS="" fHostedIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q "^  SKIP dedwh .*(origin/round isn't at HEAD .*, so push first)$" <<< "${out}" && grep -q '^  SKIP dedwj ' <<< "${out}" && ! grep -q '^workflow run' "${HOSTED_GH_LOG}"; } || hostedBad+=" unpushed: exited ${rc}, said '${out//$'\n'/ | }';"
+## Detached, so no branch to name.
+git -C "${hostedDir}/repo" checkout -q --detach
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_CONCLUSION=success GITHUB_ACTIONS="" fHostedIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dedwh .*(HEAD is detached' <<< "${out}"; } || hostedBad+=" detached: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${hostedBad}" ]]
+	then fPass
+	else fFail "${hostedBad}"
 fi
 
 ## --quick fuzzes and dogfoods, per the 2026-10-24 CICD reset. The gate flags
@@ -2758,6 +2862,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: Which runs start the macos workflow, and its start and result steps.
 ##		- 20261025 JC: Test IDs in minutes, PASS, FAIL and SKIP lines.
 ##		- 20261025 JC: The gate flags, and the pre-push hook's --merge-gate and docs skip.
 ##		- 20261025 JC: Areas for --backlog-run-quick, and --list.

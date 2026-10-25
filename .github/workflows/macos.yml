@@ -1,10 +1,13 @@
 # The pipeline on an Apple Silicon Mac, the one platform nothing local can run.
 # Everything else runs on the build machines through cicd/cicd.bash.
+# cicd.bash starts this on a full run, --backlog-run-full and --merge-gate,
+# which take about as long, and not on a quick run. The pre-push hook's
+# merge gate runs before main has the commit, so main gets it on the push.
 name: macos
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
     paths-ignore: ["**.md", "project/**", "assets/**"]
   workflow_dispatch:
 
@@ -58,11 +61,14 @@ jobs:
           mkdir -p ~/.local/zig-aarch64-macos-"${ZIG_VER}"
           tar -C ~/.local/zig-aarch64-macos-"${ZIG_VER}" --strip-components=1 -xJf "${RUNNER_TEMP}/zig.txz"
 
-      # --package builds the universal release, and runs both slices of it.
+      # The full run, less what needs docker, which skips by itself. --package
+      # builds the universal release, and runs both slices of it. The demo is
+      # rendered with the build box's fonts, and --no-remote keeps this run
+      # from starting another.
       - name: pipeline
         run: |
           bash --version | head -n 1
-          bash cicd/cicd.bash -q --quick --package --no-sync --no-backup --no-dogfood < /dev/null
+          bash cicd/cicd.bash -q --package --no-sync --no-backup --no-dogfood --no-demo --no-remote < /dev/null
 
       - name: release command
         run: bash cicd/utility/cli-test.bash --bin "$(ls dist/zuid-*-darwin-universal)"
