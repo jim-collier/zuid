@@ -260,6 +260,37 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: e709b98
 	- Test case: Etij2SB (the flags), Etij2SC (the image where docker answers), Etij2SD (each fallback, with its note), Etij2SE (`--container`, `--no-container` and the run inside ask docker nothing), Etij2SF (checkers skip on a failed build), EtijCAL (the hook's Zig cache), EtimFcG (a linked Zig cache), EtimFcH (SDE), Etika82 (bash 3.2 outside). Each failed against the script before the change, and passes after.
 
+- Zig's build caches grow without limit.
+	- ID: 2026102320181236
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: The round's `--gate`, which builds the new `zuid-cicd` image and runs in it. It should pass. After it, `docker volume ls` should list `zuid-zig-cache`, holding `.cicd-zig-version` with `0.17.0`, and `zig/.zig-cache` should hold the same stamp.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261023-201812
+	- Opened by: JC
+	- Parent ID: 2026101916041200
+	- Requirements  [Feature]:
+		- Zig never prunes its cache. On b23 `zig/.zig-cache` reached 711 MB in 5 days, and the Zig cache in the `zuid-cicd-cache` volume 336 MB. Go's build cache trims itself.
+		- Zig's global cache in `~/.cache/zig` is shared with other projects and Zig versions, so it isn't ours to prune.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+	- Progress log:
+		- 20261024: Answered: (b). At the end of a run, `cicd.bash` empties `zig/.zig-cache`, or the volume's Zig cache under `--container`, when it's over about 2 GB. `~/.cache/zig` is left alone.
+		- 20261024: Raised to high by the CICD reset, per the Zig bullets in `Cleanup after a run` in the shared CICD rules. A cache is also emptied when the Zig that filled it isn't the current one, from a stamp file inside it, and that goes for every `.zig-cache/` in the tree. In the container, Zig's global cache gets a volume of its own, `zuid-zig-cache`, under the same 2 GB rule. Always the whole folder.
+		- 20261025: At the end of a run that built with Zig, every `.zig-cache` in the tree is emptied whole when it's over 2048 MB, or when its `.cicd-zig-version` names another Zig. Then it's stamped with this one. A linked cache is emptied through the link, and the link stays.
+		- 20261025: The image sets `ZIG_GLOBAL_CACHE_DIR=/zig-cache`, and every container run mounts `zuid-zig-cache` there. The run inside tidies it with the tree's caches. The run outside built nothing, so it skips.
+		- 20261025: EsJ9SjF's run line has `-v zuid-zig-cache:/zig-cache` after `-v zuid-cicd-cache:/cache` now. It had no Zig volume before.
+		- 20261025: The old global cache, 336 MB at `/cache/home/.cache/zig` in `zuid-cicd-cache`, is no longer used. It's left for the hand pass in 2026102416233101, and so are labels on the new volume.
+		- Verified: `pipeline-test.bash` 112 of 112. In a build of the new image, Zig's global cache was `/zig-cache`, a new volume there was writable by the caller's uid, and the tidy emptied it over the cap and on a `0.16.0` stamp, and kept it otherwise. On b23 the tidy stamped `zig/.zig-cache`, 1.4 GB with no stamp, and left it whole.
+	- Decisions:
+		- 20261025: A cache with no stamp was just filled by this run's Zig, so it gets a stamp and stays.
+		- 20261025: The version check runs at the end, per the shared rule. So the first run on a new Zig ends with an empty cache, and the next one builds cold once.
+		- 20261025: The pre-push gate's worktree uses the checkout's cache through `ZIG_LOCAL_CACHE_DIR`. That cache sits outside the worktree, so the checkout's own runs tidy it, not the gate.
+		- 20261025: The size is what `du` reports, which on ZFS is the compressed size.
+	- Swept: every docker run goes through `fContainer_RunArgs`, for the stage and for `fInImage`, so the volume reaches both. Only the container stage runs Zig in the image. Removal goes only through `fZigCache_Empty`. All 3 test rigs that set `containerVolume` set the Zig volume too.
+	- Branch: round1025
+	- Commit: deb8b3a
+	- Test case: Etipgwi (over the cap, every cache in the tree, through a link, never `.git`), Etipgwj (another Zig's stamp, and none), Etipgwk (the image's volume, only inside), Etipgwl (the guard), Etipgwm (where fMain calls it). Each failed against the script before the change, and passes after.
+
 - CICD reset: other hosts and VMs
 	- ID: 2026102416233100
 	- Type: Enhancement
@@ -279,22 +310,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- A box that doesn't answer is a `SKIP` in its step and in the summary, and never stops the run, `--merge-gate` included.
 		- Each box gets a work folder of its own for the project, under its temp root.
 		- Windows tests use `b29w`, never `b29w-wif`. Nothing in the repo names `b29w-wif` today.
-
-- Zig's build caches grow without limit.
-	- ID: 2026102320181236
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261023-201812
-	- Opened by: JC
-	- Parent ID: 2026101916041200
-	- Requirements  [Feature]:
-		- Zig never prunes its cache. On b23 `zig/.zig-cache` reached 711 MB in 5 days, and the Zig cache in the `zuid-cicd-cache` volume 336 MB. Go's build cache trims itself.
-		- Zig's global cache in `~/.cache/zig` is shared with other projects and Zig versions, so it isn't ours to prune.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-	- Progress log:
-		- 20261024: Answered: (b). At the end of a run, `cicd.bash` empties `zig/.zig-cache`, or the volume's Zig cache under `--container`, when it's over about 2 GB. `~/.cache/zig` is left alone.
-		- 20261024: Raised to high by the CICD reset, per the Zig bullets in `Cleanup after a run` in the shared CICD rules. A cache is also emptied when the Zig that filled it isn't the current one, from a stamp file inside it, and that goes for every `.zig-cache/` in the tree. In the container, Zig's global cache gets a volume of its own, `zuid-zig-cache`, under the same 2 GB rule. Always the whole folder.
 
 - CICD reset: container cleanup
 	- ID: 2026102416233101
