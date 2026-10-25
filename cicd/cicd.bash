@@ -2511,7 +2511,7 @@ fStage_Zig_BuildStamp(){
 	) || fTestFail "the build failed with SOURCE_DATE_EPOCH empty."
 
 	local -r stamped="$("${stampDir}/bin/zuid" --version 2>&1 || true)"
-	if [[ "${stamped}" != *"(build "* ]]; then
+	if [[ "${stamped}" != *" build "* ]]; then
 		fTestFail "an empty SOURCE_DATE_EPOCH dropped the build number: --version said '${stamped}'. It should fall through to the commit date."
 	fi
 	fTestPass
@@ -2541,7 +2541,7 @@ fStage_Zig_BuildStamp(){
 		SOURCE_DATE_EPOCH=1700000000 zig build "-j${buildJobs}" --cache-dir "${stampDir}/cache" --prefix "${stampDir}/again" || exit 1
 	) || fTestFail "the build failed with SOURCE_DATE_EPOCH=1700000000."
 	local -r restamped="$("${stampDir}/again/bin/zuid" --version 2>&1 || true)"
-	if [[ "${restamped}" != *"(build bz4zn)"* ]]; then
+	if [[ "${restamped}" != *" build bz4zn"* ]]; then
 		fTestFail "--version said '${restamped}', so the build kept an old epoch."
 	fi
 	fTestPass
@@ -2551,9 +2551,9 @@ fStage_Zig_BuildStamp(){
 	fId debmw "build date is the viewer's local date"
 	local dated=""
 	dated="$(TZ=UTC0 "${stampDir}/again/bin/zuid" --version 2>&1 || true)"
-	[[ "${dated}" == *"(build bz4zn) (2023-11-14)" ]] || fTestFail "with TZ=UTC0, --version said '${dated}', not the 2023-11-14 build date."
+	[[ "${dated%%$'\n'*}" == *" build bz4zn (2023-11-14)" ]] || fTestFail "with TZ=UTC0, --version said '${dated}', not the 2023-11-14 build date."
 	dated="$(TZ=XXX-14 "${stampDir}/again/bin/zuid" --version 2>&1 || true)"
-	[[ "${dated}" == *"(build bz4zn) (2023-11-15)" ]] || fTestFail "at UTC+14, --version said '${dated}', not the 2023-11-15 build date."
+	[[ "${dated%%$'\n'*}" == *" build bz4zn (2023-11-15)" ]] || fTestFail "at UTC+14, --version said '${dated}', not the 2023-11-15 build date."
 	fTestPass
 
 	fSafeRm "${stampDir}"
@@ -3103,7 +3103,7 @@ fStage_Package(){
 	local releaseSaid=""
 	if ! releaseSaid="$("${release}" --version 2>/dev/null)"; then
 		fTestSkip "this host can't run ${release##*/}"
-	elif [[ "${releaseSaid}" =~ ^[^\ ]+\ \(build\ [0-9a-z]+\)$ ]]; then
+	elif [[ "${releaseSaid%%$'\n'*}" =~ ^zuid\ v[^\ ]+\ build\ [0-9a-z]+$ ]]; then
 		fTestPass
 	else
 		fTestFail "--version said '${releaseSaid}'. package.bash has to build with -Drelease."
@@ -3276,7 +3276,7 @@ fStage_Package_MacRun(){  ## scratch dir, release, version
 			fTestSkip "this Mac can't run ${slice}"
 		else
 			said="$(HOME="${runHome}" XDG_CACHE_HOME="${runHome}/cache" arch -"${slice}" "${release}" --version 2>&1)" || fTestFail "--version failed: ${said}"
-			[[ "${said}" == "${version} (build "*")" ]] || fTestFail "--version said '${said}', not ${version}."
+			[[ "${said%%$'\n'*}" == "zuid v${version} build "* ]] || fTestFail "--version said '${said}', not ${version}."
 			said="$(HOME="${runHome}" XDG_CACHE_HOME="${runHome}/cache" arch -"${slice}" "${release}" 2>&1)" || fTestFail "a default identifier failed: ${said}"
 			[[ -n "${said}" && "${said}" != *$'\n'* ]] || fTestFail "a default identifier came out as '${said}'."
 			fTestPass
@@ -3524,12 +3524,14 @@ fStage_Package_Windows(){  ## scratch dir
 	local hostRelease="${repoRoot}/dist/${distPrefix}linux-x86_64" versionWant="" yearWant="" aboutText=""
 	if [[ "$(uname -m)" == "aarch64" ]]; then hostRelease="${repoRoot}/dist/${distPrefix}linux-arm64"; fi
 	if ((isLinux)) && versionWant="$("${hostRelease}" --version 2>/dev/null)" && aboutText="$("${hostRelease}" --about 2>/dev/null)"; then
+		versionWant="${versionWant%%$'\n'*}"
 		yearWant="$(sed -n 's/^Copyright © \([0-9-]*\) Jim Collier .*/\1/p' <<< "${aboutText}")"
 	else
 		versionWant=""
 	fi
 	## FILEVERSION is 4 numbers, so a prerelease gets the flag in place of its tag.
-	local -r versionPlain="${versionWant%% *}"
+	local versionPlain="${versionWant#zuid v}"
+	versionPlain="${versionPlain%% *}"
 	local -r versionNumbers="${versionPlain%%-*}.0"
 	local flagsWant="0x0"
 	if [[ "${versionPlain}" == *-* ]]; then flagsWant="0x2"; fi
@@ -4655,7 +4657,7 @@ fStage_Publish(){
 	## The build number, read from the release binary, so it's the one users see.
 	local buildLine=""
 	if [[ -x "${repoRoot}/dist/${distPrefix}linux-x86_64" ]]; then
-		buildLine="$("${repoRoot}/dist/${distPrefix}linux-x86_64" --version 2>/dev/null | sed -n '1s/^\([^ ]*\) (build \([^)]*\))$/zuid v\1 build \2/p' || true)"
+		buildLine="$("${repoRoot}/dist/${distPrefix}linux-x86_64" --version 2>/dev/null | sed -n '1{/^zuid v[^ ]* build [0-9a-z]*$/p;}' || true)"
 	fi
 	if [[ -n "${buildLine}" ]]; then notes="${buildLine}"$'\n\n'"${notes}"; fi
 

@@ -2071,7 +2071,7 @@ fPublishRepo(){  ## name, version
 	fTarball "${dir}/repo/dist/zuid-${version}-linux-arm64.tgz" "${version}"
 	fTarball "${dir}/repo/dist/zuid-${version}-freebsd-x86_64.tgz" "${version}"
 	## Answers --version the way the real one does, for the notes' build line.
-	printf '#!/bin/sh\necho "%s (build abc12)"\n' "${version}" > "${dir}/repo/dist/zuid-${version}-linux-x86_64"
+	printf '#!/bin/sh\necho "zuid v%s build abc12"\necho "Copyright (C) 2026 Jim Collier"\n' "${version}" > "${dir}/repo/dist/zuid-${version}-linux-x86_64"
 	chmod +x "${dir}/repo/dist/zuid-${version}-linux-x86_64"
 	printf 'arm64\n'  > "${dir}/repo/dist/zuid-${version}-linux-arm64"
 	printf 'freebsd\n' > "${dir}/repo/dist/zuid-${version}-freebsd-x86_64"
@@ -2310,7 +2310,7 @@ if [[ "${betaNotes}" == *"Notes for this one."* ]] && [[ "${betaNotes}" != *"old
 fi
 
 fId ddybx "build number tops the notes"
-if [[ "${betaNotes}" == "zuid v1.0.0-beta.1 build abc12"$'\n'* ]]
+if [[ "${betaNotes}" == "zuid v1.0.0-beta.1 build abc12"$'\n\n'* ]]
 	then fPass
 	else fFail "notes were '${betaNotes:0:120}'"
 fi
@@ -3201,6 +3201,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: The release stand-in prints the new --version lines, and only the first tops the notes.
 ##		- 20261025 JC: Its folder is a run folder. The harness run folder, the guard scan, and the hook's run folder.
 ##		- 20261025 JC: Which runs start the macos workflow, and its start and result steps.
 ##		- 20261025 JC: Test IDs in minutes, PASS, FAIL and SKIP lines.

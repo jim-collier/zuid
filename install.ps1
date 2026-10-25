@@ -56,7 +56,7 @@ $ErrorActionPreference = 'Stop'
 
 $repository = 'jim-collier/zuid'
 $program = 'zuid'
-$installerVersion = '1.3.0'
+$installerVersion = '1.3.1'
 
 ## Here and not through Get-Help, which needs the script as a file. Under irm |
 ## scriptblock there isn't one.
@@ -545,12 +545,13 @@ if (Test-Path $existing) {
 	try { $installedVersion = & $existing --version 2>$null | Select-Object -First 1 } catch { $installedVersion = $null }
 }
 
-## --version is "1.0.0-alpha.1 (build dcrb0)", and the tag has a leading v.
+## --version starts "zuid v1.0.0 build dee3e", and the tag has a leading v.
+## Up to beta.1 it was "1.0.0-alpha.1 (build dcrb0)", so take either.
 ## Nothing used to compare the two, so a second run downloaded the same release,
 ## deleted the install directory and copied it back - while the help, the README
 ## and the backlog all said re-running changes nothing.
 if ($installedVersion) {
-	$installedTag = ($installedVersion -split ' ')[0]
+	$installedTag = (($installedVersion -replace "^$program v", '') -split ' ')[0]
 	if ($installedTag -eq ($tag -replace '^v', '')) {
 		Write-Detail ''
 		Write-Status 'Already installed'

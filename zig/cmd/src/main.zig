@@ -41,9 +41,9 @@ const curated_list = blk: {
     break :blk joined;
 };
 
-/// The version, and the build number build.zig stamps from the commit date,
-/// such as "1.0.0-beta.1 (build ddytm)". The Windows version resource has the
-/// same line.
+/// The name, version and the build number build.zig stamps from the commit
+/// date, such as "zuid v1.0.0-beta.1 build ddytm". The Windows version resource
+/// and the release notes have the same line.
 const version_line = build_options.version_line;
 
 // lib/c/clock.h, translated by build.zig.
@@ -75,9 +75,13 @@ fn writeVersion(w: *std.Io.Writer) std.Io.Writer.Error!void {
     try w.writeAll(buildDate(&date_buf));
 }
 
-// After "zuid <version>".
-const about_text = "\n" ++
+// build.zig reads the year from here for the Windows resource.
+const copyright_line =
     \\Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ].
+;
+
+// After the version and copyright lines.
+const about_text = "\n" ++
     \\Project: https://github.com/jim-collier/zuid
     \\License GPLv2+: GNU GPL version 2 or later, full text at:
     \\    https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
@@ -138,7 +142,7 @@ const help_tail =
     \\                              '-'. Not in the process list. One trailing
     \\                              newline is dropped.
     \\    -h, --help                This.
-    \\    -v, --version             Version and build number.
+    \\    -v, --version             Version, build number, and copyright.
     \\        --about               Version, copyright, and license.
     \\        --donate              How to support the project.
     \\
@@ -161,8 +165,8 @@ const help_tail =
 ;
 
 // Help, about, and donate stand clear of the prompt with a blank line either side.
-// --version stays bare, since scripts capture it.
-// After "\nzuid <version>".
+// --version doesn't, since scripts and the installers read its first line.
+// After the version line.
 const help_text = "\n\n" ++ help_head ++ curated_list ++ help_tail ++ "\n";
 
 pub fn main(init: std.process.Init) !void {
@@ -201,7 +205,7 @@ pub fn main(init: std.process.Init) !void {
 
         if (std.mem.eql(u8, name, "-h") or std.mem.eql(u8, name, "--help")) {
             vals.rejectAttached(name);
-            stdout.writeAll("\nzuid ") catch stdoutFailed(&stdout_fw, stderr);
+            stdout.writeAll("\n") catch stdoutFailed(&stdout_fw, stderr);
             writeVersion(stdout) catch stdoutFailed(&stdout_fw, stderr);
             stdout.writeAll(help_text) catch stdoutFailed(&stdout_fw, stderr);
             stdout.flush() catch stdoutFailed(&stdout_fw, stderr);
@@ -209,14 +213,14 @@ pub fn main(init: std.process.Init) !void {
         } else if (std.mem.eql(u8, name, "-v") or std.mem.eql(u8, name, "--version")) {
             vals.rejectAttached(name);
             writeVersion(stdout) catch stdoutFailed(&stdout_fw, stderr);
-            stdout.writeAll("\n") catch stdoutFailed(&stdout_fw, stderr);
+            stdout.writeAll("\n" ++ copyright_line ++ "\n") catch stdoutFailed(&stdout_fw, stderr);
             stdout.flush() catch stdoutFailed(&stdout_fw, stderr);
             return;
         } else if (std.mem.eql(u8, name, "--about")) {
             vals.rejectAttached(name);
-            stdout.writeAll("\nzuid ") catch stdoutFailed(&stdout_fw, stderr);
+            stdout.writeAll("\n") catch stdoutFailed(&stdout_fw, stderr);
             writeVersion(stdout) catch stdoutFailed(&stdout_fw, stderr);
-            stdout.writeAll(about_text ++ "\n") catch stdoutFailed(&stdout_fw, stderr);
+            stdout.writeAll("\n" ++ copyright_line ++ about_text ++ "\n") catch stdoutFailed(&stdout_fw, stderr);
             stdout.flush() catch stdoutFailed(&stdout_fw, stderr);
             return;
         } else if (std.mem.eql(u8, name, "--donate")) {

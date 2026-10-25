@@ -60,7 +60,7 @@ pub fn build(b: *std.Build) void {
     // What --version prints, and the Windows version resource with it.
     const build_minutes = buildMinutes(buildEpoch(b));
     const build_number = buildNumber(b, build_minutes);
-    const version_line = if (build_number.len > 0) b.fmt("{s} (build {s})", .{ version, build_number }) else version;
+    const version_line = if (build_number.len > 0) b.fmt("zuid v{s} build {s}", .{ version, build_number }) else b.fmt("zuid v{s}", .{version});
     const release = b.option(bool, "release", "A published build: --version leaves off the build date (default: false)") orelse false;
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "version_line", version_line);

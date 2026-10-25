@@ -170,16 +170,27 @@ JSON
 
 ## A stand-in for the real command: enough of --version for the installers'
 ## re-run check to have something to read. Run bare, it names the asset it came
-## in, so a case can tell which one was installed.
-fWriteStandIn(){  ## tag, asset, path
-	local -r tag="$1" asset="$2" path="$3"
+## in, so a case can tell which one was installed. "old" gives the line beta.1
+## and earlier print, which is still what's out there.
+fWriteStandIn(){  ## tag, asset, path, [old]
+	local -r tag="$1" asset="$2" path="$3" form="${4:-}"
+	local versionLine="${PROG} v${tag#v} build test\\nCopyright (C) 2026 Jim Collier"
+	if [[ "${form}" == "old" ]]; then versionLine="${tag#v} (build test)"; fi
 	{
 		printf '#!/usr/bin/env bash\n'
 		# shellcheck disable=2016  ## The single quotes are the point: this is the text of the stand-in, not something to expand here.
-		printf 'case "${1:-}" in --version) printf "%%s (build test)\\n" "%s" ;; *) printf "stand-in %%s\\n" "%s" ;; esac\n' \
-			"${tag#v}" "${asset}"
+		printf 'case "${1:-}" in --version) printf "%s\\n" ;; *) printf "stand-in %%s\\n" "%s" ;; esac\n' \
+			"${versionLine}" "${asset}"
 	} > "${path}"
 	chmod +x "${path}"
+}
+
+## The version a --version line names, in either form.
+fVersionOf(){  ## command
+	local line=""
+	line="$("$1" --version 2>/dev/null | head -n1 || true)"
+	line="${line#"${PROG}" v}"
+	printf '%s' "${line%% *}"
 }
 
 fMakeRelease(){
@@ -372,7 +383,7 @@ fRunPs1Sys(){   local -r home="$1"; shift; fRunPs1As  "${ps1SysCopy}"  "${shimDi
 fInstalledVersion(){  ## home
 	local -r link="$1/.local/bin/${PROG}"
 	[[ -x "${link}" ]] || { printf 'none'; return 0 ;}
-	"${link}" --version 2>/dev/null | head -n1 | cut -d' ' -f1
+	fVersionOf "${link}"
 }
 
 
@@ -748,7 +759,7 @@ fCase_SystemTarget(){  ## label, runner, elevates
 	fi
 
 	got="none"
-	[[ -x "${link}" ]] && got="$("${link}" --version 2>/dev/null | head -n1 | cut -d' ' -f1)"
+	[[ -x "${link}" ]] && got="$(fVersionOf "${link}")"
 	fId "${label}" bash=dcrma ps1=dcrmb "${label}: and /usr/local/bin runs it"
 	if [[ "${got}" == "2.0.0" ]]
 		then fPass
@@ -870,6 +881,16 @@ fCase_Rerun(){  ## label, runner
 	if [[ "${second}" == *"Already installed"* ]]
 		then fPass
 		else fFail "said nothing about being already installed. Output: ${second}"
+	fi
+
+	## An install from beta.1 or before has the old --version line.
+	fWriteStandIn "v2.0.0" "old-line" "${home}/${userShare}/bin/${PROG}" old
+	local -r beforeOld="$(fRequestCount)"
+	second="$("${runner}" "${home}" user yes)" || true
+	fId "${label}" bash=dee3k ps1=dee3m "${label}: the old --version line still reads as installed"
+	if [[ "$(fRequestCount)" == "${beforeOld}" && "${second}" == *"Already installed"* ]]
+		then fPass
+		else fFail "the re-run fetched again or didn't say so. Output: ${second}"
 	fi
 
 	## A different version still replaces it, so the check cannot be a blanket
@@ -1299,6 +1320,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: The new --version line, and the old one still read as installed.
 ##		- 20261025 JC: Its folder is a run folder, removed through the guard. The installers' and the packager's guards.
 ##		- 20261025 JC: Test IDs in minutes. PASS, FAIL and SKIP lines.
 ##		- 20261025 JC: --only bash32, for the run outside cicd.bash's container.

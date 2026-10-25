@@ -19,7 +19,7 @@ set -Eeuo pipefail
 
 REPO="jim-collier/zuid"
 PROG="zuid"
-installerVersion="1.3.0"
+installerVersion="1.3.1"
 
 release="stable"
 target="user"
@@ -336,11 +336,13 @@ if [[ -x "${installDir}/bin/${PROG}" ]]; then
 	installed="$("${installDir}/bin/${PROG}" --version 2>/dev/null | head -n1 || true)"
 fi
 
-## --version is "1.0.0-alpha.1 (build dcrb0)", and the tag has a leading v.
+## --version starts "zuid v1.0.0 build dee3e", and the tag has a leading v.
+## Up to beta.1 it was "1.0.0-alpha.1 (build dcrb0)", so take either.
 ## Nothing used to compare the two, so a second run downloaded the same release,
 ## deleted the install directory and copied it back - while the help, the README
 ## and the backlog all said re-running changes nothing.
-installedVer="${installed%% *}"
+installedVer="${installed#"${PROG}" v}"
+installedVer="${installedVer%% *}"
 if [[ -n "${installedVer}" && "${installedVer}" == "${tag#v}" ]]; then
 	fLine ""
 	fEcho "Already installed"
@@ -417,6 +419,7 @@ printf '\n'
 
 
 ##	History:
+##		- 20261025 JC: Reads the installed version from either --version line.
 ##		- 20261025 JC: Recursive removals go through its own guard. The install dir is emptied, not removed by path.
 ##		- 20261014 JC: Release names have the version.
 ##		- 20261014 JC: User install by default, root included.
