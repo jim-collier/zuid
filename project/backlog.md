@@ -432,6 +432,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: Etj8iKE (step lines, the off list, PASS and FAIL, a step run elsewhere, and the image's local time), Etj8iKF (the steps counted for the image are the ones it runs, and the scrub stays here), and EtB5PUX (79 everywhere). Each failed with its part broken by hand, and passes now.
 	- Verified: 20261025, `pipeline-test.bash` 128 of 128. `cicd.bash --backlog-run-quick --only go --no-container` passed, steps 1 to 13 of 13. The same in the image numbered steps 1 to 6 of 14 across the handoff with local times, and stopped at Pipeline on Etj0NB7, with the FAIL line. shellcheck and `test-ids.py check` are clean.
 	- Branch: round1025
+	- Commit: 3938bf3
 
 - Etj0NB7 fails in the image, which has no `ps`.
 	- ID: 2026102508540624
