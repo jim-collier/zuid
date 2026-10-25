@@ -55,8 +55,11 @@ esac; done
 ## The command keeps its compiled module under the user's cache dir. Point that
 ## somewhere of our own, so a run neither reads nor leaves anything in the real
 ## one.
-work="$(mktemp -d)"
-trap 'rm -rf "${work}"' EXIT
+# shellcheck source=cicd/utility/include/safe-rm.bash
+source "${repoRoot}/cicd/utility/include/safe-rm.bash"
+trap '[[ -z "${safeRmRunDir}" ]] || fSafeRm "${safeRmRunDir}"' EXIT
+fRunDir_Sub zuid cli-test || fDie "no run folder"
+work="${safeRmRunDir}"
 export HOME="${work}/home" XDG_CACHE_HOME="${work}/cache"
 mkdir -p "${HOME}"
 fCacheDir(){ if [[ "$(uname -s)" == Darwin ]]; then printf '%s' "${HOME}/Library/Caches/zuid"; else printf '%s' "${XDG_CACHE_HOME}/zuid"; fi ;}
@@ -487,3 +490,4 @@ fLine ""
 ##		- 20261023 JC: A relative --bin.
 ##		- 20261025 JC: A warm run's CPU against a cold one's.
 ##		- 20261025 JC: Test IDs in minutes. PASS, FAIL and SKIP lines.
+##		- 20261025 JC: Its folder is a run folder, removed through the guard.

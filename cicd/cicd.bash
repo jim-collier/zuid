@@ -32,6 +32,7 @@
 ##		- 20261025 JC: --quick fuzzes on a short budget, and dogfoods.
 ##		- 20261025 JC: PASS, FAIL and SKIP test lines, and test IDs in minutes.
 ##		- 20261025 JC: A full run starts the macos workflow on GitHub and waits for it. --no-remote skips it.
+##		- 20261025 JC: The harnesses make their folders inside the run's, through ZUID_RUN_DIR.
 ##		- 20261025 JC: A run folder of its own in HOST_TEMP, removed at the end. Removals go through the safe removal guard.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
@@ -353,7 +354,8 @@ fPrint_Help(){
 		back to TMPDIR, then /tmp. TMPDIR, TEMP and TMP point into it. The folder
 		goes at the end, failed or interrupted too, unless --keep-temp, which
 		prints where it is. A run also removes the project's run folders over 2
-		days old whose run.pid names no live process.
+		days old whose run.pid names no live process. The harnesses, the hook and
+		package.bash make their folders inside it, or one like it when run alone.
 
 		Every container, image and volume a run makes is labeled dev.project=${projectName}
 		and dev.run=<run>, and each container is named ${projectName}-<run>-<step>. At the
@@ -4825,38 +4827,13 @@ fRunStamp(){
 	fi
 }
 
-## The run's folder, ${HOST_TEMP}/<project>/<stamp>_<NNN>, which TMPDIR, TEMP
-## and TMP point at, so every mktemp -d lands in it. Globals, since the exit
-## trap removes it. Physical, since the guard refuses a path through a link,
-## and macOS's temp folder sits behind /var.
+## The run's folder, ${HOST_TEMP}/<project>/<stamp>_<NNN>, which TMPDIR, TEMP,
+## TMP and ZUID_RUN_DIR point at, so every mktemp -d and each harness's folder
+## lands in it. Globals, since the exit trap removes it. fRunDir_Make has the rest.
 fRunDir(){  ## stamp
-	local root="${HOST_TEMP:-${TMPDIR:-/tmp}}" dir="" stale="" pid="" num=""
-	local -i n=1
-	root="$(realpath -- "${root}" 2>/dev/null)" || fThrowError "The temp root '${HOST_TEMP:-${TMPDIR:-/tmp}}' isn't there."  "${FUNCNAME[0]}"
-	root="${root%/}/${projectName}"
-	mkdir -p "${root}" || fThrowError "Could not make '${root}'."  "${FUNCNAME[0]}"
-	safeRmOwn="${root}"
-
-	## A plain mkdir, so two runs started in one second can't share one.
-	while ((n <= 999)); do
-		printf -v num '%03d' "${n}"
-		dir="${root}/${1:?}_${num}"
-		if mkdir "${dir}" 2>/dev/null; then break; fi
-		n+=1
-	done
-	((n <= 999)) || fThrowError "No free run folder for ${1} under '${root}'."  "${FUNCNAME[0]}"
-	printf '%s\n' "$$" > "${dir}/run.pid"
-	_runDir="${dir}"; _runPid="${BASHPID}"
-	export TMPDIR="${dir}" TEMP="${dir}" TMP="${dir}"
-
-	## Our own leftovers: over 2 days old, and no live run. The name pattern
-	## keeps anything else in there out of it.
-	while IFS= read -r stale; do
-		[[ "${stale##*/}" =~ ^[0-9]{8}-[0-9]{6}_[0-9]{3}$ ]] || continue
-		pid=""; { read -r pid < "${stale}/run.pid" ;} 2>/dev/null || true
-		if [[ "${pid}" =~ ^[0-9]+$ ]] && kill -0 "${pid}" 2>/dev/null; then continue; fi
-		fSafeRm "${stale}" || true
-	done < <(find "${root}" -mindepth 1 -maxdepth 1 -type d -mmin +2880 2>/dev/null || true)
+	fRunDir_Make "${projectName}" "${1:?}" || fThrowError "No run folder for ${1}."  "${FUNCNAME[0]}"
+	_runDir="${safeRmRunDir}"; _runPid="${BASHPID}"
+	fRunDir_Sweep
 }
 
 ## Tees the whole run to a dated log, so lint-report.bash has something to read

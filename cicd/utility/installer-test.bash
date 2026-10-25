@@ -119,15 +119,21 @@ fAssetName(){  ## tag, platform part
 ## A tree the stock python server can serve, laid out at the paths the rewritten
 ## URLs ask for.
 
-work="$(mktemp -d)"
+# shellcheck source=cicd/utility/include/safe-rm.bash
+source "${repoRoot}/cicd/utility/include/safe-rm.bash"
 serverPid=""
 fCleanup(){
 	[[ -n "${serverPid}" ]] && kill "${serverPid}" 2>/dev/null
-	((doKeep)) && { fLine ""; fEcho "Kept: ${work}"; return 0 ;}
-	rm -rf "${work}"
+	[[ -n "${safeRmRunDir}" ]] || return 0
+	((doKeep)) && { fLine ""; fEcho "Kept: ${safeRmRunDir}"; return 0 ;}
+	fSafeRm "${safeRmRunDir}"
 	return 0
 }
 trap fCleanup EXIT
+fRunDir_Sub "${PROG}" installer-test || fDie "no run folder"
+work="${safeRmRunDir}"
+## The guard refuses a path that isn't there.
+fRmIfThere(){ if [[ -e "$1" || -L "$1" ]]; then fSafeRm "$1"; fi ;}
 
 srvRoot="${work}/srv"
 apiDir="${srvRoot}/api/repos/${REPO}"
@@ -317,7 +323,7 @@ fSudoCount(){
 ## and every case would quietly share one directory.
 fNewHome(){  ## label
 	local -r home="${work}/home-$1"
-	rm -rf "${home}"
+	fRmIfThere "${home}"
 	mkdir -p "${home}/.local/bin"
 	printf '%s' "${home}"
 }
@@ -575,6 +581,84 @@ fCase_PackageOutDir(){
 	fi
 }
 
+## The install dir is the one parent the installers' guards name. One that's a
+## link is refused, rather than emptied or replaced, and a link inside it is
+## only unlinked, never followed.
+fCase_GuardedRemoval(){  ## label, runner
+	local -r label="$1" runner="$2"
+	local home="" out="" rc=0
+
+	home="$(fNewHome "${label}-guard-link")"
+	mkdir -p "${home}/elsewhere/sub" "$(dirname "${home}/${userShare}")"
+	printf 'keep me\n' > "${home}/elsewhere/sub/canary.txt"
+	ln -s "${home}/elsewhere" "${home}/${userShare}"
+	out="$("${runner}" "${home}" user yes)" && rc=0 || rc=$?
+	"${runner}" "${home}" user uninstall yes > /dev/null 2>&1 || true
+	fId "${label}" bash=dee2f ps1=dee2g "${label}: refuses an install dir that's a link"
+	if [[ ! -f "${home}/elsewhere/sub/canary.txt" ]]; then fFail "emptied the link's target. Output: ${out}"
+	elif [[ ! -L "${home}/${userShare}" ]]; then fFail "replaced the link. Output: ${out}"
+	elif ((rc == 0)) || [[ "${out}" != *"efused to empty"* ]]; then fFail "exited ${rc} without saying why. Output: ${out}"
+	else fPass
+	fi
+
+	home="$(fNewHome "${label}-guard-inside")"
+	mkdir -p "${home}/elsewhere/sub"
+	printf 'keep me\n' > "${home}/elsewhere/sub/canary.txt"
+	## Each run's temp dir has to go too.
+	local -r tempsBefore="$(find "${TMPDIR}" -mindepth 1 -maxdepth 1 | sort | tr '\n' ' ')"
+	out="$("${runner}" "${home}" user yes)" || true
+	[[ ! -d "${home}/${userShare}" ]] || ln -s "${home}/elsewhere" "${home}/${userShare}/planted"
+	out+="$("${runner}" "${home}" user dev yes)" || true
+	local -r afterReinstall="$(fInstalledVersion "${home}")"
+	out+="$("${runner}" "${home}" user uninstall yes)" || true
+	fId "${label}" bash=dee2h ps1=dee2j "${label}: a link inside is unlinked, not followed"
+	if [[ "${afterReinstall}" != "2.1.0-beta.1" ]]; then fFail "the reinstall got ${afterReinstall}. Output: ${out}"
+	elif [[ ! -f "${home}/elsewhere/sub/canary.txt" ]]; then fFail "followed the link. Output: ${out}"
+	elif [[ -e "${home}/${userShare}" || -L "${home}/${userShare}" ]]; then fFail "uninstall left ${userShare}. Output: ${out}"
+	elif [[ "$(find "${TMPDIR}" -mindepth 1 -maxdepth 1 | sort | tr '\n' ' ')" != "${tempsBefore}" ]]; then fFail "left a temp dir in ${TMPDIR}"
+	else fPass
+	fi
+}
+
+## package.bash empties dist/ or --out through the guard, with that folder as
+## the one parent, and only unlinks a link. Lifted out of the script, since the
+## build ahead of it can't run here.
+fCase_PackageClaim(){
+	local -r packager="${repoRoot}/cicd/utility/package.bash"
+	local missing="" body="" out=""
+	body="$(sed -n -e '/^fDirHasContent(){/p' -e '/^fOutDirIsOurs(){/,/^}/p' -e '/^fClaimOutDir(){/,/^}/p' "${packager}" 2>/dev/null)"
+	[[ "${body}" == *"fClaimOutDir"* ]] || missing="no fClaimOutDir in package.bash"
+
+	local -r area="${work}/pkg-claim"
+	mkdir -p "${area}/out/sub/deeper" "${area}/outside"
+	printf 'old\n' > "${area}/out/zuid-old.tgz"; printf 'old\n' > "${area}/out/.hidden"; printf 'old\n' > "${area}/out/sub/deeper/x"
+	printf 'keep me\n' > "${area}/outside/canary.txt"
+	ln -s "${area}/outside" "${area}/out/link"
+	: > "${area}/out/.zuid-package-dir"
+	if [[ -z "${missing}" ]]; then
+		out="$(
+			# shellcheck disable=2034  ## Read by the lifted functions.
+			OUT="${area}/out" outIsDefault=0 outMarker=".zuid-package-dir"
+			# shellcheck disable=2329  ## Called by the lifted functions.
+			fDie(){ printf 'died: %s\n' "$*"; exit 1; }
+			eval "${body}"
+			## Counted, to show each entry went through it.
+			# shellcheck disable=2329  ## Called by the lifted functions.
+			fSafeRm_Under(){ printf 'guard %s %s\n' "$1" "${2##*/}"; ( unset -f fSafeRm_Under; source "${repoRoot}/cicd/utility/include/safe-rm.bash"; fSafeRm_Under "$@" ) ;}
+			fClaimOutDir 2>&1
+		)" || true
+	fi
+	fId dee2e "package: empties --out through the guard"
+	local -r left="$(cd "${area}/out" 2>/dev/null && find . -mindepth 1 | sort | tr '\n' ' ')"
+	if [[ -n "${missing}" ]]; then fFail "${missing}"
+	elif [[ ! -f "${area}/outside/canary.txt" ]]; then fFail "followed the link. Output: ${out}"
+	elif [[ "${left}" != "./.zuid-package-dir " ]]; then fFail "left '${left}'. Output: ${out}"
+	## Three, and the marker, which is put back.
+	elif [[ "$(grep -c "^guard ${area}/out " <<< "${out}")" != "4" ]]; then fFail "not 4 entries through the guard: ${out}"
+	else fPass
+	fi
+}
+
 ## The .deb and .rpm included zuid.h with no library behind it, so anything that
 ## included it failed at the link step. Building a real package here would need
 ## nfpm and a full release build, so this reads the nfpm contents list instead:
@@ -630,7 +714,7 @@ fCase_SystemTarget(){  ## label, runner, elevates
 	local -r installed="${sysRoot}/opt/${PROG}"
 	local -r link="${sysRoot}/usr/local/bin/${PROG}"
 
-	rm -rf "${sysRoot}"
+	fRmIfThere "${sysRoot}"
 	mkdir -p "${sysRoot}/usr/local/bin"
 	: > "${sudoLog}"
 
@@ -730,7 +814,7 @@ fCase_SystemUnwritable(){
 	local skipWhy="${skipWhy}"
 	[[ "$(id -u)" != "0" ]] || skipWhy="running as root, so there is no unwritable location to test"
 
-	rm -rf "${sysRoot}"
+	fRmIfThere "${sysRoot}"
 	mkdir -p "${sysRoot}"
 	chmod a-w "${sysRoot}"
 
@@ -1172,6 +1256,7 @@ if [[ "${only}" == "" || "${only}" == "bash" ]]; then
 	fCase_Arm64Linux
 	fCase_FreeBSD
 	fCase_ForeignLink "bash" "fRunBash"
+	fCase_GuardedRemoval "bash" "fRunBash"
 fi
 
 ## Without pwsh the ps1 cases still run, so each one reports as skipped by ID,
@@ -1195,6 +1280,7 @@ if [[ "${only}" == "" || "${only}" == "ps1" ]]; then
 	fCase_SemverOrder "ps1" "fRunPs1"
 	fCase_LookupFails "ps1" "${ps1Copy:-}"
 	fCase_ForeignSameVersion "ps1" "fRunPs1"
+	fCase_GuardedRemoval "ps1" "fRunPs1"
 	skipWhy=""
 fi
 
@@ -1202,6 +1288,7 @@ if [[ "${only}" != "bash32" ]]; then
 	fLine ""
 	fLine "package.bash"
 	fCase_PackageOutDir
+	fCase_PackageClaim
 	fCase_PackageHeader
 fi
 
@@ -1212,6 +1299,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: Its folder is a run folder, removed through the guard. The installers' and the packager's guards.
 ##		- 20261025 JC: Test IDs in minutes. PASS, FAIL and SKIP lines.
 ##		- 20261025 JC: --only bash32, for the run outside cicd.bash's container.
 ##		- 20261014 JC: User target by default. install.ps1 against the 5.1 profile.

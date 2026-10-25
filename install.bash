@@ -108,6 +108,40 @@ if ((needsRoot)) && [[ "$(id -u)" != "0" ]]; then
 fi
 fRun(){ if ((useSudo)); then sudo "$@"; else "$@"; fi ;}
 
+## The one way this removes anything recursively. Only strictly under <parent>,
+## which has to be physical. '..', '//', a newline and a link are refused, and
+## it stays on one filesystem. Its own copy of the repo's guard, since this
+## runs alone from a download.
+fSafeRm_Under(){  ## parent, path
+	local parent="${1%/}" path="${2%/}" oneFs="-x"
+	case "${parent}${path}" in
+		*..*|*//*|*$'\n'*) printf '  Refused to remove %s: a bad path\n' "${path}" >&2; return 1 ;;
+	esac
+	if [[ "${parent}" != /?* || "${path}" != "${parent}"/?* ]]; then printf '  Refused to remove %s: not under %s\n' "${path}" "${parent}" >&2; return 1; fi
+	if [[ -L "${path}" ]]; then printf '  Refused to remove %s: a link\n' "${path}" >&2; return 1; fi
+	[[ -e "${path}" ]] || return 0
+	if [[ "$(cd -P -- "${parent}" 2>/dev/null && pwd -P)" != "${parent}" ]]; then printf '  Refused to remove %s: %s goes through a link\n' "${path}" "${parent}" >&2; return 1; fi
+	## GNU rm says --one-file-system, BSD's -x.
+	if rm --version >/dev/null 2>&1; then oneFs="--one-file-system"; fi
+	fRun rm -rf "${oneFs}" -- "${path}"
+}
+
+## Empties the install dir one entry at a time, so it's the one parent the
+## guard names, and a wrong installDir can't take its parent with it. It has to
+## be named ${PROG}, and not be a link. A link inside is only unlinked.
+fEmptyInstallDir(){
+	local dir="" entry=""
+	[[ -e "${installDir}" || -L "${installDir}" ]] || return 0
+	if [[ -L "${installDir}" ]]; then printf '  Refused to empty %s: a link\n' "${installDir}" >&2; return 1; fi
+	dir="$(cd -P -- "${installDir}" && pwd -P)" || return 1
+	if [[ "${dir##*/}" != "${PROG}" ]]; then printf '  Refused to empty %s: not a %s install dir\n' "${installDir}" "${PROG}" >&2; return 1; fi
+	for entry in "${dir}"/* "${dir}"/.[!.]* "${dir}"/..?*; do
+		if [[ -L "${entry}" ]]; then fRun rm -f -- "${entry}" || return 1
+		elif [[ -e "${entry}" ]]; then fSafeRm_Under "${dir}" "${entry}" || return 1
+		fi
+	done
+}
+
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## Uninstall is the same plan in reverse, so it lives here rather than in a
@@ -145,7 +179,8 @@ if ((doUninstall)); then
 		[[ "${answer}" =~ ^[Yy] ]] || { fLine ""; fEcho "Nothing was changed."; printf '\n'; exit 0; }
 		fLine ""
 	fi
-	fRun rm -rf "${installDir}"
+	fEmptyInstallDir || fDie "couldn't remove ${installDir}"
+	if [[ -d "${installDir}" ]]; then fRun rmdir "${installDir}" || fDie "couldn't remove ${installDir}"; fi
 	if ((ownsLink)); then fRun rm -f "${linkPath}"; fi
 	fEcho "Removed."
 	printf '\n'
@@ -253,8 +288,11 @@ fPickTag(){  ## stable|dev, rows on stdin. Prints the highest, or nothing.
 }
 
 fEcho "Looking up the ${release} release"
-work="$(mktemp -d)"
-trap 'rm -rf "${work}"' EXIT
+## TMPDIR ends in a slash on a Mac.
+tmpRoot="${TMPDIR:-/tmp}"; tmpRoot="${tmpRoot%/}"
+tmpRoot="$(cd -P -- "${tmpRoot}" && pwd -P)" || fDie "no temp dir at ${TMPDIR:-/tmp}"
+work="$(mktemp -d "${tmpRoot}/${PROG}-install.XXXXXX")" || fDie "couldn't make a temp dir in ${tmpRoot}"
+trap 'useSudo=0 fSafeRm_Under "${tmpRoot}" "${work}"' EXIT
 listing="${work}/releases.json"
 ## A rate limit or a dead network used to read as "no release found".
 httpCode="$(curl -sSL --proto '=https' --tlsv1.2 -o "${listing}" -w '%{http_code}' "https://api.github.com/repos/${REPO}/releases?per_page=100" 2>/dev/null || true)"
@@ -357,12 +395,13 @@ got="$(fSha256 "${work}/${asset}")"
 fEcho "Installing"
 tar --no-same-owner --no-same-permissions -xzf "${work}/${asset}" -C "${work}" \
 	|| fDie "couldn't unpack ${asset}"
-payload="$(find "${work}" -maxdepth 1 -type d -name "${PROG}-*" | head -n1)"
+## Not depth 0: the work dir's own name starts the same way.
+payload="$(find "${work}" -mindepth 1 -maxdepth 1 -type d -name "${PROG}-*" | head -n1)"
 [[ -n "${payload}" ]] || fDie "the archive did not contain the expected directory"
 
 fCantWrite(){ fDie "couldn't write $1. Check its permissions, or try --target $2." ;}
 otherTarget="system"; [[ "${target}" == "system" ]] && otherTarget="user"
-fRun rm -rf "${installDir}"                            || fCantWrite "${installDir}" "${otherTarget}"
+fEmptyInstallDir                                      || fCantWrite "${installDir}" "${otherTarget}"
 fRun mkdir -p "${installDir}" "$(dirname "${linkPath}")" || fCantWrite "${installDir}" "${otherTarget}"
 fRun cp -R "${payload}/." "${installDir}/"             || fCantWrite "${installDir}" "${otherTarget}"
 fRun ln -sfn "${installDir}/bin/${PROG}" "${linkPath}" || fCantWrite "${linkPath}" "${otherTarget}"
@@ -378,6 +417,7 @@ printf '\n'
 
 
 ##	History:
+##		- 20261025 JC: Recursive removals go through its own guard. The install dir is emptied, not removed by path.
 ##		- 20261014 JC: Release names have the version.
 ##		- 20261014 JC: User install by default, root included.
 ##		- 20261014 JC: --version, --opt=value, semver release pick, sha256 fallbacks. Works under bash 3.2. --arch dropped.

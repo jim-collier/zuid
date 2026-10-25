@@ -301,6 +301,56 @@ function Set-WindowsPath {
 
 
 #-------------------------------------------------------------------------------
+## The one way this removes anything recursively, its own copy of the repo's
+## guard, since it runs alone from a download. Only strictly under a parent
+## that isn't a link. A link is only unlinked, never followed, which Windows
+## PowerShell 5.1's Remove-Item -Recurse can't promise.
+
+function Test-IsLink {
+	param([System.IO.FileSystemInfo] $Item)
+	return [bool]($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+}
+
+function Remove-Tree {
+	param([System.IO.FileSystemInfo] $Item)
+	if ($Item -is [System.IO.DirectoryInfo] -and -not (Test-IsLink $Item)) {
+		foreach ($child in @($Item.GetFileSystemInfos())) { Remove-Tree $child }
+	}
+	## Remove-Item -Force did this for a read-only file.
+	if ($onWindows -and ($Item.Attributes -band [System.IO.FileAttributes]::ReadOnly)) {
+		$Item.Attributes = $Item.Attributes -band -bnot [System.IO.FileAttributes]::ReadOnly
+	}
+	$Item.Delete()
+}
+
+function Remove-Under {
+	param([string] $Parent, [string] $Path)
+	$parentItem = Get-Item -LiteralPath $Parent -Force
+	if (Test-IsLink $parentItem) { Stop-WithMessage "refused to remove ${Path}: $Parent is a link" }
+	$under = $parentItem.FullName.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+	if ($Path -match '(^|[\\/])\.\.([\\/]|$)') { Stop-WithMessage "refused to remove ${Path}: a bad path" }
+	$item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+	if (-not $item) { return }
+	$case = if ($onWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
+	if (-not $item.FullName.StartsWith($under, $case)) { Stop-WithMessage "refused to remove ${Path}: not under $Parent" }
+	Remove-Tree $item
+}
+
+## Empties the install directory one entry at a time, so it's the one parent
+## named, and a wrong path can't take its parent with it. It has to be named for
+## the program, and not be a link.
+function Clear-InstallDirectory {
+	$dir = Get-Item -LiteralPath $installDirectory -Force -ErrorAction SilentlyContinue
+	if (-not $dir) { return }
+	if (Test-IsLink $dir) { Stop-WithMessage "refused to empty ${installDirectory}: it's a link" }
+	if (-not ($dir -is [System.IO.DirectoryInfo]) -or $dir.Name -ne $program) {
+		Stop-WithMessage "refused to empty ${installDirectory}: not a $program install directory"
+	}
+	foreach ($entry in @($dir.GetFileSystemInfos())) { Remove-Under $dir.FullName $entry.FullName }
+}
+
+
+#-------------------------------------------------------------------------------
 ## Uninstall is the same plan in reverse.
 
 ## Only this installer's own link. A zuid at that path the installer did not put
@@ -350,7 +400,8 @@ if ($Uninstall) {
 		}
 		Write-Detail ''
 	}
-	if (Test-Path $installDirectory) { Remove-Item -Recurse -Force $installDirectory }
+	Clear-InstallDirectory
+	if (Test-Path -LiteralPath $installDirectory) { (Get-Item -LiteralPath $installDirectory -Force).Delete() }
 	if ($ownsLink) { Remove-Item -Force -LiteralPath $link }
 	if ($ownsPath) { Set-WindowsPath $false }
 	Write-Status 'Removed.'
@@ -548,7 +599,8 @@ if (-not $Yes) {
 #-------------------------------------------------------------------------------
 ## Fetch, verify, install.
 
-$work = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+$tempRoot = [System.IO.Path]::GetTempPath()
+$work = Join-Path $tempRoot ([System.IO.Path]::GetRandomFileName())
 New-Item -ItemType Directory -Path $work | Out-Null
 try {
 	$archive = Join-Path $work $asset
@@ -585,7 +637,7 @@ try {
 
 	$otherTarget = if ($Target -eq 'system') { 'user' } else { 'system' }
 	try {
-		if (Test-Path $installDirectory) { Remove-Item -Recurse -Force $installDirectory }
+		Clear-InstallDirectory
 		New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
 		Copy-Item -Path (Join-Path $payload.FullName '*') -Destination $installDirectory -Recurse -Force
 	}
@@ -614,5 +666,5 @@ try {
 	Write-Host ''
 }
 finally {
-	Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+	try { Remove-Under $tempRoot $work } catch { Write-Detail "  Left behind: $work" }
 }

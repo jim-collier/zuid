@@ -57,15 +57,16 @@ cicd="${repoRoot}/cicd/cicd.bash"
 flameReport="${repoRoot}/cicd/utility/flame-report.py"
 [[ -f "${cicd}" ]] || fDie "could not find cicd.bash from ${repoRoot}"
 
-work="$(mktemp -d)"
-## Physical, since the guard refuses a path through a link, and macOS's temp
-## folder sits behind /var.
-work="$(cd "${work}" && pwd -P)"
-trap 'rm -rf "${work}"' EXIT
-## For the lifted functions that remove a folder.
+## The guard is for the lifted functions that remove a folder too. The run
+## folder is physical, since the guard refuses a path through a link, and
+## macOS's temp folder sits behind /var.
 # shellcheck source=cicd/utility/include/safe-rm.bash
 source "${repoRoot}/cicd/utility/include/safe-rm.bash"
-safeRmOwn="${work}"
+trap '[[ -z "${safeRmRunDir}" ]] || fSafeRm "${safeRmRunDir}"' EXIT
+fRunDir_Sub zuid pipeline-test || fDie "no run folder"
+work="${safeRmRunDir}"
+## The guard refuses a path that isn't there.
+fRmIfThere(){ if [[ -e "$1" || -L "$1" ]]; then fSafeRm "$1"; fi ;}
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -1930,7 +1931,7 @@ fTarball(){  ## path, version
 	mkdir -p "${tree}/zuid-v$2/bin"
 	printf 'zuid %s\n' "$2" > "${tree}/zuid-v$2/bin/zuid"
 	tar -C "${tree}" -czf "$1" "zuid-v$2"
-	rm -rf "${tree}"
+	fSafeRm "${tree}"
 }
 
 ## A repo on main, pushed, with this machine's dist/ and the other machines'
@@ -1988,7 +1989,7 @@ fPublishIn(){  ## name, quiet, allow partial
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		fConfig
-		# shellcheck disable=2034,2154  ## Read by the lifted functions. The defaults come from the lifted fConfig.
+		# shellcheck disable=2030,2034,2154  ## Read by the lifted functions, in this subshell. The defaults come from the lifted fConfig.
 		{
 			repoRoot="${dir}/repo"; zigDir="${dir}/repo/zig"; incomingDir="${dir}/repo/dist-incoming"
 			releaseBranch="${default_releaseBranch}"; releaseAssets=("${default_releaseAssets[@]}")
@@ -2062,7 +2063,7 @@ rm -f "${work}/partial/repo/dist-incoming/"zuid-1.0.0-beta.1-windows-*.zip
 fWantPublishRefusal ddfbe "missing platform, no --allow-partial" partial "No asset for: zuid-1.0.0-beta.1-windows-x86_64.zip zuid-1.0.0-beta.1-windows-arm64.zip" 1 0
 
 fId ddfbf "--allow-partial publishes the rest"
-rm -rf "${work}/partial/repo/dist/release"
+fRmIfThere "${work}/partial/repo/dist/release"
 out="$(fPublishIn partial 1 1 < /dev/null)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == *"Missing ....: zuid-1.0.0-beta.1-windows-x86_64.zip zuid-1.0.0-beta.1-windows-arm64.zip"* ]] && [[ -e "${work}/partial/gh-create" ]]
 	then fPass
@@ -2075,7 +2076,7 @@ fPublishRepo unanswered 1.0.0-beta.1
 fId ddfbg "no answer to the prompt means no"
 unansweredBad=""
 for answer in "" $'\n' $'n\n'; do
-	rm -rf "${work}/unanswered/repo/dist/release"
+	fRmIfThere "${work}/unanswered/repo/dist/release"
 	out="$(printf '%s' "${answer}" | fPublishIn unanswered 0 0)" && rc=0 || rc=$?
 	if ((rc == 0)) || [[ "${out}" != *"Not published"* ]] || ! fNothingPublished unanswered; then
 		unansweredBad+=" answer '${answer//$'\n'/\\n}' exited ${rc};"
@@ -2456,8 +2457,9 @@ fi
 ## package.bash in a scratch tree, with a stand-in zig that records what it was
 ## handed and fails, so nothing is built.
 pkgTree="${work}/pkg"
-mkdir -p "${pkgTree}/cicd/utility" "${work}/pkgbin"
+mkdir -p "${pkgTree}/cicd/utility/include" "${work}/pkgbin"
 cp "${utilityDir}/package.bash" "${pkgTree}/cicd/utility/"
+cp "${utilityDir}/include/safe-rm.bash" "${pkgTree}/cicd/utility/include/"
 for wasmtimeSub in wasmtime wasmtime-{x86_64,aarch64}-{linux,macos,freebsd}; do
 	mkdir -p "${pkgTree}/zig/vendor/${wasmtimeSub}/lib"
 	: > "${pkgTree}/zig/vendor/${wasmtimeSub}/lib/libwasmtime.a"
@@ -2724,7 +2726,7 @@ if ! out="$(
 	fLoad fRunDir || { echo "no fRunDir in cicd.bash"; exit 2; }
 	# shellcheck disable=2329  ## Called by the lifted fRunDir.
 	fThrowError(){ printf '%s\n' "$1"; exit 1; }
-	# shellcheck disable=2034  ## Read by the lifted function.
+	# shellcheck disable=2030,2034  ## Read by the lifted function, in this subshell.
 	{ projectName="zuid"; HOST_TEMP="${htRoot}"; safeRmOwn=""; }
 	fRunDir 20261019-101112
 	## printenv, since it's the exported ones the stages see.
@@ -2806,6 +2808,71 @@ PY
 if [[ -z "${intBad}" ]]
 	then fPass
 	else fFail "${intBad}"
+fi
+
+## A harness, the hook or the packager: inside the cicd.bash run's folder when
+## ZUID_RUN_DIR names one, and only that is its own. Alone, or with a
+## ZUID_RUN_DIR that's a link or not there, a run folder like cicd.bash's.
+fId dee2b "harness folder inside the run's, or its own run folder"
+subRoot="${work}/sub"
+mkdir -p "${subRoot}/ht" "${subRoot}/zuid/20261019-101112_001" "${subRoot}/elsewhere"
+ln -s "${subRoot}/zuid/20261019-101112_001" "${subRoot}/via"
+subBad=""
+fSubCase(){  ## ZUID_RUN_DIR
+	(
+		# shellcheck disable=2030,2031  ## Only this subshell's.
+		export ZUID_RUN_DIR="$1" HOST_TEMP="${subRoot}/ht"
+		fRunDir_Sub zuid cli-test || { echo "fRunDir_Sub failed"; exit 0; }
+		# shellcheck disable=2031  ## Set by fRunDir_Sub, in this subshell.
+		printf 'dir=%s own=%s tmp=%s run=%s pid=%s\n' "${safeRmRunDir}" "${safeRmOwn}" "$(printenv TMPDIR TEMP TMP | tr '\n' ' ')" \
+			"${ZUID_RUN_DIR}" "$(cat "${safeRmRunDir}/run.pid" 2>/dev/null || echo none)"
+	)
+}
+nested="${subRoot}/zuid/20261019-101112_001"
+out="$(fSubCase "${nested}")"
+want="dir=${nested}/cli-test_001 own=${nested} tmp=${nested}/cli-test_001 ${nested}/cli-test_001 ${nested}/cli-test_001  run=${nested} pid=none"
+[[ "${out}" == "${want}" ]] || subBad+=" nested said '${out}';"
+out="$(fSubCase "${nested}")"
+[[ "${out}" == "dir=${nested}/cli-test_002 "* ]] || subBad+=" a second one said '${out}';"
+for subParent in "" "${subRoot}/via" "${subRoot}/gone" "relative/dir"; do
+	out="$(fSubCase "${subParent}")"
+	if ! [[ "${out}" =~ ^dir=(${subRoot}/ht/zuid/[0-9]{8}-[0-9]{6}_[0-9]{3})\ own=${subRoot}/ht/zuid\ tmp=([^ ]+)\ .*\ run=([^ ]+)\ pid=([0-9]+)$ \
+		&& "${BASH_REMATCH[2]}" == "${BASH_REMATCH[1]}" && "${BASH_REMATCH[3]}" == "${BASH_REMATCH[1]}" ]]; then
+		subBad+=" ZUID_RUN_DIR '${subParent}' said '${out}';"
+	fi
+done
+[[ -z "$(find "${subRoot}/elsewhere" -mindepth 1)" ]] || subBad+=" wrote outside;"
+if [[ -z "${subBad}" ]]
+	then fPass
+	else fFail "${subBad}"
+fi
+
+## The harnesses, the hook, the packager and the installers remove a folder
+## only through a guard. Every recursive rm, and every Remove-Item -Recurse,
+## has to sit in one of the guard's own functions.
+fId dee2c "recursive removals only inside the guards"
+guardBad=""
+# shellcheck disable=2031  ## Only a subshell much earlier changes it.
+for guardFile in cicd/utility/cli-test.bash cicd/utility/pipeline-test.bash cicd/utility/installer-test.bash \
+	cicd/utility/git-hooks/pre-push cicd/utility/package.bash cicd/utility/include/safe-rm.bash cicd/cicd.bash install.bash install.ps1; do
+	# shellcheck disable=2031  ## Likewise.
+	[[ -f "${repoRoot}/${guardFile}" ]] || { guardBad+=" no ${guardFile};"; continue; }
+	# shellcheck disable=2031  ## Likewise.
+	guardBad+="$(awk -v f="${guardFile}" '
+		/^[[:space:]]*#/ { next }
+		/^(function )?[A-Za-z_][A-Za-z0-9_-]*[[:space:]]*\(\)[[:space:]]*\{/ { fn = $0; sub(/^function /, "", fn); sub(/[[:space:]]*\(.*/, "", fn); one = /\}[[:space:]]*$/ }
+		/^function [A-Za-z-]+ *\{?$/ { fn = $2 }
+		/^}/ { fn = "" }
+		## Bracketed, so the pattern does not match itself.
+		/(^|[^A-Za-z-])rm -[A-Za-z]*[rR]|-exec[ ]rm|Remove-Item.*-Recurs[e]/ {
+			if (fn != "_fSafeRm_Do" && fn != "fSafeRm_Under") printf " %s:%d in %s;", f, NR, (fn == "" ? "top level" : fn)
+		}
+		## A function on one line ends with it.
+		one { fn = ""; one = 0 }' "${repoRoot}/${guardFile}")"
+done
+if [[ -z "${guardBad}" ]]
+	then fPass
+	else fFail "${guardBad}"
 fi
 
 ## The profile report sorted self time by the leaf's own name, and registry
@@ -2964,9 +3031,12 @@ git init -q --bare "${work}/hook/remote.git"
 git init -q -b main "${hookRepo}"
 git -C "${hookRepo}" config user.name t
 git -C "${hookRepo}" config user.email t@t
-mkdir -p "${hookRepo}/cicd/utility/git-hooks" "${hookRepo}/go" "${hookRepo}/project"
+mkdir -p "${hookRepo}/cicd/utility/git-hooks" "${hookRepo}/cicd/utility/include" "${hookRepo}/go" "${hookRepo}/project" "${work}/hook/temp"
 cp "${cicd%/cicd.bash}/utility/git-hooks/pre-push" "${cicd%/cicd.bash}/utility/git-hooks/no-gate-paths" "${hookRepo}/cicd/utility/git-hooks/"
-printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\n' "${gateLog}" > "${hookRepo}/cicd/cicd.bash"
+cp "${cicd%/cicd.bash}/utility/include/safe-rm.bash" "${hookRepo}/cicd/utility/include/"
+## Where it ran, apart from what it was asked, for dee2d.
+# shellcheck disable=2016  ## The stand-in's own text.
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\nprintf "%%s %%s\\n" "$0" "$TMPDIR" >> "%s"\n' "${gateLog}" "${work}/hook/gate.where" > "${hookRepo}/cicd/cicd.bash"
 chmod +x "${hookRepo}/cicd/cicd.bash"
 printf 'x\n' > "${hookRepo}/README.md"; printf 'package x\n' > "${hookRepo}/go/x.go"
 git -C "${hookRepo}" add -A
@@ -2975,7 +3045,7 @@ git -C "${hookRepo}" config core.hooksPath cicd/utility/git-hooks
 git -C "${hookRepo}" remote add origin "${work}/hook/remote.git"
 fHookPush(){  ## ref
 	: > "${gateLog}"
-	env -u SKIP_GATE TMPDIR="${work}/hook" git -C "${hookRepo}" push -q origin "$1" > /dev/null 2>&1 || printf 'push failed\n' >> "${gateLog}"
+	env -u SKIP_GATE -u ZUID_RUN_DIR HOST_TEMP="${work}/hook/temp" git -C "${hookRepo}" push -q origin "$1" > /dev/null 2>&1 || printf 'push failed\n' >> "${gateLog}"
 	tr '\n' ' ' < "${gateLog}"
 }
 hookBad=""
@@ -2994,6 +3064,19 @@ if [[ -z "${hookBad}" ]]
 	else fFail "${hookBad}"
 fi
 
+## The gate's worktree sits in a run folder like cicd.bash's, which goes after.
+fId dee2d "the hook gates in a run folder, removed after"
+hookWhere="$(tail -n 1 "${work}/hook/gate.where")"
+hookBad=""
+[[ "${hookWhere}" =~ ^(${work}/hook/temp/zuid/[0-9]{8}-[0-9]{6}_[0-9]{3})/tree/cicd/cicd\.bash\ (.*)$ && "${BASH_REMATCH[2]}" == "${BASH_REMATCH[1]}" ]] \
+	|| hookBad+=" ran as '${hookWhere//$'\n'/; }';"
+left="$(find "${work}/hook/temp/zuid" -mindepth 1 2>&1 | tr '\n' ' ' || true)"
+[[ -z "${left}" ]] || hookBad+=" left ${left};"
+if [[ -z "${hookBad}" ]]
+	then fPass
+	else fFail "${hookBad}"
+fi
+
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
 fLine ""
@@ -3001,6 +3084,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: Its folder is a run folder. The harness run folder, the guard scan, and the hook's run folder.
 ##		- 20261025 JC: Which runs start the macos workflow, and its start and result steps.
 ##		- 20261025 JC: Test IDs in minutes, PASS, FAIL and SKIP lines.
 ##		- 20261025 JC: The gate flags, and the pre-push hook's --merge-gate and docs skip.
