@@ -394,6 +394,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: A push to main now runs the full run's checks, about 20 minutes on b23, not the 5 of the quick gate.
 	- Swept: every `--gate` and `--ci` in `repo/`. `cicd.bash` help, `development.md`, the hook and `pipeline-test.bash` are updated. What's left is in History lines. `fStage_Container` passes nothing new, since the gate flags only turn stages off outside, and the demo never runs inside.
 	- Branch: round1025
+	- Commit: ac384c8
 	- Test case: Etj4p9f (the refusals), Etj4p9g (what each gate flag runs), Etj4p9h (`--long`, `--slow`, and the alias line), Etj4p9i (the hook: a new main, docs only, docs and code, dev), Et6FB1m (`--ci` is taken). Each failed against the scripts before the change, and passes after.
 	- Verified: 20261025, `pipeline-test.bash` 126 of 126, `test-ids.py check` (476, all unique), shellcheck, the content scrub, and `cicd.bash --gate --only go --no-container`, which printed the alias line, passed, and left the tree as it was. Load about 41 on 32 CPUs.
 
