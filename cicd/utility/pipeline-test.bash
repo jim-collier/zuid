@@ -67,6 +67,9 @@ fRunDir_Sub zuid pipeline-test || fDie "no run folder"
 work="${safeRmRunDir}"
 ## The guard refuses a path that isn't there.
 fRmIfThere(){ if [[ -e "$1" || -L "$1" ]]; then fSafeRm "$1"; fi ;}
+## The exported values, space-separated. One name per printenv, since BSD's
+## takes only one.
+fPrintEnv(){ local n; for n in "$@"; do printenv "${n}"; done | tr '\n' ' ' ;}
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -2857,7 +2860,7 @@ if ! out="$(
 	fRunDir 20261019-101112
 	## printenv, since it's the exported ones the stages see.
 	# shellcheck disable=2154  ## Set by the lifted fRunDir.
-	printf 'dir=%s\nvars=%s\nown=%s\npid=%s\n' "${_runDir}" "$(printenv TMPDIR TEMP TMP | tr '\n' ' ')" "${safeRmOwn}" "$(cat "${_runDir}/run.pid")"
+	printf 'dir=%s\nvars=%s\nown=%s\npid=%s\n' "${_runDir}" "$(fPrintEnv TMPDIR TEMP TMP)" "${safeRmOwn}" "$(cat "${_runDir}/run.pid")"
 )"; then
 	runBad=" ${out};"
 else
@@ -3046,7 +3049,7 @@ fSubCase(){  ## ZUID_RUN_DIR
 		export ZUID_RUN_DIR="$1" HOST_TEMP="${subRoot}/ht"
 		fRunDir_Sub zuid cli-test || { echo "fRunDir_Sub failed"; exit 0; }
 		# shellcheck disable=2031  ## Set by fRunDir_Sub, in this subshell.
-		printf 'dir=%s own=%s tmp=%s run=%s pid=%s\n' "${safeRmRunDir}" "${safeRmOwn}" "$(printenv TMPDIR TEMP TMP | tr '\n' ' ')" \
+		printf 'dir=%s own=%s tmp=%s run=%s pid=%s\n' "${safeRmRunDir}" "${safeRmOwn}" "$(fPrintEnv TMPDIR TEMP TMP)" \
 			"${ZUID_RUN_DIR}" "$(cat "${safeRmRunDir}/run.pid" 2>/dev/null || echo none)"
 	)
 }
