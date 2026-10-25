@@ -58,255 +58,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 0562b45
 	- Test case: EtaIbeg. It failed before the fix, keeping the stale CodeQL image, and passes after.
 
-- CICD runs on the host unless asked for the container.
-	- ID: 2026102406590100
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: The round's full run, `cicd/cicd.bash -q --no-sync --no-dogfood --no-backup --no-demo`, which takes the image now. It's the first full run there: packaging with SDE handed in, the leak checks and CodeQL, then the bash 3.2 cases outside.
-	- Needs external testing: The `macos` workflow on the round branch's push. It should say the image is Linux x86_64 only, and pass on the host.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261024-065901
-	- Opened by: JC
-	- Related IDs: 2026102318361185
-	- Requirements  [Feature]:
-		- A plain run uses the container when docker works, and the host when it doesn't, with a note. A missing docker never fails a run.
-		- A flag forces the host.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-	- Progress log:
-		- 20261024: From the round settings answer: CICD should try to use containers where possible, but not fail without.
-		- 20261024: Raised to high by the CICD reset, per `Containers` in the shared CICD rules. The flag that forces the host is `--no-container`. A step whose point is the real OS, such as the demo with this machine's fonts, stays on the host or a test box.
-		- 20261025: A run uses the image on Linux x86_64 where docker answers. Otherwise it stays here, and one "Container" line says why: no docker, docker not answering, an image that won't build, `--publish`, or another platform. `--no-container` stays here, and `--container` still fails without docker.
-		- 20261025: When the image won't build, the image's checkers skip with that reason rather than build it again. A full run that can't package here, for want of llvm-objcopy, packages in the image.
-		- 20261025: Found in the first gate in the image: this checkout's `zig/.zig-cache` links off the snapshotted dataset, and Zig stopped on NotDir inside. The link's target is mounted at its own path now. `--container` had the same fault.
-		- 20261025: The bash 3.2 installer cases need this machine's `bash:3.2` image, so the run inside skips them, and the run outside does them after it. The host's SDE kit goes in for packaging, and so does the pre-push hook's Zig cache.
-	- Decisions:
-		- 20261025: `--gate` uses the image too, since the round rule is that checks run in the container where docker works. `--gate --container` and `--gate --no-container` are allowed now.
-		- 20261025: A failed image build falls back to the host only when nothing was asked for, per the shared rule. `--container` still stops on it.
-	- Swept: every docker run goes through `fContainer_RunArgs`, for the stage and for `fInImage`. The SDE lookup is one helper for the package stage and the container. installer-test's `bash:3.2` is the only image a test starts itself. The `macos` workflow has no docker, so it takes the host.
-	- Branch: round1025
-	- Commit: e709b98
-	- Test case: Etij2SB (the flags), Etij2SC (the image where docker answers), Etij2SD (each fallback, with its note), Etij2SE (`--container`, `--no-container` and the run inside ask docker nothing), Etij2SF (checkers skip on a failed build), EtijCAL (the hook's Zig cache), EtimFcG (a linked Zig cache), EtimFcH (SDE), Etika82 (bash 3.2 outside). Each failed against the script before the change, and passes after.
-
-- Zig's build caches grow without limit.
-	- ID: 2026102320181236
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: The round's `--gate`, which builds the new `zuid-cicd` image and runs in it. It should pass. After it, `docker volume ls` should list `zuid-zig-cache`, holding `.cicd-zig-version` with `0.17.0`, and `zig/.zig-cache` should hold the same stamp.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261023-201812
-	- Opened by: JC
-	- Parent ID: 2026101916041200
-	- Requirements  [Feature]:
-		- Zig never prunes its cache. On b23 `zig/.zig-cache` reached 711 MB in 5 days, and the Zig cache in the `zuid-cicd-cache` volume 336 MB. Go's build cache trims itself.
-		- Zig's global cache in `~/.cache/zig` is shared with other projects and Zig versions, so it isn't ours to prune.
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-	- Progress log:
-		- 20261024: Answered: (b). At the end of a run, `cicd.bash` empties `zig/.zig-cache`, or the volume's Zig cache under `--container`, when it's over about 2 GB. `~/.cache/zig` is left alone.
-		- 20261024: Raised to high by the CICD reset, per the Zig bullets in `Cleanup after a run` in the shared CICD rules. A cache is also emptied when the Zig that filled it isn't the current one, from a stamp file inside it, and that goes for every `.zig-cache/` in the tree. In the container, Zig's global cache gets a volume of its own, `zuid-zig-cache`, under the same 2 GB rule. Always the whole folder.
-		- 20261025: At the end of a run that built with Zig, every `.zig-cache` in the tree is emptied whole when it's over 2048 MB, or when its `.cicd-zig-version` names another Zig. Then it's stamped with this one. A linked cache is emptied through the link, and the link stays.
-		- 20261025: The image sets `ZIG_GLOBAL_CACHE_DIR=/zig-cache`, and every container run mounts `zuid-zig-cache` there. The run inside tidies it with the tree's caches. The run outside built nothing, so it skips.
-		- 20261025: EsJ9SjF's run line has `-v zuid-zig-cache:/zig-cache` after `-v zuid-cicd-cache:/cache` now. It had no Zig volume before.
-		- 20261025: The old global cache, 336 MB at `/cache/home/.cache/zig` in `zuid-cicd-cache`, is no longer used. It's left for the hand pass in 2026102416233101, and so are labels on the new volume.
-		- Verified: `pipeline-test.bash` 112 of 112. In a build of the new image, Zig's global cache was `/zig-cache`, a new volume there was writable by the caller's uid, and the tidy emptied it over the cap and on a `0.16.0` stamp, and kept it otherwise. On b23 the tidy stamped `zig/.zig-cache`, 1.4 GB with no stamp, and left it whole.
-	- Decisions:
-		- 20261025: A cache with no stamp was just filled by this run's Zig, so it gets a stamp and stays.
-		- 20261025: The version check runs at the end, per the shared rule. So the first run on a new Zig ends with an empty cache, and the next one builds cold once.
-		- 20261025: The pre-push gate's worktree uses the checkout's cache through `ZIG_LOCAL_CACHE_DIR`. That cache sits outside the worktree, so the checkout's own runs tidy it, not the gate.
-		- 20261025: The size is what `du` reports, which on ZFS is the compressed size.
-	- Swept: every docker run goes through `fContainer_RunArgs`, for the stage and for `fInImage`, so the volume reaches both. Only the container stage runs Zig in the image. Removal goes only through `fZigCache_Empty`. All 3 test rigs that set `containerVolume` set the Zig volume too.
-	- Branch: round1025
-	- Commit: deb8b3a
-	- Test case: Etipgwi (over the cap, every cache in the tree, through a link, never `.git`), Etipgwj (another Zig's stamp, and none), Etipgwk (the image's volume, only inside), Etipgwl (the guard), Etipgwm (where fMain calls it). Each failed against the script before the change, and passes after.
-
-- CICD reset: container cleanup
-	- ID: 2026102416233101
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: The round's `--gate`, which builds the new `zuid-cicd` image. It should end with one `Docker .....:` line. After it, `docker image inspect` on the new tag should show both labels, `docker volume ls --filter label=dev.project=zuid` should list `zuid-cicd-cache` and `zuid-zig-cache`, and `docker ps -a --filter label=dev.project=zuid` should list nothing.
-	- Needs external testing: the `macos` workflow on the `round1025-fix` push, for EtitVm7.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261024-162331
-	- Opened by: JC
-	- Related IDs: 2026101916041200, 2026102406590100
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per the container bullets in `Cleanup after a run` in the shared CICD rules. Containers already run with `--rm`.
-		- Every container, image and volume the pipeline makes gets 2 labels, `dev.project=zuid` and `dev.run=<run folder>`. Containers are named `zuid-<run folder>-<step>`.
-		- At the end of a run, on failure and Ctrl+C too, the run's containers are stopped and removed by label. `--keep-temp` keeps them.
-		- Dangling images go by the project label. An older tag goes once a newer one has passed, and the current tag and the one before it stay. Today every other tag goes right after a build.
-		- Then `docker builder prune -f --filter until=168h`, so a week of build cache stays warm.
-		- The cache volume follows the same 2 GB rule as the Zig caches.
-		- One line at the end says what was removed and about what it freed, from `docker system df` before and after.
-		- What was built before the labels gets one pass by hand, by ID.
-		- Earlier decisions this overrides: the 20261023 note on 2026101916041200 that docker's build cache stays with a prune by hand, and the private container notes, where a build drops every other `zuid-cicd` tag.
-	- Progress log:
-		- 20261025: Every container, image and volume a run makes has `dev.project=zuid` and `dev.run=<run>`. Containers are `zuid-<run>-<step>`, numbered per step. The two cache volumes are made labeled when missing, since docker makes them bare.
-		- 20261025: At the end of a run, failed or interrupted too, its containers are stopped and removed by both labels. `--keep-temp` keeps them, and drops `--rm`.
-		- 20261025: A run that passed then removes, by the project label only, every `zuid-codeql` and `zuid-cicd` tag but the current one and the one before it, CodeQL's first, and the dangling images. Then `docker builder prune -f --filter until=168h`, and `zuid-cicd-cache` is emptied when it's over 2048 MB. One `Docker .....:` line says what went and about what it freed.
-		- 20261025: Images are no longer dropped right after a build.
-		- 20261025: Hand pass: `zuid-cicd-cache` (421 MB, 336 MB of it the old Zig cache at `/cache/home/.cache/zig`) was removed, so the next run makes it labeled. No container used it.
-		- 20261025: Left for a hand pass by ID: `zuid-cicd:856cd00870eb` (`6f89bc5604b3`) and `zuid-codeql:de7763196c93-856cd00870eb` (`d2cc10f16f9a`). They're unlabeled, so the rule never removes them, and `dev` and `main` still run on them. They go once a newer labeled image has passed.
-		- 20261025: On b23 one `docker system df` call in a run came back empty, and the line said the whole of docker was freed. 12 calls in a row and 2 at once all answered, so the cause is not found. The line now says the amount is unknown when either call is empty.
-		- 20261025: EsJ9SjE now wants no `rmi` during the stage, where it wanted `rmi zuid-cicd:0ld0ld0ld0ld`. Its build line, and those of EtAj5P2 and Etij2SC, have the two labels now.
-		- 20261025: EsJ9SjF's run line has `--name zuid-20261019-101112-container --label dev.project=zuid --label dev.run=20261019-101112` after the volumes now.
-		- 20261025: EtAj5P2 and EtaIbeg now want no `rmi` during the stage, where they wanted the old CodeQL tag, then the old main one. EtitVm9 checks that order at the end of the run instead.
-		- 20261025: EtitVm7 failed on the `macos` workflow since c50557e. The 4 names were apart, but the Mac's `wc -l` pads its count with spaces, so the count never matched "4". It strips them now, like the other counts. With a padding `wc` on PATH it failed before and passes after, and `pipeline-test.bash` is 128 of 128 both ways.
-		- Verified: `pipeline-test.bash` 115 of 115. With each of 4 faults put in, its own case failed: an unlabeled volume (EtitVm7), the one before not kept (EtitVm9), `--keep-temp` ignored (EtitVm8), and no call from the exit trap (EtitVm8). Against a scratch label on b23's docker, the volumes came up labeled, a left-running container was stopped and removed, and the line was printed.
-	- Decisions:
-		- 20261025: `dev.run` is the run's stamp for now. It becomes the run folder's name when 2026102416233107 makes one.
-		- 20261025: Tags are removed only at the end of a run that passed, so a failed build never costs the one before it.
-		- 20261025: The volume cap empties what the runs wrote, which is everything but the image's own root-owned folders.
-	- Swept: every `docker run` goes through `fContainer_RunArgs` (the stage and `fInImage`), except the volume check, which labels its own. Both image builds are labeled. installer-test's `bash:3.2` runs belong to that harness, with `--rm`, and are left to 2026102416233107. Every rig that lifts `fContainer_Image`, `fInImage` or `fContainer_RunArgs` sets the run and project. Every `wc` count in `cicd/` is stripped, compared with `-eq`, or compared with another count padded the same way.
-	- Branch: round1025
-	- Commit: c50557e
-	- Test case: EtitVm7 (labels and names), EtitVm8 (the run's containers at its end, and the traps), EtitVm9 (the passing run's tidy). Each failed with its part of the change broken.
-
-- CICD reset: CPU and priority
-	- ID: 2026102416233102
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: The round's full run, `cicd/cicd.bash -q --no-sync --no-dogfood --no-backup --no-demo`, in the image as it picks by default. It's the first run of fuzzing, the leak checks, the C sanitizers and CodeQL at the new counts, in containers held by `--cpus`.
-	- Needs external testing: The `macos` workflow on the round branch's push. Its Jobs line should show the runner's CPUs and load, and its Priority line nice 19.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261024-162331
-	- Opened by: JC
-	- Related IDs: 2026101410500008
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per `Machine use` in the shared CICD rules. Half the cores, at least 1, is already worked out in one place and handed to Go and Zig.
-		- A quarter of the cores on a busy box, where the 1-minute load is over half the CPU count. Checked at the start and again before each step.
-		- A quarter, busy or not, for the hard steps: fuzzing, the leak checks, the sanitizer builds, the soak tests and CodeQL.
-		- Steps that run side by side share the count. `codeql.bash` works out its own today, and takes it from cicd instead.
-		- Everything runs under `nice -n 19`, plus `ionice -c 3` where it exists.
-		- Container runs get `--cpus <jobs>` and `--cpu-shares 256`, and `nice` inside too.
-		- The same rules on the test boxes, with each box's own CPU count and load.
-		- Earlier decisions this overrides: 2026101410500008, which gave Go fuzzing and packaging half the cores, and the Zig fuzz line in the private round settings, which passes half.
-	- Progress log:
-		- 20261025: `fJobs` works out both counts, at the start and from `fSection` before each step. Preflight prints them with the load, and a count that moves gets its own line.
-		- 20261025: The run renices itself to 19, with `ionice -c 3` where there is one, so whatever it starts inherits it. Each container gets `--cpus` and `--cpu-shares 256` for its step's count, and `nice -n 19` inside. The image has no ionice.
-		- 20261025: The count goes into the image as `ZUID_JOBS`, which `codeql.bash` reads, and `ZUID_JOBS_CAP`, which the run inside never goes over. `codeql.bash` by hand uses 1.
-		- 20261025: Nothing runs side by side yet, so there is no count to share.
-		- 20261025: Test boxes work out their own count and load, on Linux, macOS and FreeBSD. cicd.bash doesn't run on Windows.
-		- 20261025: EsJ9SjF, EtAj5P2, EtAHpAi, EtB6KVG and EtitVm9 now expect `--cpus`, `--cpu-shares 256` and `nice -n 19` in their docker run lines, which had none.
-	- Decisions:
-		- 20261025: The `-race` test run counts as a hard step, for its memory, though it wasn't on the list.
-	- Swept: every `-j`, `-p`, `-parallel` and `--threads` in cicd.bash, codeql.bash and package.bash, and every `docker run` in the repo: the container stage, `fInImage`, the cache cap check and installer-test's two bash 3.2 runs. package.bash keeps its own half only for a run by hand.
-	- Branch: round1025
-	- Commit: fc2e692
-	- Test case: Etj0Hby (the counts), Etj0Hbz (a bad load reading), Etj0Hc0 (checked again before each step), Etj0NB7 (the priority), Etj0Hc1 (Zig fuzz), Etj0Hc2 (steps in the image), Etj0Hc3 (`codeql.bash`). Each failed against the scripts before the change, and passes after.
-	- Verified: 20261025, `pipeline-test.bash` 122 of 122, the bash 3.2 installer cases, and `cicd.bash --gate --only go --no-container` with docker absent, at load 31 to 71 on 32 CPUs.
-
-- CICD reset: standard flags, the gate flags and the hook
-	- ID: 2026102508153575
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: The round's full run, as `cicd/cicd.bash --backlog-run-full`. It should pass, run fuzz, profile, packaging and the leak checks, leave out the demo, and leave `git status` as it found it, `assets/demo.gif` included.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261025-081535
-	- Opened by: JC
-	- Parent ID: 2026102416233103
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- `--long`, with `--slow` as another name, `--backlog-run-quick`, `--backlog-run-full`, `--merge-gate` and `--no-remote`.
-		- `--gate` and `--ci` stay as other names for `--backlog-run-quick` and `--merge-gate`, and say so in one line when used.
-		- The backlog and merge gate flags never dogfood, publish, commit, push, install, sync, rewrite a tracked file, or prompt. That covers the backup and `assets/demo.gif`.
-		- The pre-push hook runs `--merge-gate` on a push to main. A push whose commits change only paths listed in one place the hook reads skips it. No gate on dev.
-	- Progress log:
-		- 20261025: `--backlog-run-quick` is the old `--gate`, plus no demo. `--backlog-run-full` and `--merge-gate` are a full run with no sync, dogfood, backup or demo, and no prompt, so fuzz, profile, packaging and the leak checks all run. Each refuses `--commit`, `--push`, `-m`, `--backup`, `--dogfood` and `--publish`, and the full ones refuse `--quick`.
-		- 20261025: `--gate` and `--ci` print "is another name for" once the run log has started. `--long` and `--slow` are the default run, since no step is long enough to move out of it. `--no-remote` is taken and changes nothing yet, for 2026102416233100.
-		- 20261025: The hook runs `--merge-gate`. It skips a push to main whose commits change only paths in `cicd/utility/git-hooks/no-gate-paths`: `*.md`, `project/` and `assets/`, the same as the `macos` workflow's `paths-ignore`. A new main, or one whose old tip isn't in the clone, is gated.
-		- 20261025: Et6FB1m expected `--ci` to be refused, per the 20261019 reversal. It now expects `--ci` to be taken, as this item asks.
-	- Decisions:
-		- 20261025: A gate's refusal names the flag as typed, so `--gate --commit` still says `--gate`.
-		- 20261025: `--merge-gate` and `--backlog-run-full` take `--package` and `--no-package`, since `dist/` is ignored. `--backlog-run-quick` still refuses `--package`, as `--gate` did.
-		- 20261025: A docs-only push to main skips the docs checks and the README example check too. They run on every other run.
-		- 20261025: A push to main now runs the full run's checks, about 20 minutes on b23, not the 5 of the quick gate.
-	- Swept: every `--gate` and `--ci` in `repo/`. `cicd.bash` help, `development.md`, the hook and `pipeline-test.bash` are updated. What's left is in History lines. `fStage_Container` passes nothing new, since the gate flags only turn stages off outside, and the demo never runs inside.
-	- Branch: round1025
-	- Commit: ac384c8
-	- Test case: Etj4p9f (the refusals), Etj4p9g (what each gate flag runs), Etj4p9h (`--long`, `--slow`, and the alias line), Etj4p9i (the hook: a new main, docs only, docs and code, dev), Et6FB1m (`--ci` is taken). Each failed against the scripts before the change, and passes after.
-	- Verified: 20261025, `pipeline-test.bash` 126 of 126, `test-ids.py check` (476, all unique), shellcheck, the content scrub, and `cicd.bash --gate --only go --no-container`, which printed the alias line, passed, and left the tree as it was. Load about 41 on 32 CPUs.
-
-- CICD reset: step output
-	- ID: 2026102416233104
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full` once, in the image as it picks by default, for the Zig, leak check and package steps and the numbering after the image's run. 2026102508540624 fixed the Pipeline stop in the image, in 26605ac.
-	- Needs external testing: the `macos` workflow on the round branch's push, for the step lines under the Mac's bash.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261024-162331
-	- Opened by: JC
-	- Related IDs: 2026101410495998
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per the step lines in `CICD style guide` in the shared CICD rules. Stage headers already have the blank line, the rule of `•` and the bracketed title.
-		- The rule is 79 `•` wide, always.
-		- Each step opens with `[ <local time to the hundredth>: Step N of M; Starting <name> ]` and closes with the same line saying `PASS` or `FAIL`.
-		- A step that's turned off isn't counted in M. The first section lists those, with the flag or reason for each.
-		- One blank line between sections, and one at the end.
-		- Earlier decisions this overrides: 2026101410495998, which sizes the rule to the terminal, and to 74 in a pipe or a log.
-	- Progress log:
-		- 20261025: One list of steps, in order, with the flags that turn each on or off. It goes through once to count and list the ones off, then again to run them, so the count can't drift from what runs. The stages lost their own headers and their calls to each other.
-		- 20261025: The rule is 79 wide everywhere, and the image is no longer handed a width.
-		- 20261025: The run in the image is handed the step it starts at, the total and the UTC offset, so its numbers carry on from the outside's and its times are local too. It no longer prints its own "Passed.", and a failure there no longer doubles the blank line.
-		- 20261025: The content scrub never ran in the image, since it can't see the private folder beside the repo. It now runs on this machine after the image's run, like the bash 3.2 cases.
-		- 20261025: The guess of image or not is made before the first step, for the count. If the image then doesn't build, the run falls back here as before, and says the new total.
-		- 20261025: The commit message prompt keeps a plain header, since it's a question, not a step. The cache tidy and "Passed." print after the last step.
-		- 20261025: Zig fuzz used to print a skip line per fuzz test on a quick run. Now it's a step that's off, like Go fuzz, so those skip lines are gone.
-		- 20261025: Asserts that moved with this: EtB5PUX wanted a rule of 74 in a pipe, 123 in a 123-wide terminal and 101 in the image, and the width handed in. Now 79 in all three, and no width handed. EsJ9SjF wanted `-e ZUID_COLUMNS=123`, and now wants the step and offset values. Etab8wp, Etika82, EtitVm8 and Etipgwm read their call sites from fMain, and now read them from fSteps.
-		- 20261025: Filed 2026102508540624: Etj0NB7 fails in the image, which has no `ps`.
-	- Decisions:
-		- 20261025: The first section is a plain header with the step count and how many are off, then one `Off` line each, with the flag or reason. Off by default, such as Publish, counts as off.
-	- Swept: every `fSection` call in `cicd.bash`, now only the plan and the commit prompt. The other scripts print status lines, not stages, per 2026101410495998. `lint-report.bash` counts "warning", which the new lines don't have. The pre-push hook, the workflow and `test-ids.py` read no header lines.
-	- Test case: Etj8iKE (step lines, the off list, PASS and FAIL, a step run elsewhere, and the image's local time), Etj8iKF (the steps counted for the image are the ones it runs, and the scrub stays here), and EtB5PUX (79 everywhere). Each failed with its part broken by hand, and passes now.
-	- Verified: 20261025, `pipeline-test.bash` 128 of 128. `cicd.bash --backlog-run-quick --only go --no-container` passed, steps 1 to 13 of 13. The same in the image numbered steps 1 to 6 of 14 across the handoff with local times, and stopped at Pipeline on Etj0NB7, with the FAIL line. shellcheck and `test-ids.py check` are clean.
-	- Branch: round1025
-	- Commit: 3938bf3
-
-- Installer options and messages per the house installer rules.
-	- ID: 2026101410495989
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-		- 20261025: Moved from signoff, since a machine can run the Windows step on b29w.
-	- Needs local test suite run?: Done. `installer-test.bash` 83 of 83.
-	- Needs external testing: A real run of the PowerShell one-liner on a Windows box. The Mac one passed on b26 on 20261024.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- `--version`, and `--opt=value` beside `--opt value`.
-		- Pick releases in semver order, not GitHub's date order.
-		- Say why a release lookup failed: rate limit, network, or HTTP status.
-		- Name the target and the alternative when a write fails.
-		- Check sha256 with `shasum` or `openssl` where there's no `sha256sum`.
-		- Drop `--arch` and `-Arch`. The arch is detected.
-		- `install.ps1` gets `-Help` and `-Version`, and passes PSScriptAnalyzer.
-	- Progress log:
-		- 20261014: Both scripts and the README install section. The README one-liners lost their option text, which didn't run as pasted, and say to pass `--help`.
-		- 20261024: The bash one-liner from `install.md` ran on b26 as `mactest`, under the stock bash 3.2. `--version` printed 1.3.0. A plain `--yes` run said there's no stable release yet, installed beta.1 and checked it against `checksums.txt`. `--release=dev --yes` then had nothing to do, and `--uninstall --yes` removed both paths. The module cache stayed behind, filed as 2026102407393000.
-		- 20261024: b29w didn't answer, vmKt6m was paused, and vm925w is off limits, so the PowerShell one-liner is still to run.
-	- Branch: tidyup
-	- Commit: c286dfe
-	- Test case: EshFEjt, EshFEjv, EshFEjw, EshFEjx, EshFEjy, EshFEjz, EshFEk0, EshFEk1, EshFEk2. `--arch`'s missing-value case, Eq9oNBi, is retired with the flag.
-
-- A Windows install leaves `PATH` to the user.
-	- ID: 2026101410495985
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-		- 20261025: Moved from signoff, since a machine can run the Windows step on b29w.
-	- Needs local test suite run?: Done. `installer-test.bash` 86 of 86.
-	- Needs external testing: A system install from an admin account, which goes on the machine `PATH`. The user `PATH` passed on b29w under 5.1 and 7.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261014-105000
-	- Opened by: JC
-	- Target OS: Windows
-	- Progress log:
-		- 20261014: Question: should `install.ps1` add the `bin` folder to the user or machine `PATH`, the way silkterm's does? Today it prints a hint. A machine `PATH` near 4 KB is a known trap on both test boxes.
-		- 20261014: Answer: yes. A user install goes on the user `PATH`, a system one on the machine `PATH`, through the registry so `%VAR%` entries keep expanding. Skipped with a note past 2047 or 4095 characters. Uninstall takes it off. On b29w the user `PATH` came back byte for byte after an uninstall, once a trailing `;` was kept.
-	- Branch: answers
-	- Commit: 044ef7f
-	- Test case: None in the harness, since it runs on Linux, where there is no registry. The b29w runs are the check.
-
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -355,6 +106,51 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: Every `mktemp` in the tree is a `mktemp -d` that goes on the cleanup list. Nothing calls a plain `mktemp`. The file seen was in the temp root every session on this box shares, and was tied to the run only by its time, about 34 s after the run started.
 	- Branch: cicdtidy
 	- Test case: none. Nothing reproduced it, so there's no failure for a test to pin. EscPGS5 and EscPGS6 already pin the cleanup of scratch folders.
+
+- CICD reset: container cleanup
+	- ID: 2026102416233101
+	- Type: Enhancement
+	- Status: Stalled
+		- Held for the hand pass by ID on `zuid-cicd:856cd00870eb` and `zuid-codeql:de7763196c93-856cd00870eb`, once the round has merged. Nothing else is left.
+	- Needs local test suite run?: Done. `cicd/cicd.bash --backlog-run-quick` at f123531 ended with one `Docker .....:` line, and so did the full run. After them, `zuid-cicd:8029eec721c8` and `zuid-codeql:de7763196c93-8029eec721c8` had both labels, `docker volume ls --filter label=dev.project=zuid` listed `zuid-cicd-cache` and `zuid-zig-cache`, and `docker ps -a --filter label=dev.project=zuid` listed nothing.
+	- Needs external testing: Done. The `macos` workflow, run 40211475106 on `round1025-fix`, whose tree is round1025's head 45f01a1, passed, EtitVm7 included.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101916041200, 2026102406590100
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the container bullets in `Cleanup after a run` in the shared CICD rules. Containers already run with `--rm`.
+		- Every container, image and volume the pipeline makes gets 2 labels, `dev.project=zuid` and `dev.run=<run folder>`. Containers are named `zuid-<run folder>-<step>`.
+		- At the end of a run, on failure and Ctrl+C too, the run's containers are stopped and removed by label. `--keep-temp` keeps them.
+		- Dangling images go by the project label. An older tag goes once a newer one has passed, and the current tag and the one before it stay. Today every other tag goes right after a build.
+		- Then `docker builder prune -f --filter until=168h`, so a week of build cache stays warm.
+		- The cache volume follows the same 2 GB rule as the Zig caches.
+		- One line at the end says what was removed and about what it freed, from `docker system df` before and after.
+		- What was built before the labels gets one pass by hand, by ID.
+		- Earlier decisions this overrides: the 20261023 note on 2026101916041200 that docker's build cache stays with a prune by hand, and the private container notes, where a build drops every other `zuid-cicd` tag.
+	- Progress log:
+		- 20261025: Every container, image and volume a run makes has `dev.project=zuid` and `dev.run=<run>`. Containers are `zuid-<run>-<step>`, numbered per step. The two cache volumes are made labeled when missing, since docker makes them bare.
+		- 20261025: At the end of a run, failed or interrupted too, its containers are stopped and removed by both labels. `--keep-temp` keeps them, and drops `--rm`.
+		- 20261025: A run that passed then removes, by the project label only, every `zuid-codeql` and `zuid-cicd` tag but the current one and the one before it, CodeQL's first, and the dangling images. Then `docker builder prune -f --filter until=168h`, and `zuid-cicd-cache` is emptied when it's over 2048 MB. One `Docker .....:` line says what went and about what it freed.
+		- 20261025: Images are no longer dropped right after a build.
+		- 20261025: Hand pass: `zuid-cicd-cache` (421 MB, 336 MB of it the old Zig cache at `/cache/home/.cache/zig`) was removed, so the next run makes it labeled. No container used it.
+		- 20261025: Left for a hand pass by ID: `zuid-cicd:856cd00870eb` (`6f89bc5604b3`) and `zuid-codeql:de7763196c93-856cd00870eb` (`d2cc10f16f9a`). They're unlabeled, so the rule never removes them, and `dev` and `main` still run on them. They go once a newer labeled image has passed.
+		- 20261025: On b23 one `docker system df` call in a run came back empty, and the line said the whole of docker was freed. 12 calls in a row and 2 at once all answered, so the cause is not found. The line now says the amount is unknown when either call is empty.
+		- 20261025: EsJ9SjE now wants no `rmi` during the stage, where it wanted `rmi zuid-cicd:0ld0ld0ld0ld`. Its build line, and those of EtAj5P2 and Etij2SC, have the two labels now.
+		- 20261025: EsJ9SjF's run line has `--name zuid-20261019-101112-container --label dev.project=zuid --label dev.run=20261019-101112` after the volumes now.
+		- 20261025: EtAj5P2 and EtaIbeg now want no `rmi` during the stage, where they wanted the old CodeQL tag, then the old main one. EtitVm9 checks that order at the end of the run instead.
+		- 20261025: EtitVm7 failed on the `macos` workflow since c50557e. The 4 names were apart, but the Mac's `wc -l` pads its count with spaces, so the count never matched "4". It strips them now, like the other counts. With a padding `wc` on PATH it failed before and passes after, and `pipeline-test.bash` is 128 of 128 both ways.
+		- Verified: `pipeline-test.bash` 115 of 115. With each of 4 faults put in, its own case failed: an unlabeled volume (EtitVm7), the one before not kept (EtitVm9), `--keep-temp` ignored (EtitVm8), and no call from the exit trap (EtitVm8). Against a scratch label on b23's docker, the volumes came up labeled, a left-running container was stopped and removed, and the line was printed.
+		- 20261025: The quick and full runs at f123531 passed in the image. Both ended with "removed build cache over a week old; about 0.0 GB freed". Only two labeled tags of each image exist, so none went.
+	- Decisions:
+		- 20261025: `dev.run` is the run's stamp for now. It becomes the run folder's name when 2026102416233107 makes one.
+		- 20261025: Tags are removed only at the end of a run that passed, so a failed build never costs the one before it.
+		- 20261025: The volume cap empties what the runs wrote, which is everything but the image's own root-owned folders.
+	- Swept: every `docker run` goes through `fContainer_RunArgs` (the stage and `fInImage`), except the volume check, which labels its own. Both image builds are labeled. installer-test's `bash:3.2` runs belong to that harness, with `--rm`, and are left to 2026102416233107. Every rig that lifts `fContainer_Image`, `fInImage` or `fContainer_RunArgs` sets the run and project. Every `wc` count in `cicd/` is stripped, compared with `-eq`, or compared with another count padded the same way.
+	- Branch: round1025
+	- Commit: c50557e
+	- Test case: EtitVm7 (labels and names), EtitVm8 (the run's containers at its end, and the traps), EtitVm9 (the passing run's tidy). Each failed with its part of the change broken.
 
 - Move `convertbase` to `lib/v0.2.0` once it is tagged.
 	- ID: 2026100519164742
@@ -735,6 +531,227 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: EshFEk5, which runs in the `bash:3.2` image when it's on hand. It failed before the fix.
 	- Acceptance signoff: Self-closed: reproduced, and the test failed before and passes after.
 	- Closed: 20261014-105000
+
+- CICD reset: step output
+	- ID: 2026102416233104
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. `cicd/cicd.bash --backlog-run-full` at f123531 numbered its steps 1 to 24 of 24 across the handoff to the image, with local times and a PASS line for each, the Zig, leak check and Package steps included. The rule was 79 wide, and the first section listed the 7 steps that were off.
+	- Needs external testing: Done. On the `macos` workflow, run 40211475106 on `round1025-fix`, whose tree is round1025's head 45f01a1, the steps ran 1 to 18 of 18 under the Mac's bash, each with its PASS line and a rule 79 wide.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101410495998
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the step lines in `CICD style guide` in the shared CICD rules. Stage headers already have the blank line, the rule of `•` and the bracketed title.
+		- The rule is 79 `•` wide, always.
+		- Each step opens with `[ <local time to the hundredth>: Step N of M; Starting <name> ]` and closes with the same line saying `PASS` or `FAIL`.
+		- A step that's turned off isn't counted in M. The first section lists those, with the flag or reason for each.
+		- One blank line between sections, and one at the end.
+		- Earlier decisions this overrides: 2026101410495998, which sizes the rule to the terminal, and to 74 in a pipe or a log.
+	- Progress log:
+		- 20261025: One list of steps, in order, with the flags that turn each on or off. It goes through once to count and list the ones off, then again to run them, so the count can't drift from what runs. The stages lost their own headers and their calls to each other.
+		- 20261025: The rule is 79 wide everywhere, and the image is no longer handed a width.
+		- 20261025: The run in the image is handed the step it starts at, the total and the UTC offset, so its numbers carry on from the outside's and its times are local too. It no longer prints its own "Passed.", and a failure there no longer doubles the blank line.
+		- 20261025: The content scrub never ran in the image, since it can't see the private folder beside the repo. It now runs on this machine after the image's run, like the bash 3.2 cases.
+		- 20261025: The guess of image or not is made before the first step, for the count. If the image then doesn't build, the run falls back here as before, and says the new total.
+		- 20261025: The commit message prompt keeps a plain header, since it's a question, not a step. The cache tidy and "Passed." print after the last step.
+		- 20261025: Zig fuzz used to print a skip line per fuzz test on a quick run. Now it's a step that's off, like Go fuzz, so those skip lines are gone.
+		- 20261025: Asserts that moved with this: EtB5PUX wanted a rule of 74 in a pipe, 123 in a 123-wide terminal and 101 in the image, and the width handed in. Now 79 in all three, and no width handed. EsJ9SjF wanted `-e ZUID_COLUMNS=123`, and now wants the step and offset values. Etab8wp, Etika82, EtitVm8 and Etipgwm read their call sites from fMain, and now read them from fSteps.
+		- 20261025: Filed 2026102508540624: Etj0NB7 fails in the image, which has no `ps`.
+	- Decisions:
+		- 20261025: The first section is a plain header with the step count and how many are off, then one `Off` line each, with the flag or reason. Off by default, such as Publish, counts as off.
+	- Swept: every `fSection` call in `cicd.bash`, now only the plan and the commit prompt. The other scripts print status lines, not stages, per 2026101410495998. `lint-report.bash` counts "warning", which the new lines don't have. The pre-push hook, the workflow and `test-ids.py` read no header lines.
+	- Test case: Etj8iKE (step lines, the off list, PASS and FAIL, a step run elsewhere, and the image's local time), Etj8iKF (the steps counted for the image are the ones it runs, and the scrub stays here), and EtB5PUX (79 everywhere). Each failed with its part broken by hand, and passes now.
+	- Verified: 20261025, `pipeline-test.bash` 128 of 128. `cicd.bash --backlog-run-quick --only go --no-container` passed, steps 1 to 13 of 13. The same in the image numbered steps 1 to 6 of 14 across the handoff with local times, and stopped at Pipeline on Etj0NB7, with the FAIL line. shellcheck and `test-ids.py check` are clean.
+	- Branch: round1025
+	- Commit: 3938bf3
+	- Closed: 20261025-095700
+
+- CICD reset: standard flags, the gate flags and the hook
+	- ID: 2026102508153575
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. `cicd/cicd.bash --backlog-run-full` at f123531 passed in the image, 24 of 24 steps. It ran Go and Zig fuzz, profile, packaging and the leak checks, listed the demo as off, and left `git status` clean, `assets/demo.gif` included.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-081535
+	- Opened by: JC
+	- Parent ID: 2026102416233103
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- `--long`, with `--slow` as another name, `--backlog-run-quick`, `--backlog-run-full`, `--merge-gate` and `--no-remote`.
+		- `--gate` and `--ci` stay as other names for `--backlog-run-quick` and `--merge-gate`, and say so in one line when used.
+		- The backlog and merge gate flags never dogfood, publish, commit, push, install, sync, rewrite a tracked file, or prompt. That covers the backup and `assets/demo.gif`.
+		- The pre-push hook runs `--merge-gate` on a push to main. A push whose commits change only paths listed in one place the hook reads skips it. No gate on dev.
+	- Progress log:
+		- 20261025: `--backlog-run-quick` is the old `--gate`, plus no demo. `--backlog-run-full` and `--merge-gate` are a full run with no sync, dogfood, backup or demo, and no prompt, so fuzz, profile, packaging and the leak checks all run. Each refuses `--commit`, `--push`, `-m`, `--backup`, `--dogfood` and `--publish`, and the full ones refuse `--quick`.
+		- 20261025: `--gate` and `--ci` print "is another name for" once the run log has started. `--long` and `--slow` are the default run, since no step is long enough to move out of it. `--no-remote` is taken and changes nothing yet, for 2026102416233100.
+		- 20261025: The hook runs `--merge-gate`. It skips a push to main whose commits change only paths in `cicd/utility/git-hooks/no-gate-paths`: `*.md`, `project/` and `assets/`, the same as the `macos` workflow's `paths-ignore`. A new main, or one whose old tip isn't in the clone, is gated.
+		- 20261025: Et6FB1m expected `--ci` to be refused, per the 20261019 reversal. It now expects `--ci` to be taken, as this item asks.
+		- 20261025: The full run passed in about 25 minutes at load 30 to 45.
+	- Decisions:
+		- 20261025: A gate's refusal names the flag as typed, so `--gate --commit` still says `--gate`.
+		- 20261025: `--merge-gate` and `--backlog-run-full` take `--package` and `--no-package`, since `dist/` is ignored. `--backlog-run-quick` still refuses `--package`, as `--gate` did.
+		- 20261025: A docs-only push to main skips the docs checks and the README example check too. They run on every other run.
+		- 20261025: A push to main now runs the full run's checks, about 20 minutes on b23, not the 5 of the quick gate.
+	- Swept: every `--gate` and `--ci` in `repo/`. `cicd.bash` help, `development.md`, the hook and `pipeline-test.bash` are updated. What's left is in History lines. `fStage_Container` passes nothing new, since the gate flags only turn stages off outside, and the demo never runs inside.
+	- Branch: round1025
+	- Commit: ac384c8
+	- Test case: Etj4p9f (the refusals), Etj4p9g (what each gate flag runs), Etj4p9h (`--long`, `--slow`, and the alias line), Etj4p9i (the hook: a new main, docs only, docs and code, dev), Et6FB1m (`--ci` is taken). Each failed against the scripts before the change, and passes after.
+	- Verified: 20261025, `pipeline-test.bash` 126 of 126, `test-ids.py check` (476, all unique), shellcheck, the content scrub, and `cicd.bash --gate --only go --no-container`, which printed the alias line, passed, and left the tree as it was. Load about 41 on 32 CPUs.
+	- Closed: 20261025-095700
+
+- CICD reset: CPU and priority
+	- ID: 2026102416233102
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. The full run, `cicd/cicd.bash --backlog-run-full` at f123531, passed in the image, with Go and Zig fuzz, the leak checks, the C sanitizers and CodeQL. Its Jobs line was "8, 8 for the hard steps (32 CPUs, load 36.86, busy)", and Priority "nice 19, IO idle".
+	- Needs external testing: Done. On the `macos` workflow, run 40211475106 on `round1025-fix`, whose tree is round1025's head 45f01a1, Jobs was "1, 1 for the hard steps (3 CPUs, load 42.44, busy)" and Priority "nice 19". It passed.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101410500008
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per `Machine use` in the shared CICD rules. Half the cores, at least 1, is already worked out in one place and handed to Go and Zig.
+		- A quarter of the cores on a busy box, where the 1-minute load is over half the CPU count. Checked at the start and again before each step.
+		- A quarter, busy or not, for the hard steps: fuzzing, the leak checks, the sanitizer builds, the soak tests and CodeQL.
+		- Steps that run side by side share the count. `codeql.bash` works out its own today, and takes it from cicd instead.
+		- Everything runs under `nice -n 19`, plus `ionice -c 3` where it exists.
+		- Container runs get `--cpus <jobs>` and `--cpu-shares 256`, and `nice` inside too.
+		- The same rules on the test boxes, with each box's own CPU count and load.
+		- Earlier decisions this overrides: 2026101410500008, which gave Go fuzzing and packaging half the cores, and the Zig fuzz line in the private round settings, which passes half.
+	- Progress log:
+		- 20261025: `fJobs` works out both counts, at the start and from `fSection` before each step. Preflight prints them with the load, and a count that moves gets its own line.
+		- 20261025: The run renices itself to 19, with `ionice -c 3` where there is one, so whatever it starts inherits it. Each container gets `--cpus` and `--cpu-shares 256` for its step's count, and `nice -n 19` inside. The image has no ionice.
+		- 20261025: The count goes into the image as `ZUID_JOBS`, which `codeql.bash` reads, and `ZUID_JOBS_CAP`, which the run inside never goes over. `codeql.bash` by hand uses 1.
+		- 20261025: Nothing runs side by side yet, so there is no count to share.
+		- 20261025: Test boxes work out their own count and load, on Linux, macOS and FreeBSD. cicd.bash doesn't run on Windows.
+		- 20261025: EsJ9SjF, EtAj5P2, EtAHpAi, EtB6KVG and EtitVm9 now expect `--cpus`, `--cpu-shares 256` and `nice -n 19` in their docker run lines, which had none.
+		- 20261025: The run log doesn't print the docker run lines, so `--cpus` and `--cpu-shares` were seen only through the pipeline-test cases, which passed in the run.
+	- Decisions:
+		- 20261025: The `-race` test run counts as a hard step, for its memory, though it wasn't on the list.
+	- Swept: every `-j`, `-p`, `-parallel` and `--threads` in cicd.bash, codeql.bash and package.bash, and every `docker run` in the repo: the container stage, `fInImage`, the cache cap check and installer-test's two bash 3.2 runs. package.bash keeps its own half only for a run by hand.
+	- Branch: round1025
+	- Commit: fc2e692
+	- Test case: Etj0Hby (the counts), Etj0Hbz (a bad load reading), Etj0Hc0 (checked again before each step), Etj0NB7 (the priority), Etj0Hc1 (Zig fuzz), Etj0Hc2 (steps in the image), Etj0Hc3 (`codeql.bash`). Each failed against the scripts before the change, and passes after.
+	- Verified: 20261025, `pipeline-test.bash` 122 of 122, the bash 3.2 installer cases, and `cicd.bash --gate --only go --no-container` with docker absent, at load 31 to 71 on 32 CPUs.
+	- Closed: 20261025-095700
+
+- Zig's build caches grow without limit.
+	- ID: 2026102320181236
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. `cicd/cicd.bash --backlog-run-quick` at f123531 passed in `zuid-cicd:8029eec721c8`, and so did the full run. After them, `docker volume ls` listed `zuid-zig-cache`, labeled, whose `.cicd-zig-version` says `0.17.0`, and `zig/.zig-cache` has the same stamp.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261023-201812
+	- Opened by: JC
+	- Parent ID: 2026101916041200
+	- Requirements  [Feature]:
+		- Zig never prunes its cache. On b23 `zig/.zig-cache` reached 711 MB in 5 days, and the Zig cache in the `zuid-cicd-cache` volume 336 MB. Go's build cache trims itself.
+		- Zig's global cache in `~/.cache/zig` is shared with other projects and Zig versions, so it isn't ours to prune.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+	- Progress log:
+		- 20261024: Answered: (b). At the end of a run, `cicd.bash` empties `zig/.zig-cache`, or the volume's Zig cache under `--container`, when it's over about 2 GB. `~/.cache/zig` is left alone.
+		- 20261024: Raised to high by the CICD reset, per the Zig bullets in `Cleanup after a run` in the shared CICD rules. A cache is also emptied when the Zig that filled it isn't the current one, from a stamp file inside it, and that goes for every `.zig-cache/` in the tree. In the container, Zig's global cache gets a volume of its own, `zuid-zig-cache`, under the same 2 GB rule. Always the whole folder.
+		- 20261025: At the end of a run that built with Zig, every `.zig-cache` in the tree is emptied whole when it's over 2048 MB, or when its `.cicd-zig-version` names another Zig. Then it's stamped with this one. A linked cache is emptied through the link, and the link stays.
+		- 20261025: The image sets `ZIG_GLOBAL_CACHE_DIR=/zig-cache`, and every container run mounts `zuid-zig-cache` there. The run inside tidies it with the tree's caches. The run outside built nothing, so it skips.
+		- 20261025: EsJ9SjF's run line has `-v zuid-zig-cache:/zig-cache` after `-v zuid-cicd-cache:/cache` now. It had no Zig volume before.
+		- 20261025: The old global cache, 336 MB at `/cache/home/.cache/zig` in `zuid-cicd-cache`, is no longer used. It's left for the hand pass in 2026102416233101, and so are labels on the new volume.
+		- Verified: `pipeline-test.bash` 112 of 112. In a build of the new image, Zig's global cache was `/zig-cache`, a new volume there was writable by the caller's uid, and the tidy emptied it over the cap and on a `0.16.0` stamp, and kept it otherwise. On b23 the tidy stamped `zig/.zig-cache`, 1.4 GB with no stamp, and left it whole.
+		- 20261025: The round's quick and full runs passed in the image at f123531. The volume and the tree's cache were both stamped `0.17.0` after.
+	- Decisions:
+		- 20261025: A cache with no stamp was just filled by this run's Zig, so it gets a stamp and stays.
+		- 20261025: The version check runs at the end, per the shared rule. So the first run on a new Zig ends with an empty cache, and the next one builds cold once.
+		- 20261025: The pre-push gate's worktree uses the checkout's cache through `ZIG_LOCAL_CACHE_DIR`. That cache sits outside the worktree, so the checkout's own runs tidy it, not the gate.
+		- 20261025: The size is what `du` reports, which on ZFS is the compressed size.
+	- Swept: every docker run goes through `fContainer_RunArgs`, for the stage and for `fInImage`, so the volume reaches both. Only the container stage runs Zig in the image. Removal goes only through `fZigCache_Empty`. All 3 test rigs that set `containerVolume` set the Zig volume too.
+	- Branch: round1025
+	- Commit: deb8b3a
+	- Test case: Etipgwi (over the cap, every cache in the tree, through a link, never `.git`), Etipgwj (another Zig's stamp, and none), Etipgwk (the image's volume, only inside), Etipgwl (the guard), Etipgwm (where fMain calls it). Each failed against the script before the change, and passes after.
+	- Closed: 20261025-095700
+
+- CICD runs on the host unless asked for the container.
+	- ID: 2026102406590100
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Done. The round's full run, `cicd/cicd.bash --backlog-run-full` at f123531, took `zuid-cicd:8029eec721c8` by itself and passed, 24 of 24 steps.
+	- Needs external testing: Done. The `macos` workflow, run 40211475106 on `round1025-fix`, whose tree is round1025's head 45f01a1, said the image is Linux x86_64 only and passed on the host.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-065901
+	- Opened by: JC
+	- Related IDs: 2026102318361185
+	- Requirements  [Feature]:
+		- A plain run uses the container when docker works, and the host when it doesn't, with a note. A missing docker never fails a run.
+		- A flag forces the host.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+	- Progress log:
+		- 20261024: From the round settings answer: CICD should try to use containers where possible, but not fail without.
+		- 20261024: Raised to high by the CICD reset, per `Containers` in the shared CICD rules. The flag that forces the host is `--no-container`. A step whose point is the real OS, such as the demo with this machine's fonts, stays on the host or a test box.
+		- 20261025: A run uses the image on Linux x86_64 where docker answers. Otherwise it stays here, and one "Container" line says why: no docker, docker not answering, an image that won't build, `--publish`, or another platform. `--no-container` stays here, and `--container` still fails without docker.
+		- 20261025: When the image won't build, the image's checkers skip with that reason rather than build it again. A full run that can't package here, for want of llvm-objcopy, packages in the image.
+		- 20261025: Found in the first gate in the image: this checkout's `zig/.zig-cache` links off the snapshotted dataset, and Zig stopped on NotDir inside. The link's target is mounted at its own path now. `--container` had the same fault.
+		- 20261025: The bash 3.2 installer cases need this machine's `bash:3.2` image, so the run inside skips them, and the run outside does them after it. The host's SDE kit goes in for packaging, and so does the pre-push hook's Zig cache.
+		- 20261025: The full run at f123531 packaged, ran the leak checks and built and ran CodeQL in the image, then ran the bash 3.2 cases outside, 2 of 2. `git status` was clean after.
+		- 20261025: The `macos` workflow, run 40211475106, printed "not used, the image is Linux x86_64 only, so this runs here" and passed, 18 of 18 steps.
+	- Decisions:
+		- 20261025: `--gate` uses the image too, since the round rule is that checks run in the container where docker works. `--gate --container` and `--gate --no-container` are allowed now.
+		- 20261025: A failed image build falls back to the host only when nothing was asked for, per the shared rule. `--container` still stops on it.
+	- Swept: every docker run goes through `fContainer_RunArgs`, for the stage and for `fInImage`. The SDE lookup is one helper for the package stage and the container. installer-test's `bash:3.2` is the only image a test starts itself. The `macos` workflow has no docker, so it takes the host.
+	- Branch: round1025
+	- Commit: e709b98
+	- Test case: Etij2SB (the flags), Etij2SC (the image where docker answers), Etij2SD (each fallback, with its note), Etij2SE (`--container`, `--no-container` and the run inside ask docker nothing), Etij2SF (checkers skip on a failed build), EtijCAL (the hook's Zig cache), EtimFcG (a linked Zig cache), EtimFcH (SDE), Etika82 (bash 3.2 outside). Each failed against the script before the change, and passes after.
+	- Verified: 20261025, the full run in the image at f123531, and the `macos` workflow run 40211475106.
+	- Closed: 20261025-095700
+
+- Installer options and messages per the house installer rules.
+	- ID: 2026101410495989
+	- Type: Enhancement
+	- Status: Done
+		- 20261025: Moved from signoff, since a machine can run the Windows step on b29w.
+	- Needs local test suite run?: Done. `installer-test.bash` 83 of 83.
+	- Needs external testing: Done. On b29w on 20261025, the one-liner from `main`, the same as the round's `install.ps1` by sha256, passed under Windows PowerShell 5.1 and pwsh 7. The Mac one passed on b26 on 20261024.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- `--version`, and `--opt=value` beside `--opt value`.
+		- Pick releases in semver order, not GitHub's date order.
+		- Say why a release lookup failed: rate limit, network, or HTTP status.
+		- Name the target and the alternative when a write fails.
+		- Check sha256 with `shasum` or `openssl` where there's no `sha256sum`.
+		- Drop `--arch` and `-Arch`. The arch is detected.
+		- `install.ps1` gets `-Help` and `-Version`, and passes PSScriptAnalyzer.
+	- Progress log:
+		- 20261014: Both scripts and the README install section. The README one-liners lost their option text, which didn't run as pasted, and say to pass `--help`.
+		- 20261024: The bash one-liner from `install.md` ran on b26 as `mactest`, under the stock bash 3.2. `--version` printed 1.3.0. A plain `--yes` run said there's no stable release yet, installed beta.1 and checked it against `checksums.txt`. `--release=dev --yes` then had nothing to do, and `--uninstall --yes` removed both paths. The module cache stayed behind, filed as 2026102407393000.
+		- 20261024: b29w didn't answer, vmKt6m was paused, and vm925w is off limits, so the PowerShell one-liner is still to run.
+		- 20261025: On b29w as `collierjr`, under 5.1 and 7: `-Version` printed 1.3.0, and `-Help` printed the usage. `-Yes` said there's no stable release yet, installed beta.1, checked it against `checksums.txt`, and `zuid.exe --version` printed `1.0.0-beta.1 (build ddytm)`. A second run had nothing to do, and `-Uninstall -Yes` removed it. The prompt was skipped with `-Yes`, not answered by hand.
+	- Branch: tidyup
+	- Commit: c286dfe
+	- Test case: EshFEjt, EshFEjv, EshFEjw, EshFEjx, EshFEjy, EshFEjz, EshFEk0, EshFEk1, EshFEk2. `--arch`'s missing-value case, Eq9oNBi, is retired with the flag.
+	- Closed: 20261025-095700
+
+- A Windows install leaves `PATH` to the user.
+	- ID: 2026101410495985
+	- Type: Enhancement
+	- Status: Done
+		- 20261025: Moved from signoff, since a machine can run the Windows step on b29w.
+	- Needs local test suite run?: Done. `installer-test.bash` 86 of 86.
+	- Needs external testing: Done. A system install from an admin account on b29w went on the machine `PATH`, under 5.1 and 7, on 20261025.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261014-105000
+	- Opened by: JC
+	- Target OS: Windows
+	- Progress log:
+		- 20261014: Question: should `install.ps1` add the `bin` folder to the user or machine `PATH`, the way silkterm's does? Today it prints a hint. A machine `PATH` near 4 KB is a known trap on both test boxes.
+		- 20261014: Answer: yes. A user install goes on the user `PATH`, a system one on the machine `PATH`, through the registry so `%VAR%` entries keep expanding. Skipped with a note past 2047 or 4095 characters. Uninstall takes it off. On b29w the user `PATH` came back byte for byte after an uninstall, once a trailing `;` was kept.
+		- 20261025: On b29w as `collierjr`, an admin, `-Target system -Yes` put `C:\Program Files\zuid\bin` on the machine `PATH`, kept it `ExpandString`, and a second run changed nothing. `-Target system -Uninstall -Yes` gave the machine `PATH` back byte for byte, 4030 characters. The user install did the same for the user `PATH`, under both shells.
+	- Branch: answers
+	- Commit: 044ef7f
+	- Test case: None in the harness, since it runs on Linux, where there is no registry. The b29w runs are the check.
+	- Closed: 20261025-095700
 
 - Release binaries keep debug info and the build machine's paths.
 	- ID: 2026101008194330
