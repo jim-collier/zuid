@@ -186,13 +186,15 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Verified: Each new case failed with its fault put in: the guard's path rule taken out (dee1p), no live-process check (dee1q), no removal in the exit trap (dee1r, dee1s), and the old TERM handling (dee1s). Against the old `cicd.bash`, dee1q, dee1r and dee1s failed.
 		- 20261025: dee1q failed on the `macos` workflow (run 40241731556), and so did dee2b. The run folder was right: the test read `TMPDIR`, `TEMP` and `TMP` with one `printenv`, and the Mac's takes only one name. The harness reads them one at a time now (d6bd26c).
 		- Verified: with the old harness, dee1q and dee2b failed on vmKt6m under bash 5.3, and here with a one-name `printenv` stand-in on PATH. With the fix, `pipeline-test.bash` is 151 of 151 on vmKt6m, and 152 of 152 here, with the stand-in and without. shellcheck on the stage's list is clean.
+		- 20261025: The `macos` rerun (run 40243465349) then failed in the Go consumer step: the guard refused its scratch folder as a path through a link. macOS's bare `mktemp -d` ignores `TMPDIR` and uses its own temp folder, behind `/var`. All 11 in `cicd.bash` go through `fMkTempDir` in the guard's file now, which makes a `tmp.*` folder in `TMPDIR` by its physical path. The scratch cleanup reads `TMPDIR` the same way (90e1488).
+		- Verified: dee5h and dee5j failed against the old `cicd.bash` and pass now. `pipeline-test.bash` is 154 of 154, with `HOST_TEMP` and `TMPDIR` set and unset. `--backlog-run-quick shell go --no-container` passed and left nothing. shellcheck on the stage's list is clean.
 	- Decisions:
 		- 20261025: The guard prints nothing when it removes something, unlike the shared one. 2026102416233109's line at the end of a run says what went.
 		- 20261025: A `HOST_TEMP` that isn't there stops the run, rather than being made. It most likely means a disk that isn't mounted.
-	- Swept: every `rm -r` in `cicd.bash`. Every function `pipeline-test.bash` lifts that removes a folder: `_fRemoveScratchDirs` and `fStage_Zig_Fuzz`. The only copy of `cicd.bash` in the harnesses is ddhnc's. The harnesses, the hook, the packager and the installers are the other 2 children. For the `printenv` fix: every `printenv` in the repo. Only these 2 named more than one.
+	- Swept: every `rm -r` in `cicd.bash`. Every function `pipeline-test.bash` lifts that removes a folder: `_fRemoveScratchDirs` and `fStage_Zig_Fuzz`. The only copy of `cicd.bash` in the harnesses is ddhnc's. The harnesses, the hook, the packager and the installers are the other 2 children. For the `printenv` fix: every `printenv` in the repo. Only these 2 named more than one. For the `mktemp` fix: every `mktemp` in `cicd.bash`, the harnesses, the hook, `package.bash`, the guard, the box scripts and `install.bash`. Only the 11 in `cicd.bash` had no template, and dee5j now checks them all.
 	- Branch: round1025c
-	- Commit: 5b2f7c3, d6bd26c
-	- Test case: dee1p, dee1q, dee1r and dee1s.
+	- Commit: 5b2f7c3, d6bd26c, 90e1488
+	- Test case: dee1p, dee1q, dee1r, dee1s, dee5h (scratch folders physical and inside `TMPDIR`) and dee5j (no `mktemp` without a template).
 
 - CICD reset: guard in the harnesses and the hook
 	- ID: 2026102514072145
