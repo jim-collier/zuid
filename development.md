@@ -46,8 +46,10 @@ On x86_64 Linux where docker answers, `cicd/cicd.bash` needs only git and docker
 
 ~~~bash
 cicd/cicd.bash                      # every stage but --publish: build, test, cross-compile, and package where it can
-cicd/cicd.bash --quick              # skip fuzzing, profiling, the demo, packaging and the dogfood install
-cicd/cicd.bash --backlog-run-quick  # --quick, without the sync, dogfood, backup or demo, and no prompt. --gate is another name
+cicd/cicd.bash --quick              # skip profiling, the demo and packaging, and fuzz on a short budget. Still installs for daily use
+cicd/cicd.bash --backlog-run-quick  # --quick, without fuzzing, the sync, dogfood, backup or demo, and no prompt. --gate is another name
+cicd/cicd.bash --backlog-run-quick go docs  # the same, but only the areas named: go, zig, shell, installers, docs
+cicd/cicd.bash --list --merge-gate  # print the steps and test IDs a run with the other options would have, and run nothing
 cicd/cicd.bash --merge-gate         # what the pre-push hook runs before main: every check of a full run, with the same left out. --ci is another name
 cicd/cicd.bash --only go            # one toolchain, so only that one has to exist
 cicd/cicd.bash --no-container       # build and test on this machine, even where docker answers
@@ -57,10 +59,13 @@ cicd/cicd.bash --package            # build the release files into dist/, even o
 cicd/cicd.bash --no-package         # a full run without them
 cicd/cicd.bash --no-demo            # a full run that leaves assets/demo.gif alone. --no-fuzz and --no-profile work the same way
 cicd/cicd.bash --no-backup          # skip the archive, commit, and push
+cicd/cicd.bash --no-remote          # a full run that doesn't start the macos workflow on GitHub
 cicd/cicd.bash --commit -m "message"  # commit too, refusing on main and dev
 ~~~
 
 The pre-push hook in `cicd/utility/git-hooks/` runs `--merge-gate` on the commit being pushed to main, in a scratch worktree. A push whose commits change only the paths in `cicd/utility/git-hooks/no-gate-paths`, such as docs, skips it, and so does a push to any other branch. Turn it on once per clone with `git config core.hooksPath cicd/utility/git-hooks`.
+
+A full run, `--backlog-run-full` and `--merge-gate` also start `.github/workflows/macos.yml` on GitHub's free arm64 macOS runner, since no box here is an Apple Silicon Mac. It starts first and is waited for last, since it takes about as long as the run here. It runs the branch as GitHub has it, so it skips with a note when the remote's branch isn't at HEAD, and it never sees uncommitted edits. The hook's merge gate runs before main has the commit, so a push to main starts it instead. A quick run, `--backlog-run-quick` and `--only` leave it out, and so does `--no-remote`. On the runner it's the full run less what needs docker, which skips there, and less the demo.
 
 Underneath it's only `cd go && go build ./...` and `cd zig && zig build`. The Zig half needs `cicd/cicd.bash` to have run at least once first, since that is what populates `zig/vendor/`. Zig refuses an empty or non-numeric `SOURCE_DATE_EPOCH` the first time it builds its own C libraries, so unset it rather than leave it empty. `cicd/cicd.bash` drops one like that by itself.
 

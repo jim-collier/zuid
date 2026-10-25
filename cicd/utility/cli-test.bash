@@ -31,11 +31,11 @@ curName=""
 fId(){ curId="$1"; curName="$2" ;}
 fPass(){
 	if [[ -z "${curId}" ]]; then fFail "no test ID"; return 0; fi
-	passed=$((passed + 1)); printf '  ok ....: %s %s\n' "${curId}" "${curName}"
+	passed=$((passed + 1)); printf '  PASS %s %s\n' "${curId}" "${curName}"
 	curId=""
 }
 fFail(){  ## detail
-	failed=$((failed + 1)); printf '  FAIL ..: %s %s: %s\n' "${curId:-???????}" "${curName}" "$*"
+	failed=$((failed + 1)); printf '  FAIL %s %s: %s\n' "${curId:-?????}" "${curName}" "$*"
 	curId=""
 }
 
@@ -212,58 +212,58 @@ fEcho "Command: ${bin}"
 fLine ""
 
 ## Derived widths in base 62: time 6, hash 8, uuid 22, random 6.
-fWantLen Eq9kVKj "the default is a 6-symbol timestamp" 6
-fWantLen Eq9kVKk "hashed host is 8 symbols"            8  --format '%h'
-fWantLen Eq9kVKl "a uuid is 22 symbols"                22 --format '%g'
-fWantLen Eq9kVKm "random is 6 symbols"                 6  --format '%r'
-fWantLen Eq9kVKn "and a literal passes through"        3  --format 'abc'
-fWantExact Eq9kVKo "a doubled percent is one percent"  "%" --format '%%'
+fWantLen dcrfc "the default is a 6-symbol timestamp" 6
+fWantLen dcrfd "hashed host is 8 symbols"            8  --format '%h'
+fWantLen dcrfe "a uuid is 22 symbols"                22 --format '%g'
+fWantLen dcrff "random is 6 symbols"                 6  --format '%r'
+fWantLen dcrfg "and a literal passes through"        3  --format 'abc'
+fWantExact dcrfh "a doubled percent is one percent"  "%" --format '%%'
 
 ## An empty value means the default on both flags, which is what the Go module's
 ## zero Request.Format and the C module's empty format already did. The command
 ## passed an empty format straight through and printed an empty identifier, so
 ## 'zuid -f "$FMT"' with the variable unset succeeded and produced nothing.
-fWantLen Eq9mL16 "an empty format means %d" 6 --format ''
-fWantLen Eq9mL17 "an empty base means 62"   6 --base ''
-fWantLen Eq9mL18 "and both at once"         6 --format '' --base ''
+fWantLen dcrg5 "an empty format means %d" 6 --format ''
+fWantLen dcrg6 "an empty base means 62"   6 --base ''
+fWantLen dcrg7 "and both at once"         6 --format '' --base ''
 
 ## An identifier used to be capped by a fixed 4096-byte buffer inside the
 ## module, so a repeated component or a long literal was refused outright.
-fWantLen Eq9kVKp "200 uuids render"       4400 --format "$(python3 -c 'print("%g" * 200)')"
-fWantLen Eq9kVKq "a long literal renders" 5000 --format "$(python3 -c 'print("x" * 5000)')"
+fWantLen dcrfj "200 uuids render"       4400 --format "$(python3 -c 'print("%g" * 200)')"
+fWantLen dcrfk "a long literal renders" 5000 --format "$(python3 -c 'print("x" * 5000)')"
 
 ## But not without limit, and the ceiling says so in words.
-fWantFailure Eq9kVKr "runaway format, refused by size" "past what this command will print" \
+fWantFailure dcrfm "runaway format, refused by size" "past what this command will print" \
 	--format "$(python3 -c 'print("%g" * 60000)')"
 
 ## The refusals, each by its own message rather than an error name.
-fWantFailure Eq9kVKs "unknown component" "Unknown format component" --format '%x'
-fWantFailure Eq9xBUh "names the bad component"  "'%x'" --format '%x'
-fWantFailure Eq9kVKt "bare percent"       "bare" --format '%d%'
-fWantFailure Eq9kVKx "a raw-byte base is refused"      "raw bytes" --base bytes
-fWantFailure Eq9xBUi "tab digits in a base"  "control characters" --base 98keyboard
-fWantFailure Eq9kVKu "unknown base"      "no-such-base-here" --base no-such-base-here
-fWantFailure Eq9kVKv "bad precision"      "out of range" --precision 2
-fWantFailure Eq9kVKw "missing value"      "base" --base
+fWantFailure dcrfn "unknown component" "Unknown format component" --format '%x'
+fWantFailure dcrh0 "names the bad component"  "'%x'" --format '%x'
+fWantFailure dcrfp "bare percent"       "bare" --format '%d%'
+fWantFailure dcrft "a raw-byte base is refused"      "raw bytes" --base bytes
+fWantFailure dcrh1 "tab digits in a base"  "control characters" --base 98keyboard
+fWantFailure dcrfq "unknown base"      "no-such-base-here" --base no-such-base-here
+fWantFailure dcrfr "bad precision"      "out of range" --precision 2
+fWantFailure dcrfs "missing value"      "base" --base
 
 ## The unknown-base message used to be the conversion library's own text, in its
 ## style: lower case, double quotes. Only the near match it found is kept now.
-fWantFailure EqABve4 "unknown base message style" "Unknown base 'no-such-base-here'." --base no-such-base-here
-fWantFailure EqABve5 "a near miss keeps the suggestion"   "Did you mean '62'?" --base 62x
-fWantFailure EqABve6 "blank base"            "is blank" --base '  '
+fWantFailure dcrjr "unknown base message style" "Unknown base 'no-such-base-here'." --base no-such-base-here
+fWantFailure dcrjs "a near miss keeps the suggestion"   "Did you mean '62'?" --base 62x
+fWantFailure dcrjt "blank base"            "is blank" --base '  '
 
 ## A name long enough to outgrow the 512-byte error buffer used to lose the
 ## error code along with the text, and came back as a bare internal failure.
-fWantFailure EqABve7 "a very long base is still a base" "Unknown base" \
+fWantFailure dcrjv "a very long base is still a base" "Unknown base" \
 	--base "$(python3 -c 'print("a" * 1000)')"
 
 ## The salt changes the hashed names and nothing else. An empty one hashes the
 ## name on its own, which is what keeps older identifiers comparable.
-fWantLen EqAI7sg "a salted host is the same width"  8 --format '%h' --salt pepper
-fWantExact EqAI7sh "an empty salt is the default"   "$(fRun --format '%h')" --format '%h' --salt ''
-fWantExact EqAI7si "a literal name ignores the salt" "$(fRun --format '%h' --no-hash)" --format '%h' --no-hash --salt pepper
-fWantFailure EqAI7sj "--salt with no value"    "salt" --salt
-fWantFailure EqAI7sk "salt too long" "Want at most 256" \
+fWantLen dcrkj "a salted host is the same width"  8 --format '%h' --salt pepper
+fWantExact dcrkk "an empty salt is the default"   "$(fRun --format '%h')" --format '%h' --salt ''
+fWantExact dcrkm "a literal name ignores the salt" "$(fRun --format '%h' --no-hash)" --format '%h' --no-hash --salt pepper
+fWantFailure dcrkn "--salt with no value"    "salt" --salt
+fWantFailure dcrkp "salt too long" "Want at most 256" \
 	--format '%h' --salt "$(python3 -c 'print("s" * 257)')"
 
 ## --salt-file keeps the secret out of the process list. One trailing newline is
@@ -273,54 +273,54 @@ printf 'pepper' > "${work}/salt-bare"
 printf '\n' > "${work}/salt-empty"
 python3 -c 'print("s" * 257)' > "${work}/salt-long"
 salted="$(fRun --format '%h' --salt pepper)"
-fWantExact ErsrUT2 "a salt file salts the same as --salt"    "${salted}" --format '%h' --salt-file "${work}/salt"
-fWantExact ErsrUT3 "with or without its trailing newline"    "${salted}" --format '%h' --salt-file "${work}/salt-bare"
-fId ErsrUT4 "'-' reads the salt from stdin"
+fWantExact ddj7p "a salt file salts the same as --salt"    "${salted}" --format '%h' --salt-file "${work}/salt"
+fWantExact ddj7q "with or without its trailing newline"    "${salted}" --format '%h' --salt-file "${work}/salt-bare"
+fId ddj7r "'-' reads the salt from stdin"
 if [[ "$(printf 'pepper\r\n' | "${bin}" --format '%h' --salt-file - 2>/dev/null)" == "${salted}" ]]
 	then fPass
 	else fFail "stdin gave another fingerprint"
 fi
-fWantFailure ErsrUT5 "empty salt file"           "is empty" --format '%h' --salt-file "${work}/salt-empty"
-fWantFailure ErsrUT6 "salt file too long"       "Want at most 256" --format '%h' --salt-file "${work}/salt-long"
-fWantFailure ErsrUT7 "no such salt file"          "does not exist" --salt-file "${work}/no-such-salt"
-fWantFailure ErsrUT8 "--salt and --salt-file together"         "one or the other" --salt pepper --salt-file "${work}/salt"
+fWantFailure ddj7s "empty salt file"           "is empty" --format '%h' --salt-file "${work}/salt-empty"
+fWantFailure ddj7t "salt file too long"       "Want at most 256" --format '%h' --salt-file "${work}/salt-long"
+fWantFailure ddj7v "no such salt file"          "does not exist" --salt-file "${work}/no-such-salt"
+fWantFailure ddj7w "--salt and --salt-file together"         "one or the other" --salt pepper --salt-file "${work}/salt"
 
 ## The flag checks word their own refusals, so they are held to the table here.
 ## The rest go through messages.zig, which the library's tests hold to it; a few
 ## run end to end to show the command uses it.
-fWantRefusal Ersz07L "precision out of range, per errors.tsv"     precision --precision 2
-fWantRefusal Ersz07M "precision not a number, per errors.tsv"     precision --precision x
-fWantRefusal Ersz07N "zero --rand-chars, per errors.tsv"          width-range --rand-chars 0
-fWantRefusal Ersz07O "non-numeric --rand-chars, per errors.tsv"   width-range --rand-chars abc
-fWantRefusal Ersz07P "over-long --salt, per errors.tsv"           salt-too-long --format '%h' --salt "$(python3 -c 'print("s" * 257)')"
-fWantRefusal Ersz07Q "over-long salt file, per errors.tsv"        salt-too-long --format '%h' --salt-file "${work}/salt-long"
-fWantRefusal Ersz07R "over-long salt on stdin, per errors.tsv"    salt-too-long --format '%h' --salt-file - < "${work}/salt-long"
-fWantRefusal Ersz07S "unknown base, per errors.tsv"               unknown-base --base no-such-base-here
-fWantRefusal Ersz07T "unknown component, per errors.tsv"          unknown-component --format '%z'
-fWantRefusal Ersz07U "base with control digits, per errors.tsv"   control-char-base --base 98keyboard
+fWantRefusal ddj8k "precision out of range, per errors.tsv"     precision --precision 2
+fWantRefusal ddj8m "precision not a number, per errors.tsv"     precision --precision x
+fWantRefusal ddj8n "zero --rand-chars, per errors.tsv"          width-range --rand-chars 0
+fWantRefusal ddj8p "non-numeric --rand-chars, per errors.tsv"   width-range --rand-chars abc
+fWantRefusal ddj8q "over-long --salt, per errors.tsv"           salt-too-long --format '%h' --salt "$(python3 -c 'print("s" * 257)')"
+fWantRefusal ddj8r "over-long salt file, per errors.tsv"        salt-too-long --format '%h' --salt-file "${work}/salt-long"
+fWantRefusal ddj8s "over-long salt on stdin, per errors.tsv"    salt-too-long --format '%h' --salt-file - < "${work}/salt-long"
+fWantRefusal ddj8t "unknown base, per errors.tsv"               unknown-base --base no-such-base-here
+fWantRefusal ddj8v "unknown component, per errors.tsv"          unknown-component --format '%z'
+fWantRefusal ddj8w "base with control digits, per errors.tsv"   control-char-base --base 98keyboard
 
 ## --count prints that many lines and nothing else. One run reads the clock
 ## once, so a format with nothing random in it comes out the same every line -
 ## printed as-is, with a warning rather than something appended to hide it.
-fWantLines EqAb38a "one identifier by default"   1
-fWantLines EqAb38b "a count prints that many"    3 --count 3
-fWantLines EqAb38c "the short spelling too"      5 -n 5
-fWantLines EqAb38d "and the attached form"       4 -n=4
-fWantWarning EqAb38e "repeats are reported"      "2 of 3 identifiers repeat" -n 3 --format '%d'
-fWantWarning EqAb38f "suggests %r"   "add %r to the format" -n 3 --format '%d'
-fWantQuiet EqAb38g "random output does not warn" -n 20 --format '%d%r'
-fWantQuiet EqAb38h "one identifier cannot repeat" -n 1 --format '%d'
+fWantLines dcrnv "one identifier by default"   1
+fWantLines dcrnw "a count prints that many"    3 --count 3
+fWantLines dcrnx "the short spelling too"      5 -n 5
+fWantLines dcrny "and the attached form"       4 -n=4
+fWantWarning dcrnz "repeats are reported"      "2 of 3 identifiers repeat" -n 3 --format '%d'
+fWantWarning dcrp0 "suggests %r"   "add %r to the format" -n 3 --format '%d'
+fWantQuiet dcrp1 "random output does not warn" -n 20 --format '%d%r'
+fWantQuiet dcrp2 "one identifier cannot repeat" -n 1 --format '%d'
 
 ## Narrow enough random draws collide on their own, which is the case the
 ## warning is for - it counts what repeated, not whether %r was typed.
-fWantWarning EqAb38i "a narrow draw still counts" "identifiers repeat" \
+fWantWarning dcrp3 "a narrow draw still counts" "identifiers repeat" \
 	-n 100 --base 16 --rand-chars 1 --format '%r'
 
-fWantFailure EqAb38j "zero count"     "out of range" --count 0
-fWantFailure EqAb38k "negative count" "out of range" --count -1
-fWantFailure EqAb38l "a count past the ceiling"    "Want 1 to 1000000" --count 1000001
-fWantFailure EqAb38m "a non-numeric count"         "is not a number" --count abc
-fWantFailure EqAb38n "--count with no value"  "count" --count
+fWantFailure dcrp4 "zero count"     "out of range" --count 0
+fWantFailure dcrp5 "negative count" "out of range" --count -1
+fWantFailure dcrp6 "a count past the ceiling"    "Want 1 to 1000000" --count 1000001
+fWantFailure dcrp7 "a non-numeric count"         "is not a number" --count abc
+fWantFailure dcrp8 "--count with no value"  "count" --count
 
 ## A reader that quits early closed the pipe under the writer. That used to end
 ## in Zig's own error trace and a non-zero exit, which is not a failed run.
@@ -328,14 +328,14 @@ fWantFailure EqAb38n "--count with no value"  "count" --count
 ## errexit from taking the whole harness down with it.
 pipeRc=0
 pipeLines="$("${bin}" -n 10000 --format '%d%r' 2>/dev/null | head -n 2 | wc -l | tr -d ' ')" || pipeRc=$?
-fId EqAb38o "a closed pipe ends the run quietly"
+fId dcrp9 "a closed pipe ends the run quietly"
 if [[ "${pipeLines}" == "2" ]] && ((pipeRc == 0))
 	then fPass
 	else fFail "got ${pipeLines} lines, exit ${pipeRc}"
 fi
 
 ## Two salts have to differ, or the flag is doing nothing.
-fId EqAI7sl "two salts give two fingerprints"
+fId dcrkq "two salts give two fingerprints"
 if [[ "$(fRun --format '%h' --salt pepper)" == "$(fRun --format '%h' --salt Pepper)" ]]
 	then fFail "both gave the same one"
 	else fPass
@@ -343,47 +343,47 @@ fi
 
 
 ## Precision moves the unit, and the width follows the horizon in that unit.
-fWantLen ErOiQbL "-p -1 counts minutes, 5 symbols"       5 --precision -1
-fWantLen ErOiQbM "-p 1 counts milliseconds, 8 symbols"   8 --precision 1
+fWantLen ddazn "-p -1 counts minutes, 5 symbols"       5 --precision -1
+fWantLen ddazp "-p 1 counts milliseconds, 8 symbols"   8 --precision 1
 
 ## A value attaches with '=' or follows as the next argument, and all four
 ## spellings are the same thing. Base 16 is 9 wide, so a value that went
 ## missing shows as the default's 6.
-fWantLen ErOiQbN "-b=16 attaches"          9 -b=16
-fWantLen ErOiQbO "--base=16 attaches"      9 --base=16
-fWantLen ErOiQbP "-b 16 follows"           9 -b 16
-fWantLen ErOiQbQ "--base 16 follows"       9 --base 16
+fWantLen ddazq "-b=16 attaches"          9 -b=16
+fWantLen ddazr "--base=16 attaches"      9 --base=16
+fWantLen ddazs "-b 16 follows"           9 -b 16
+fWantLen ddazt "--base 16 follows"       9 --base 16
 
 ## Only a leading-dash argument splits, and only at its first '=', so a format
 ## with one survives either way.
-fWantExact ErOiQbR "a format may contain an '='"    "a=b" --format 'a=b'
-fWantExact ErOiQbS "and so may an attached one"     "a=b" --format=a=b
-fWantFailure ErOiQbT "--no-hash refuses a value"    "takes no value" --no-hash=1
-fWantFailure ErOiQbU "-h refuses a value"           "takes no value" -h=1
-fWantFailure ErOiQbV "-v refuses a value"           "takes no value" -v=1
+fWantExact ddazv "a format may contain an '='"    "a=b" --format 'a=b'
+fWantExact ddazw "and so may an attached one"     "a=b" --format=a=b
+fWantFailure ddazx "--no-hash refuses a value"    "takes no value" --no-hash=1
+fWantFailure ddazy "-h refuses a value"           "takes no value" -h=1
+fWantFailure ddazz "-v refuses a value"           "takes no value" -v=1
 
 ## Dropped from the command as confusing. The modules keep the option.
-fWantFailure ErOiQbW "--hash-chars is gone"         "Argument invalid" --hash-chars 5
+fWantFailure ddb00 "--hash-chars is gone"         "Argument invalid" --hash-chars 5
 
 ## The verb is quoted whole, however many bytes it is.
-fWantFailure ErOiQbX "multi-byte component named whole" "'%é'" --format '%é'
-fWantFailure ErOiQbY "zero --rand-chars" "out of range for --rand-chars" --rand-chars 0
+fWantFailure ddb01 "multi-byte component named whole" "'%é'" --format '%é'
+fWantFailure ddb02 "zero --rand-chars" "out of range for --rand-chars" --rand-chars 0
 
 ## --version is one bare line for scripts and the installers' head -n1. The
 ## copyright lives in --about.
-fWantLines ErOiQbZ "--version is one line"                  1 --version
+fWantLines ddb03 "--version is one line"                  1 --version
 ## A build that isn't for a release adds the date.
-fWantMatch ErOiQba "--version is the version and build"     '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)? \(build [0-9a-z]+\)( \([0-9]{4}-[0-9]{2}-[0-9]{2}\))?$' --version
-fWantAbsent ErOiQbb "--version has no copyright"            "Copyright" --version
-fWantContains ErOiQbc "--about has the copyright"           "Copyright ©" --about
-fWantContains ErOiQbd "--about names both licenses"         "The Go module and the C library are Apache-2.0." --about
-fWantContains ErOiQbe "--donate says where to give"         "https://github.com/sponsors/jim-collier" --donate
-fWantContains ErOyR7K "--donate names Ko-fi too"          "https://ko-fi.com/jimcollier" --donate
+fWantMatch ddb04 "--version is the version and build"     '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)? \(build [0-9a-z]+\)( \([0-9]{4}-[0-9]{2}-[0-9]{2}\))?$' --version
+fWantAbsent ddb05 "--version has no copyright"            "Copyright" --version
+fWantContains ddb06 "--about has the copyright"           "Copyright ©" --about
+fWantContains ddb07 "--about names both licenses"         "The Go module and the C library are Apache-2.0." --about
+fWantContains ddb08 "--donate says where to give"         "https://github.com/sponsors/jim-collier" --donate
+fWantContains ddb1n "--donate names Ko-fi too"          "https://ko-fi.com/jimcollier" --donate
 
 ## The help builds its curated line from the list itself, so the two cannot
 ## drift. It wraps, so the words are what gets compared.
 curated="16, 32w, 36, 62, 64tt, 128tt, 256tt, 512tt, 1024tz, 2048tz"
-fId ErOiQbf "help lists the curated bases"
+fId ddb09 "help lists the curated bases"
 helpText="$(fRun --help || true)"
 helpList="$(awk '/Curated set:/ { on = 1; sub(/.*Curated set:/, ""); } on && /Any base/ { exit } on { print }' <<< "${helpText}" | tr -s ' \n' ' ' | sed 's/^ //; s/ $//')"
 if [[ "${helpList}" == "${curated}" ]]
@@ -393,7 +393,7 @@ fi
 
 ## Help and about have a blank line above and below, and the options list has
 ## no gaps in it.
-fId ErOiQbg "help spacing"
+fId ddb0a "help spacing"
 helpFirst="$(head -n1 <<< "${helpText}")"
 helpGaps="$(awk '/^Options:/ { on = 1; next } on && /^$/ { exit } on { print }' <<< "${helpText}" | grep -c -- '--donate' || true)"
 helpRaw="$("${bin}" --help 2>/dev/null | tail -c 2 | od -An -c | tr -d ' ')"
@@ -407,14 +407,14 @@ fi
 ## gets loaded from.
 cacheDir="$(fCacheDir)"
 fRun >/dev/null || true
-fId Ersmdcr "a run leaves one compiled module"
+fId ddj72 "a run leaves one compiled module"
 cached=("${cacheDir}"/module-*.cwasm)
 if [[ ${#cached[@]} == 1 && -s "${cached[0]}" ]]
 	then fPass
 	else fFail "found: ${cached[*]}"
 fi
 
-fId Ersmdcs "damaged module is rewritten"
+fId ddj73 "damaged module is rewritten"
 goodSum="$(cksum < "${cached[0]}")"
 python3 -c 'import sys; p = sys.argv[1]; b = bytearray(open(p, "rb").read()); b[len(b) // 2] ^= 0xff; open(p, "wb").write(b)' "${cached[0]}"
 damagedOut="$(fRun || true)"
@@ -423,7 +423,7 @@ if [[ ${#damagedOut} == 6 && "$(cksum < "${cached[0]}")" == "${goodSum}" ]]
 	else fFail "printed '${damagedOut}', and the file is $([[ "$(cksum < "${cached[0]}")" == "${goodSum}" ]] && echo rewritten || echo 'not rewritten')"
 fi
 
-fId Ersmdct "old build's module cleared out"
+fId ddj74 "old build's module cleared out"
 touch "${cacheDir}/module-0000000000000000.cwasm"
 rm -f "${cached[0]}"
 fRun >/dev/null || true
@@ -432,9 +432,27 @@ if [[ ! -e "${cacheDir}/module-0000000000000000.cwasm" && -s "${cached[0]}" ]]
 	else fFail "left: $(ls "${cacheDir}")"
 fi
 
+## The point of the cache: a cold start spent seconds of CPU compiling the
+## module, on every core. CPU time, not wall time, so a busy box can't fake it.
+fCpuMs(){  ## -> one default run's user plus system time, in ms
+	local TIMEFORMAT='%3U %3S' times="" user="" sys=""
+	times="$({ time fRun >/dev/null; } 2>&1)" || true
+	read -r user sys <<< "${times}"
+	user="${user//[^0-9]/}"; sys="${sys//[^0-9]/}"
+	printf '%s' "$((10#${user:-0} + 10#${sys:-0}))"
+}
+fId dedvn "a warm run loads the module, not compiles it"
+rm -f "${cached[0]}"
+coldMs="$(fCpuMs)"
+warmMs="$(fCpuMs)"
+if [[ -s "${cached[0]}" ]] && ((warmMs * 2 < coldMs))
+	then fPass
+	else fFail "cold ${coldMs} ms of CPU, warm ${warmMs} ms"
+fi
+
 ## Per the XDG spec, a relative XDG_CACHE_HOME is ignored.
 if [[ "$(uname -s)" != Darwin ]]; then
-	fId Ersmdcu "a relative XDG_CACHE_HOME falls back to ~/.cache"
+	fId ddj75 "a relative XDG_CACHE_HOME falls back to ~/.cache"
 	relRc=0
 	(cd "${work}" && XDG_CACHE_HOME=relative "${bin}" >/dev/null 2>&1) || relRc=$?
 	relCached=("${HOME}"/.cache/zuid/module-*.cwasm)
@@ -445,7 +463,7 @@ if [[ "$(uname -s)" != Darwin ]]; then
 fi
 
 ## Every curated base renders a timestamp.
-fId ErOiQbh "every curated base renders"
+fId ddb0b "every curated base renders"
 badBases=""
 for base in ${curated//,/}; do
 	[[ -n "$(fRun --base "${base}" || true)" ]] || badBases+=" ${base}"
@@ -467,3 +485,5 @@ fLine ""
 ##		- 20260930 JC: Test IDs. Precision, attached values, --version, --about, --donate, help.
 ##		- 20261005 JC: Module cache, and a scratch HOME so the real cache is left alone.
 ##		- 20261023 JC: A relative --bin.
+##		- 20261025 JC: A warm run's CPU against a cold one's.
+##		- 20261025 JC: Test IDs in minutes. PASS, FAIL and SKIP lines.

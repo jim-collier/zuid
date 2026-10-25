@@ -142,7 +142,7 @@ fn applyEnv(spec: []const u8, fixed: *FixedEnv, opts: *core.Options) !void {
 // One host for the whole file: init costs more than every row combined.
 // Both compile strategies are exercised, because a winch miscompile would
 // otherwise only show up in production.
-// test-id: EloUhiz
+// test-id: daqq6
 test "vectors via wasm, both strategies" {
     for ([_]host.Strategy{ .winch, .auto }) |strategy| {
         var h = host.Host.init(strategy) catch |err| switch (err) {
@@ -159,7 +159,7 @@ test "vectors via wasm, both strategies" {
 // A module loaded back from its serialized bytes has to render exactly what a
 // compiled one does, and bytes that are not a module have to fall back to the
 // compiler rather than fail.
-// test-id: Ersmdcv
+// test-id: ddj76
 test "serialized module reproduces vectors" {
     var first = try host.Host.init(.auto);
     var compiled = first.serialize() orelse {
@@ -225,7 +225,7 @@ fn runVectors(h: *host.Host) !void {
     try std.testing.expect(rows >= 201);
 }
 
-// test-id: EloUhj0
+// test-id: daqq7
 test "error paths keep module error text" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -273,7 +273,7 @@ test "error paths keep module error text" {
 // boundary was not something the conversion library could do; fit does it now,
 // so the wide bases take the truncating components as well as the padded
 // ones. Widths are counted in symbols - byte length says nothing here.
-// test-id: Em2hrcQ
+// test-id: dav4k
 test "multi-byte base components" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -304,7 +304,7 @@ test "multi-byte base components" {
 // A random draw has to fill the symbols it claims. One byte per symbol runs
 // short above 256, where a symbol holds more than eight bits, and the
 // shortfall shows up as a leading zero digit that never varies.
-// test-id: Em2hrcR
+// test-id: dav4m
 test "random fills wide bases" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -338,7 +338,7 @@ test "random fills wide bases" {
 
 // The live sources have to work on the machine running the tests, or %h %u %f
 // %m would only ever be exercised through injected values.
-// test-id: ElpGOHX
+// test-id: daqx9
 test "the live environment supplies every component" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -360,7 +360,7 @@ test "the live environment supplies every component" {
 
 // %r has to vary, or appending it to a same-tick timestamp buys
 // nothing.
-// test-id: ElpGOHY
+// test-id: daqxa
 test "the live random source varies" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -382,7 +382,7 @@ test "the live random source varies" {
 // the life of a context even if it is renamed under it. The cache fields are
 // plain here, so a name no system would give is planted after the first read,
 // and the second read has to hand back that one.
-// test-id: ErOhqzP
+// test-id: ddazk
 test "live names read once" {
     var live: env.Live = .{};
     const live_env = live.env();
@@ -410,7 +410,7 @@ test "live names read once" {
 
 // Only the widths a format spends are checked. A hash width that suits one
 // base used to fail a plain timestamp in another. Go has the same test.
-// test-id: ErOhqzQ
+// test-id: ddazm
 test "unused widths not checked" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -430,7 +430,7 @@ test "unused widths not checked" {
     try std.testing.expectError(core.Error.OptionRange, core.generate(h.converter(), fixed.interface(), .{ .format = "%r", .random_chars = core.max_component_chars + 1, .clock_ms = 0 }, &out_buf));
 }
 
-// test-id: EloUhj1
+// test-id: daqq8
 test "the conversion library reports a version" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -439,7 +439,7 @@ test "the conversion library reports a version" {
     try std.testing.expect(v.len >= 2 and v[0] == 'v');
 }
 
-// test-id: EloUhj2
+// test-id: daqq9
 test "C surface end to end" {
     const z = capi.zuid_new() orelse return error.InitFailed;
     defer capi.zuid_free(z);
@@ -520,7 +520,7 @@ test "C surface end to end" {
 // The header's enum is a C ABI, so each code a call can return is pinned here
 // rather than only at the core error level. A renumbering in codeFor then
 // fails the build instead of quietly reaching compiled callers.
-// test-id: Eq9dPAO
+// test-id: dcref
 test "C error codes match zuid.h" {
     const z = capi.zuid_new() orelse return error.InitFailed;
     defer capi.zuid_free(z);
@@ -550,7 +550,7 @@ test "C error codes match zuid.h" {
 
 // Past what a SHA-256 fills in the base, the extra symbols are all left-fill:
 // a longer identifier with no more fingerprint.
-// test-id: Em3M9HH
+// test-id: dav9m
 test "hash wider than digest refused" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -581,7 +581,7 @@ test "hash wider than digest refused" {
 // Host and user names come from a small space, so the point of the salt is
 // that hashing candidate names no longer confirms one. The vectors pin the
 // values; this pins the edges around them.
-// test-id: EqAI7sf
+// test-id: dcrkh
 test "salt moves only hashed names" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -619,7 +619,7 @@ test "salt moves only hashed names" {
 
 // The conversion library has a base whose digits are raw byte values. It
 // converts happily, which is exactly why it has to be refused here.
-// test-id: Em32Nza
+// test-id: dav78
 test "a raw-byte base is refused" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -641,7 +641,7 @@ test "a raw-byte base is refused" {
 // 98keyboard counts tab, newline and return among its digits, so an identifier
 // in it could contain a line break. Its zero digit is '0', which is why the
 // alphabet gets asked about rather than only that one symbol.
-// test-id: Eq9xBUg
+// test-id: dcrgz
 test "control-digit base refused" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -659,7 +659,7 @@ test "control-digit base refused" {
 // tokenizer 33 times an identifier. One slot means switching bases has to
 // throw the old answer away, in both directions, and a name too long for the
 // slot must not be filed under whatever was there before.
-// test-id: EqAew24
+// test-id: dcrpb
 test "text verdict per base" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -696,7 +696,7 @@ test "text verdict per base" {
 
 // The horizon is what the fixed width comes from, so both sides of it need
 // pinning: the last instant that fits, and the first that does not.
-// test-id: Em32Nzb
+// test-id: dav79
 test "padding horizon is a hard edge" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -723,7 +723,7 @@ test "padding horizon is a hard edge" {
 
 // zuid_last_error used to answer with whatever the previous call left behind,
 // because the failures that never reach the converter do not touch its text.
-// test-id: Em32Nzc
+// test-id: dav7a
 test "no stale C error" {
     const z = capi.zuid_new() orelse return error.SkipZigTest;
     defer capi.zuid_free(z);
@@ -744,7 +744,7 @@ test "no stale C error" {
 // Every entry point takes a nullable context, so a caller who ignored a null
 // from zuid_new gets a code rather than a crash. Its own code, since 7 says the
 // runtime failed, which sends a caller looking in the wrong place.
-// test-id: Em32Nzd
+// test-id: dav7b
 test "C module rejects null context" {
     var out: [64]u8 = undefined;
     try std.testing.expectEqual(@as(c_int, 14), gen(null, "%d", "62", &out, out.len));
@@ -759,7 +759,7 @@ test "C module rejects null context" {
 // the module that no out_cap could raise. It had no text either way, so
 // there was nothing to tell them apart by. The Go module has no such limit, so
 // a format Go rendered, C refused.
-// test-id: Eq9kVKi
+// test-id: dcrfb
 test "long identifier bounded by buffer" {
     const z = capi.zuid_new() orelse return error.InitFailed;
     defer capi.zuid_free(z);
@@ -807,7 +807,7 @@ test "long identifier bounded by buffer" {
 // debug build, because the allocator's own check has no moment to run in. A C
 // caller never says it is finished, so the tests have to ask instead. This one
 // runs last on purpose - it asserts that everything above it cleaned up.
-// test-id: Eq9icWm
+// test-id: dcrf3
 test "a leaked C context is reported" {
     try std.testing.expectEqual(@as(usize, 0), capi.liveContexts());
     try std.testing.expectEqual(@as(usize, 0), capi.leakCount());
@@ -830,7 +830,7 @@ test "a leaked C context is reported" {
 // whoever ran the command, and both surfaces parse it themselves. Run normally
 // these replay their corpus and an empty input; real fuzzing is
 // 'zig build test --fuzz'.
-// test-id: Eq9zVsH
+// test-id: dcrh7
 test "the format parser survives arbitrary input" {
     var h = try host.Host.init(.auto);
     defer h.deinit();
@@ -854,7 +854,7 @@ fn fuzzFormat(h: *host.Host, smith: *std.testing.Smith) !void {
     try std.testing.expectEqual(@as(u32, 0), try h.regionCount());
 }
 
-// test-id: Eq9zVsI
+// test-id: dcrh8
 test "C generate survives arbitrary input" {
     const z = capi.zuid_new() orelse return error.InitFailed;
     defer capi.zuid_free(z);
@@ -885,7 +885,7 @@ fn fuzzCapi(z: *capi.Zuid, smith: *std.testing.Smith) !void {
 
 // The T2 bridge address is the same on every Intel Mac that has one, and its
 // interface numbers below en0, so it has to be passed over for the next one.
-// test-id: ErU3R7A
+// test-id: ddc8s
 test "%m skips the shared T2 address" {
     const en0 = [6]u8{ 0x38, 0xf9, 0xd3, 0xc3, 0xd1, 0xad };
     var pick: env.MacPick = .{};
@@ -971,7 +971,7 @@ const core_error_names = @typeInfo(core.Error).error_set.error_names.?;
 
 // The table is only worth anything if it is complete: every error the core can
 // return, with the code capi.zig gives it, and every code zuid.h names.
-// test-id: ErsxH5D
+// test-id: ddj8e
 test "errors.tsv covers every error" {
     var buf: [32]Refusal = undefined;
     const rows = try readRefusals(&buf);
@@ -1042,7 +1042,7 @@ test "errors.tsv covers every error" {
 
 // What a C caller gets back for each failure: the row's code, and where C
 // words it, the row's phrase in zuid_last_error.
-// test-id: ErsxH5E
+// test-id: ddj8f
 test "C messages match errors.tsv" {
     var buf: [32]Refusal = undefined;
     const rows = try readRefusals(&buf);
@@ -1116,7 +1116,7 @@ test "C messages match errors.tsv" {
 
 // The command's message for every core error, the ones no flag can reach
 // included. Its flag checks are held to the same phrases in cli-test.bash.
-// test-id: ErsxH5F
+// test-id: ddj8g
 test "command messages match errors.tsv" {
     var buf: [32]Refusal = undefined;
     const rows = try readRefusals(&buf);

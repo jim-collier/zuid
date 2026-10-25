@@ -545,7 +545,7 @@ fn hexUpper(raw: []const u8, out: []u8) []const u8 {
     return out[0 .. raw.len * 2];
 }
 
-// test-id: EloUhiy
+// test-id: daqq5
 test "widthFor matches the design table" {
     try std.testing.expectEqual(@as(u32, 8), widthFor(16, .minute));
     try std.testing.expectEqual(@as(u32, 6), widthFor(32, .minute));
@@ -561,7 +561,7 @@ test "widthFor matches the design table" {
     try std.testing.expectEqual(@as(u32, 8), widthFor(62, .milli));
 }
 
-// test-id: ElpGOHV
+// test-id: daqx7
 test "component widths from bit counts" {
     try std.testing.expectEqual(@as(u32, 12), widthForBits(16, mac_bits));
     try std.testing.expectEqual(@as(u32, 10), widthForBits(32, mac_bits));
@@ -577,7 +577,7 @@ test "component widths from bit counts" {
 // symbol count would mean wildly different strength per base. The defaults come
 // from the strength instead, and base 62 - where the targets were taken from -
 // stays where it was.
-// test-id: Em3M9HG
+// test-id: dav9k
 test "default width strength" {
     const cases = [_]struct { radix: u64, hash: u32, random: u32, ceiling: u32 }{
         .{ .radix = 16, .hash = 12, .random = 9, .ceiling = 64 },
@@ -602,7 +602,7 @@ test "default width strength" {
     }
 }
 
-// test-id: Elom8tE
+// test-id: daqsa
 test "precision round-trip" {
     try std.testing.expectEqual(Precision.minute, Precision.fromInt(-1).?);
     try std.testing.expectEqual(Precision.second, Precision.fromInt(0).?);
@@ -611,7 +611,7 @@ test "precision round-trip" {
     try std.testing.expectEqual(Precision.second, Precision.default);
 }
 
-// test-id: ElpGOHW
+// test-id: daqx8
 test "hex is upper case" {
     var buf: [8]u8 = undefined;
     try std.testing.expectEqualStrings("00AB5EFF", hexUpper(&[_]u8{ 0x00, 0xab, 0x5e, 0xff }, &buf));

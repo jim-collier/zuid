@@ -38,11 +38,11 @@ curName=""
 fId(){ curId="$1"; curName="$2" ;}
 fPass(){
 	if [[ -z "${curId}" ]]; then fFail "no test ID"; return 0; fi
-	passed=$((passed + 1)); printf '  ok ....: %s %s\n' "${curId}" "${curName}"
+	passed=$((passed + 1)); printf '  PASS %s %s\n' "${curId}" "${curName}"
 	curId=""
 }
 fFail(){  ## detail
-	failed=$((failed + 1)); printf '  FAIL ..: %s %s: %s\n' "${curId:-???????}" "${curName}" "$*"
+	failed=$((failed + 1)); printf '  FAIL %s %s: %s\n' "${curId:-?????}" "${curName}" "$*"
 	curId=""
 }
 
@@ -84,29 +84,29 @@ fLine ""
 ## -h anywhere inside the joined arguments used to print help, so a commit
 ## message mentioning it got the help screen. The refusal of the bad --only
 ## after it is how this shows the message was taken as a message.
-fWantRefusal ErOjF6y "-h inside a message"  "after --only" -m 'fix the -h case' --only nope
+fWantRefusal ddb0k "-h inside a message"  "after --only" -m 'fix the -h case' --only nope
 
 ## --commit used to take an optional message, and swallowed whatever flag came
 ## next as one.
-fWantRefusal ErOjF6z "--commit leaves the next flag alone"    "after --only" --commit --only nope
-fWantRefusal ErOjF70 "-m won't take a flag"               "Expecting a value after -m" -m --quick
-fWantRefusal ErOjF71 "--backup with --commit"     "--backup already commits" --backup --commit
+fWantRefusal ddb0m "--commit leaves the next flag alone"    "after --only" --commit --only nope
+fWantRefusal ddb0n "-m won't take a flag"               "Expecting a value after -m" -m --quick
+fWantRefusal ddb0p "--backup with --commit"     "--backup already commits" --backup --commit
 ## Retired 20261003: --publish is implemented now, so this refusal is gone on
 ## purpose. The publish cases below cover it instead.
-# fWantRefusal ErOjF72 "--publish says it is not there yet"             "Not implemented yet" --publish
-fWantRefusal ErOjF73 "unknown argument named"                   "'--bogus'" --bogus
-fWantRefusal ErgqYt2 "--allow-partial needs --publish"   "only means something with --publish" --allow-partial
-fWantRefusal ErgqYt3 "--publish with --only go"            "--publish needs the Zig side" --publish --only go
-fWantRefusal EsJ9SjI "--publish with --container"          "does not go with --container" --publish --container
-fWantRefusal EshGwj4 "--gate won't commit"                  "--gate only builds and tests" --gate --commit
-fWantRefusal EshGwj5 "--gate won't package"                 "--gate only builds and tests" --gate --package
+# fWantRefusal ddb0q "--publish says it is not there yet"             "Not implemented yet" --publish
+fWantRefusal ddb0r "unknown argument named"                   "'--bogus'" --bogus
+fWantRefusal ddfb7 "--allow-partial needs --publish"   "only means something with --publish" --allow-partial
+fWantRefusal ddfb8 "--publish with --only go"            "--publish needs the Zig side" --publish --only go
+fWantRefusal ddrj4 "--publish with --container"          "does not go with --container" --publish --container
+fWantRefusal ddyby "--gate won't commit"                  "--gate only builds and tests" --gate --commit
+fWantRefusal ddybz "--gate won't package"                 "--gate only builds and tests" --gate --package
 ## --ci was renamed back to --gate with no alias on 20261019, and came back as
 ## another name for --merge-gate on 20261025. The bad --only after it keeps a
 ## run from starting, and shows --ci was taken.
-fWantRefusal Et6FB1m "--ci is taken"                    "after --only" --ci --only nope
-fWantRefusal Eshc39l "--publish with --no-package"         "does not go with --no-package" --publish --no-package
+fWantRefusal de4bt "--ci is taken"                    "after --only" --ci --only nope
+fWantRefusal ddyee "--publish with --no-package"         "does not go with --no-package" --publish --no-package
 
-fId EsJ9cHS "--container from inside one"
+fId ddrj5 "--container from inside one"
 out="$(env -u ZUID_CICD_QUIET ZUID_IN_CONTAINER=1 bash "${cicd}" --container 2>&1 < /dev/null)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"Already in the container"* ]]
 	then fPass
@@ -130,7 +130,7 @@ fSection(){ :; }
 
 ## A prerelease of the floor version passed the floor, because only the
 ## release part was compared.
-fId ErOjF74 "prerelease is below its floor"
+fId ddb0s "prerelease is below its floor"
 if ! fLoad fVersion_AtLeast; then
 	fFail "no fVersion_AtLeast in cicd.bash"
 elif fVersion_AtLeast "0.16.0-dev.1+abc" "0.16.0"; then
@@ -139,7 +139,7 @@ else
 	fPass
 fi
 
-fId ErOjF75 "version floor compare"
+fId ddb0t "version floor compare"
 versionBad=""
 if declare -F fVersion_AtLeast >/dev/null; then
 	for pair in "0.16.0 0.16.0 yes" "0.17.0-dev.3 0.16.0 yes" "1.26.2 1.24 yes" "1.24 1.24 yes" \
@@ -181,14 +181,14 @@ git init -q -b main "${scratchRepo}"
 git -C "${scratchRepo}" -c user.name=t -c user.email=t@t commit -q --allow-empty -m first
 echo change > "${scratchRepo}/file"
 
-fId ErOjF76 "no commit on main"
+fId ddb0v "no commit on main"
 out="$(fCommitIn "${scratchRepo}" || true)"
 if [[ "${out}" == *"Refusing to commit to 'main'"* && -z "$(git -C "${scratchRepo}" log --format=%h -1 --skip 1 2>/dev/null || true)" ]]
 	then fPass
 	else fFail "said '${out}'"
 fi
 
-fId ErOjF77 "no commit on a detached HEAD"
+fId ddb0w "no commit on a detached HEAD"
 git -C "${scratchRepo}" checkout -q --detach
 out="$(fCommitIn "${scratchRepo}" || true)"
 if [[ "${out}" == *"HEAD is detached"* ]]
@@ -217,7 +217,7 @@ fJobsWith(){  ## cpus, load, [cap]
 	) 2>&1
 }
 
-fId Etj0Hby "job counts: half, a quarter when busy, a quarter for hard steps"
+fId dedp4 "job counts: half, a quarter when busy, a quarter for hard steps"
 jobsBad=""
 while IFS='|' read -r jobsCpus jobsLoad jobsCap jobsWant; do
 	jobsGot="$(fJobsWith "${jobsCpus}" "${jobsLoad}" "${jobsCap}" || true)"
@@ -239,7 +239,7 @@ fi
 
 ## Compared as a number, so what the load reader hands back must never reach
 ## arithmetic unchecked.
-fId Etj0Hbz "a bad load reading counts as no load"
+fId dedp5 "a bad load reading counts as no load"
 jobsBad=""
 for jobsLoad in "" "high" "1.5.2" "x[\$(touch ${work}/jobs-pwned)]"; do
 	jobsGot="$(fJobsWith 32 "${jobsLoad}" || true)"
@@ -251,7 +251,7 @@ if [[ -z "${jobsBad}" ]]
 	else fFail "${jobsBad}"
 fi
 
-fId Etj0Hc0 "counts are checked again before each step"
+fId dedp6 "counts are checked again before each step"
 out="$(
 	stubLoad="1.00"
 	# shellcheck disable=2329  ## Called by the lifted functions.
@@ -279,7 +279,7 @@ fi
 ## On the script's own process, so everything it starts inherits it. Read
 ## through fNiceOf, since the image has no ps. Where there is /proc, its branch
 ## is checked too, with ps hidden by a function.
-fId Etj0NB7 "the run lowers its own priority"
+fId dedpa "the run lowers its own priority"
 out="$(bash -c "$(sed -n '/^fLowPriority(){/,/^}/p;/^fNiceOf(){/,/^}/p' "${cicd}")"'
 	fLowPriority
 	printf "%s|" "$(fNiceOf "$$")"
@@ -296,7 +296,7 @@ if ((rc == 0)) && [[ "${out}" == "19|19|"* ]] && { ! command -v ionice >/dev/nul
 fi
 
 ## CodeQL ran on half the box, whatever cicd.bash was handing everything else.
-fId Etj0Hc3 "codeql.bash takes its thread count from cicd.bash"
+fId dedp9 "codeql.bash takes its thread count from cicd.bash"
 codeqlThreads="$(sed -n '/^fThreads(){/,/^}/p' "${cicd%/*}/utility/codeql.bash")"
 jobsBad=""
 [[ -n "${codeqlThreads}" ]] || jobsBad+=" no fThreads in codeql.bash;"
@@ -342,21 +342,21 @@ git -C "${worktreeMain}" add -A
 git -C "${worktreeMain}" -c user.name=t -c user.email=t@t commit -q -m first
 git -C "${worktreeMain}" worktree add -q -b side "${worktreeDir}" 2>/dev/null
 
-fId Erm7vCh "sync in a linked worktree"
+fId ddgkv "sync in a linked worktree"
 out="$(fGitCheckIn "${worktreeDir}" fStage_Sync)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == *"Remote .....: none"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId Erm7vCi "preflight in a linked worktree"
+fId ddgkw "preflight in a linked worktree"
 out="$(fGitCheckIn "${worktreeDir}" fPreflight)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == *"Branch .....: side"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId Erm7vCj "sync and preflight want the checkout's top"
+fId ddgkx "sync and preflight want the checkout's top"
 notTopBad=""
 for notTop in "${worktreeMain}/testdata" "${work}"; do
 	for fn in fStage_Sync fPreflight; do
@@ -371,7 +371,7 @@ fi
 
 ## Run through a symlinked folder, the root kept the link's name, and a find
 ## started there listed only the link. The sync refusal names the root.
-fId ErqU8vW "repo root through a symlink"
+fId ddhnc "repo root through a symlink"
 mkdir -p "${work}/linked/real/cicd"
 cp "${cicd}" "${work}/linked/real/cicd/"
 ln -s real "${work}/linked/link"
@@ -394,13 +394,16 @@ fInitIn(){  ## repo dir, args...
 			doBackup=1; backupAsked=0; backupInWorktree=0; doDogfood=1; dogfoodAsked=0; doPublish=0; allowPartial=0
 			doContainer=0; containerMode="auto"; inContainer=0; doGate=0; doLeakcheck=1; leakAsked=0
 			doFuzz=1; doProfile=1; doDemo=1
-			doFullGate=0; gateFlag=""; aliasNote=""; doLong=0; doRemote=1
+			doFullGate=0; gateFlag=""; aliasNote=""; doLong=0; doRemote=1; runAreas=(); doList=0
 		}
 		shift
 		local fn=""
-		for fn in fMustBeAValue fPackageBlocker fInit; do
+		for fn in fMustBeAValue fPackageBlocker fInit fInit_Area fConfig; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
+		fConfig
+		# shellcheck disable=2034,2154  ## Read by the lifted fInit_Area, set by the lifted fConfig.
+		areas=("${default_areas[@]}")
 		# shellcheck disable=2030  ## Only this subshell's PATH, on purpose.
 		if [[ -n "${fakePath:-}" ]]; then PATH="${fakePath}"; fi
 		fInit "$@"
@@ -413,6 +416,8 @@ fInitIn(){  ## repo dir, args...
 		elif [[ "${showFullGate:-0}" == "1" ]]; then
 			printf 'quick=%s sync=%s backup=%s dogfood=%s demo=%s quiet=%s leak=%s fuzz=%s profile=%s remote=%s note=%s\n' \
 				"${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}" "${doDemo}" "${doQuietly}" "${doLeakcheck}" "${doFuzz}" "${doProfile}" "${doRemote}" "${aliasNote:-none}"
+		elif [[ "${showAreas:-0}" == "1" ]]; then
+			printf 'areas=%s quick=%s list=%s only=%s\n' "${runAreas[*]:-none}" "${doQuick}" "${doList}" "${onlyToolchain:-none}"
 		elif [[ "${showGate:-0}" == "1" ]]; then
 			printf 'doQuick=%s doSync=%s doBackup=%s doDogfood=%s doPackage=%s\n' "${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}" "${doPackage}"
 		elif [[ "${showPackage:-0}" == "1" ]]; then
@@ -425,7 +430,7 @@ fInitIn(){  ## repo dir, args...
 	) 2>&1
 }
 
-fId Erm7vCk "default backup skips linked worktrees"
+fId ddgky "default backup skips linked worktrees"
 outWorktree="$(fInitIn "${worktreeDir}")" && rc=0 || rc=$?
 outMain="$(fInitIn "${worktreeMain}")" || rc=$?
 if ((rc == 0)) && [[ "${outWorktree}" == "doBackup=0 backupInWorktree=1" ]] && [[ "${outMain}" == "doBackup=1 backupInWorktree=0" ]]
@@ -433,7 +438,7 @@ if ((rc == 0)) && [[ "${outWorktree}" == "doBackup=0 backupInWorktree=1" ]] && [
 	else fFail "exited ${rc}, worktree said '${outWorktree}', main checkout said '${outMain}'"
 fi
 
-fId Erm7vCl "--backup refused in a linked worktree"
+fId ddgkz "--backup refused in a linked worktree"
 out="$(fInitIn "${worktreeDir}" --backup)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"linked worktree"* ]]
 	then fPass
@@ -442,7 +447,7 @@ fi
 
 ## The pre-push hook runs --gate inside a push, so it must not sync, install,
 ## or push again.
-fId EshGwj6 "what --gate leaves out"
+fId ddyc0 "what --gate leaves out"
 out="$(showGate=1 fInitIn "${worktreeMain}" --gate)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "doQuick=1 doSync=0 doBackup=0 doDogfood=0 doPackage=0" ]]
 	then fPass
@@ -451,7 +456,7 @@ fi
 
 ## The Go cross builds are seconds, so a quick run and the pre-push one get
 ## them as well as a full run.
-fId Et6FB1n "every run mode cross-compiles"
+fId de4bv "every run mode cross-compiles"
 out="$(showCross=1 fInitIn "${worktreeMain}"; showCross=1 fInitIn "${worktreeMain}" --quick; showCross=1 fInitIn "${worktreeMain}" --gate)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == $'doCross=1\ndoCross=1\ndoCross=1' ]]
 	then fPass
@@ -460,7 +465,7 @@ fi
 
 ## The leak checks take about 10 minutes, so a full run has them and a quick or
 ## pre-push one only if asked. --no-leakcheck drops them from any run.
-fId EtAUMRF "--leakcheck is default, off for quick and gate"
+fId de5cn "--leakcheck is default, off for quick and gate"
 out="$(for leakArgs in "" --quick --gate; do
 	# shellcheck disable=2086  ## Empty means no argument at all.
 	showLeak=1 fInitIn "${worktreeMain}" ${leakArgs}
@@ -475,14 +480,15 @@ if ((rc == 0)) && [[ "${out}" == $'doLeakcheck=1\ndoLeakcheck=1\ndoLeakcheck=0\n
 fi
 
 ## Each slow stage can be left out of a full run alone, so a failure in one
-## doesn't stop a run that's testing something else. Quick drops them all.
-fId Etab8wo "--no-fuzz, --no-profile, --no-demo"
+## doesn't stop a run that's testing something else. Quick drops profile and
+## demo, but fuzzes. The gate drops all three.
+fId debne "--no-fuzz, --no-profile, --no-demo"
 out="$(for slowArgs in "" --no-fuzz --no-profile --no-demo "--no-fuzz --no-profile --no-demo" --quick --gate "--quick --no-demo"; do
 	# shellcheck disable=2086  ## Empty means no argument at all.
 	showSlow=1 fInitIn "${worktreeMain}" ${slowArgs}
 done)" && rc=0 || rc=$?
 wantSlow="doFuzz=1 doProfile=1 doDemo=1"$'\n'"doFuzz=0 doProfile=1 doDemo=1"$'\n'"doFuzz=1 doProfile=0 doDemo=1"$'\n'"doFuzz=1 doProfile=1 doDemo=0"
-for _ in 1 2 3 4; do wantSlow+=$'\n'"doFuzz=0 doProfile=0 doDemo=0"; done
+wantSlow+=$'\n'"doFuzz=0 doProfile=0 doDemo=0"$'\n'"doFuzz=1 doProfile=0 doDemo=0"$'\n'"doFuzz=0 doProfile=0 doDemo=0"$'\n'"doFuzz=1 doProfile=0 doDemo=0"
 if ((rc == 0)) && [[ "${out}" == "${wantSlow}" ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
@@ -491,7 +497,7 @@ fi
 ## The gate flags never commit, push, install, publish or prompt. Through the
 ## lifted fInit, since a refusal that broke would start a real run, and these
 ## flags don't prompt.
-fId Etj4p9f "gate flags refuse the stages that write"
+fId dedpp "gate flags refuse the stages that write"
 gateBad=""
 for gateArgs in "--merge-gate --commit" "--merge-gate --push" "--merge-gate --dogfood" "--merge-gate --backup" "--merge-gate --publish" \
 	"--ci --commit" "--backlog-run-full --dogfood" "--backlog-run-quick --package" "--backlog-run-quick --push" "--gate -m msg"; do
@@ -512,7 +518,7 @@ fi
 ## What each gate flag runs. The full ones run the default run's checks, fuzz,
 ## profile and leak checks included, minus what writes or prompts. --gate and
 ## --ci say they're other names.
-fId Etj4p9g "what the gate flags run"
+fId dedpq "what the gate flags run"
 out="$(for gateArgs in --backlog-run-quick --gate --backlog-run-full --merge-gate --ci "--merge-gate --no-remote"; do
 	# shellcheck disable=2086
 	showFullGate=1 fInitIn "${worktreeMain}" ${gateArgs}
@@ -530,7 +536,7 @@ fi
 
 ## --long and --slow are the default run for now. The note for --gate and --ci
 ## goes out once the run log has started.
-fId Etj4p9h "--long, --slow, and the alias line"
+fId dedpr "--long, --slow, and the alias line"
 out="$(showFullGate=1 fInitIn "${worktreeMain}" --long; showFullGate=1 fInitIn "${worktreeMain}" --slow)" && rc=0 || rc=$?
 wantLong="quick=0 sync=1 backup=1 dogfood=1 demo=1 quiet=0 leak=1 fuzz=1 profile=1 remote=1 note=none"
 # shellcheck disable=2016  ## Script text, looked for as written.
@@ -540,7 +546,28 @@ if ((rc == 0)) && [[ "${out}" == "${wantLong}"$'\n'"${wantLong}" ]] \
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }', or fMain doesn't print the alias line after the log starts"
 fi
 
-fId Etab8wp "the stage calls follow the flags"
+## Words after --backlog-run-quick, up to the next option, are areas. Only
+## known ones, and not with --only, since the areas pick the toolchains.
+fId dedtw "areas after --backlog-run-quick"
+out="$(for areaArgs in "--backlog-run-quick go zig" "--gate SHELL --no-container" "--backlog-run-quick" "--list --backlog-run-quick docs installers -q"; do
+	# shellcheck disable=2086
+	showAreas=1 fInitIn "${worktreeMain}" ${areaArgs}
+done)" && rc=0 || rc=$?
+wantAreas="areas=go zig quick=1 list=0 only=none"$'\n'"areas=shell quick=1 list=0 only=none"$'\n'"areas=none quick=1 list=0 only=none"$'\n'"areas=docs installers quick=1 list=1 only=none"
+areaBad=""
+((rc == 0)) && [[ "${out}" == "${wantAreas}" ]] || areaBad+=" exited ${rc} and said '${out//$'\n'/ | }';"
+for areaArgs in "--backlog-run-quick nope|for --backlog-run-quick. The areas are: go zig shell installers docs." \
+	"--gate go --only zig|already pick the toolchains" "--only go --backlog-run-quick go|already pick the toolchains" "--backlog-run-full go|not expected in this context"; do
+	# shellcheck disable=2086
+	out="$(showAreas=1 fInitIn "${worktreeMain}" ${areaArgs%%|*})" && rc=0 || rc=$?
+	if ((rc == 0)) || [[ "${out}" != *"${areaArgs#*|}"* ]]; then areaBad+=" '${areaArgs%%|*}' exited ${rc}: ${out:0:100};"; fi
+done
+if [[ -z "${areaBad}" ]]
+	then fPass
+	else fFail "${areaBad}"
+fi
+
+fId debnf "the stage calls follow the flags"
 ## Read from the step list and the Zig fuzz stage, so a stage that goes back
 ## to keying on doQuick fails here. The list moved out of fMain into fSteps
 ## on 2026102416233104.
@@ -557,7 +584,7 @@ fi
 
 ## The run in the container can't start bash:3.2, so it skips those cases and
 ## the run outside does them.
-fId Etika82 "bash 3.2 cases run outside the container"
+fId dedm5 "bash 3.2 cases run outside the container"
 bash32Body="$(sed -n '/^fStage_Shell_Bash32(){/,/^}/p' "${cicd}")"
 installerBody="$(cat "${cicd%/cicd.bash}/utility/installer-test.bash")"
 ## In the image branch of fSteps, after the run in the image, since 2026102416233104.
@@ -572,7 +599,7 @@ if grep -qF 'then fStage_Container; fi' <<< "${imageBranch}" && grep -qE '^[[:sp
 	else fFail "the container run doesn't hand the bash 3.2 cases back to this machine"
 fi
 
-fId EtAUMRH "--help on --leakcheck"
+fId de5cq "--help on --leakcheck"
 out="$(bash "${cicd}" --help 2>&1)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == *"--leakcheck       Add the slow leak checks"* ]] && [[ "${out}" == *"every stage but --publish."* ]] && [[ "${out}" == *"--no-leakcheck    Leave"* ]]
 	then fPass
@@ -598,42 +625,42 @@ fPackageIn(){  ## os, arch, with|without, args...
 	FAKE_OS="${os}" FAKE_ARCH="${arch}" fakePath="${fakeHost}/${kit}" showPackage=1 fInitIn "${worktreeMain}" "$@"
 }
 
-fId EshbzZU "full Linux x86_64 run packages"
+fId ddye8 "full Linux x86_64 run packages"
 out="$(fPackageIn Linux x86_64 with)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "doPackage=1 skip=" ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId EshbzZV "no llvm-objcopy, no package"
+fId ddye9 "no llvm-objcopy, no package"
 out="$(fPackageIn Linux x86_64 without)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "doPackage=0 skip=no llvm-objcopy"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId EshbzZW "full Mac run packages"
+fId ddyea "full Mac run packages"
 out="$(fPackageIn Darwin arm64 without)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "doPackage=1 skip=" ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId EshbzZX "other hosts skip packaging"
+fId ddyeb "other hosts skip packaging"
 out="$(fPackageIn FreeBSD amd64 with)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "doPackage=0 skip="*"--package"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId EshbzZY "what turns packaging off"
+fId ddyec "what turns packaging off"
 out="$(fPackageIn Linux x86_64 with --quick; fPackageIn Linux x86_64 with --no-package; fPackageIn Linux x86_64 with --only go)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == $'doPackage=0 skip=\ndoPackage=0 skip=\ndoPackage=0 skip=' ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
 fi
 
-fId Eshc39k "--package forces it"
+fId ddyed "--package forces it"
 out="$(fPackageIn Linux x86_64 with --quick --package; fPackageIn FreeBSD amd64 without --package)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == $'doPackage=1 skip=\ndoPackage=1 skip=' ]]
 	then fPass
@@ -673,7 +700,7 @@ echo zig-out > "${dogRoot}/repo/zig/zig-out/bin/zuid"
 chmod +x "${dogRoot}/repo/zig/zig-out/bin/zuid"
 echo stale > "${dogRoot}/linux/zuid"
 
-fId EshcCTw "dogfood copies release files"
+fId ddyef "dogfood copies release files"
 out="$(fDogfoodIn "${dogRoot}" 1)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "$(cat "${dogRoot}/linux/zuid" 2>/dev/null)" == "linux-release" && "$(cat "${dogRoot}/mswin/zuid.exe" 2>/dev/null)" == "windows-release" ]] \
 	&& [[ ! -e "${dogRoot}/macos" && ! -e "${dogRoot}/fallback/zuid" && "$(ls "${dogRoot}/linux")" == "zuid" ]]
@@ -681,7 +708,7 @@ if ((rc == 0)) && [[ "$(cat "${dogRoot}/linux/zuid" 2>/dev/null)" == "linux-rele
 	else fFail "exited ${rc}, said '${out//$'\n'/ | }'"
 fi
 
-fId EshcCTx "dogfood falls back to zig-out"
+fId ddyeg "dogfood falls back to zig-out"
 out="$(fDogfoodIn "${dogRoot}" 0)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "$(cat "${dogRoot}/fallback/zuid" 2>/dev/null)" == "zig-out" && "$(cat "${dogRoot}/linux/zuid")" == "linux-release" ]]
 	then fPass
@@ -731,8 +758,9 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 			repoRoot="$(cd "$1" && pwd -P)"; containerImage="zuid-cicd"; containerVolume="zuid-cicd-cache"; codeqlImage="zuid-codeql"
 			containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"
 			onlyToolchain="go"; doQuick="${quick:-1}"; doPackage=1; doLeakcheck="${leakcheck:-0}"; runStamp="20261019-101112"; _stepAt=2; _stepTotal=30
-			doFuzz="${fuzz:-0}"; doProfile="${profile:-0}"
+			doFuzz="${fuzz:-1}"; doProfile="${profile:-0}"
 			projectName="zuid"; runName="20261019-101112"; keepTemp="${keep:-0}"; _dockerRun=""; buildJobs=3
+			read -r -a runAreas <<< "${areasIn:-}"
 		}
 		local fn=""
 		for fn in _fMustBeInPath fStage_Container fStep_UtcOffset fContainer_InnerArgs fContainer_Image fCodeql_Image fCodeql_Tag fContainer_Volumes fContainer_RunArgs; do
@@ -757,7 +785,7 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 mainReal="$(cd "${worktreeMain}" && pwd -P)"
 newTag="zuid-cicd:$(echo "FROM scratch" | git hash-object --stdin | cut -c1-12)"
 
-fId EsJ9SjE "image built by recipe hash"
+fId ddrj0 "image built by recipe hash"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-main" 2>/dev/null || true)"
 ## Older tags wait for the end of a run that passed, since 2026102416233101.
@@ -767,27 +795,27 @@ if ((rc == 0)) && grep -qxF "build --label dev.project=zuid --label dev.run=2026
 	else fFail "exited ${rc}, asked: ${log//$'\n'/ | }; said '${out}'"
 fi
 
-fId EsJ9SjF "container run arguments"
+fId ddrj1 "container run arguments"
 : > "${work}/engine-main"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-main")"
 wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -v zuid-zig-cache:/zig-cache"
 wantRun+=" --name zuid-20261019-101112-container --label dev.project=zuid --label dev.run=20261019-101112 --cpus 3 --cpu-shares 256 -e ZUID_JOBS=3 -e ZUID_JOBS_CAP=3"
 wantRun+=" -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder} -e ZUID_RUN_STAMP=20261019-101112 -e ZUID_STEP_FIRST=2 -e ZUID_STEP_TOTAL=30 -e ZUID_STEP_UTC_OFFSET=-25200"
-wantRun+=" -w ${mainReal} ${newTag} nice -n 19 bash ${mainReal}/cicd/cicd.bash -q --no-sync --no-backup --no-dogfood --only go --quick --package --no-leakcheck"
+wantRun+=" -w ${mainReal} ${newTag} ionice -c 3 nice -n 19 bash ${mainReal}/cicd/cicd.bash -q --no-sync --no-backup --no-dogfood --only go --quick --package --no-leakcheck"
 if ((rc == 0)) && grep -qxF -- "${wantRun}" <<< "${log}" && ! grep -q '^build ' <<< "${log}"
 	then fPass
 	else fFail "exited ${rc}, asked: ${log//$'\n'/ | }"
 fi
 
-fId EsJ9SjG "worktree's git dir in the container"
+fId ddrj2 "worktree's git dir in the container"
 out="$(fContainerIn "${worktreeDir}" "${work}/engine-wt" 0)" && rc=0 || rc=$?
 if ((rc == 0)) && grep -q -- "^run .* -v ${mainReal}/.git:${mainReal}/.git " "${work}/engine-wt"
 	then fPass
 	else fFail "exited ${rc}, asked: $(grep '^run ' "${work}/engine-wt" || true)"
 fi
 
-fId EsJ9SjH "container failure fails the stage"
+fId ddrj3 "container failure fails the stage"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 3)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"The run in the container failed"* ]]
 	then fPass
@@ -795,7 +823,7 @@ if ((rc != 0)) && [[ "${out}" == *"The run in the container failed"* ]]
 fi
 
 ## The run inside is a new cicd.bash, which only knows what it's handed.
-fId EtAUMRG "--container passes --leakcheck in"
+fId de5cp "--container passes --leakcheck in"
 : > "${work}/engine-main"
 out="$(leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 : > "${work}/engine-noleak"
@@ -808,7 +836,7 @@ fi
 
 ## A full run's --no-fuzz and --no-profile go in too. A quick one's --quick
 ## already covers them.
-fId Etab8wq "--container passes --no-fuzz, --no-profile in"
+fId debng "--container passes --no-fuzz, --no-profile in"
 : > "${work}/engine-slow"
 out="$(quick=0 fuzz=0 profile=1 fContainerIn "${worktreeMain}" "${work}/engine-slow" 0; quick=0 fuzz=1 profile=0 fContainerIn "${worktreeMain}" "${work}/engine-slow" 0; quick=0 fuzz=1 profile=1 fContainerIn "${worktreeMain}" "${work}/engine-slow" 0)" && rc=0 || rc=$?
 runs="$(grep '^run ' "${work}/engine-slow" | sed 's/.* --only go //' || true)"
@@ -817,9 +845,22 @@ if ((rc == 0)) && [[ "${runs}" == $'--package --no-leakcheck --no-fuzz\n--packag
 	else fFail "exited ${rc}, asked: ${runs//$'\n'/ | }"
 fi
 
+## A quick run fuzzes now, so --quick no longer says --no-fuzz for it.
+fId dedv8 "--container passes --no-fuzz in on a quick run"
+fuzzInner="$(
+	fLoad fContainer_InnerArgs || exit 2
+	# shellcheck disable=2034  ## Read by the lifted function.
+	{ onlyToolchain=""; doQuick=1; doPackage=0; doLeakcheck=0; doProfile=0; keepTemp=0; runAreas=(); }
+	for doFuzz in 1 0; do args=(); fContainer_InnerArgs args; printf '%s\n' "${args[*]}"; done
+)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${fuzzInner}" == $'-q --no-sync --no-backup --no-dogfood --quick --no-leakcheck\n-q --no-sync --no-backup --no-dogfood --quick --no-leakcheck --no-fuzz' ]]
+	then fPass
+	else fFail "exited ${rc}, asked: ${fuzzInner//$'\n'/ | }"
+fi
+
 ## The image has no time zone, so the run inside stamped its files in UTC and
 ## they sorted hours away from the host's.
-fId EtB0hIu "container run keeps the outer stamp"
+fId de5gg "container run keeps the outer stamp"
 : > "${work}/engine-main"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 stampBad=""
@@ -849,7 +890,7 @@ fi
 ## A section is a blank line, a rule of 79 dots, then the title, the way
 ## silkterm prints one. A terminal, a pipe and the image all get 79, since
 ## 2026102416233104. Before that the rule took the terminal's width.
-fId EtB5PUX "stage header layout"
+fId de5h3 "stage header layout"
 sectionScript="${work}/section.bash"
 sectionBad=""
 if (
@@ -890,7 +931,7 @@ fi
 ## Each step opens with a stamped "Step N of M; Starting" line and closes
 ## with PASS or FAIL. A step turned off isn't in M, and the first section
 ## lists it with its reason.
-fId Etj8iKE "step lines"
+fId dedq5 "step lines"
 stepBad=""
 stepScript="${work}/steps.bash"
 if (
@@ -940,7 +981,7 @@ fi
 
 ## The run in the image numbers its steps on from the outside's, so the
 ## steps the outside counts for it have to be the ones it runs.
-fId Etj8iKF "image's steps match the outside's count"
+fId dedq6 "image's steps match the outside's count"
 planBad=""
 fPlanIn(){  ## inContainer, planContainer, then name=value settings
 	(
@@ -949,13 +990,14 @@ fPlanIn(){  ## inContainer, planContainer, then name=value settings
 			inContainer="$1"; planContainer="$2"; doContainer=0; repoRoot="${work}/plan/repo"
 			doSync=1; doGate=0; doFullGate=0; gateFlag=""; doQuick=0; doDemo=1; doPackage=0; noPackage=0; packageSkipWhy=""
 			onlyToolchain=""; doGo=1; doZig=1; doFuzz=1; doCross=1; doLeakcheck=1; leakAsked=0; doProfile=1
-			doPublish=0; doDogfood=1; doBackup=1; backupInWorktree=0; commitAsked=0; doCommit=0; doPush=0
+			doPublish=0; doDogfood=1; doBackup=1; backupInWorktree=0; commitAsked=0; doCommit=0; doPush=0; doRemote=1
 			_stepTitles=(); _stepOffs=(); _stepPlanning=0; _stepElsewhere=0; _stepAt=0; _stepTotal=0
+			read -r -a runAreas <<< "${planAreas:-}"; areaWhy="not in --backlog-run-quick ${planAreas:-}"
 		}
 		shift 2
 		local kv=""; for kv in "$@"; do printf -v "${kv%%=*}" '%s' "${kv#*=}"; done
 		local fn=""
-		for fn in fSteps fSteps_Checks fSteps_Scrub fSteps_FuzzWhy fSteps_Packages fSteps_Plan fStep_Off; do
+		for fn in fSteps fSteps_Checks fSteps_Scrub fSteps_FuzzWhy fSteps_Packages fSteps_Plan fStep_Off fArea; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		## Marks the ones the image runs.
@@ -963,6 +1005,7 @@ fPlanIn(){  ## inContainer, planContainer, then name=value settings
 		fStep(){ if ((_stepPlanning)); then _stepTitles+=("$( ((_stepElsewhere)) && echo '*')$1"); fi; }
 		fSteps_Plan
 		printf '%s\n' "${_stepTitles[@]}"
+		if [[ -n "${planOffs:-}" ]]; then printf 'off:%s\n' "${_stepOffs[@]}"; fi
 	)
 }
 ## A scrub beside the repo, which only this machine can see.
@@ -985,14 +1028,198 @@ if [[ -z "${planBad}" ]]
 	else fFail "${planBad}"
 fi
 
+## Areas narrow --backlog-run-quick to their steps, here and in the image
+## alike, and the image's run is handed the same areas.
+fId dedtx "areas pick the steps"
+areaBad=""
+## fMain sets doGo and doZig from the areas, which --list's case below covers.
+for areaCase in "shell|doGo=0 doZig=0|Pipeline|Installers" "go docs|doZig=0|Content scrub|Bash: lint" "installers zig|doGo=0|Installers: bash 3.2|Docs: claims that can be counted"; do
+	planAreas="${areaCase%%|*}"; rest="${areaCase#*|}"; toolchains="${rest%%|*}"; rest="${rest#*|}"; wantIn="${rest%%|*}"; wantOut="${rest#*|}"
+	# shellcheck disable=2086  ## Settings, split on purpose.
+	outside="$(planAreas="${planAreas}" fPlanIn 0 1 doGate=1 doQuick=1 doFuzz=0 doProfile=0 doLeakcheck=0 doDemo=0 ${toolchains})" || { areaBad+=" '${planAreas}': ${outside};"; continue; }
+	# shellcheck disable=2086
+	inside="$(planAreas="${planAreas}" fPlanIn 1 0 doGate=1 doQuick=1 doFuzz=0 doProfile=0 doLeakcheck=0 doDemo=0 doSync=0 doDogfood=0 doBackup=0 ${toolchains})" || { areaBad+=" '${planAreas}' inside: ${inside};"; continue; }
+	plain="${outside//\*/}"
+	grep -qxF "${wantIn}" <<< "${plain}" || areaBad+=" '${planAreas}' has no ${wantIn};"
+	grep -q "^${wantOut}" <<< "${plain}" && areaBad+=" '${planAreas}' has ${wantOut};"
+	[[ "${inside}" == "$(sed -n 's/^\*//p' <<< "${outside}")" ]] || areaBad+=" '${planAreas}': outside counts what inside doesn't run;"
+done
+## Preflight and the test IDs, whatever the areas.
+outside="$(planAreas="docs" fPlanIn 0 1 doGate=1 doQuick=1)" || true
+grep -qx '\*Preflight' <<< "${outside}" && grep -qx '\*Test IDs' <<< "${outside}" || areaBad+=" docs alone drops Preflight or Test IDs;"
+inner="$(
+	fLoad fContainer_InnerArgs || exit 2
+	# shellcheck disable=2034  ## Read by the lifted function.
+	{ onlyToolchain=""; doQuick=1; doPackage=0; doLeakcheck=0; doFuzz=0; doProfile=0; keepTemp=0; runAreas=(go docs); }
+	args=(); fContainer_InnerArgs args; printf '%s\n' "${args[*]}"
+)" || true
+[[ "${inner}" == *" --backlog-run-quick go docs" ]] || areaBad+=" the image is handed '${inner}';"
+if [[ -z "${areaBad}" ]]
+	then fPass
+	else fFail "${areaBad}"
+fi
+
+## --list prints the plan and each step's tests, and runs nothing, the run
+## log included. Every test with an ID is in some step.
+fId dedty "--list runs nothing, and names every test"
+listBad=""
+logsBefore="$(find "${cicd%/cicd.bash}/artifacts" -maxdepth 1 -newer "${cicd}" 2>/dev/null | sort || true)"
+out="$(bash "${cicd}" --list --backlog-run-quick go --no-container < /dev/null 2>&1)" && rc=0 || rc=$?
+((rc == 0)) || listBad+=" exited ${rc}: ${out:0:200};"
+grep -qE '^[0-9]+\. Go: build, vet, format, test$' <<< "${out}" || listBad+=" no Go step;"
+grep -qx '      daq6x TestVectors' <<< "${out}" || listBad+=" no TestVectors under it;"
+grep -qE '^[0-9]+\. Zig' <<< "${out}" && listBad+=" a Zig step with only go named;"
+grep -qE ' steps, [0-9]+ tests\. Nothing was run\.$' <<< "${out}" || listBad+=" no closing line;"
+## As this machine plans it, since the run in the image never plans the
+## steps only the outside runs, such as the macOS workflow's.
+out="$(env -u ZUID_IN_CONTAINER bash "${cicd}" --list --no-container --package --leakcheck < /dev/null 2>&1)" && rc=0 || rc=$?
+((rc == 0)) || listBad+=" the full list exited ${rc};"
+listed="$(sed -n 's/^      \([0-9a-hjkmnp-tv-z]\{5\}\) .*/\1/p' <<< "${out}" | sort -u)"
+known="$(python3 -I -B -c 'import importlib.util as u, sys; s = u.spec_from_file_location("t", sys.argv[1]); t = u.module_from_spec(s); s.loader.exec_module(t); print("\n".join(sorted({i for i, *_ in t.fScan() if i})))' "${cicd%/cicd.bash}/utility/test-ids.py")"
+missing="$(comm -13 <(printf '%s\n' "${listed}") <(printf '%s\n' "${known}") | tr '\n' ' ')"
+[[ -n "${known}" && -z "${missing// /}" ]] || listBad+=" not in any step: ${missing:0:200};"
+logsAfter="$(find "${cicd%/cicd.bash}/artifacts" -maxdepth 1 -newer "${cicd}" 2>/dev/null | sort || true)"
+[[ "${logsAfter}" == "${logsBefore}" ]] || listBad+=" it wrote to cicd/artifacts;"
+if [[ -z "${listBad}" ]]
+	then fPass
+	else fFail "${listBad}"
+fi
+
+## Only a run about as long as the Mac one on GitHub starts it, outside the
+## image, and collects it after the image's steps.
+fId dedwk "which runs start the macOS workflow"
+hostedBad=""
+for hostedCase in "|yes" "doGate=1 doQuick=1 gateFlag=--backlog-run-quick|--backlog-run-quick" "doQuick=1|--quick" "doRemote=0|--no-remote" "onlyToolchain=go doZig=0|--only go" "doFullGate=1 gateFlag=--merge-gate doSync=0|yes"; do
+	hostedWant="${hostedCase#*|}"
+	# shellcheck disable=2086  ## Settings, split on purpose.
+	outside="$(planOffs=1 fPlanIn 0 1 ${hostedCase%%|*})" || { hostedBad+=" '${hostedCase}': ${outside};"; continue; }
+	if [[ "${hostedWant}" == "yes" ]]; then
+		## First after the sync, and last before publish.
+		[[ "$(grep -v '^off:' <<< "${outside}" | grep -m1 -v '^Remote sync$')" == "macOS on GitHub: start" ]] || hostedBad+=" '${hostedCase}': start isn't first;"
+		[[ "$(grep -v '^off:' <<< "${outside}" | sed -n '/^macOS on GitHub: result$/,$p' | grep -cvxE 'macOS on GitHub: result|Publish|Dogfood|Backup and publish|Commit|Push')" == "0" ]] \
+			&& grep -qx 'macOS on GitHub: result' <<< "${outside}" || hostedBad+=" '${hostedCase}': result isn't after the checks;"
+	else
+		grep -q '^macOS on GitHub' <<< "${outside}" && hostedBad+=" '${hostedCase}' starts it;"
+		grep -qxF "off:macOS on GitHub (${hostedWant})" <<< "${outside}" || hostedBad+=" '${hostedCase}' doesn't say it's off for ${hostedWant};"
+	fi
+done
+inside="$(fPlanIn 1 0 doSync=0 doDogfood=0 doBackup=0)" || true
+grep -q 'macOS on GitHub' <<< "${inside}" && hostedBad+=" the image starts it;"
+if [[ -z "${hostedBad}" ]]
+	then fPass
+	else fFail "${hostedBad}"
+fi
+
+## The steps against a scratch repo pushed to a local bare remote, with gh
+## stood in for. It's asked for only when the remote's branch is at HEAD, and
+## only a finished run that failed fails the step.
+fId dedwm "macOS workflow start and result"
+hostedBad=""
+hostedDir="${work}/hosted"
+mkdir -p "${hostedDir}/bin"
+cat > "${hostedDir}/bin/gh" <<'EOF_hgh'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${HOSTED_GH_LOG:?}"
+case "${1:-} ${2:-}" in
+	"workflow run") exit "${HOSTED_GH_DISPATCH:-0}" ;;
+	"run list")     printf '%s\n' "${HOSTED_GH_RUN:-}"; exit 0 ;;
+	"run view")     printf 'completed|%s|https://example.invalid/run/7\n' "${HOSTED_GH_CONCLUSION:?}"; exit 0 ;;
+esac
+exit 1
+EOF_hgh
+chmod +x "${hostedDir}/bin/gh"
+git init -q --bare "${hostedDir}/remote.git"
+git init -q -b round "${hostedDir}/repo"
+git -C "${hostedDir}/repo" config user.name t
+git -C "${hostedDir}/repo" config user.email t@t
+mkdir -p "${hostedDir}/repo/.github/workflows"
+printf 'name: macos\n' > "${hostedDir}/repo/.github/workflows/macos.yml"
+git -C "${hostedDir}/repo" add -A
+git -C "${hostedDir}/repo" commit -q -m first
+git -C "${hostedDir}/repo" remote add origin "${hostedDir}/remote.git"
+git -C "${hostedDir}/repo" push -q -u origin round 2>/dev/null
+fHostedIn(){  ## then the result's lines follow the start's
+	(
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{ repoRoot="${hostedDir}/repo"; hostedSha=""; hostedBranch=""; hostedSince=""; hostedSkipWhy=""; hostedWorkflow="macos.yml"; hostedCapSecs=60; }
+		local fn=""
+		for fn in fGh fHosted_Gh fStage_Hosted_Start fStage_Hosted_Result fId fTestPass fTestSkip fTestFail; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		# shellcheck disable=2329  ## Called by the lifted functions.
+		{ fEcho_Clean(){ printf '%s\n' "$*"; }; fThrowError(){ printf 'error: %s\n' "$1"; exit 1; }; sleep(){ :; }; }
+		: > "${HOSTED_GH_LOG}"
+		fStage_Hosted_Start
+		fStage_Hosted_Result
+	) 2>&1
+}
+export HOSTED_GH_LOG="${hostedDir}/gh.log"
+## Pushed, and GitHub says it passed.
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_RUN=7 HOSTED_GH_CONCLUSION=success GITHUB_ACTIONS="" fHostedIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -qx '  PASS dedwh macOS workflow started on GitHub' <<< "${out}" && grep -qx '  PASS dedwj macOS workflow passed on GitHub' <<< "${out}"; } || hostedBad+=" passed: exited ${rc}, said '${out//$'\n'/ | }';"
+grep -qx 'workflow run macos.yml --ref round' "${HOSTED_GH_LOG}" || hostedBad+=" passed: not asked for on the branch;"
+grep -q "^run list .*--branch round --event workflow_dispatch --commit $(git -C "${hostedDir}/repo" rev-parse HEAD) " "${HOSTED_GH_LOG}" || hostedBad+=" passed: the run looked for isn't HEAD's dispatch;"
+## It failed there, which fails the step.
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_RUN=7 HOSTED_GH_CONCLUSION=failure GITHUB_ACTIONS="" fHostedIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -qx '  FAIL dedwj macOS workflow passed on GitHub' <<< "${out}"; } || hostedBad+=" failed: exited ${rc}, said '${out//$'\n'/ | }';"
+## Cancelled for a newer run, or never listed, is a skip.
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_RUN=7 HOSTED_GH_CONCLUSION=cancelled GITHUB_ACTIONS="" fHostedIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dedwj .*(cancelled on GitHub' <<< "${out}"; } || hostedBad+=" cancelled: exited ${rc}, said '${out//$'\n'/ | }';"
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_RUN="" HOSTED_GH_CONCLUSION=success GITHUB_ACTIONS="" fHostedIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dedwj .*(GitHub listed no run' <<< "${out}"; } || hostedBad+=" unlisted: exited ${rc}, said '${out//$'\n'/ | }';"
+## gh refused, which is a skip in both steps.
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_DISPATCH=1 HOSTED_GH_CONCLUSION=success GITHUB_ACTIONS="" fHostedIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && [[ "$(grep -c '^  SKIP dedw[hj] .*(gh could not start it' <<< "${out}")" == "2" ]]; } || hostedBad+=" refused: exited ${rc}, said '${out//$'\n'/ | }';"
+## On a runner already, it never asks.
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_CONCLUSION=success GITHUB_ACTIONS=true fHostedIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dedwh .*(already on a GitHub runner)$' <<< "${out}" && ! grep -q '^workflow run' "${HOSTED_GH_LOG}"; } || hostedBad+=" runner: exited ${rc}, said '${out//$'\n'/ | }';"
+## A commit the remote doesn't have yet.
+git -C "${hostedDir}/repo" commit -q --allow-empty -m second
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_CONCLUSION=success GITHUB_ACTIONS="" fHostedIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q "^  SKIP dedwh .*(origin/round isn't at HEAD .*, so push first)$" <<< "${out}" && grep -q '^  SKIP dedwj ' <<< "${out}" && ! grep -q '^workflow run' "${HOSTED_GH_LOG}"; } || hostedBad+=" unpushed: exited ${rc}, said '${out//$'\n'/ | }';"
+## Detached, so no branch to name.
+git -C "${hostedDir}/repo" checkout -q --detach
+out="$(ZUID_GH="${hostedDir}/bin/gh" HOSTED_GH_CONCLUSION=success GITHUB_ACTIONS="" fHostedIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dedwh .*(HEAD is detached' <<< "${out}"; } || hostedBad+=" detached: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${hostedBad}" ]]
+	then fPass
+	else fFail "${hostedBad}"
+fi
+
+## --quick fuzzes and dogfoods, per the 2026-10-24 CICD reset. The gate flags
+## do neither.
+fId dedv6 "--quick fuzzes and dogfoods, the gates don't"
+quickBad=""
+## As planned on the host. The run in the image has no dogfood step.
+fQuickList(){ env -u ZUID_IN_CONTAINER -u ZUID_STEP_FIRST -u ZUID_STEP_TOTAL bash "${cicd}" --list "$@" --no-container < /dev/null 2>&1; }
+out="$(fQuickList --quick)" || quickBad+=" --quick exited $?;"
+for step in "Go: fuzz" "Zig: fuzz" "Dogfood"; do
+	grep -qE "^[0-9]+\. ${step}\$" <<< "${out}" || quickBad+=" --quick has no ${step} step;"
+done
+out="$(fQuickList --quick --no-fuzz --no-dogfood)" || quickBad+=" --quick --no-fuzz exited $?;"
+for step in "Go: fuzz (--no-fuzz)" "Zig: fuzz (--no-fuzz)" "Dogfood (--no-dogfood)"; do
+	grep -qxF "Off ........: ${step}" <<< "${out}" || quickBad+=" --quick --no-fuzz --no-dogfood doesn't say ${step};"
+done
+for gate in --backlog-run-quick --merge-gate; do
+	out="$(fQuickList "${gate}")" || quickBad+=" ${gate} exited $?;"
+	grep -qxF "Off ........: Dogfood (${gate})" <<< "${out}" || quickBad+=" ${gate} dogfoods;"
+	if [[ "${gate}" == "--backlog-run-quick" ]]; then
+		grep -qxF "Off ........: Go: fuzz (${gate})" <<< "${out}" || quickBad+=" ${gate} fuzzes;"
+	fi
+done
+if [[ -z "${quickBad}" ]]
+	then fPass
+	else fFail "${quickBad}"
+fi
+
 ## CodeQL is about 480 MB, so a run that doesn't want it never builds it.
-fId EtAj5P2 "CodeQL image only with --leakcheck"
+fId de5ea "CodeQL image only with --leakcheck"
 codeqlTag="zuid-codeql:$(echo "FROM codeql" | git hash-object --stdin | cut -c1-12)-${newTag#*:}"
 out="$(leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-codeql" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-codeql" 2>/dev/null || true)"
 plainOut="$(fContainerIn "${worktreeMain}" "${work}/engine-plain" 0)" && plainRc=0 || plainRc=$?
 if ((rc == 0)) && grep -qxF "build --build-arg BASE=${newTag} --label dev.project=zuid --label dev.run=20261019-101112 -t ${codeqlTag} ${mainReal}/cicd/container/codeql" <<< "${log}" \
-	&& grep -q -- "^run .* ${codeqlTag} nice -n 19 bash .* --leakcheck$" <<< "${log}" && ! grep -q "^rmi " <<< "${log}" \
+	&& grep -q -- "^run .* ${codeqlTag} ionice -c 3 nice -n 19 bash .* --leakcheck$" <<< "${log}" && ! grep -q "^rmi " <<< "${log}" \
 	&& ((plainRc == 0)) && ! grep -qE '^(build|run) .*codeql' "${work}/engine-plain"
 	then fPass
 	else fFail "exited ${rc} and ${plainRc}, asked: ${log//$'\n'/ | }; said '${out}' and '${plainOut}'"
@@ -1000,7 +1227,7 @@ fi
 
 ## A rebuilt main image left the CodeQL one built on the old one, and what it
 ## held of the old layers, until the next --leakcheck run.
-fId EtaIbeg "plain run drops a CodeQL image on an old main one"
+fId debk4 "plain run drops a CodeQL image on an old main one"
 staleBad=""
 for pass in built found; do
 	: > "${work}/engine-stale"
@@ -1009,7 +1236,7 @@ for pass in built found; do
 	rmis="$(grep '^rmi ' <<< "${log}" || true)"
 	((rc == 0)) || staleBad+=" ${pass}: exited ${rc}, said '${out}';"
 	! grep -qE '^(build|run) .*codeql' <<< "${log}" || staleBad+=" ${pass}: built or ran CodeQL;"
-	## Since 2026102416233101 nothing goes during the stage. EtitVm9 has the
+	## Since 2026102416233101 nothing goes during the stage. dednb has the
 	## old CodeQL tag going at the end, ahead of the old main one.
 	if [[ "${pass}" == "built" ]]; then
 		grep -q '^build .*-t zuid-cicd' <<< "${log}" || staleBad+=" built: no build;"
@@ -1026,7 +1253,7 @@ fi
 
 ## A public clone without docker still passes, so the checkers in the image
 ## skip rather than fail when there's nothing to run them in.
-fId Et9VtIq "Go checkers with and without docker"
+fId de54z "Go checkers with and without docker"
 out="$(
 	# shellcheck disable=2329  ## Called by the lifted functions, not here.
 	fEcho_Clean(){ :; }
@@ -1061,7 +1288,7 @@ if ((rc == 0)) && grep -qxF "missing=no ${work}/no-such-engine to run the pinned
 	else fFail "exited ${rc} and said: ${out//$'\n'/ | }"
 fi
 
-fId Etij2SB "--container, --no-container"
+fId dedkz "--container, --no-container"
 out="$(for containerArgs in "" --no-container --container "--container --no-container" "--gate --no-container" "--gate --container"; do
 	# shellcheck disable=2086  ## Empty means no argument at all.
 	showContainer=1 fInitIn "${worktreeMain}" ${containerArgs}
@@ -1103,7 +1330,7 @@ fPickIn(){  ## engine log; the case's settings come in as pick* variables
 pickSkipWhy="no llvm-objcopy to strip the release with"
 
 ## The image has the tools, so a full run that couldn't package here does there.
-fId Etij2SC "the container where docker answers"
+fId dedm0 "the container where docker answers"
 out="$(pickSkip="${pickSkipWhy}" fPickIn "${work}/engine-pick")" && rc=0 || rc=$?
 if ((rc == 0)) && grep -qxF "build --label dev.project=zuid --label dev.run=20261019-101112 -t ${newTag} ${mainReal}/cicd/container" "${work}/engine-pick" \
 	&& [[ "${out}" == *$'\n'"doContainer=1 doPackage=1 skip= image= tag=${newTag}" ]]
@@ -1111,7 +1338,7 @@ if ((rc == 0)) && grep -qxF "build --label dev.project=zuid --label dev.run=2026
 	else fFail "exited ${rc} and said: ${out//$'\n'/ | }"
 fi
 
-fId Etij2SD "this machine with a note, without docker"
+fId dedm1 "this machine with a note, without docker"
 pickBad=""
 fWantPick(){  ## why, then the case's pick* settings as name=value
 	local -r why="$1"; shift
@@ -1132,7 +1359,7 @@ if [[ -z "${pickBad}" ]]
 fi
 
 ## Asked for by name, or already inside, nothing is asked of docker.
-fId Etij2SE "--container, --no-container and the run inside decide alone"
+fId dedm2 "--container, --no-container and the run inside decide alone"
 pickBad=""
 out="$(pickMode=off fPickIn "${work}/engine-pick-off")" || pickBad+=" off exited $?;"
 [[ "${out}" == "Container ..: off (--no-container), so this runs here"$'\n'"doContainer=0 doPackage=0 skip= image= tag=" ]] || pickBad+=" off said: ${out//$'\n'/ | };"
@@ -1149,7 +1376,7 @@ if [[ -z "${pickBad}" ]]
 fi
 
 ## The checkers would only try the same failed build again.
-fId Etij2SF "checkers skip on an image that didn't build"
+fId dedm3 "checkers skip on an image that didn't build"
 : > "${work}/engine-noimage"
 out="$(
 	# shellcheck disable=2329  ## Called by the lifted functions, not here.
@@ -1167,7 +1394,7 @@ if ((rc == 0)) && [[ "${out}" == "why=the image didn't build" ]] && [[ ! -s "${w
 fi
 
 ## The pre-push hook points the worktree's Zig at the checkout's cache.
-fId EtijCAL "the hook's Zig cache goes in"
+fId dedm4 "the hook's Zig cache goes in"
 mkdir -p "${work}/hook-zig-cache" "${mainReal}/zig/.zig-cache"
 : > "${work}/engine-zc"
 out="$(zigCache="${work}/hook-zig-cache" fContainerIn "${worktreeMain}" "${work}/engine-zc" 0)" && rc=0 || rc=$?
@@ -1181,7 +1408,7 @@ fi
 
 ## This checkout's cache is a link off the snapshotted dataset, and Zig
 ## stopped on NotDir in the container.
-fId EtimFcG "a Zig cache linked out of the tree goes in"
+fId dedmc "a Zig cache linked out of the tree goes in"
 workReal="$(cd "${work}" && pwd -P)"
 mkdir -p "${work}/zc-target" "${mainReal}/zig"
 zcLinkBad=""
@@ -1201,7 +1428,7 @@ fi
 
 ## SDE is a kit on this machine, so the packaging inside can only find it
 ## when it's handed in.
-fId EtimFcH "SDE goes in for packaging"
+fId dedmd "SDE goes in for packaging"
 mkdir -p "${work}/sde-kit"
 : > "${work}/sde-kit/sde64"; chmod +x "${work}/sde-kit/sde64"
 : > "${work}/engine-sde"
@@ -1213,7 +1440,7 @@ fi
 
 ## The C sanitizer builds go to a scratch dir outside the repo, which the
 ## image only sees if it's mounted.
-fId EtAHpAi "mounts for a folder outside the repo"
+fId de5b3 "mounts for a folder outside the repo"
 out="$(
 	# shellcheck disable=2034  ## Read by the lifted functions.
 	{
@@ -1231,7 +1458,7 @@ out="$(
 )" && rc=0 || rc=$?
 log="$(cat "${work}/engine-inimage" 2>/dev/null || true)"
 if ((rc == 0)) && [[ "$(grep -c '^run ' <<< "${log}")" == "2" ]] \
-	&& grep -qF -- "-v ${work}/outside:${work}/outside -w ${work}/outside zuid-cicd:t3st nice -n 19 true" <<< "${log}" \
+	&& grep -qF -- "-v ${work}/outside:${work}/outside -w ${work}/outside zuid-cicd:t3st ionice -c 3 nice -n 19 true" <<< "${log}" \
 	&& grep -- "-w ${mainReal}/go " <<< "${log}" | grep -qvF -- "-v ${mainReal}/go:"
 	then fPass
 	else fFail "exited ${rc}, said '${out}', asked: ${log//$'\n'/ | }"
@@ -1239,7 +1466,7 @@ fi
 
 ## Each step in the image is held to its own count, a hard step to the
 ## quarter, and nice inside, since the image's processes aren't ours.
-fId Etj0Hc2 "steps in the image get the step's job count"
+fId dedp8 "steps in the image get the step's job count"
 out="$(
 	# shellcheck disable=2034  ## Read by the lifted functions.
 	{
@@ -1262,8 +1489,8 @@ out="$(
 )" && rc=0 || rc=$?
 log="$(cat "${work}/engine-jobs" 2>/dev/null || true)"
 jobsBad=""
-grep -q -- "^run .*-hard-2 .* --cpus 2 --cpu-shares 256 -e ZUID_JOBS=2 -e ZUID_JOBS_CAP=2 .* zuid-cicd:t3st nice -n 19 true$" <<< "${log}" || jobsBad+=" the hard step;"
-grep -v -- "-hard-" <<< "${log}" | grep -q -- "^run .* --cpus 3 --cpu-shares 256 -e ZUID_JOBS=3 -e ZUID_JOBS_CAP=3 .* zuid-cicd:t3st nice -n 19 true$" || jobsBad+=" the plain step;"
+grep -q -- "^run .*-hard-2 .* --cpus 2 --cpu-shares 256 -e ZUID_JOBS=2 -e ZUID_JOBS_CAP=2 .* zuid-cicd:t3st ionice -c 3 nice -n 19 true$" <<< "${log}" || jobsBad+=" the hard step;"
+grep -v -- "-hard-" <<< "${log}" | grep -q -- "^run .* --cpus 3 --cpu-shares 256 -e ZUID_JOBS=3 -e ZUID_JOBS_CAP=3 .* zuid-cicd:t3st ionice -c 3 nice -n 19 true$" || jobsBad+=" the plain step;"
 [[ "${out}" == "2" ]] || jobsBad+=" inside the image it said '${out}';"
 if ((rc == 0)) && [[ -z "${jobsBad}" ]]
 	then fPass
@@ -1272,7 +1499,7 @@ fi
 
 ## Cleanup finds a run's leftovers by label, so everything gets them. docker
 ## makes a missing volume on first use with none.
-fId EtitVm7 "containers, images and volumes are labeled and named"
+fId dedn9 "containers, images and volumes are labeled and named"
 labelBad=""
 : > "${work}/engine-label"
 out="$(ENGINE_VOLUMES="zuid-cicd-cache" leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-label" 0)" || labelBad+=" the stage exited $?: ${out};"
@@ -1329,7 +1556,7 @@ fStopIn(){  ## engine log; keep, run come in as variables
 		printf 'gone=%s\n' "${_dockerGone[*]}"
 	) 2>&1
 }
-fId EtitVm8 "a run's containers go at its end, unless --keep-temp"
+fId dedna "a run's containers go at its end, unless --keep-temp"
 stopBad=""
 out="$(fStopIn "${work}/engine-stop")" || stopBad+=" exited $?;"
 log="$(cat "${work}/engine-stop")"
@@ -1381,7 +1608,7 @@ fTidyIn(){  ## engine log; label, cap come in as variables
 		printf 'run=%s\n' "${_dockerRun}"
 	) 2>&1
 }
-fId EtitVm9 "a passing run tidies docker by label"
+fId dednb "a passing run tidies docker by label"
 tidyBad=""
 out="$(cap="emptied 3145728" fTidyIn "${work}/engine-tidy")" || tidyBad+=" exited $?: ${out};"
 log="$(cat "${work}/engine-tidy")"
@@ -1390,7 +1617,7 @@ rmis="$(grep '^rmi ' <<< "${log}" || true)"
 grep -qxF "image ls zuid-cicd --filter label=dev.project=zuid --format {{.CreatedAt}}"$'\t'"{{.Repository}}:{{.Tag}}" <<< "${log}" || tidyBad+=" tags not listed by label;"
 grep -qxF "images -q --filter dangling=true --filter label=dev.project=zuid" <<< "${log}" || tidyBad+=" dangling not by label;"
 grep -qxF "builder prune -f --filter until=168h" <<< "${log}" || tidyBad+=" no builder prune;"
-grep -q -- "^run --rm --init .* -v zuid-cicd-cache:/cache --name zuid-20261019-101112-cache-cap --label dev.project=zuid --label dev.run=20261019-101112 --cpus 1 --cpu-shares 256 ${newTag} nice -n 19 sh -c" <<< "${log}" \
+grep -q -- "^run --rm --init .* -v zuid-cicd-cache:/cache --name zuid-20261019-101112-cache-cap --label dev.project=zuid --label dev.run=20261019-101112 --cpus 1 --cpu-shares 256 ${newTag} ionice -c 3 nice -n 19 sh -c" <<< "${log}" \
 	&& grep -q -- " sh 2097152$" <<< "${log}" || tidyBad+=" no capped volume check;"
 ! grep -qE '^(rmi|.*-f ).*(prevprevprev|'"${newTag#*:}"')' <<< "${rmis}" || tidyBad+=" removed a kept tag;"
 ! grep -qE '^(system prune|rmi -f|image prune)' <<< "${log}" || tidyBad+=" pruned wide;"
@@ -1439,7 +1666,7 @@ fZigCacheEmptied(){  ## dir
 	[[ -d "$1" && "$(ls -A "$1")" == ".cicd-zig-version" && "$(cat "$1/.cicd-zig-version")" == "0.17.0" ]]
 }
 
-fId Etipgwi "a Zig cache over the cap is emptied whole"
+fId dedmt "a Zig cache over the cap is emptied whole"
 zt="${work}/zt-cap"; ztReal=""
 mkdir -p "${zt}/.git" "${work}/zt-cap-target"
 fZigCacheMake "${zt}/zig/.zig-cache" "0.17.0"
@@ -1462,7 +1689,7 @@ if [[ -z "${capBad}" ]]
 	else fFail "${capBad} said '${out//$'\n'/ | }'"
 fi
 
-fId Etipgwj "a Zig cache from another Zig is emptied, this one's kept"
+fId dedmv "a Zig cache from another Zig is emptied, this one's kept"
 zt="${work}/zt-ver"
 mkdir -p "${zt}"
 fZigCacheMake "${zt}/old/.zig-cache" "0.16.0"
@@ -1481,7 +1708,7 @@ if [[ -z "${verBad}" ]]
 	else fFail "${verBad} said '${out//$'\n'/ | }'"
 fi
 
-fId Etipgwk "the image's Zig cache volume, only inside"
+fId dedmw "the image's Zig cache volume, only inside"
 zt="${work}/zt-global"
 mkdir -p "${zt}"
 fZigCacheMake "${work}/zt-global-cache" "0.17.0"
@@ -1497,7 +1724,7 @@ if [[ -z "${globalBad}" ]]
 	else fFail "${globalBad} said '${out//$'\n'/ | }'"
 fi
 
-fId Etipgwl "a Zig cache is emptied only where it's ours"
+fId dedmx "a Zig cache is emptied only where it's ours"
 zt="${work}/zt-guard"
 mkdir -p "${zt}" "${work}/zt-guard-notcache"
 fZigCacheMake "${work}/zt-guard-notcache"
@@ -1525,7 +1752,7 @@ if [[ -z "${guardBad}" ]]
 	else fFail "${guardBad} said '${out//$'\n'/ | }'"
 fi
 
-fId Etipgwm "the Zig caches are tidied where Zig ran"
+fId dedmy "the Zig caches are tidied where Zig ran"
 ## The run inside the image does its own, and the run outside built nothing.
 ## In fSteps since 2026102416233104, after the last place Package can run.
 mainBody="$(sed -n '/^fSteps(){/,/^}/p' "${cicd}")"
@@ -1562,11 +1789,11 @@ fShellIn(){  ## version the stand-in shellcheck reports
 		# shellcheck disable=2329
 		fThrowError(){ printf '%s\n' "$1"; exit 1; }
 		# shellcheck disable=2329,2154  ## testId and testName come from the lifted fId.
-		fTestPass(){ printf '  ok ....: %s %s\n' "${testId}" "${testName}"; }
+		fTestPass(){ printf '  PASS %s %s\n' "${testId}" "${testName}"; }
 		# shellcheck disable=2329
-		fTestSkip(){ printf '  skip ..: %s %s (%s)\n' "${testId}" "${testName}" "$*"; }
+		fTestSkip(){ printf '  SKIP %s %s (%s)\n' "${testId}" "${testName}" "$*"; }
 		# shellcheck disable=2329
-		fTestFail(){ printf '  FAIL ..: %s %s\n' "${testId}" "${testName}"; fThrowError "$*"; }
+		fTestFail(){ printf '  FAIL %s %s\n' "${testId}" "${testName}"; fThrowError "$*"; }
 		# shellcheck disable=2329
 		fStage_TestIds(){ :; }
 		# shellcheck disable=2329
@@ -1593,12 +1820,12 @@ fShellIn(){  ## version the stand-in shellcheck reports
 
 ## shellcheck's warnings change between versions, so a host on another one
 ## can pass what the container fails.
-fId EtB4VLJ "shellcheck pin note"
+fId de5gz "shellcheck pin note"
 scOld="$(fShellIn 0.10.0)" && rc=0 || rc=$?
 scSame="$(fShellIn 0.11.0)" && rcSame=0 || rcSame=$?
-scWant="skip ..: EtB4gns host shellcheck matches the pin (shellcheck 0.10.0 here, and the container pins 0.11.0, so its warnings can differ)"
+scWant="SKIP de5h0 host shellcheck matches the pin (shellcheck 0.10.0 here, and the container pins 0.11.0, so its warnings can differ)"
 if ((rc == 0 && rcSame == 0)) && grep -qxF "  ${scWant}" <<< "${scOld}" \
-	&& grep -qxF "  ok ....: EtB4gns host shellcheck matches the pin" <<< "${scSame}"
+	&& grep -qxF "  PASS de5h0 host shellcheck matches the pin" <<< "${scSame}"
 	then fPass
 	else fFail "exited ${rc} and ${rcSame}, said: ${scOld//$'\n'/ | } and: ${scSame//$'\n'/ | }"
 fi
@@ -1614,11 +1841,11 @@ fPsLintIn(){  ## skip reason, exit code for the run in the image
 		# shellcheck disable=2329
 		fThrowError(){ printf '%s\n' "$1"; exit 1; }
 		# shellcheck disable=2329,2154  ## testId and testName come from the lifted fId.
-		fTestPass(){ printf '  ok ....: %s %s\n' "${testId}" "${testName}"; }
+		fTestPass(){ printf '  PASS %s %s\n' "${testId}" "${testName}"; }
 		# shellcheck disable=2329
-		fTestSkip(){ printf '  skip ..: %s %s (%s)\n' "${testId}" "${testName}" "$*"; }
+		fTestSkip(){ printf '  SKIP %s %s (%s)\n' "${testId}" "${testName}" "$*"; }
 		# shellcheck disable=2329
-		fTestFail(){ printf '  FAIL ..: %s %s\n' "${testId}" "${testName}"; fThrowError "$*"; }
+		fTestFail(){ printf '  FAIL %s %s\n' "${testId}" "${testName}"; fThrowError "$*"; }
 		# shellcheck disable=2329,2034  ## Called by the lifted stage, and checkerSkipWhy is its local.
 		fGoCheckers_Ready(){ checkerSkipWhy="${PS_SKIP}"; }
 		# shellcheck disable=2034  ## Read by the lifted functions.
@@ -1636,12 +1863,12 @@ fPsLintIn(){  ## skip reason, exit code for the run in the image
 
 ## Every tracked .ps1, in the image, and a finding fails it. With no docker it
 ## skips, the same as the other checkers in the image.
-fId EtB6KVG "PowerShell lint stage"
+fId de5h7 "PowerShell lint stage"
 psBad=""
 : > "${work}/engine-pslint"
 out="$(fPsLintIn "" 0)" && rc=0 || rc=$?
 psLog="$(cat "${work}/engine-pslint")"
-if ((rc != 0)) || ! grep -qxF "  ok ....: EtB6KVF PSScriptAnalyzer on our PowerShell" <<< "${out}"; then psBad+=" a clean run said '${out}';"; fi
+if ((rc != 0)) || ! grep -qxF "  PASS de5h6 PSScriptAnalyzer on our PowerShell" <<< "${out}"; then psBad+=" a clean run said '${out}';"; fi
 ## The real repo. The scratch roots above were set in subshells.
 # shellcheck disable=2031
 {
@@ -1651,12 +1878,12 @@ if ((rc != 0)) || ! grep -qxF "  ok ....: EtB6KVF PSScriptAnalyzer on our PowerS
 		grep -qF "${repoRoot}/${psFile}" <<< "${psLog}" || psBad+=" ${psFile} wasn't linted;"
 	done
 }
-grep -q -- "^run .* zuid-cicd:t3st nice -n 19 env ZUID_PS_FILES=" <<< "${psLog}" || psBad+=" it didn't run in the image: '${psLog}';"
+grep -q -- "^run .* zuid-cicd:t3st ionice -c 3 nice -n 19 env ZUID_PS_FILES=" <<< "${psLog}" || psBad+=" it didn't run in the image: '${psLog}';"
 out="$(fPsLintIn "" 1)" && rc=0 || rc=$?
 if ((rc == 0)) || [[ "${out}" != *"PSScriptAnalyzer found something"* ]]; then psBad+=" a finding didn't fail it: '${out}';"; fi
 : > "${work}/engine-pslint"
 out="$(fPsLintIn "no docker here" 0)" && rc=0 || rc=$?
-if ((rc != 0)) || ! grep -qxF "  skip ..: EtB6KVF PSScriptAnalyzer on our PowerShell (no docker here)" <<< "${out}" \
+if ((rc != 0)) || ! grep -qxF "  SKIP de5h6 PSScriptAnalyzer on our PowerShell (no docker here)" <<< "${out}" \
 	|| [[ -s "${work}/engine-pslint" ]]; then psBad+=" without docker it said '${out}';"; fi
 if [[ -z "${psBad}" ]]
 	then fPass
@@ -1791,22 +2018,22 @@ fWantPublishRefusal(){  ## id, label, scratch name, text the refusal must contai
 
 fPublishRepo offmain 1.0.0-beta.1
 git -C "${work}/offmain/repo" checkout -q -b feature
-fWantPublishRefusal ErgqYt4 "--publish off main" offmain "come from 'main' only" 1 0
+fWantPublishRefusal ddfb9 "--publish off main" offmain "come from 'main' only" 1 0
 
 fPublishRepo dirty 1.0.0-beta.1
 printf 'edit\n' > "${work}/dirty/repo/stray.txt"
-fWantPublishRefusal ErgqYt5 "--publish on a dirty tree" dirty "uncommitted changes" 1 0
+fWantPublishRefusal ddfba "--publish on a dirty tree" dirty "uncommitted changes" 1 0
 
 fPublishRepo unpushed 1.0.0-beta.1
 git -C "${work}/unpushed/repo" commit -q --allow-empty -m second
-fWantPublishRefusal ErgqYt6 "--publish with HEAD unpushed" unpushed "HEAD is not what origin/main has" 1 0
+fWantPublishRefusal ddfbb "--publish with HEAD unpushed" unpushed "HEAD is not what origin/main has" 1 0
 
 ## On the remote only, so the remote is what is asked.
 fPublishRepo tagged 1.0.0-beta.1
 git -C "${work}/tagged/repo" tag v1.0.0-beta.1
 git -C "${work}/tagged/repo" push -q origin v1.0.0-beta.1 2>/dev/null
 git -C "${work}/tagged/repo" tag -d v1.0.0-beta.1 >/dev/null
-fId ErgqYt7 "tag already on the remote"
+fId ddfbc "tag already on the remote"
 out="$(fPublishIn tagged 1 0 < /dev/null)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"Tag v1.0.0-beta.1 already exists"* ]] && [[ ! -e "${work}/tagged/gh-create" ]] && [[ -z "$(git -C "${work}/tagged/repo" tag -l)" ]]
 	then fPass
@@ -1815,7 +2042,7 @@ fi
 
 fPublishRepo gotagged 1.0.0-beta.1
 git -C "${work}/gotagged/repo" tag go/v1.0.0-beta.1
-fId ErgqYt8 "go/ tag already here"
+fId ddfbd "go/ tag already here"
 out="$(fPublishIn gotagged 1 0 < /dev/null)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"Tag go/v1.0.0-beta.1 already exists"* ]] && [[ ! -e "${work}/gotagged/gh-create" ]] && [[ -z "$(git -C "${work}/gotagged/repo" ls-remote --tags origin)" ]]
 	then fPass
@@ -1824,9 +2051,9 @@ fi
 
 fPublishRepo partial 1.0.0-beta.1
 rm -f "${work}/partial/repo/dist-incoming/"zuid-1.0.0-beta.1-windows-*.zip
-fWantPublishRefusal ErgqYt9 "missing platform, no --allow-partial" partial "No asset for: zuid-1.0.0-beta.1-windows-x86_64.zip zuid-1.0.0-beta.1-windows-arm64.zip" 1 0
+fWantPublishRefusal ddfbe "missing platform, no --allow-partial" partial "No asset for: zuid-1.0.0-beta.1-windows-x86_64.zip zuid-1.0.0-beta.1-windows-arm64.zip" 1 0
 
-fId ErgqYtA "--allow-partial publishes the rest"
+fId ddfbf "--allow-partial publishes the rest"
 rm -rf "${work}/partial/repo/dist/release"
 out="$(fPublishIn partial 1 1 < /dev/null)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == *"Missing ....: zuid-1.0.0-beta.1-windows-x86_64.zip zuid-1.0.0-beta.1-windows-arm64.zip"* ]] && [[ -e "${work}/partial/gh-create" ]]
@@ -1837,7 +2064,7 @@ fi
 ## The installers once took no answer as a yes. Here no answer, an empty one
 ## and a plain 'n' all have to stop it.
 fPublishRepo unanswered 1.0.0-beta.1
-fId ErgqYtB "no answer to the prompt means no"
+fId ddfbg "no answer to the prompt means no"
 unansweredBad=""
 for answer in "" $'\n' $'n\n'; do
 	rm -rf "${work}/unanswered/repo/dist/release"
@@ -1856,13 +2083,13 @@ fStaleTarball(){
 	fTarball "${work}/stale/repo/dist-incoming/zuid-1.0.0-beta.1-darwin-universal.tgz" 1.0.0-alpha.1
 }
 fStaleTarball
-fWantPublishRefusal ErgqYtH "stale tarball refused" stale "built from another version" 1 0
+fWantPublishRefusal ddfbp "stale tarball refused" stale "built from another version" 1 0
 
 ## A remote gh cannot match to a GitHub repo, so the notes would have no
 ## links. The tags must not go out first.
 fPublishRepo norepo 1.0.0-beta.1
 export GH_STUB_NO_REPO=1
-fWantPublishRefusal ErmAuec "gh can't name the repo" norepo "gh cannot tell which GitHub repo this is" 1 0
+fWantPublishRefusal ddgm7 "gh can't name the repo" norepo "gh cannot tell which GitHub repo this is" 1 0
 unset GH_STUB_NO_REPO
 
 ## One full run, answered yes, for the cases after it to read.
@@ -1876,13 +2103,13 @@ for arg in "${betaArgs[@]}"; do
 	if [[ -f "${arg}" ]]; then betaUploads+=("${arg}"); fi
 done
 
-fId ErgqYtC "'-' in the version means prerelease"
+fId ddfbh "'-' in the version means prerelease"
 if ((betaRc == 0)) && [[ " ${betaArgs[*]} " == *" --prerelease "* ]] && [[ "${betaArgs[0]:-}" == "v1.0.0-beta.1" ]]
 	then fPass
 	else fFail "exited ${betaRc}, gh got '${betaArgs[*]:0:6}', said '${betaOut: -160}'"
 fi
 
-fId ErgqYtE "both tags pushed on HEAD"
+fId ddfbk "both tags pushed on HEAD"
 betaHead="$(git -C "${work}/beta/repo" rev-parse HEAD)"
 if [[ "$(fRemoteTags "${work}/beta/repo")" == "go/v1.0.0-beta.1 ${betaHead}"$'\n'"v1.0.0-beta.1 ${betaHead}" ]]
 	then fPass
@@ -1890,7 +2117,7 @@ if [[ "$(fRemoteTags "${work}/beta/repo")" == "go/v1.0.0-beta.1 ${betaHead}"$'\n
 fi
 
 ## GitHub lists a bare tag beside the releases, so its message says what it is.
-fId EsjRmx6 "go/ tag message"
+fId ddywc "go/ tag message"
 betaGoMsg="$(git -C "${work}/beta/repo" tag -l --format='%(contents:subject)' go/v1.0.0-beta.1)"
 if [[ "${betaGoMsg}" == "Go module tag for v1.0.0-beta.1" ]]
 	then fPass
@@ -1899,7 +2126,7 @@ fi
 
 ## Exactly one checksums.txt, listing every other upload once with the right
 ## hash, and nothing else.
-fId ErgqYtF "one checksums.txt covers every asset"
+fId ddfbm "one checksums.txt covers every asset"
 sumsFile="" sumsBad=""
 for arg in "${betaUploads[@]}"; do
 	if [[ "$(basename "${arg}")" == checksums.txt ]]; then
@@ -1924,7 +2151,7 @@ if [[ -z "${sumsBad}" ]]
 	else fFail "${sumsBad}"
 fi
 
-fId ErgqYtG "'~' becomes '.' in asset names"
+fId ddfbn "'~' becomes '.' in asset names"
 tildeBad=""
 for arg in "${betaUploads[@]}"; do
 	[[ "$(basename "${arg}")" != *'~'* ]] || tildeBad+=" uploaded $(basename "${arg}");"
@@ -1936,7 +2163,7 @@ if [[ -z "${tildeBad}" ]]
 	else fFail "${tildeBad}"
 fi
 
-fId EsZni4k "dist/debug/ stays local"
+fId ddwj6 "dist/debug/ stays local"
 debugBad=""
 for arg in "${betaUploads[@]}"; do
 	case "${arg}" in */debug/*|*.debug|*.pdb) debugBad+=" uploaded $(basename "${arg}");" ;; esac
@@ -1947,7 +2174,7 @@ if [[ -z "${debugBad}" ]]
 	else fFail "${debugBad}"
 fi
 
-fId ErgqjsR "release notes from the changelog"
+fId ddfbq "release notes from the changelog"
 betaNotes=""
 for ((argIndex = 0; argIndex < ${#betaArgs[@]}; argIndex++)); do
 	if [[ "${betaArgs[argIndex]}" == "--notes" ]]; then betaNotes="${betaArgs[argIndex + 1]:-}"; fi
@@ -1957,14 +2184,14 @@ if [[ "${betaNotes}" == *"Notes for this one."* ]] && [[ "${betaNotes}" != *"old
 	else fFail "notes were '${betaNotes:0:120}'"
 fi
 
-fId EshGwj3 "build number tops the notes"
+fId ddybx "build number tops the notes"
 if [[ "${betaNotes}" == "zuid v1.0.0-beta.1 build abc12"$'\n'* ]]
 	then fPass
 	else fFail "notes were '${betaNotes:0:120}'"
 fi
 
 fPublishRepo stable 1.0.0
-fId ErgqYtD "plain version is a full release"
+fId ddfbj "plain version is a full release"
 out="$(fPublishIn stable 1 0 < /dev/null)" && rc=0 || rc=$?
 stableArgs=()
 if [[ -e "${work}/stable/gh-create" ]]; then mapfile -d '' -t stableArgs < "${work}/stable/gh-create"; fi
@@ -1998,7 +2225,7 @@ tableNotes="$(fNotesOf "${work}/table/gh-create")"
 tableRows=()
 mapfile -t tableRows < <(grep '^<tr>' <<< "${tableNotes}" || true)
 
-fId Erm9fTp "download table, OS by CPU"
+fId ddgm2 "download table, OS by CPU"
 tableBad=""
 tableWant=(
 	"<tr><th></th><th>x86_64</th><th>arm64</th></tr>"
@@ -2020,7 +2247,7 @@ if [[ -z "${tableBad}" ]]
 	else fFail "${tableBad} said '${tableOut: -160}'"
 fi
 
-fId Erm9fTq "macOS universal spans both columns"
+fId ddgm3 "macOS universal spans both columns"
 macWant="<tr><th>macOS</th><td colspan=\"2\" align=\"center\">$(fLinks zuid-1.0.0-beta.1-darwin-universal.tgz zuid-1.0.0-beta.1-darwin-universal)</td></tr>"
 if [[ "${tableRows[2]:-}" == "${macWant}" ]]
 	then fPass
@@ -2028,7 +2255,7 @@ if [[ "${tableRows[2]:-}" == "${macWant}" ]]
 fi
 
 ## The partial run above left out both Windows files.
-fId Erm9fTr "dash for a missing file"
+fId ddgm4 "dash for a missing file"
 partialNotes="$(fNotesOf "${work}/partial/gh-create")"
 partialRows=()
 mapfile -t partialRows < <(grep '^<tr>' <<< "${partialNotes}" || true)
@@ -2039,7 +2266,7 @@ fi
 
 fPublishRepo nomac 1.0.0-beta.1
 rm -f "${work}/nomac/repo/dist-incoming/"zuid-1.0.0-beta.1-darwin-universal*
-fId ErmpEWr "one dash for missing macOS"
+fId ddgs7 "one dash for missing macOS"
 out="$(fPublishIn nomac 1 1 < /dev/null)" && rc=0 || rc=$?
 nomacRows=()
 mapfile -t nomacRows < <(grep '^<tr>' <<< "$(fNotesOf "${work}/nomac/gh-create")" || true)
@@ -2048,7 +2275,7 @@ if ((rc == 0)) && [[ "${nomacRows[2]:-}" == "<tr><th>macOS</th><td colspan=\"2\"
 	else fFail "exited ${rc}, rows were '${nomacRows[*]:-}'"
 fi
 
-fId Erm9fTs "release notes order"
+fId ddgm5 "release notes order"
 notesBad=""
 inTable="${tableNotes#*<table>}"; inTable="${inTable%%</table>*}"
 afterTable="${tableNotes#*</table>}"
@@ -2072,22 +2299,20 @@ utilityDir="${cicd%/*}/utility"
 idsTree="${work}/ids"
 mkdir -p "${idsTree}/cicd/utility" "${idsTree}/zig/lib/src"
 cp "${utilityDir}/test-ids.py" "${idsTree}/cicd/utility/"
-## A fixed time, not now. The stray scan skips a word with no digit or capital
-## past its first letter, and an ID made now is sometimes all lower case there,
-## which let ErkRrml pass the check it is meant to fail. Written with +00:00,
-## which every python takes, so the Z case below fails alone.
+## A fixed time, not now, so the fixture is the same every run. Written with
+## +00:00, which every python takes, so the Z case below fails alone.
 fIdsNew(){ PYTHONDONTWRITEBYTECODE=1 python3 "${idsTree}/cicd/utility/test-ids.py" new "$@" 2>&1 ;}
 mapfile -t fixtureIds <<< "$(fIdsNew -n 4 --at 2026-09-01T12:00:00+00:00 || true)"
 
 ## Python before 3.11 reads no trailing Z by itself, and stock macOS has 3.9.
-fId ErmeArM "test-ids.py --at takes a Z time"
+fId ddgqv "test-ids.py --at takes a Z time"
 out="$(fIdsNew -n 4 --at 2026-09-01T12:00:00Z)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "$(printf '%s\n' "${fixtureIds[@]}")" ]] && ((${#fixtureIds[@]} == 4))
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId ErmeArN "bad --at time, one-line error"
+fId ddgqw "bad --at time, one-line error"
 out="$(fIdsNew --at 2026-13-01T12:00:00Z)" && rc=0 || rc=$?
 if ((rc == 2)) && [[ "${out}" == *"--at wants an ISO 8601 time"* ]] && [[ "${out}" != *Traceback* ]]
 	then fPass
@@ -2104,7 +2329,7 @@ fIdsTree(){  ## cicd.bash body, extra Zig text
 }
 fIdsCheck(){ PYTHONDONTWRITEBYTECODE=1 python3 "${idsTree}/cicd/utility/test-ids.py" check 2>&1 ;}
 
-fId ErkRrmk "test-ids.py check on a clean tree"
+fId ddg6y "test-ids.py check on a clean tree"
 fIdsTree "fId ${fixtureIds[2]} \"a check\""
 out="$(fIdsCheck)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == *"3 tests, all unique"* ]]
@@ -2114,7 +2339,7 @@ fi
 
 ## The two arm64 link checks kept their IDs in an array, so the check never saw
 ## them and would have let a duplicate through.
-fId ErkRrml "orphan ID caught"
+fId ddg6z "orphan ID caught"
 fIdsTree "fId ${fixtureIds[2]} \"a check\""$'\n'"links=(\"${fixtureIds[3]}:static\")"
 out="$(fIdsCheck)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"'${fixtureIds[3]}' looks like a test ID"* ]]
@@ -2122,7 +2347,7 @@ if ((rc != 0)) && [[ "${out}" == *"'${fixtureIds[3]}' looks like a test ID"* ]]
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId ErkRrmm "stray test-id mark caught"
+fId ddg70 "stray test-id mark caught"
 fIdsTree "fId ${fixtureIds[2]} \"a check\"" "// test-id: ${fixtureIds[3]}"$'\n'"fn helper() void {}"
 out="$(fIdsCheck)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"'${fixtureIds[3]}' is not directly above a test"* ]]
@@ -2130,7 +2355,7 @@ if ((rc != 0)) && [[ "${out}" == *"'${fixtureIds[3]}' is not directly above a te
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId ErkRrmn "retired test can stay commented"
+fId ddg71 "retired test can stay commented"
 fIdsTree "fId ${fixtureIds[2]} \"a check\""$'\n'"# fWantRefusal ${fixtureIds[3]} \"retired\""
 out="$(fIdsCheck)" && rc=0 || rc=$?
 if ((rc == 0))
@@ -2138,12 +2363,52 @@ if ((rc == 0))
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId ErkRrmo "test-ids.py fuzzers lists fuzz tests only"
+fId ddg72 "test-ids.py fuzzers lists fuzz tests only"
 fIdsTree "fId ${fixtureIds[2]} \"a check\""
 out="$(PYTHONDONTWRITEBYTECODE=1 python3 "${idsTree}/cicd/utility/test-ids.py" fuzzers 2>&1)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == "${fixtureIds[0]}"$'\t'"a fuzz test" ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
+fi
+
+## Both ways. The shared rules' decp8, for 2026-10-24 22:00, would be read as a
+## stray ID here, so this is the minute before the first commit.
+fId dedw3 "IDs are minutes in Crockford base 32"
+out="$(fIdsNew --at 2026-07-31T23:59:30+00:00)$(PYTHONDONTWRITEBYTECODE=1 python3 "${idsTree}/cicd/utility/test-ids.py" decode dan8z 2>&1)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == "dan8zdan8z  2026-07-31T23:59Z" ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+fId dedw4 "test-ids.py new skips minutes already taken"
+fIdsTree "fId ${fixtureIds[2]} \"a check\""
+fixtureNext="$(fIdsNew --at 2026-09-01T12:04:00+00:00)"
+out="$(fIdsNew -n 3 --at 2026-09-01T12:00:00+00:00 | tr '\n' ' ')"
+if [[ "${out}" == "${fixtureIds[3]} ${fixtureNext} "?????" " ]] && [[ "${out}" != *"${fixtureIds[0]}"* ]]
+	then fPass
+	else fFail "with ${fixtureIds[*]:0:3} taken, said '${out}'"
+fi
+
+## Zig's defer is due to decode to a date in range from 2026-10-26.
+fId dedw5 "plain words are not stray IDs"
+fIdsTree "fId ${fixtureIds[2]} \"a check\""$'\n'"dated=1; echo \"dated defer\" \${dated}"
+out="$(fIdsCheck)" && rc=0 || rc=$?
+if ((rc == 0))
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+fId dedw6 "test lines read PASS, FAIL and SKIP"
+fIdsTree "fId ${fixtureIds[2]} \"a check\""
+out="$(printf '%s\n' "1/3 x.test.a plain test...OK" "2/3 x.test.a fuzz test...SKIP" "3/3 x.test.a plain test...FAIL (TestUnexpectedResult)" \
+	| PYTHONDONTWRITEBYTECODE=1 python3 "${idsTree}/cicd/utility/test-ids.py" zig 2>&1)" && rc=0 || rc=$?
+lineBad=""
+grep -qxF "  PASS ${fixtureIds[1]} a plain test" <<< "${out}" || lineBad+=" no PASS line;"
+grep -qxF "  SKIP ${fixtureIds[0]} a fuzz test" <<< "${out}" || lineBad+=" no SKIP line;"
+grep -qxF "  FAIL ${fixtureIds[1]} a plain test" <<< "${out}" || lineBad+=" no FAIL line;"
+if ((rc == 1)) && [[ -z "${lineBad}" ]]
+	then fPass
+	else fFail "exited ${rc}:${lineBad} said '${out}'"
 fi
 
 
@@ -2155,7 +2420,7 @@ fi
 ## Each value as "<value>|<what zig should see>|<1 if a note is wanted>".
 epochCases=("|unset|0" "  |unset|0" "soon|unset|1" "1700000000|1700000000|0")
 
-fId ErmER3z "cicd.bash drops a bad SOURCE_DATE_EPOCH"
+fId ddgmn "cicd.bash drops a bad SOURCE_DATE_EPOCH"
 epochBad=""
 if ! fLoad fDropBadEpoch; then
 	epochBad=" no fDropBadEpoch in cicd.bash;"
@@ -2196,7 +2461,7 @@ exit 1
 EOF
 chmod +x "${work}/pkgbin/zig"
 
-fId ErmER40 "package.bash drops it too"
+fId ddgmp "package.bash drops it too"
 epochBad=""
 for epochCase in "${epochCases[@]}"; do
 	IFS='|' read -r epochIn epochWant epochNote <<< "${epochCase}"
@@ -2253,18 +2518,18 @@ fFuzzIn(){  ## mode, name of the test that finds
 		# shellcheck disable=2329
 		fThrowError(){ printf '%s\n' "$1"; exit 1; }
 		# shellcheck disable=2329,2154  ## testId and testName come from the lifted fId.
-		fTestPass(){ printf '  ok ....: %s %s\n' "${testId}" "${testName}"; }
+		fTestPass(){ printf '  PASS %s %s\n' "${testId}" "${testName}"; }
 		# shellcheck disable=2329
-		fTestSkip(){ printf '  skip ..: %s %s (%s)\n' "${testId}" "${testName}" "$*"; }
+		fTestSkip(){ printf '  SKIP %s %s (%s)\n' "${testId}" "${testName}" "$*"; }
 		# shellcheck disable=2329
-		fTestFail(){ printf '  FAIL ..: %s %s\n%s\n' "${testId}" "${testName}" "$*"; exit 1; }
+		fTestFail(){ printf '  FAIL %s %s\n%s\n' "${testId}" "${testName}" "$*"; exit 1; }
 		local fn=""
 		for fn in fId fStage_Zig_Fuzz _fRemoveScratchDirs; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		# shellcheck disable=2034  ## Read by the lifted functions.
 		{
-			doQuick=0; doFuzz=1; zigDir="${dir}/zig"; buildJobs=5; hardJobs=2
+			doQuick="${rigQuick:-0}"; doFuzz=1; zigDir="${dir}/zig"; buildJobs=5; hardJobs=2
 			_scratchDirs=(); artifactDir="${dir}/artifacts"; runStamp="pipeline-test"
 		}
 		## The script's own exit cleanup. A failed case leaves through exit 1,
@@ -2280,12 +2545,12 @@ fFuzzIn(){  ## mode, name of the test that finds
 fuzzLines=()
 for fuzzLine in "${fuzzList[@]}"; do fuzzLines+=("${fuzzLine%%$'\t'*} ${fuzzLine#*$'\t'}"); done
 
-fId ErkRrmp "clean fuzz run, one ok line each"
+fId ddg73 "clean fuzz run, one ok line each"
 out="$(fFuzzIn clean)" && rc=0 || rc=$?
 fuzzBad=""
 ((${#fuzzLines[@]} >= 2)) || fuzzBad=" found ${#fuzzLines[@]} fuzz tests, wanted at least 2;"
 for fuzzLine in "${fuzzLines[@]}"; do
-	[[ "${out}" == *"  ok ....: ${fuzzLine}, fuzzed for "* ]] || fuzzBad+=" no ok line for '${fuzzLine}';"
+	[[ "${out}" == *"  PASS ${fuzzLine}, fuzzed for "* ]] || fuzzBad+=" no ok line for '${fuzzLine}';"
 done
 if ((rc == 0)) && [[ -z "${fuzzBad}" ]]
 	then fPass
@@ -2293,14 +2558,14 @@ if ((rc == 0)) && [[ -z "${fuzzBad}" ]]
 fi
 
 ## Before 20261004 the two shared one line, so a find could not say whose it was.
-fId ErkRrmq "a fuzz find fails its own test"
+fId ddg74 "a fuzz find fails its own test"
 out="" rc=0 fuzzBad=""
 if ((${#fuzzLines[@]} < 2)); then
 	fuzzBad=" found ${#fuzzLines[@]} fuzz tests, wanted at least 2;"
 else
 	out="$(fFuzzIn find "${fuzzList[1]#*$'\t'}")" || rc=$?
-	[[ "${out}" == *"  FAIL ..: ${fuzzLines[1]}, fuzzed for "* ]] || fuzzBad+=" no FAIL line for the finder;"
-	[[ "${out}" == *"  skip ..: ${fuzzLines[0]}, fuzzed for "* ]] || fuzzBad+=" no skip line for the other;"
+	[[ "${out}" == *"  FAIL ${fuzzLines[1]}, fuzzed for "* ]] || fuzzBad+=" no FAIL line for the finder;"
+	[[ "${out}" == *"  SKIP ${fuzzLines[0]}, fuzzed for "* ]] || fuzzBad+=" no skip line for the other;"
 	[[ -s "${work}/fuzz-find/artifacts/fuzz/zig-crash_pipeline-test" ]] || fuzzBad+=" the input was not kept;"
 fi
 if ((rc != 0)) && [[ -z "${fuzzBad}" ]]
@@ -2308,12 +2573,12 @@ if ((rc != 0)) && [[ -z "${fuzzBad}" ]]
 	else fFail "exited ${rc},${fuzzBad} said '${out}'"
 fi
 
-fId ErkRrmr "broken fuzz run fails them all"
+fId ddg75 "broken fuzz run fails them all"
 out="$(fFuzzIn broken)" && rc=0 || rc=$?
 fuzzBad=""
 ((${#fuzzLines[@]} >= 2)) || fuzzBad=" found ${#fuzzLines[@]} fuzz tests, wanted at least 2;"
 for fuzzLine in "${fuzzLines[@]}"; do
-	[[ "${out}" == *"  FAIL ..: ${fuzzLine}, fuzzed for "* ]] || fuzzBad+=" no FAIL line for '${fuzzLine}';"
+	[[ "${out}" == *"  FAIL ${fuzzLine}, fuzzed for "* ]] || fuzzBad+=" no FAIL line for '${fuzzLine}';"
 done
 if ((rc != 0)) && [[ -z "${fuzzBad}" ]]
 	then fPass
@@ -2321,7 +2586,7 @@ if ((rc != 0)) && [[ -z "${fuzzBad}" ]]
 fi
 
 ## Fuzzing is a hard step, so it gets a quarter of the box, not the build's half.
-fId Etj0Hc1 "fuzzing takes the hard-step job count"
+fId dedp7 "fuzzing takes the hard-step job count"
 : > "${work}/fuzz-args"
 out="$(FAKE_ZIG_ARGS="${work}/fuzz-args" fFuzzIn clean)" && rc=0 || rc=$?
 if ((rc == 0)) && grep -qxF -- "build -j2 test --fuzz=50K" "${work}/fuzz-args"
@@ -2329,9 +2594,47 @@ if ((rc == 0)) && grep -qxF -- "build -j2 test --fuzz=50K" "${work}/fuzz-args"
 	else fFail "exited ${rc}, zig was asked: '$(tr '\n' ' ' < "${work}/fuzz-args")'"
 fi
 
+## A quick run fuzzes on a short budget, both sides.
+fId dedv7 "quick fuzz budget"
+budgetBad=""
+: > "${work}/fuzz-args"
+rigQuick=1 FAKE_ZIG_ARGS="${work}/fuzz-args" fFuzzIn clean > /dev/null || budgetBad+=" the Zig stage exited $?;"
+grep -qxF -- "build -j2 test --fuzz=5K" "${work}/fuzz-args" || budgetBad+=" zig was asked '$(tr '\n' ' ' < "${work}/fuzz-args")';"
+# shellcheck disable=2016  ## The stand-in's own text.
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "${FAKE_GO_ARGS:-/dev/null}"\n' > "${fuzzBin}/go"
+chmod +x "${fuzzBin}/go"
+mkdir -p "${work}/gofuzz/go"
+for goQuick in 1 0; do
+	: > "${work}/go-args"
+	(
+		# shellcheck disable=2329  ## Called by the lifted fStage_Go_Fuzz, not here.
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2329
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2329
+		fTestPass(){ :; }
+		# shellcheck disable=2329
+		fTestFail(){ printf '%s\n' "$*"; exit 1; }
+		# shellcheck disable=2329
+		fId(){ :; }
+		fLoad fStage_Go_Fuzz || exit 2
+		# shellcheck disable=2034  ## Read by the lifted function.
+		{ doQuick="${goQuick}"; goDir="${work}/gofuzz/go"; hardJobs=2; }
+		# shellcheck disable=2031  ## Only the subshell's PATH.
+		export FAKE_GO_ARGS="${work}/go-args" PATH="${fuzzBin}:${PATH}" PYTHONDONTWRITEBYTECODE=1
+		fStage_Go_Fuzz
+	) > /dev/null 2>&1 || budgetBad+=" the Go stage exited $? with doQuick=${goQuick};"
+	goWant="-fuzztime=20s"; if ((goQuick)); then goWant="-fuzztime=5s"; fi
+	grep -qF -- " ${goWant} " "${work}/go-args" || budgetBad+=" go was asked '$(tr '\n' ' ' < "${work}/go-args")' with doQuick=${goQuick};"
+done
+if [[ -z "${budgetBad}" ]]
+	then fPass
+	else fFail "${budgetBad}"
+fi
+
 ## Each case above left its fuzz.log folder in the temp dir, 2 a run, since
 ## nothing cleaned up after the subshell.
-fId EscPGS5 "fuzz stage cleans TMPDIR"
+fId ddx66 "fuzz stage cleans TMPDIR"
 fuzzLeft="$(find "${fuzzTmp}" -mindepth 1 -maxdepth 1 2>&1 | tr '\n' ' ' || true)"
 if [[ -z "${fuzzLeft}" ]]
 	then fPass
@@ -2340,7 +2643,7 @@ fi
 
 ## Cleanup used to remove only what sat under /tmp, so with TMPDIR elsewhere
 ## every scratch folder stayed. It still takes nothing mktemp -d did not make.
-fId EscPGS6 "scratch cleanup takes only tmp.*"
+fId ddx67 "scratch cleanup takes only tmp.*"
 cleanTmp="${work}/clean-tmp"
 mkdir -p "${cleanTmp}/tmp.mine" "${cleanTmp}/keep" "${work}/clean-other/tmp.elsewhere" "${work}/clean-target"
 ln -s "${work}/clean-target" "${cleanTmp}/tmp.link"
@@ -2378,7 +2681,7 @@ cat > "${work}/flame/flame_20260101-000000_go.svg" <<'SVG'
 <g><title>github.com/jim-collier/zuid/go/zuid.(*Generator).Generate (60 samples, 60%)</title><rect x="40%" y="84" width="60%" height="15" fg:x="40" fg:w="60"/></g>
 </svg>
 SVG
-fId ErsspWK "NewRegistry counts as registry time"
+fId ddj7x "NewRegistry counts as registry time"
 out="$(python3 "${flameReport}" --dir "${work}/flame" 2>&1)" || true
 if grep -q 'registry construction.*40\.0%' <<< "${out}"
 	then fPass
@@ -2398,21 +2701,21 @@ fVulnFinding(){  ## osv, module, package, function or empty
 fVulnReport(){ python3 "${utilityDir}/vuln-report.py" 2>&1 ;}
 vulnConfig='{"config": {"go_version": "go1.0.1"}}'
 
-fId Et9luGK "called stdlib advisory fails"
+fId de56z "called stdlib advisory fails"
 out="$( { printf '%s\n' "${vulnConfig}"; fVulnFinding GO-0000-0001 stdlib net LookupCNAME; } | fVulnReport)" && rc=0 || rc=$?
 if ((rc == 1)) && [[ "${out}" == *"GO-0000-0001 in go1.0.1, called from net.LookupCNAME"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId Et9luGL "uncalled stdlib advisory is counted"
+fId de570 "uncalled stdlib advisory is counted"
 out="$( { printf '%s\n' "${vulnConfig}"; fVulnFinding GO-0000-0002 stdlib net ""; } | fVulnReport)" && rc=0 || rc=$?
 if ((rc == 0)) && [[ "${out}" == *"1 advisories for go1.0.1 in code we don't call"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out}'"
 fi
 
-fId Et9luGM "any third-party advisory fails"
+fId de571 "any third-party advisory fails"
 out="$( { printf '%s\n' "${vulnConfig}"; fVulnFinding GO-0000-0003 example.com/x example.com/x ""; } | fVulnReport)" && rc=0 || rc=$?
 if ((rc == 1)) && [[ "${out}" == *"GO-0000-0003 in example.com/x@v1.0.0"* ]]
 	then fPass
@@ -2442,14 +2745,14 @@ fCodeqlReport(){  ## suppressions file, file:rule...
 }
 : > "${work}/no-suppressions"
 
-fId EtAj5P3 "CodeQL: any finding in our code fails"
+fId de5eb "CodeQL: any finding in our code fails"
 out="$(fCodeqlReport "${work}/no-suppressions" zuid/a.go:x/style)" && rc=0 || rc=$?
 if ((rc == 1)) && [[ "${out}" == *"x/style at zuid/a.go:3: made up"* ]]
 	then fPass
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
 fi
 
-fId EtAj5P4 "CodeQL: third-party bugs only"
+fId de5ec "CodeQL: third-party bugs only"
 out="$(fCodeqlReport "${work}/no-suppressions" vendor/m/a.go:x/style)" && rc=0 || rc=$?
 out2="$(fCodeqlReport "${work}/no-suppressions" vendor/m/a.go:x/bug)" && rc2=0 || rc2=$?
 if ((rc == 0 && rc2 == 1)) && [[ "${out}" == *"1 style findings in third-party code"* && "${out2}" == *"x/bug at vendor/m/a.go:3"* ]]
@@ -2457,7 +2760,7 @@ if ((rc == 0 && rc2 == 1)) && [[ "${out}" == *"1 style findings in third-party c
 	else fFail "exited ${rc} and ${rc2}, and said '${out//$'\n'/ | }' and '${out2//$'\n'/ | }'"
 fi
 
-fId EtAj5P5 "CodeQL suppressions"
+fId de5ed "CodeQL suppressions"
 printf '## made up\ngo 2026101911183280 x/bug vendor/m/a.go\nc 2026101911183281 x/bug test/a.c\n' > "${work}/suppressions"
 printf 'go x/bug vendor/m/a.go\n' > "${work}/suppressions-bad"
 out="$(fCodeqlReport "${work}/suppressions" vendor/m/a.go:x/bug)" && rc=0 || rc=$?
@@ -2471,7 +2774,7 @@ if ((rc == 0 && rc2 == 1 && rc3 != 0 && rc4 == 1)) && [[ "${out}" == *"Suppresse
 	else fFail "exited ${rc}, ${rc2}, ${rc3} and ${rc4}, and said '${out//$'\n'/ | }', '${out2//$'\n'/ | }', '${out3}' and '${out4//$'\n'/ | }'"
 fi
 
-fId EtAj5P6 "CodeQL coverage check"
+fId de5ee "CodeQL coverage check"
 mkdir -p "${work}/cov/db"
 : > "${work}/cov/in.c"; : > "${work}/cov/out.c"
 python3 -c 'import os, sys, zipfile; zipfile.ZipFile(sys.argv[1], "w").writestr(os.path.realpath(sys.argv[2]).lstrip("/"), "")' \
@@ -2486,12 +2789,12 @@ if ((rc == 0 && rc2 == 1 && rc3 == 1)) && [[ "${out2}" == *"Not in the database:
 	else fFail "exited ${rc}, ${rc2} and ${rc3}, and said '${out}', '${out2//$'\n'/ | }' and '${out3}'"
 fi
 
-## cli-test.bash ran a relative --bin after a cd, so Ersmdcu ran nothing and
+## cli-test.bash ran a relative --bin after a cd, so ddj75 ran nothing and
 ## failed (2026102321183047). The stand-in only keeps a module the way the
 ## command does, so every other case there fails, and only this one is read.
-fId Etab8wr "cli-test.bash takes a relative --bin"
+fId debnh "cli-test.bash takes a relative --bin"
 if [[ "$(uname -s)" == Darwin ]]; then
-	printf '  skip ..: %s %s (%s)\n' "${curId}" "${curName}" "cli-test.bash has no Ersmdcu on a Mac"; curId=""
+	printf '  SKIP %s %s (%s)\n' "${curId}" "${curName}" "cli-test.bash has no ddj75 on a Mac"; curId=""
 else
 	mkdir -p "${work}/relbin/stand-in"
 	cat > "${work}/relbin/stand-in/zuid" <<- 'STUB'
@@ -2504,9 +2807,9 @@ else
 	STUB
 	chmod +x "${work}/relbin/stand-in/zuid"
 	out="$(cd "${work}/relbin" && bash "${utilityDir}/cli-test.bash" --bin stand-in/zuid 2>&1 || true)"
-	if grep -qxF "  ok ....: Ersmdcu a relative XDG_CACHE_HOME falls back to ~/.cache" <<< "${out}"
+	if grep -qxF "  PASS ddj75 a relative XDG_CACHE_HOME falls back to ~/.cache" <<< "${out}"
 		then fPass
-		else fFail "$(grep -m1 -e 'Ersmdcu' -e 'cli-test:' <<< "${out}" || echo 'no Ersmdcu line')"
+		else fFail "$(grep -m1 -e 'ddj75' -e 'cli-test:' <<< "${out}" || echo 'no ddj75 line')"
 	fi
 fi
 
@@ -2515,7 +2818,7 @@ fi
 ## The pre-push hook, in a scratch repo with a bare remote. The committed
 ## cicd.bash is a stand-in that writes down what it was asked for.
 
-fId Etj4p9i "the hook gates main with --merge-gate"
+fId dedps "the hook gates main with --merge-gate"
 hookRepo="${work}/hook/repo"
 gateLog="${work}/hook/gate.log"
 git init -q --bare "${work}/hook/remote.git"
@@ -2559,7 +2862,10 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: Which runs start the macos workflow, and its start and result steps.
+##		- 20261025 JC: Test IDs in minutes, PASS, FAIL and SKIP lines.
 ##		- 20261025 JC: The gate flags, and the pre-push hook's --merge-gate and docs skip.
+##		- 20261025 JC: Areas for --backlog-run-quick, and --list.
 ##		- 20261025 JC: The Zig cache tidy, and the Zig cache volume in the run arguments.
 ##		- 20261025 JC: The container by default, --no-container.
 ##		- 20261023 JC: --no-fuzz, --no-profile, --no-demo. cli-test.bash with a relative --bin.

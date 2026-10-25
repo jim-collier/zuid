@@ -2,16 +2,19 @@
 
 ##	Purpose: Test IDs. Every test the pipeline runs has one, so a result can
 ##		be named on the console and a backlog item can point at the test that
-##		covers it. An ID is when the test was written, as milliseconds since
-##		2000-01-01 00:00 UTC in base 62 - seven symbols, so they sort by age.
+##		covers it. An ID is when the test was written, as whole minutes since
+##		2000-01-01 00:00 UTC in lowercase Crockford base 32, such as decp8. Five
+##		symbols until 2063, so they sort by age. Two tests never share a minute:
+##		the newer one takes the next free one.
 ##	Syntax:
-##		test-ids.py new [-n COUNT] [--at TIME]   an ID for now, or for an ISO 8601 time
+##		test-ids.py new [-n COUNT] [--at TIME]   free IDs from now, or from an ISO 8601 time
 ##		test-ids.py decode ID...                 when each ID was made
 ##		test-ids.py check                        every test has one, and no two share one
 ##		test-ids.py lookup NAME                  the ID of a Go or Zig test, by name
 ##		test-ids.py go  < 'go test -json'        one line per Go test, with its ID
 ##		test-ids.py zig < test runner stderr     one line per Zig test, with its ID
 ##		test-ids.py fuzzers                      the Zig fuzz tests, as 'ID<tab>name'
+##		test-ids.py steps FUNC[=SUITE,...]...    the tests each cicd.bash step runs, for --list
 ##	History: At bottom of script.
 
 ##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
@@ -22,15 +25,16 @@
 
 import argparse, datetime, json, pathlib, re, shlex, sys
 
-DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-WIDTH  = 7
+DIGITS = "0123456789abcdefghjkmnpqrstvwxyz"
+WIDTH  = 5
 EPOCH  = datetime.datetime(2000, 1, 1, tzinfo=datetime.timezone.utc)
 
 ## The first commit. An ID from before it is a typo, not an old test.
 FLOOR  = datetime.datetime(2026, 8, 1, tzinfo=datetime.timezone.utc)
 
 REPO   = pathlib.Path(__file__).resolve().parents[2]
-ID_RE  = re.compile(r"^[0-9A-Za-z]{%d}$" % WIDTH)
+ID_RE  = re.compile(r"^[%s]{%d}$" % (DIGITS, WIDTH))
+UNSET  = "?" * WIDTH
 
 ## Where each kind of test keeps its ID. Go and Zig tests have a comment in the
 ## lines just above them; the bash harnesses pass it as the first argument.
@@ -40,23 +44,23 @@ ZIG_TEST_RE = re.compile(r'^\s*test\s+"((?:[^"\\]|\\.)*)"\s*\{')
 BASH_CALL_RE = re.compile(r"^\s*(fId|fWant\w+)\s+(.*)$")
 
 
-def fEncode(ms):
+def fEncode(minutes):
 	text = ""
-	while ms:
-		ms, rem = divmod(ms, 62)
+	while minutes:
+		minutes, rem = divmod(minutes, 32)
 		text = DIGITS[rem] + text
 	return text.rjust(WIDTH, "0")
 
 
 def fDecode(text):
-	ms = 0
+	minutes = 0
 	for ch in text:
-		ms = ms * 62 + DIGITS.index(ch)
-	return EPOCH + datetime.timedelta(milliseconds=ms)
+		minutes = minutes * 32 + DIGITS.index(ch)
+	return EPOCH + datetime.timedelta(minutes=minutes)
 
 
-def fMsSinceEpoch(when):
-	return (when - EPOCH) // datetime.timedelta(milliseconds=1)
+def fMinutesSinceEpoch(when):
+	return (when - EPOCH) // datetime.timedelta(minutes=1)
 
 
 def fGoFiles():   return sorted((REPO / "go").rglob("*_test.go"))
@@ -131,28 +135,37 @@ def fCmd_New(args):
 			return 2
 		if when.tzinfo is None:
 			when = when.astimezone()
-	ms = fMsSinceEpoch(when)
-	for n in range(args.n):
-		print(fEncode(ms + n))
+	## Minutes collide far more than milliseconds did, so skip the taken ones.
+	taken = {ident for ident, *_ in fScan()}
+	minute = fMinutesSinceEpoch(when)
+	for _ in range(args.n):
+		while fEncode(minute) in taken:
+			minute += 1
+		print(fEncode(minute))
+		minute += 1
 	return 0
 
 
 def fCmd_Decode(args):
 	for ident in args.ids:
 		if not ID_RE.match(ident):
-			print(f"{ident}: not a {WIDTH}-symbol base 62 ID")
+			print(f"{ident}: not a {WIDTH}-symbol Crockford base 32 ID")
 			continue
-		print(f"{ident}  {fDecode(ident).isoformat(timespec='milliseconds')}")
+		print(f"{ident}  {fDecode(ident):%Y-%m-%dT%H:%MZ}")
 	return 0
 
 
-TOKEN_RE = re.compile(r"(?<![0-9A-Za-z])[0-9A-Za-z]{%d}(?![0-9A-Za-z])" % WIDTH)
+TOKEN_RE = re.compile(r"(?<![0-9A-Za-z_])[%s]{%d}(?![0-9A-Za-z_])" % (DIGITS, WIDTH))
+
+## Plain words that decode to a time since the first commit. Zig's defer is
+## one from 2026-10, and draft and drawn come in 2027.
+WORDS = {"dated", "defer", "draft", "drawn", "draws"}
 
 
 def fStrays(seen, ceiling):
 	"""IDs the scan above never reached, so nothing checked them. An ID kept in
-	an array went unchecked this way. A word needs a digit or a capital past its
-	first letter to count, or 'Element' would."""
+	an array went unchecked this way. Only a word that decodes to a time from
+	the first commit to now counts, and not one of WORDS."""
 	problems = []
 	marked = {*fGoFiles(), *fZigFiles()}
 	for path in [*fGoFiles(), *fZigFiles(), *fBashFiles()]:
@@ -168,10 +181,10 @@ def fStrays(seen, ceiling):
 			if line.lstrip().startswith(("#", "//")):
 				continue
 			for word in TOKEN_RE.findall(line):
-				if word in seen or not re.search(r"[0-9A-Z]", word[1:]):
+				if word in seen or word in WORDS:
 					continue
 				if FLOOR <= fDecode(word) <= ceiling:
-					problems.append(f"{where}: '{word}' looks like a test ID, but no test line names it. Use fId's keyed form.")
+					problems.append(f"{where}: '{word}' looks like a test ID, but no test line names it. Use fId's keyed form, or add a plain word to WORDS in test-ids.py.")
 	return problems
 
 
@@ -193,7 +206,7 @@ def fZigFuzzTests():
 def fCmd_Fuzzers(_args):
 	tests = fZigFuzzTests()
 	for ident, name in tests:
-		print(f"{ident or '???????'}\t{name}")
+		print(f"{ident or UNSET}\t{name}")
 	return 0 if tests else 1
 
 
@@ -207,7 +220,7 @@ def fCmd_Check(_args):
 			problems.append(f"{where}: {suite} test '{name}' has no test-id")
 			continue
 		if not ID_RE.match(ident):
-			problems.append(f"{where}: '{ident}' is not a {WIDTH}-symbol base 62 ID")
+			problems.append(f"{where}: '{ident}' is not a {WIDTH}-symbol Crockford base 32 ID")
 			continue
 		when = fDecode(ident)
 		if not FLOOR <= when <= ceiling:
@@ -239,9 +252,93 @@ def fCmd_Lookup(args):
 	return 1
 
 
+FUNC_RE = re.compile(r"^(?:function\s+)?(_?f\w+)\(\)\s*\{")
+CALL_RE = re.compile(r"\b_?f\w+\b")
+
+
+def fBashTests(path):
+	"""A harness's tests as (id, name, enclosing function or None)."""
+	found, func = [], None
+	for line in path.read_text(encoding="utf-8").splitlines():
+		m = FUNC_RE.match(line)
+		if m:
+			## A one-liner ends where it starts.
+			func = None if line.rstrip().endswith("}") else m.group(1)
+			continue
+		if line == "}":
+			func = None
+		m = BASH_CALL_RE.match(line)
+		if not m:
+			continue
+		try:
+			words = shlex.split(m.group(2).rstrip().removesuffix("\\"))
+		except ValueError:
+			continue
+		pairs = [w.split("=", 1) for w in words[1:-1] if "=" in w] if m.group(1) == "fId" else []
+		if pairs:
+			found += [(ident, f"{words[-1]} ({key})", func) for key, ident in pairs]
+		elif words and ID_RE.match(words[0]):
+			found.append((words[0], words[1] if len(words) > 1 else "", func))
+	return found
+
+
+def fCalledFrom(path, start, stop):
+	"""start and every function in path it calls, however deep, short of the
+	ones in stop."""
+	bodies, func = {}, None
+	for line in path.read_text(encoding="utf-8").splitlines():
+		m = FUNC_RE.match(line)
+		if m:
+			func = m.group(1)
+			bodies[func] = [line[m.end():]]
+		elif func:
+			bodies[func].append(line)
+	todo, seen = [start], set()
+	while todo:
+		f = todo.pop()
+		if f in seen or f not in bodies or (f in stop and f != start):
+			continue
+		seen.add(f)
+		todo += [c for line in bodies[f] if not line.lstrip().startswith("#") for c in CALL_RE.findall(line)]
+	return seen
+
+
+def fCmd_Steps(args):
+	"""The tests each of cicd.bash's steps runs, as 'N<tab>ID<tab>name', N
+	counting the arguments from 0. An argument is a step's function, then
+	what else it runs after '=': go, go:<test>, zig, zig-fuzz, or a harness,
+	such as cli-test, optionally :<its function>. cicd.bash's own checks are
+	found from the function and everything it calls."""
+	cicd = REPO / "cicd/cicd.bash"
+	own = fBashTests(cicd)
+	tests = fScan()
+	harness = {}
+	## The steps are run by fSteps, which the Container step calls to count
+	## them again, so no step reaches into another.
+	steps = [arg.partition("=")[0] for arg in args.steps]
+	stop = {*steps, "fSteps", "fSteps_Plan", "fSteps_Checks"}
+	for i, arg in enumerate(args.steps):
+		func, _, extra = arg.partition("=")
+		called = fCalledFrom(cicd, func, stop)
+		rows = [(ident, name) for ident, name, f in own if f in called]
+		for suite in filter(None, extra.split(",")):
+			kind, _, which = suite.partition(":")
+			if kind in ("go", "zig"):
+				rows += [(ident, name) for ident, s, name, _ in tests if s == kind and which in ("", name)]
+			elif kind == "zig-fuzz":
+				rows += fZigFuzzTests()
+			else:
+				path = REPO / "cicd/utility" / f"{kind}.bash"
+				if path not in harness:
+					harness[path] = fBashTests(path) if path.exists() else []
+				rows += [(ident, name) for ident, name, f in harness[path] if which in ("", f)]
+		for ident, name in rows:
+			print(f"{i}\t{ident or UNSET}\t{name}")
+	return 0
+
+
 def fLine(status, ident, name):
-	label = {"pass": "ok ....", "fail": "FAIL ..", "skip": "skip .."}[status]
-	print(f"  {label}: {ident or '???????'} {name}", flush=True)
+	print(f"  {status.upper()} {ident or UNSET} {name}", flush=True)
 
 
 def fCmd_Go(_args):
@@ -364,9 +461,10 @@ def main():
 	sub.add_parser("go")
 	sub.add_parser("zig")
 	sub.add_parser("fuzzers")
+	p = sub.add_parser("steps");  p.add_argument("steps", nargs="*")
 	args = ap.parse_args()
 	return {"new": fCmd_New, "decode": fCmd_Decode, "check": fCmd_Check, "lookup": fCmd_Lookup,
-		"go": fCmd_Go, "zig": fCmd_Zig, "fuzzers": fCmd_Fuzzers}[args.cmd](args)
+		"go": fCmd_Go, "zig": fCmd_Zig, "fuzzers": fCmd_Fuzzers, "steps": fCmd_Steps}[args.cmd](args)
 
 
 if __name__ == "__main__":
@@ -378,3 +476,5 @@ if __name__ == "__main__":
 ##		- 20261004 JC: check also flags an ID no test line names. Added fuzzers.
 ##		- 20261004 JC: --at takes a trailing Z on python 3.9.
 ##		- 20261019 JC: go reports TestMain, where goleak runs, from the package result.
+##		- 20261025 JC: steps, for cicd.bash --list.
+##		- 20261025 JC: IDs are minutes in Crockford base 32, and lines read PASS, FAIL, SKIP.

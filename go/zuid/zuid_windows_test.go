@@ -13,7 +13,7 @@ import (
 // Windows ignores case in account names. env_windows.zig checks the same
 // pairs, since both sides have to lower-case outside ASCII alike.
 //
-// test-id: ErmqB7E
+// test-id: ddgse
 func TestAccountNameIsLowerCased(t *testing.T) {
 	cases := map[string]string{
 		`HOST\Alice`:      "alice",

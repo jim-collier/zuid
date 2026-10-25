@@ -548,7 +548,7 @@ fn causeOf(msg: []const u8) []const u8 {
 // Nothing a request can ask for makes the module trap, so this calls exports
 // the wrong way on purpose. Both used to come back as code 4, conversion
 // failed, and the module exit's text was a cut-off backtrace.
-// test-id: Ert2uRC
+// test-id: ddj93
 test "runtime failure is code 7" {
     const capi = @import("capi.zig");
     var h = try Host.init(.auto);

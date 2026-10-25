@@ -60,18 +60,18 @@ fId(){  ## [key key=id...] | id, name
 }
 fSkipped(){
 	[[ -n "${skipWhy}" ]] || return 1
-	skipped=$((skipped + 1)); printf '  skip ..: %s %s (%s)\n' "${curId:-???????}" "${curName}" "${skipWhy}"
+	skipped=$((skipped + 1)); printf '  SKIP %s %s (%s)\n' "${curId:-?????}" "${curName}" "${skipWhy}"
 	curId=""
 }
 fPass(){
 	if fSkipped; then return 0; fi
 	if [[ -z "${curId}" ]]; then fFail "no test ID"; return 0; fi
-	passed=$((passed + 1)); printf '  ok ....: %s %s\n' "${curId}" "${curName}"
+	passed=$((passed + 1)); printf '  PASS %s %s\n' "${curId}" "${curName}"
 	curId=""
 }
 fFail(){  ## detail
 	if fSkipped; then return 0; fi
-	failed=$((failed + 1)); printf '  FAIL ..: %s %s: %s\n' "${curId:-???????}" "${curName}" "$*"
+	failed=$((failed + 1)); printf '  FAIL %s %s: %s\n' "${curId:-?????}" "${curName}" "$*"
 	curId=""
 }
 
@@ -386,7 +386,7 @@ fCase_ReleaseChoice(){  ## label, runner
 	home="$(fNewHome "${label}-stable")"
 	out="$("${runner}" "${home}" user yes)" || true
 	got="$(fInstalledVersion "${home}")"
-	fId "${label}" bash=Eq9ejdI ps1=Eq9ejdJ "${label}: default is the newest full release"
+	fId "${label}" bash=dcrem ps1=dcren "${label}: default is the newest full release"
 	if [[ "${got}" == "2.0.0" ]]
 		then fPass
 		else fFail "should take v2.0.0, got ${got}. Output: ${out}"
@@ -395,7 +395,7 @@ fCase_ReleaseChoice(){  ## label, runner
 	home="$(fNewHome "${label}-dev")"
 	out="$("${runner}" "${home}" user dev yes)" || true
 	got="$(fInstalledVersion "${home}")"
-	fId "${label}" bash=Eq9ejdK ps1=Eq9ejdL "${label}: dev takes the newest prerelease"
+	fId "${label}" bash=dcrep ps1=dcreq "${label}: dev takes the newest prerelease"
 	if [[ "${got}" == "2.1.0-beta.1" ]]
 		then fPass
 		else fFail "should take v2.1.0-beta.1, got ${got}. Output: ${out}"
@@ -425,12 +425,12 @@ JSON
 	got="$(fInstalledVersion "${home}")"
 	cp "${work}/releases.full" "${listing}"
 
-	fId "${label}" bash=ErOioHp ps1=ErOioHq "${label}: only a prerelease, default takes it"
+	fId "${label}" bash=ddb0c ps1=ddb0d "${label}: only a prerelease, default takes it"
 	if [[ "${got}" == "2.1.0-beta.1" ]]
 		then fPass
 		else fFail "should take v2.1.0-beta.1, got ${got}. Output: ${out}"
 	fi
-	fId "${label}" bash=ErOioHr ps1=ErOioHs "${label}: and says there's no stable yet"
+	fId "${label}" bash=ddb0e ps1=ddb0f "${label}: and says there's no stable yet"
 	if [[ "${out}" == *"No stable release yet"* ]]
 		then fPass
 		else fFail "said nothing about it. Output: ${out}"
@@ -446,7 +446,7 @@ fCase_AssetNames(){  ## label, runner
 	: > "${work}/requests.log"
 	home="$(fNewHome "${label}-asset-name")"
 	out="$("${runner}" "${home}" user yes)" || true
-	fId "${label}" bash=EsiX6rC ps1=EsiX6rD "${label}: versioned asset name"
+	fId "${label}" bash=ddynb ps1=ddync "${label}: versioned asset name"
 	if grep -q -F -- "/v2.0.0/${PROG}-2.0.0-${hostAsset}" "${work}/requests.log"
 		then fPass
 		else fFail "asked for: $(grep -E '\.(tgz|zip)$' "${work}/requests.log" | tr '\n' ' '). Output: ${out}"
@@ -467,7 +467,7 @@ JSON
 	out="$("${runner}" "${home}" user yes)" || true
 	got="$(fInstalledVersion "${home}")"
 	cp "${work}/releases.full" "${listing}"
-	fId "${label}" bash=EsiX6rE ps1=EsiX6rF "${label}: and the alpha by its old name"
+	fId "${label}" bash=ddynd ps1=ddyne "${label}: and the alpha by its old name"
 	if [[ "${got}" == "1.0.0-alpha.1" ]] && grep -q -F -- "/v1.0.0-alpha.1/${PROG}-${hostAsset}" "${work}/requests.log"
 		then fPass
 		else fFail "got ${got}, asked for: $(grep -E '\.(tgz|zip)$' "${work}/requests.log" | tr '\n' ' '). Output: ${out}"
@@ -489,12 +489,12 @@ fCase_Checksum(){  ## label, runner
 	got="$(fInstalledVersion "${home}")"
 	cp "${work}/checksums.good" "${sums}"
 
-	fId "${label}" bash=ErOkWfU ps1=ErOkWfV "${label}: a checksum mismatch installs nothing"
+	fId "${label}" bash=ddb0x ps1=ddb0y "${label}: a checksum mismatch installs nothing"
 	if [[ "${got}" == "none" && ! -e "${home}/${userShare}" ]]
 		then fPass
 		else fFail "installed ${got}. Output: ${out}"
 	fi
-	fId "${label}" bash=ErOkWfW ps1=ErOkWfX "${label}: and says why"
+	fId "${label}" bash=ddb0z ps1=ddb10 "${label}: and says why"
 	if [[ "${out}" == *"checksum mismatch"* ]]
 		then fPass
 		else fFail "said nothing about the checksum. Output: ${out}"
@@ -510,12 +510,12 @@ fCase_NoAnswer(){  ## label, runner
 	local -r before="$(fRequestCount)"
 	out="$("${runner}" "${home}" user < /dev/null)" || true
 
-	fId "${label}" bash=ErOkWfY ps1=ErOkWfZ "${label}: no answer, no download"
+	fId "${label}" bash=ddb11 ps1=ddb12 "${label}: no answer, no download"
 	if [[ "$(fRequestCount)" == "${before}" ]]
 		then fPass
 		else fFail "it fetched anyway. Output: ${out}"
 	fi
-	fId "${label}" bash=ErOkWfa ps1=ErOkWfb "${label}: or installed"
+	fId "${label}" bash=ddb13 ps1=ddb14 "${label}: or installed"
 	if [[ "$(fInstalledVersion "${home}")" == "none" && ! -e "${home}/${userShare}" ]]
 		then fPass
 		else fFail "it installed anyway. Output: ${out}"
@@ -545,12 +545,12 @@ fCase_PackageOutDir(){
 
 	local out=""
 	out="$(PATH="${area}/bin:${PATH}" bash "${packager}" --out "${victim}" --version v0 2>&1)" || true
-	fId Eq9filc "package: leaves a foreign --out alone"
+	fId dcrer "package: leaves a foreign --out alone"
 	if [[ -f "${victim}/canary.txt" && -f "${victim}/subdir/other.txt" ]]
 		then fPass
 		else fFail "--out was emptied. Output: ${out}"
 	fi
-	fId Eq9fild "package: and says why"
+	fId dcres "package: and says why"
 	if [[ "${out}" == *"and has no"* ]]
 		then fPass
 		else fFail "refused without saying why. Output: ${out}"
@@ -560,7 +560,7 @@ fCase_PackageOutDir(){
 	local -r fresh="${area}/fresh"
 	mkdir -p "${fresh}"
 	out="$(PATH="${area}/bin:${PATH}" bash "${packager}" --out "${fresh}" --version v0 2>&1)" || true
-	fId Eq9file "package: empty --out is fine"
+	fId dcret "package: empty --out is fine"
 	if [[ "${out}" != *"and has no"* ]]
 		then fPass
 		else fFail "an empty --out was refused. Output: ${out}"
@@ -568,7 +568,7 @@ fCase_PackageOutDir(){
 
 	## And a path that does not exist yet, which is what dist/ is on a clean tree.
 	out="$(PATH="${area}/bin:${PATH}" bash "${packager}" --out "${area}/brand-new" --version v0 2>&1)" || true
-	fId Eq9filf "package: new --out is fine"
+	fId dcrev "package: new --out is fine"
 	if [[ "${out}" != *"and has no"* ]]
 		then fPass
 		else fFail "a new --out was refused. Output: ${out}"
@@ -592,7 +592,7 @@ fCase_PackageHeader(){
 		skipWhy="package.bash is not present"
 	fi
 
-	fId EqA3RdA "package: no header without its library"
+	fId dcrhp "package: no header without its library"
 	if [[ "${contents}" != *"/usr/include"* || "${contents}" == *"libzuid.so"* ]]
 		then fPass
 		else fFail "the nfpm contents list has /usr/include and no libzuid.so."
@@ -610,7 +610,7 @@ fCase_DefaultTarget(){  ## label, runner
 	home="$(fNewHome "${label}-default-target")"
 	out="$("${runner}" "${home}" yes)" || true
 	got="$(fInstalledVersion "${home}")"
-	fId "${label}" bash=Eq9l4yO ps1=Eq9l4yP "${label}: unwritable system dir falls back to user"
+	fId "${label}" bash=dcrfv ps1=dcrfw "${label}: unwritable system dir falls back to user"
 	if [[ "${got}" == "2.0.0" ]]
 		then fPass
 		else fFail "should have installed under HOME, got ${got}. Output: ${out}"
@@ -638,7 +638,7 @@ fCase_SystemTarget(){  ## label, runner, elevates
 	## against a run that could have used it and did not.
 	home="$(fNewHome "${label}-system-user")"
 	out="$("${runner}" "${home}" user yes)" || true
-	fId "${label}" bash=EqANb6u ps1=EqANb6v "${label}: user install needs no root"
+	fId "${label}" bash=dcrm6 ps1=dcrm7 "${label}: user install needs no root"
 	if [[ "$(fSudoCount)" == "0" ]]
 		then fPass
 		else fFail "called sudo $(fSudoCount) time(s). Output: ${out}"
@@ -648,7 +648,7 @@ fCase_SystemTarget(){  ## label, runner, elevates
 	## whenever they could write there, root and admins included.
 	home="$(fNewHome "${label}-system-default")"
 	out="$("${runner}" "${home}" yes)" || true
-	fId "${label}" bash=EshaOjs ps1=EshaOjt "${label}: writable system dir, still a user install"
+	fId "${label}" bash=ddye2 ps1=ddye3 "${label}: writable system dir, still a user install"
 	if [[ "$(fInstalledVersion "${home}")" == "2.0.0" && ! -e "${installed}" && "$(fSudoCount)" == "0" ]]
 		then fPass
 		else fFail "got $(fInstalledVersion "${home}") under HOME, ${installed} $([[ -e "${installed}" ]] && echo exists || echo absent). Output: ${out}"
@@ -657,7 +657,7 @@ fCase_SystemTarget(){  ## label, runner, elevates
 	home="$(fNewHome "${label}-system")"
 	out="$("${runner}" "${home}" system yes)" || true
 
-	fId "${label}" bash=EqANb6w ps1=EqANb6x "${label}: system install under /opt/${PROG}"
+	fId "${label}" bash=dcrm8 ps1=dcrm9 "${label}: system install under /opt/${PROG}"
 	if [[ -x "${installed}/bin/${PROG}" ]]
 		then fPass
 		else fFail "nothing at ${installed}/bin/${PROG}. Output: ${out}"
@@ -665,12 +665,12 @@ fCase_SystemTarget(){  ## label, runner, elevates
 
 	got="none"
 	[[ -x "${link}" ]] && got="$("${link}" --version 2>/dev/null | head -n1 | cut -d' ' -f1)"
-	fId "${label}" bash=EqANb6y ps1=EqANb6z "${label}: and /usr/local/bin runs it"
+	fId "${label}" bash=dcrma ps1=dcrmb "${label}: and /usr/local/bin runs it"
 	if [[ "${got}" == "2.0.0" ]]
 		then fPass
 		else fFail "${link} gave ${got}. Output: ${out}"
 	fi
-	fId "${label}" bash=EqANb70 ps1=EqANb71 "${label}: and it's a symlink"
+	fId "${label}" bash=dcrmc ps1=dcrmd "${label}: and it's a symlink"
 	if [[ -L "${link}" ]]
 		then fPass
 		else fFail "${link} is not a symlink. Output: ${out}"
@@ -678,19 +678,19 @@ fCase_SystemTarget(){  ## label, runner, elevates
 
 	## The two targets are meant to be separate installs, not one with a second
 	## name. A system run writing into HOME would make uninstall miss half of it.
-	fId "${label}" bash=EqANb72 ps1=EqANb73 "${label}: and leaves HOME alone"
+	fId "${label}" bash=dcrme ps1=dcrmf "${label}: and leaves HOME alone"
 	if [[ -e "${home}/${userShare}" || -e "${home}/.local/bin/${PROG}" ]]
 		then fFail "a system install also wrote under HOME. Output: ${out}"
 		else fPass
 	fi
 
 	if [[ "${elevates}" == "yes" ]]; then
-		fId "${label}" bash=EqANb74 "${label}: and writes through sudo"
+		fId "${label}" bash=dcrmg "${label}: and writes through sudo"
 		if (($(fSudoCount) > 0))
 			then fPass
 			else fFail "never called sudo. Output: ${out}"
 		fi
-		fId "${label}" bash=EqANb75 "${label}: and the plan says so"
+		fId "${label}" bash=dcrmh "${label}: and the plan says so"
 		if [[ "${out}" == *"this needs root"* ]]
 			then fPass
 			else fFail "the plan did not mention root. Output: ${out}"
@@ -701,19 +701,19 @@ fCase_SystemTarget(){  ## label, runner, elevates
 	## install is somewhere the user target never looks.
 	local -r before="$(fRequestCount)"
 	out="$("${runner}" "${home}" system yes)" || true
-	fId "${label}" bash=EqANb76 ps1=EqANb77 "${label}: a system re-run downloads nothing"
+	fId "${label}" bash=dcrmj ps1=dcrmk "${label}: a system re-run downloads nothing"
 	if [[ "$(fRequestCount)" == "${before}" ]]
 		then fPass
 		else fFail "the re-run fetched again. Output: ${out}"
 	fi
 
 	out="$("${runner}" "${home}" system uninstall yes)" || true
-	fId "${label}" bash=EqANb78 ps1=EqANb79 "${label}: system uninstall"
+	fId "${label}" bash=dcrmm ps1=dcrmn "${label}: system uninstall"
 	if [[ ! -e "${installed}" ]]
 		then fPass
 		else fFail "${installed} is still there. Output: ${out}"
 	fi
-	fId "${label}" bash=EqANb7A ps1=EqANb7B "${label}: and the link with it"
+	fId "${label}" bash=dcrmp ps1=dcrmq "${label}: and the link with it"
 	if [[ ! -e "${link}" && ! -L "${link}" ]]
 		then fPass
 		else fFail "${link} is still there. Output: ${out}"
@@ -741,17 +741,17 @@ fCase_SystemUnwritable(){
 
 	chmod u+w "${sysRoot}"
 
-	fId EqANb7C "ps1: unwritable system target fails"
+	fId dcrmr "ps1: unwritable system target fails"
 	if ((rc != 0))
 		then fPass
 		else fFail "it succeeded. Output: ${out}"
 	fi
-	fId EqANb7D "ps1: before any download"
+	fId dcrms "ps1: before any download"
 	if [[ "$(fRequestCount)" == "${before}" ]]
 		then fPass
 		else fFail "it downloaded first. Output: ${out}"
 	fi
-	fId EqANb7E "ps1: and names the alternative"
+	fId dcrmt "ps1: and names the alternative"
 	if [[ "${out}" == *"-Target user"* ]]
 		then fPass
 		else fFail "gave no way forward. Output: ${out}"
@@ -775,14 +775,14 @@ fCase_Rerun(){  ## label, runner
 	second="$("${runner}" "${home}" user yes)" || true
 	local -r after="$(fRequestCount)"
 
-	fId "${label}" bash=Eq9lTwm ps1=Eq9lTwn "${label}: same-version re-run downloads nothing"
+	fId "${label}" bash=dcrfx ps1=dcrfy "${label}: same-version re-run downloads nothing"
 	if [[ "${firstGot}" != "2.0.0" ]]
 		then fFail "the first run did not install. Output: ${first}"
 	elif [[ "${after}" == "${before}" ]]
 		then fPass
 		else fFail "the re-run made $((after - before)) request(s). Output: ${second}"
 	fi
-	fId "${label}" bash=Eq9lTwo ps1=Eq9lTwp "${label}: and says it's installed"
+	fId "${label}" bash=dcrfz ps1=dcrg0 "${label}: and says it's installed"
 	if [[ "${second}" == *"Already installed"* ]]
 		then fPass
 		else fFail "said nothing about being already installed. Output: ${second}"
@@ -792,7 +792,7 @@ fCase_Rerun(){  ## label, runner
 	## refusal to do anything.
 	second="$("${runner}" "${home}" user dev yes)" || true
 	got="$(fInstalledVersion "${home}")"
-	fId "${label}" bash=Eq9lTwq ps1=Eq9lTwr "${label}: another version installs over it"
+	fId "${label}" bash=dcrg1 ps1=dcrg2 "${label}: another version installs over it"
 	if [[ "${got}" == "2.1.0-beta.1" ]]
 		then fPass
 		else fFail "expected the beta to replace it, got ${got}. Output: ${second}"
@@ -808,7 +808,7 @@ fCase_MissingValue(){
 	for flag in --release --target; do
 		rc=0
 		out="$(HOME="$(fNewHome "missing-value")" bash "${bashCopy}" "${flag}" 2>&1)" || rc=$?
-		fId "${flag}" --release=Eq9oNBg --target=Eq9oNBh "bash: bare ${flag} named"
+		fId "${flag}" --release=dcrgb --target=dcrgc "bash: bare ${flag} named"
 		if ((rc != 0)) && [[ "${out}" == *"${flag}"* && "${out}" == *"needs a value"* ]]
 			then fPass
 			else fFail "rc=${rc} and '${out}'"
@@ -834,12 +834,12 @@ SH
 	local -r before="$(fRequestCount)"
 	out="$(HOME="${home}" PATH="${fakeDir}:${PATH}" bash "${bashCopy}" --target user --yes 2>&1)" || rc=$?
 
-	fId Ergbz3Z "bash: unsupported system named"
+	fId ddf9d "bash: unsupported system named"
 	if ((rc != 0)) && [[ "${out}" == *"OpenBSD"* && "${out}" == *"no ${PROG} build"* ]]
 		then fPass
 		else fFail "rc=${rc} and '${out}'"
 	fi
-	fId Ergbz3a "bash: and downloads nothing"
+	fId ddf9e "bash: and downloads nothing"
 	if [[ "$(fRequestCount)" == "${before}" ]]
 		then fPass
 		else fFail "it fetched anyway. Output: ${out}"
@@ -865,12 +865,12 @@ SH
 	out="$(HOME="${home}" PATH="${fakeDir}:${PATH}" bash "${bashCopy}" --target user --yes 2>&1)" || true
 	got="$(fInstalledVersion "${home}")"
 
-	fId ErgjCkY "bash: aarch64 Linux gets the arm64 tarball"
+	fId ddfae "bash: aarch64 Linux gets the arm64 tarball"
 	if grep -q -- "-${armAsset}\$" "${work}/requests.log" && ! grep -q '\.tgz$' <(grep -v -- "-${armAsset}\$" "${work}/requests.log")
 		then fPass
 		else fFail "asked for: $(grep '\.tgz$' "${work}/requests.log" | tr '\n' ' '). Output: ${out}"
 	fi
-	fId ErgjCkZ "bash: and installs it"
+	fId ddfaf "bash: and installs it"
 	if [[ "${got}" == "2.0.0" && "$("${home}/.local/bin/${PROG}" 2>&1 || true)" == *"${armAsset}"* ]]
 		then fPass
 		else fFail "should install v2.0.0 from ${armAsset}, got ${got}: $("${home}/.local/bin/${PROG}" 2>&1 || true). Output: ${out}"
@@ -896,12 +896,12 @@ SH
 	out="$(HOME="${home}" PATH="${fakeDir}:${PATH}" bash "${bashCopy}" --target user --yes 2>&1)" || true
 	got="$(fInstalledVersion "${home}")"
 
-	fId ErlUUiV "bash: amd64 FreeBSD gets its tarball"
+	fId ddgf3 "bash: amd64 FreeBSD gets its tarball"
 	if grep -q -- "-${bsdAsset}\$" "${work}/requests.log" && ! grep -q '\.tgz$' <(grep -v -- "-${bsdAsset}\$" "${work}/requests.log")
 		then fPass
 		else fFail "asked for: $(grep '\.tgz$' "${work}/requests.log" | tr '\n' ' '). Output: ${out}"
 	fi
-	fId ErlUUiW "bash: and installs it"
+	fId ddgf4 "bash: and installs it"
 	if [[ "${got}" == "2.0.0" && "$("${home}/.local/bin/${PROG}" 2>&1 || true)" == *"${bsdAsset}"* ]]
 		then fPass
 		else fFail "should install v2.0.0 from ${bsdAsset}, got ${got}: $("${home}/.local/bin/${PROG}" 2>&1 || true). Output: ${out}"
@@ -910,12 +910,12 @@ SH
 	home="$(fNewHome "freebsd-arm64")"
 	before="$(fRequestCount)"
 	out="$(HOME="${home}" FAKE_MACHINE=arm64 PATH="${fakeDir}:${PATH}" bash "${bashCopy}" --target user --yes 2>&1)" || rc=$?
-	fId ErlUUiX "bash: no build for arm64 FreeBSD"
+	fId ddgf5 "bash: no build for arm64 FreeBSD"
 	if ((rc != 0)) && [[ "${out}" == *"FreeBSD"* && "${out}" == *"arm64"* && "${out}" == *"no ${PROG} build"* ]]
 		then fPass
 		else fFail "rc=${rc} and '${out}'"
 	fi
-	fId ErlX0RL "bash: and downloads nothing"
+	fId ddgf8 "bash: and downloads nothing"
 	if [[ "$(fRequestCount)" == "${before}" ]]
 		then fPass
 		else fFail "it fetched anyway. Output: ${out}"
@@ -935,12 +935,12 @@ fCase_ForeignLink(){  ## label, runner
 	chmod +x "${planted}"
 
 	out="$("${runner}" "${home}" user uninstall yes)" || true
-	fId "${label}" bash=Eq9oNBj ps1=Eq9oNBk "${label}: uninstall keeps a file it didn't make"
+	fId "${label}" bash=dcrge ps1=dcrgf "${label}: uninstall keeps a file it didn't make"
 	if [[ -f "${planted}" ]]
 		then fPass
 		else fFail "uninstall deleted a file it did not create. Output: ${out}"
 	fi
-	fId "${label}" bash=Eq9oNBl ps1=Eq9oNBm "${label}: and says so"
+	fId "${label}" bash=dcrgg ps1=dcrgh "${label}: and says so"
 	if [[ "${out}" == *"not this installer's link"* ]]
 		then fPass
 		else fFail "said nothing about keeping it. Output: ${out}"
@@ -949,7 +949,7 @@ fCase_ForeignLink(){  ## label, runner
 	## Installing over it does replace it - that is what an installer does - but
 	## the plan has to name it rather than do it quietly.
 	out="$("${runner}" "${home}" user yes)" || true
-	fId "${label}" bash=Eq9oNBn ps1=Eq9oNBo "${label}: install names what it overwrites"
+	fId "${label}" bash=dcrgj ps1=dcrgk "${label}: install names what it overwrites"
 	if [[ "${out}" == *"is not this installer's link"* ]]
 		then fPass
 		else fFail "overwrote it without saying so. Output: ${out}"
@@ -957,7 +957,7 @@ fCase_ForeignLink(){  ## label, runner
 
 	## And once it is the installer's own link, uninstall does remove it.
 	out="$("${runner}" "${home}" user uninstall yes)" || true
-	fId "${label}" bash=Eq9oNBp ps1=Eq9oNBq "${label}: uninstall removes its own link"
+	fId "${label}" bash=dcrgm ps1=dcrgn "${label}: uninstall removes its own link"
 	if [[ ! -e "${planted}" ]]
 		then fPass
 		else fFail "left its own link behind. Output: ${out}"
@@ -969,14 +969,14 @@ fCase_ForeignLink(){  ## label, runner
 fCase_HelpPiped(){
 	local out="" rc=0
 	out="$(bash <(cat "${bashCopy}") --help 2>&1)" || rc=$?
-	fId EshFEjs "bash: --help works from a pipe"
+	fId ddybe "bash: --help works from a pipe"
 	if ((rc == 0)) && [[ "${out}" == *"Usage:"* && "${out}" == *"--release"* ]]
 		then fPass
 		else fFail "rc=${rc} and '${out}'"
 	fi
 	rc=0
 	out="$(bash "${bashCopy}" --version 2>&1)" || rc=$?
-	fId EshFEjt "bash: --version"
+	fId ddybf "bash: --version"
 	if ((rc == 0)) && [[ "${out}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 		then fPass
 		else fFail "rc=${rc} and '${out}'"
@@ -1006,7 +1006,7 @@ fCase_Ps1Compat(){
 			$found | ForEach-Object { "{0}: {1}" -f $_.Line, $_.Message }
 			if ($found.Count) { exit 1 }' 2>&1)" || rc=$?
 	fi
-	fId EshaOju "ps1: fits Windows PowerShell 5.1"
+	fId ddye4 "ps1: fits Windows PowerShell 5.1"
 	if ((rc == 0))
 		then fPass
 		else fFail "${out}"
@@ -1018,7 +1018,7 @@ fCase_HelpPs1(){
 	if [[ -z "${skipWhy}" ]]; then
 		out="$(pwsh -NoProfile -Command "& ([scriptblock]::Create((Get-Content -Raw '${ps1Copy}'))) -Help" 2>&1)" || rc=$?
 	fi
-	fId EshFEju "ps1: -Help works from a scriptblock"
+	fId ddybg "ps1: -Help works from a scriptblock"
 	if ((rc == 0)) && [[ "${out}" == *"Usage:"* && "${out}" == *"-Release"* ]]
 		then fPass
 		else fFail "rc=${rc} and '${out}'"
@@ -1027,7 +1027,7 @@ fCase_HelpPs1(){
 	if [[ -z "${skipWhy}" ]]; then
 		out="$(pwsh -NoProfile -File "${ps1Copy}" -Version 2>&1)" || rc=$?
 	fi
-	fId EshFEjv "ps1: -Version"
+	fId ddybh "ps1: -Version"
 	if ((rc == 0)) && [[ "${out}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 		then fPass
 		else fFail "rc=${rc} and '${out}'"
@@ -1039,7 +1039,7 @@ fCase_EqualsForm(){
 	home="$(fNewHome "equals-form")"
 	out="$(HOME="${home}" bash "${bashCopy}" --release=dev --target=user --yes 2>&1)" || true
 	got="$(fInstalledVersion "${home}")"
-	fId EshFEjw "bash: --release=dev attached"
+	fId ddybj "bash: --release=dev attached"
 	if [[ "${got}" == "2.1.0-beta.1" ]]
 		then fPass
 		else fFail "expected the beta, got ${got}. Output: ${out}"
@@ -1061,7 +1061,7 @@ JSON
 	home="$(fNewHome "${label}-semver-dev")"
 	out="$("${runner}" "${home}" user dev yes)" || true
 	got="$(fInstalledVersion "${home}")"
-	fId "${label}" bash=EshFEjx ps1=EshFEjy "${label}: dev goes by version, not list order"
+	fId "${label}" bash=ddybk ps1=ddybm "${label}: dev goes by version, not list order"
 	if [[ "${got}" == "2.1.0-beta.1" ]]
 		then fPass
 		else fFail "expected 2.1.0-beta.1, got ${got}. Output: ${out}"
@@ -1069,7 +1069,7 @@ JSON
 	home="$(fNewHome "${label}-semver-stable")"
 	out="$("${runner}" "${home}" user yes)" || true
 	got="$(fInstalledVersion "${home}")"
-	fId "${label}" bash=EshFEjz ps1=EshFEk0 "${label}: and so does stable"
+	fId "${label}" bash=ddybn ps1=ddybp "${label}: and so does stable"
 	if [[ "${got}" == "2.0.0" ]]
 		then fPass
 		else fFail "expected 2.0.0, got ${got}. Output: ${out}"
@@ -1089,7 +1089,7 @@ fCase_LookupFails(){  ## label, copy
 			else out="$(HOME="$(fNewHome "${label}-lookup")" pwsh -NoProfile -File "${broken}" -Target user -Yes 2>&1)" || rc=$?
 		fi
 	fi
-	fId "${label}" bash=EshFEk1 ps1=EshFEk2 "${label}: a failed lookup gives the HTTP status"
+	fId "${label}" bash=ddybq ps1=ddybr "${label}: a failed lookup gives the HTTP status"
 	if ((rc != 0)) && [[ "${out}" == *"HTTP 404"* && "${out}" != *"no published release"* ]]
 		then fPass
 		else fFail "rc=${rc} and '${out}'"
@@ -1104,7 +1104,7 @@ fCase_ForeignSameVersion(){  ## label, runner
 	home="$(fNewHome "${label}-foreign-same")"
 	fWriteStandIn "v2.0.0" "hand-copied" "${home}/.local/bin/${PROG}"
 	out="$("${runner}" "${home}" user yes)" || true
-	fId "${label}" bash=EshFEk3 ps1=EshFEk4 "${label}: a hand-copied build isn't an install"
+	fId "${label}" bash=ddybs ps1=ddybt "${label}: a hand-copied build isn't an install"
 	if [[ -x "${home}/${userShare}/bin/${PROG}" && "${out}" != *"Already installed"* ]]
 		then fPass
 		else fFail "nothing went into ${userShare}. Output: ${out}"
@@ -1126,7 +1126,7 @@ fCase_Bash32(){
 		out="$(docker run --rm --network none --cpus 1 --cpu-shares 256 -e HOME=/home -v "${home}:/home" -v "${bashCopy}:/install.bash:ro" \
 			bash:3.2 nice -n 19 bash /install.bash --uninstall --target user --yes 2>&1)" || rc=$?
 	fi
-	fId EshFEk5 "bash 3.2: uninstall runs"
+	fId ddybv "bash 3.2: uninstall runs"
 	if ((rc == 0)) && [[ "${out}" == *"Removed."* ]]
 		then fPass
 		else fFail "rc=${rc} and '${out}'"
@@ -1136,7 +1136,7 @@ fCase_Bash32(){
 		out="$(docker run --rm --network none --cpus 1 --cpu-shares 256 -v "${bashCopy}:/install.bash:ro" \
 			bash:3.2 nice -n 19 bash -c 'bash <(cat /install.bash) --help' 2>&1)" || rc=$?
 	fi
-	fId EshFEk6 "bash 3.2: --help works from a pipe"
+	fId ddybw "bash 3.2: --help works from a pipe"
 	if ((rc == 0)) && [[ "${out}" == *"Usage:"* ]]
 		then fPass
 		else fFail "rc=${rc} and '${out}'"
@@ -1212,6 +1212,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: Test IDs in minutes. PASS, FAIL and SKIP lines.
 ##		- 20261025 JC: --only bash32, for the run outside cicd.bash's container.
 ##		- 20261014 JC: User target by default. install.ps1 against the 5.1 profile.
 ##		- 20261014 JC: --help from a pipe, --version, --opt=value, semver order, lookup errors, bash 3.2.
