@@ -33,9 +33,9 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - CICD reset: standard flags, areas and `--list`
 	- ID: 2026102508153578
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: none left. A plain `--backlog-run-quick` in the image passed on 20261025 at b13fb46, 432 PASS and 4 SKIP, every step run.
-	- Needs external testing: The `macos` workflow on `dev`, the round branch since merged, for dedty under the Mac's bash and Python.
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Needs external testing: none.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261025-081535
 	- Opened by: JC
@@ -55,13 +55,15 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every `fStep` and `fStep_Off` in `fSteps` and `fSteps_Checks`, `fContainer_InnerArgs`, the dogfood reason that read `doZig`, `--help`, `development.md`, and the `fInitIn`, `fPlanIn` and `fContainerIn` rigs in `pipeline-test.bash`. The pre-push hook and the `macos` workflow pass no areas.
 	- Branch: round1025b
 	- Test case: dedtw (area parsing and refusals), dedtx (the steps each area runs, here and in the image, and the areas handed in), dedty (`--list` runs nothing, and every test ID is in some step). Each failed against the scripts before the change. dedtx also failed with the areas left out of the image's arguments and with the bash 3.2 step ungated, and dedty with the old function scan in `test-ids.py`.
-	- Verified: 20261025, `pipeline-test.bash` 131 of 131, shellcheck, `test-ids.py check` (481, all unique), the content scrub, and `cicd.bash --backlog-run-quick shell docs` on this machine and in the image, 8 of 8 steps each. `--list` with no other options took 0.24 s. Load about 11 on 32 CPUs.
+	- Verified: 20261025, the `macos` workflow on `dev` at d5b6fe9, run 40233761521, a full run on the arm64 runner, passed all 22 steps, 527 PASS and 0 FAIL, dedty included.
+	- Acceptance signoff: Self-closed 20261025. Pipeline-only, checked on both hosts, and nothing a person would see differently.
+	- Closed: 20261025-215500
 
 - CICD reset: standard flags, `--quick` fuzz and dogfood
 	- ID: 2026102508153580
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: The `macos` workflow on `dev`, the round branch since merged. Its `--quick` now fuzzes, and Zig fuzz has never run on a Mac.
+	- Status: Done
+	- Needs external testing: none.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261025-081535
 	- Opened by: JC
@@ -83,13 +85,15 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every `doQuick` and `doFuzz` read in `cicd.bash`, the fuzz skip reasons, `fContainer_InnerArgs`, `--help`, `development.md`, `install.md` and `design.md` -> "Testing". The pre-push hook passes `--merge-gate`, and the `macos` workflow `--no-dogfood`, so neither changes.
 	- Branch: round1025b
 	- Test case: dedv6 (what `--quick` and the gates plan), dedv7 (the quick fuzz budgets), dedv8 (`--no-fuzz` handed to the image on a quick run), and debne. Each failed against the old `cicd.bash` and passes now.
-	- Verified: 20261025, `pipeline-test.bash` 134 of 134, here and with `ZUID_IN_CONTAINER=1`. shellcheck, `test-ids.py check` (484, all unique), and the content scrub. `cicd.bash -q --quick --no-dogfood --no-sync --no-backup --only go --no-container` passed 14 of 14 steps, Go fuzz included. The same with `--only zig --container` passed 16 of 16 steps across the handoff to the image, Zig fuzz at 5K included. Load about 4 to 16 on 32 CPUs.
+	- Verified: 20261025, the `macos` workflow on `dev` at d5b6fe9, run 40233761521, a full run on the arm64 runner, passed all 22 steps, 527 PASS and 0 FAIL. Zig fuzz ran on a Mac for the first time and passed, step 18.
+	- Acceptance signoff: Self-closed 20261025. Pipeline-only, and the Mac run read right.
+	- Closed: 20261025-215500
 
 - CICD reset: a test for every Done item
 	- ID: 2026102416233105
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: the `macos.yml` workflow, for dedvn on the universal build.
+	- Status: Done
+	- Needs external testing: none.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261024-162331
 	- Opened by: JC
@@ -104,13 +108,16 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every old-format and new-format Done item for a `Test case` line. Only these 3 lacked one.
 	- Branch: round1025b
 	- Test case: dedvn in `cli-test.bash`. It failed with the cache load turned off, and passes with it on. The other two items name existing tests.
+	- Verified: 20261025, the `macos` workflow on `dev` at d5b6fe9, run 40233761521, a full run on the arm64 runner, passed all 22 steps, 527 PASS and 0 FAIL, dedvn on the universal build included.
+	- Acceptance signoff: Self-closed 20261025. Pipeline-only.
+	- Closed: 20261025-215500
 
 - CICD reset: test IDs
 	- ID: 2026102416233106
 	- Type: Enhancement
 	- Status: Waiting on automated testing
 	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, for the lines from the fuzz, leak check, packaging and profile steps, which a quick run doesn't reach.
-	- Needs external testing: The `macos` workflow on `dev`, the round branch since merged, for `test-ids.py` and the new pipeline cases under the Mac's Python and bash.
+	- Needs external testing: none. the `macos` workflow on `dev` at d5b6fe9, run 40233761521, a full run on the arm64 runner, passed all 22 steps, 527 PASS and 0 FAIL, with every line in the new form.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261024-162331
 	- Opened by: JC
@@ -140,7 +147,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Type: Enhancement
 	- Status: Waiting on automated testing
 	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, with the round branch pushed first, so its start and result steps start a real `macos` run and wait for it (dedwh, dedwj).
-	- Needs external testing: The `macos` workflow on `dev`, the round branch since merged, which that run starts: the first full run on the Mac, Go and Zig fuzz, the Go soak and the profile included, and the docker checks skipping. By hand it's `gitsby raw gh workflow run macos.yml --ref dev`.
+	- Needs external testing: none. the `macos` workflow on `dev` at d5b6fe9, run 40233761521, a full run on the arm64 runner, passed all 22 steps, 527 PASS and 0 FAIL, with Go and Zig fuzz, the Go soak and the profile, and the docker checks skipping.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261023-183527
 	- Opened by: JC
