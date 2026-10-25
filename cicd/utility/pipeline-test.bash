@@ -1709,12 +1709,13 @@ if [[ -z "${stopBad}" ]]
 fi
 
 ## Only the project's, older tags keeping the one before the current, a week
-## of build cache, the volume's cap, and one line.
+## of build cache, Go's module prune and the volume's cap, and one line at the
+## end of the run.
 fTidyIn(){  ## engine log; label, cap come in as variables
 	(
 		# shellcheck disable=2329  ## Called by the lifted functions.
 		fEcho_Clean(){ printf '%s\n' "$*"; }
-		for fn in fContainer_Tidy fContainer_StopRun fContainer_DropOlder fContainer_VolumeCap fDocker_Bytes fCodeql_Tag; do
+		for fn in fContainer_Tidy fContainer_StopRun fContainer_DropOlder fContainer_VolumeCap fDocker_Bytes fCodeql_Tag fCleanup_Say fCleanup_Mb; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		# shellcheck disable=2034  ## Read by the lifted functions.
@@ -1722,6 +1723,7 @@ fTidyIn(){  ## engine log; label, cap come in as variables
 			repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerEngine="${work}/engine"; projectName="zuid"; runName="20261019-101112"
 			containerImage="zuid-cicd"; codeqlImage="zuid-codeql"; containerVolume="zuid-cicd-cache"; zigCacheCapMB=2048; keepTemp=0
 			containerTag="${newTag}"; _dockerEngine="${containerEngine}"; _dockerProject="zuid"; _dockerRun="${runName}"; _dockerGone=(); _dockerPid="${BASHPID}"
+			_cleanGone=(); _cleanKb=0; _cleanSay=1; _cleanDockerFreed=""; _runPid="${BASHPID}"; safeRmSweptN=0; inContainer=0
 		}
 		mkdir -p "${repoRoot}/cicd/container/codeql"; echo "FROM codeql" > "${repoRoot}/cicd/container/codeql/Dockerfile"
 		ENGINE_NEW="${newTag}" ENGINE_NEW_CODEQL="zuid-codeql:$(echo "FROM codeql" | git hash-object --stdin | cut -c1-12)-${newTag#*:}"
@@ -1731,27 +1733,31 @@ fTidyIn(){  ## engine log; label, cap come in as variables
 		: > "${ENGINE_LOG}"; rm -f "${ENGINE_LOG}.df"
 		fContainer_Tidy
 		printf 'run=%s\n' "${_dockerRun}"
+		fCleanup_Say
 	) 2>&1
 }
 fId dednb "a passing run tidies docker by label"
 tidyBad=""
-out="$(cap="emptied 3145728" fTidyIn "${work}/engine-tidy")" || tidyBad+=" exited $?: ${out};"
+out="$(cap=$'pruned 10240\nemptied 3145728' fTidyIn "${work}/engine-tidy")" || tidyBad+=" exited $?: ${out};"
 log="$(cat "${work}/engine-tidy")"
 rmis="$(grep '^rmi ' <<< "${log}" || true)"
 [[ "${rmis}" == "rmi zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld"$'\n'"rmi zuid-cicd:0ld0ld0ld0ld"$'\n'"rmi d4ng1e" ]] || tidyBad+=" removed '${rmis//$'\n'/ | }';"
 grep -qxF "image ls zuid-cicd --filter label=dev.project=zuid --format {{.CreatedAt}}"$'\t'"{{.Repository}}:{{.Tag}}" <<< "${log}" || tidyBad+=" tags not listed by label;"
 grep -qxF "images -q --filter dangling=true --filter label=dev.project=zuid" <<< "${log}" || tidyBad+=" dangling not by label;"
 grep -qxF "builder prune -f --filter until=168h" <<< "${log}" || tidyBad+=" no builder prune;"
-grep -q -- "^run --rm --init .* -v zuid-cicd-cache:/cache --name zuid-20261019-101112-cache-cap --label dev.project=zuid --label dev.run=20261019-101112 --cpus 1 --cpu-shares 256 ${newTag} ionice -c 3 nice -n 19 sh -c" <<< "${log}" \
-	&& grep -q -- " sh 2097152$" <<< "${log}" || tidyBad+=" no capped volume check;"
+tidyRoot="$(cd "${worktreeMain}" && pwd -P)"
+grep -q -- "^run --rm --init .* -v ${tidyRoot}:${tidyRoot}:ro -v zuid-cicd-cache:/cache --name zuid-20261019-101112-cache-cap --label dev.project=zuid --label dev.run=20261019-101112 --cpus 1 --cpu-shares 256 ${newTag} ionice -c 3 nice -n 19 sh -c" <<< "${log}" \
+	&& grep -q -- " sh 2097152 ${tidyRoot}$" <<< "${log}" || tidyBad+=" no capped volume check;"
+# shellcheck disable=2016  ## The script's own text.
+grep -qF 'bash "$2/cicd/utility/gomod-prune.bash" "$(go env GOMODCACHE)" "$2/go/go.sum"' <<< "${log}" || tidyBad+=" no Go module prune;"
 ! grep -qE '^(rmi|.*-f ).*(prevprevprev|'"${newTag#*:}"')' <<< "${rmis}" || tidyBad+=" removed a kept tag;"
 ! grep -qE '^(system prune|rmi -f|image prune)' <<< "${log}" || tidyBad+=" pruned wide;"
-want="Docker .....: removed zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld, zuid-cicd:0ld0ld0ld0ld, 1 dangling image(s), zuid-cicd-cache's contents, 3072 MB, build cache over a week old; about 3.7 GB freed"
-[[ "${out}" == *"${want}"$'\n'"run=" ]] || tidyBad+=" said '${out//$'\n'/ | }';"
+want="Cleanup ....: removed zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld, zuid-cicd:0ld0ld0ld0ld, 1 dangling image(s), Go modules go.sum doesn't name, 10 MB, zuid-cicd-cache's contents, 3072 MB, build cache over a week old; about 3.7 GB freed"
+[[ "${out}" == *"run="$'\n'"${want}" ]] || tidyBad+=" said '${out//$'\n'/ | }';"
 out="$(label="" dfAfter="" fTidyIn "${work}/engine-tidy-nolabel")" || tidyBad+=" unlabeled exited $?;"
 ! grep -q -- "-cache-cap" "${work}/engine-tidy-nolabel" || tidyBad+=" checked an unlabeled volume;"
 ## A df that didn't answer is no reason to claim the whole lot was freed.
-[[ "${out}" == *"; an unknown amount freed, since docker system df didn't answer"$'\n'* ]] || tidyBad+=" a silent df said '${out//$'\n'/ | }';"
+[[ "${out}" == *"; under 1 MB freed, plus an unknown amount from docker, since docker system df didn't answer" ]] || tidyBad+=" a silent df said '${out//$'\n'/ | }';"
 if [[ -z "${tidyBad}" ]]
 	then fPass
 	else fFail "${tidyBad}"
@@ -1773,12 +1779,14 @@ fZigTidyIn(){  ## repo dir, cap in MB, inContainer
 		{
 			repoRoot="$(cd "$1" && pwd -P)"; zigCacheCapMB="$2"; inContainer="$3"
 			zigCacheStamp=".cicd-zig-version"; containerZigCache="${zigGlobal:-/zig-cache}"
+			_cleanGone=(); _cleanKb=0
 		}
 		local fn=""
-		for fn in fZigCache_Tidy fZigCache_Empty; do
+		for fn in fZigCache_Tidy fZigCache_Empty fCleanup_Mb; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		fZigCache_Tidy
+		printf 'gone=%s kb=%s\n' "${_cleanGone[*]}" "${_cleanKb}"
 	) 2>&1
 }
 ## A cache with a file in it, and a stamp if one is given.
@@ -1809,6 +1817,8 @@ fZigCacheEmptied "${work}/zt-cap-target/.zig-cache" || capBad+=" the linked one 
 [[ -L "${zt}/linked/.zig-cache" ]]                 || capBad+=" the link is gone;"
 [[ -f "${zt}/.git/.zig-cache/o/0123abcd/obj" ]]    || capBad+=" went into .git;"
 [[ "${out}" == *"Zig cache ..: emptied ${ztReal}/zig/.zig-cache, "*" MB, over 0 MB"* ]] || capBad+=" no line for it;"
+## And for the run's last line.
+[[ "${out}" =~ gone=.*zig/.zig-cache,\ (under\ 1|[0-9]+)\ MB.*\ kb=[1-9][0-9]*$ ]] || capBad+=" not kept for the end line;"
 if [[ -z "${capBad}" ]]
 	then fPass
 	else fFail "${capBad} said '${out//$'\n'/ | }'"
@@ -2926,6 +2936,102 @@ if [[ -z "${intBad}" ]]
 	else fFail "${intBad}"
 fi
 
+## Two runs in a scratch tree, the first stopped partway through a stage by
+## SIGTERM, the second left to fail at Docs. Each ends on its Cleanup line,
+## the first sweeps a stale run folder, and nothing else is left behind.
+fId dee46 "two runs, one killed partway, leave nothing behind"
+pileRoot="${work}/pile"
+mkdir -p "${pileRoot}/tree/cicd/utility/include" "${pileRoot}/tree/testdata" "${pileRoot}/bin" "${pileRoot}/tmp" "${pileRoot}/temp/zuid/20260101-000000_001"
+cp "${cicd}" "${pileRoot}/tree/cicd/"
+cp "${cicd%/cicd.bash}/utility/include/safe-rm.bash" "${pileRoot}/tree/cicd/utility/include/"
+cp "${cicd%/cicd.bash}/utility/test-ids.py" "${pileRoot}/tree/cicd/utility/"
+: > "${pileRoot}/tree/testdata/vectors.tsv"
+git init -q -b main "${pileRoot}/tree"
+git -C "${pileRoot}/tree" add cicd testdata
+git -C "${pileRoot}/tree" -c user.name=t -c user.email=t@t commit -q -m first
+printf '999999999\n' > "${pileRoot}/temp/zuid/20260101-000000_001/run.pid"
+touch -t 202601010000 "${pileRoot}/temp/zuid/20260101-000000_001"
+## Holds the Test IDs step, and passes anything else through.
+# shellcheck disable=2016  ## The stand-in's own text.
+printf '#!/usr/bin/env bash\nif [[ "$*" == *test-ids.py\\ check* && -n "${PILE_HOLD:-}" ]]; then : > "${PILE_HOLD}"; sleep 30; fi\nexec %s "$@"\n' \
+	"$(command -v python3)" > "${pileRoot}/bin/python3"
+chmod +x "${pileRoot}/bin/python3"
+pileBad="$(python3 -I -B - "${pileRoot}" <<'PY'
+import os, signal, subprocess, sys, time
+root = sys.argv[1]
+env = dict(os.environ, HOST_TEMP=root + "/temp", TMPDIR=root + "/tmp", PATH=root + "/bin:" + os.environ["PATH"])
+## Not ZUID_IN_CONTAINER either, when this harness runs in the image.
+for k in ("ZUID_CICD_QUIET", "ZUID_RUN_DIR", "ZUID_IN_CONTAINER"): env.pop(k, None)
+def snap():
+	out = set()
+	for top in ("temp", "tmp"):
+		for d, dirs, files in os.walk(os.path.join(root, top)):
+			out.update(os.path.relpath(os.path.join(d, n), root) for n in dirs + files)
+	return out
+def last(text):
+	lines = [l for l in text.splitlines() if l.strip()]
+	return lines[-1] if lines else ""
+before = snap() - {"temp/zuid/20260101-000000_001", "temp/zuid/20260101-000000_001/run.pid"}
+cmd = ["bash", "cicd/cicd.bash", "--backlog-run-quick", "docs", "--no-container"]
+held = root + "/held"
+p = subprocess.Popen(cmd, cwd=root + "/tree", env=dict(env, PILE_HOLD=held), stdin=subprocess.DEVNULL,
+	stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True, text=True)
+for _ in range(600):
+	if os.path.exists(held): break
+	time.sleep(0.05)
+else:
+	os.killpg(p.pid, signal.SIGKILL); p.wait(); print("never reached Test IDs;"); sys.exit()
+os.killpg(p.pid, signal.SIGTERM)
+out1, _ = p.communicate(timeout=30)
+if p.returncode == 0: print("the killed run exited 0;")
+said = last(out1)
+if not said.startswith("Cleanup ....: removed the run folder, "): print("the killed run ended '%s';" % said)
+if "1 stale run folder(s)" not in said: print("the stale folder wasn't said;")
+p = subprocess.run(cmd, cwd=root + "/tree", env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+	stderr=subprocess.STDOUT, text=True, timeout=120)
+said = last(p.stdout)
+if not said.startswith("Cleanup ....: removed the run folder, "): print("the second run ended '%s';" % said)
+left = sorted(snap() - before)
+if left: print("left %s;" % left)
+if os.path.exists(root + "/temp/zuid/20260101-000000_001"): print("kept the stale folder;")
+PY
+)" || pileBad+=" the rig failed;"
+if [[ -z "${pileBad}" ]]
+	then fPass
+	else fFail "${pileBad}"
+fi
+
+## Go's module cache in the volume keeps what go.sum names, by the cache's
+## own spelling of capitals, and the checksum db. Read-only folders too.
+fId dee45 "Go module cache pruned to what go.sum names"
+gmRoot="${work}/gomod"; gm="${gmRoot}/mod"
+mkdir -p "${gm}/go.uber.org/goleak@v1.3.0" "${gm}/go.uber.org/goleak@v1.2.0/sub" "${gm}/github.com/!burnt!sushi/toml@v1.0.0" \
+	"${gm}/github.com/!burnt!sushi/toml@v0.9.0" "${gm}/cache/download/go.uber.org/goleak/@v" "${gm}/cache/download/old.org/x/@v" \
+	"${gm}/cache/download/sumdb/sum.golang.org/lookup" "${gm}/example.com/gone@v0.0.1"
+for gmFile in v1.3.0.zip v1.3.0.mod v1.2.0.zip v1.2.0.mod list; do echo x > "${gm}/cache/download/go.uber.org/goleak/@v/${gmFile}"; done
+echo x > "${gm}/cache/download/old.org/x/@v/v0.1.0.zip"; echo x > "${gm}/cache/download/old.org/x/@v/list"
+echo x > "${gm}/cache/download/sumdb/sum.golang.org/lookup/a"
+head -c 100000 /dev/zero > "${gm}/go.uber.org/goleak@v1.2.0/sub/big"
+chmod -R a-w "${gm}/go.uber.org/goleak@v1.2.0"
+printf '%s\n' "go.uber.org/goleak v1.3.0 h1:x" "go.uber.org/goleak v1.3.0/go.mod h1:y" "github.com/BurntSushi/toml v1.0.0/go.mod h1:z" > "${gmRoot}/go.sum"
+gmBad=""
+out="$(bash "${cicd%/cicd.bash}/utility/gomod-prune.bash" "${gm}" "${gmRoot}/go.sum" 2>&1)" || gmBad+=" exited $?: ${out};"
+[[ "${out}" =~ ^pruned\ [1-9][0-9]*$ ]] || gmBad+=" said '${out}';"
+gmLeft="$(cd "${gm}" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')"
+gmWant="./cache ./cache/download ./cache/download/go.uber.org ./cache/download/go.uber.org/goleak ./cache/download/go.uber.org/goleak/@v"
+gmWant+=" ./cache/download/go.uber.org/goleak/@v/list ./cache/download/go.uber.org/goleak/@v/v1.3.0.mod ./cache/download/go.uber.org/goleak/@v/v1.3.0.zip"
+gmWant+=" ./cache/download/sumdb ./cache/download/sumdb/sum.golang.org ./cache/download/sumdb/sum.golang.org/lookup ./cache/download/sumdb/sum.golang.org/lookup/a"
+gmWant+=" ./github.com ./github.com/!burnt!sushi ./github.com/!burnt!sushi/toml@v1.0.0 ./go.uber.org ./go.uber.org/goleak@v1.3.0 "
+[[ "${gmLeft}" == "${gmWant}" ]] || gmBad+=" left '${gmLeft}';"
+## A go.sum that names nothing would take the lot.
+: > "${gmRoot}/empty.sum"
+bash "${cicd%/cicd.bash}/utility/gomod-prune.bash" "${gm}" "${gmRoot}/empty.sum" > /dev/null 2>&1 && gmBad+=" an empty go.sum ran;"
+[[ -d "${gm}/go.uber.org/goleak@v1.3.0" ]] || gmBad+=" an empty go.sum removed what's named;"
+if [[ -z "${gmBad}" ]]
+	then fPass
+	else fFail "${gmBad}"
+fi
+
 ## A harness, the hook or the packager: inside the cicd.bash run's folder when
 ## ZUID_RUN_DIR names one, and only that is its own. Alone, or with a
 ## ZUID_RUN_DIR that's a link or not there, a run folder like cicd.bash's.
@@ -2971,7 +3077,7 @@ guardBad=""
 # shellcheck disable=2031  ## Only a subshell much earlier changes it.
 for guardFile in cicd/utility/cli-test.bash cicd/utility/pipeline-test.bash cicd/utility/installer-test.bash \
 	cicd/utility/git-hooks/pre-push cicd/utility/package.bash cicd/utility/include/safe-rm.bash cicd/cicd.bash install.bash install.ps1 \
-	cicd/utility/box-run.bash cicd/utility/box-release-test.bash; do
+	cicd/utility/box-run.bash cicd/utility/box-release-test.bash cicd/utility/gomod-prune.bash; do
 	# shellcheck disable=2031  ## Likewise.
 	[[ -f "${repoRoot}/${guardFile}" ]] || { guardBad+=" no ${guardFile};"; continue; }
 	# shellcheck disable=2031  ## Likewise.
@@ -3201,6 +3307,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: The cleanup line, the Go module prune, and 2 runs with one killed leaving nothing.
 ##		- 20261025 JC: The release stand-in prints the new --version lines, and only the first tops the notes.
 ##		- 20261025 JC: Its folder is a run folder. The harness run folder, the guard scan, and the hook's run folder.
 ##		- 20261025 JC: Which runs start the macos workflow, and its start and result steps.

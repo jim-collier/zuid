@@ -24,6 +24,8 @@
 declare safeRmOwn="${safeRmOwn:-}"
 ## The folder fRunDir_Make or fRunDir_Sub made.
 declare safeRmRunDir=""
+## What fRunDir_Sweep removed, for the caller to say.
+declare -i safeRmSweptN=0 safeRmSweptKb=0
 ## GNU rm says --one-file-system, BSD's -x.
 declare _safeRmOneFs=""
 
@@ -106,12 +108,14 @@ fRunDir_Make(){  ## project, stamp
 ## in there out of it.
 fRunDir_Sweep(){
 	local stale="" pid=""
+	local -i kb=0
 	[[ -n "${safeRmOwn}" ]] || return 0
 	while IFS= read -r stale; do
 		[[ "${stale##*/}" =~ ^[0-9]{8}-[0-9]{6}_[0-9]{3}$ ]] || continue
 		pid=""; { read -r pid < "${stale}/run.pid" ;} 2>/dev/null || true
 		if [[ "${pid}" =~ ^[0-9]+$ ]] && kill -0 "${pid}" 2>/dev/null; then continue; fi
-		fSafeRm "${stale}" || true
+		kb="$(du -sk "${stale}" 2>/dev/null | cut -f1 || true)"
+		if fSafeRm "${stale}"; then safeRmSweptN=$((safeRmSweptN + 1)); safeRmSweptKb=$((safeRmSweptKb + kb)); fi
 	done < <(find "${safeRmOwn}" -mindepth 1 -maxdepth 1 -type d -mmin +2880 2>/dev/null || true)
 }
 
@@ -133,5 +137,6 @@ fRunDir_Sub(){  ## project, name
 }
 
 ##	History:
+##		- 20261025 JC: fRunDir_Sweep counts what it removed.
 ##		- 20261025 JC: The run folder, for cicd.bash and the harnesses alike.
 ##		- 20261025 JC: Created, from the shared safe removal guard.

@@ -35,6 +35,7 @@
 ##		- 20261025 JC: The harnesses make their folders inside the run's, through ZUID_RUN_DIR.
 ##		- 20261025 JC: A run folder of its own in HOST_TEMP, removed at the end. Removals go through the safe removal guard.
 ##		- 20261025 JC: The FreeBSD release tested on vmFreeBSD, under the host lock. A step can end in SKIP.
+##		- 20261025 JC: One cleanup line ends every run. Go's module cache in the volume pruned to go.sum. The run log keeps its last lines after Ctrl+C.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Global, since the exit trap reads it after fMain has gone.
@@ -381,9 +382,12 @@ fPrint_Help(){
 		removed, unless --keep-temp. A run that passed then removes the project's
 		dangling images, and every tag of ${containerImage} and ${codeqlImage} but the current
 		one and the one before it. Then a docker builder prune keeps the last week
-		of build cache, and the ${containerVolume} volume is emptied when it's over
-		${zigCacheCapMB} MB. One line says what went and about what it freed. Nothing
-		without the project's label is touched.
+		of build cache. In the ${containerVolume} volume, Go's module cache loses every
+		module go/go.sum doesn't name, and then the volume is emptied when it's over
+		${zigCacheCapMB} MB. Nothing without the project's label is touched.
+
+		The last line of every run, failed or interrupted too, says what it
+		removed, files and docker both, and about what that freed.
 
 		--leakcheck is a soak test of each side, clang's cross-file analyzer, and
 		CodeQL. The soaks repeat what a caller does and fail when the heap after
@@ -613,6 +617,7 @@ fMain(){
 	if ((! inContainer)) && [[ "${containerMode}" == "auto" ]] && [[ -z "$(fContainer_Where)" ]]; then planContainer=1; fi
 	fSteps_Plan
 	if ((doList)); then fSteps_List; return 0; fi
+	_cleanSay=1
 	## The run in the image numbers its steps on from the outside's, which
 	## has listed the ones off and says when it's done.
 	local -i stepsHanded=0
@@ -1393,13 +1398,12 @@ fContainer_Tidy(){
 	"${containerEngine}" builder prune -f --filter until=168h >/dev/null 2>&1 || true
 	fContainer_VolumeCap
 	local -r after="$(fDocker_Bytes)"
-	local freed="an unknown amount freed, since docker system df didn't answer" gone=""
-	if ((${#_dockerGone[@]})); then printf -v gone '%s, ' "${_dockerGone[@]}"; fi
+	## Said in the run's last line, by fCleanup_Say.
+	_cleanGone+=("${_dockerGone[@]}" "build cache over a week old")
+	_cleanDockerFreed="unknown"
 	if [[ -n "${before}" && -n "${after}" ]]; then
-		freed="about $(awk -v b="${before}" -v a="${after}" 'BEGIN { d = b - a; if (d < 0) d = 0; printf "%.1f GB", d / 1e9 }') freed"
+		_cleanDockerFreed="$(awk -v b="${before}" -v a="${after}" 'BEGIN { d = b - a; if (d < 0) d = 0; printf "%.0f", d }')"
 	fi
-	fEcho_Clean
-	fEcho_Clean "Docker .....: removed ${gone}build cache over a week old; ${freed}"
 	## Done, so the exit trap has nothing to ask.
 	_dockerRun="" _dockerGone=()
 }
@@ -1420,34 +1424,44 @@ fContainer_DropOlder(){  ## image, current tag
 }
 
 
-## The cache volume is emptied when it's over the cap, the same rule as the
-## Zig caches. From inside, since only there can its size be read. Everything
-## the runs wrote goes; the image's own root-owned folders stay. Go's module
-## cache is read-only, hence the chmod.
+## Go's module cache in the volume loses what go.sum doesn't name. Then the
+## volume is emptied when it's over the cap, the same rule as the Zig caches.
+## From inside, since only there can its size be read. Everything the runs
+## wrote goes; the image's own root-owned folders stay. Go's module cache is
+## read-only, hence the chmod.
 fContainer_VolumeCap(){
-	local label="" out=""
+	local label="" out="" line=""
 	label="$("${containerEngine}" volume inspect --format '{{index .Labels "dev.project"}}' "${containerVolume}" 2>/dev/null || true)"
 	if [[ "${label}" != "${projectName}" || -z "${containerTag}" ]]; then return 0; fi
-	local -a runArgs=(--init --user "$(id -u):$(id -g)" -v "${containerVolume}:/cache" --name "${projectName}-${runName}-cache-cap" --label "dev.project=${projectName}" --label "dev.run=${runName}")
+	local -a runArgs=(--init --user "$(id -u):$(id -g)" -v "${repoRoot}:${repoRoot}:ro" -v "${containerVolume}:/cache" --name "${projectName}-${runName}-cache-cap" --label "dev.project=${projectName}" --label "dev.run=${runName}")
 	if ((! keepTemp)); then runArgs=(--rm "${runArgs[@]}"); fi
 	runArgs+=(--cpus 1 --cpu-shares 256)
 	# shellcheck disable=2016  ## Expanded inside.
 	out="$("${containerEngine}" run "${runArgs[@]}" "${containerTag}" ionice -c 3 nice -n 19 sh -c '
+		bash "$2/cicd/utility/gomod-prune.bash" "$(go env GOMODCACHE)" "$2/go/go.sum" || true
 		kb="$(du -sk /cache | cut -f1)"
 		if [ "${kb}" -gt "$1" ]; then chmod -R u+w /cache 2>/dev/null; find /cache -xdev -mindepth 1 -user "$(id -u)" -delete; echo "emptied ${kb}"; fi
-	' sh "$((zigCacheCapMB * 1024))" 2>/dev/null || true)"
-	if [[ "${out}" == "emptied "* ]]; then _dockerGone+=("${containerVolume}'s contents, $((${out#emptied } / 1024)) MB"); fi
+	' sh "$((zigCacheCapMB * 1024))" "${repoRoot}" 2>/dev/null || true)"
+	while IFS= read -r line; do
+		case "${line}" in
+			"pruned "*)  _dockerGone+=("Go modules go.sum doesn't name, $(fCleanup_Mb "${line#pruned }")") ;;
+			"emptied "*) _dockerGone+=("${containerVolume}'s contents, $(fCleanup_Mb "${line#emptied }")") ;;
+		esac
+	done <<< "${out}"
 }
 
 
 ## Total bytes docker reports, or nothing when it doesn't answer. Shared
 ## layers count once, which is why the freed figure comes from this and not
 ## from what was removed. One call has come back empty, cause not found
-## (2026102416233101).
+## (2026102416233101), and again 20261025, so what it said goes to stderr.
 fDocker_Bytes(){
-	local sizes=""
-	sizes="$("${containerEngine}" system df --format '{{.Size}}' 2>/dev/null)" || return 0
-	if [[ -z "${sizes}" ]]; then return 0; fi
+	local sizes="" rc=0
+	sizes="$("${containerEngine}" system df --format '{{.Size}}' 2>&1)" || rc=$?
+	if ((rc)) || ! [[ "${sizes}" =~ ^[0-9.]+[kKMGT]?B($'\n'[0-9.]+[kKMGT]?B)*$ ]]; then
+		printf 'docker system df: exit %s, said "%s"\n' "${rc}" "${sizes//$'\n'/ | }" >&2
+		return 0
+	fi
 	awk '
 		{ n = $1 + 0; u = $1; sub(/^[0-9.]+/, "", u); u = toupper(u)
 		  m = (u == "KB") ? 1e3 : (u == "MB") ? 1e6 : (u == "GB") ? 1e9 : (u == "TB") ? 1e12 : 1
@@ -1549,7 +1563,7 @@ fStage_Shell(){
 			"${utilityDir}/pipeline-test.bash" "${utilityDir}/package.bash" \
 			"${utilityDir}/c-checks.bash" "${utilityDir}/git-hooks/pre-push" \
 			"${utilityDir}/include/safe-rm.bash" "${utilityDir}/box-run.bash" \
-			"${utilityDir}/box-release-test.bash"
+			"${utilityDir}/box-release-test.bash" "${utilityDir}/gomod-prune.bash"
 		fEcho_Clean "Clean."
 	fi
 
@@ -4953,7 +4967,9 @@ fStartRunLog(){
 	local -r lintDir="${artifactDir}/lint"
 	mkdir -p "${lintDir}"
 	fRotate_Artifacts "${lintDir}" "run_"
-	exec > >(tee -a "${lintDir}/run_${runStamp}.log") 2>&1
+	## Ctrl+C or a TERM reaches the whole group. A tee that died with it took
+	## the run's last lines, the cleanup one too. It ends when the run does.
+	exec > >(trap '' INT TERM HUP; exec tee -a "${lintDir}/run_${runStamp}.log") 2>&1
 }
 
 ## Grandfather-father-son: every file from the last few days, then one a week,
@@ -5175,6 +5191,7 @@ fZigCache_Tidy(){
 		if [[ -n "${why}" ]]; then
 			if ! fZigCache_Empty "${dir}"; then fEcho_Clean "Zig cache ..: couldn't empty ${dir}, ${why}"; continue; fi
 			fEcho_Clean "Zig cache ..: emptied ${dir}, ${why}"
+			_cleanGone+=("${dir#"${repoRoot}/"}, $(fCleanup_Mb "${kb}")"); _cleanKb=$((_cleanKb + kb))
 		fi
 		if [[ -n "${zigVer}" ]]; then printf '%s\n' "${zigVer}" > "${dir}/${zigCacheStamp}" || true; fi
 	done
@@ -5328,6 +5345,11 @@ declare _runDir="" _runPid=""
 declare _dockerEngine="" _dockerProject="" _dockerRun="" _dockerPid=""
 declare -i _dockerSteps=0
 declare -a _dockerGone=()
+## What the run removed and freed, for the one line at its end. Docker's
+## freed bytes come from system df, "unknown" when it didn't answer.
+declare -a _cleanGone=()
+declare -i _cleanKb=0 _cleanSay=0
+declare _cleanDockerFreed=""
 
 function fThrowError(){
 	local    errMsg="${1:-}"
@@ -5361,20 +5383,39 @@ function _fRemoveScratchDirs(){
 ## made it, not a $(...)'s ERR trap while the run goes on.
 function _fRunDir_Remove(){
 	if [[ -z "${_runDir}" || "${BASHPID}" != "${_runPid}" ]]; then return 0; fi
+	local -i kb=0
 	if ((keepTemp)); then
 		fEcho_Clean "Temp .......: kept ${_runDir} (--keep-temp)"
 	elif [[ -d "${_runDir}" ]]; then
 		cd / 2>/dev/null || true
-		fSafeRm "${_runDir}" || true
+		kb="$(du -sk "${_runDir}" 2>/dev/null | cut -f1 || true)"
+		if fSafeRm "${_runDir}"; then _cleanGone=("the run folder, $(fCleanup_Mb "${kb}")" "${_cleanGone[@]}"); _cleanKb=$((_cleanKb + kb)); fi
 	fi
 	_runDir=""
+}
+## The run's last line: what went, files and docker both, and about what that
+## freed. Not for --list, or a run that never got that far. The run in the
+## image is part of the outer one, which says it.
+function fCleanup_Say(){
+	if ((! _cleanSay || inContainer)) || [[ "${BASHPID}" != "${_runPid}" ]]; then return 0; fi
+	_cleanSay=0
+	if ((safeRmSweptN)); then _cleanGone+=("${safeRmSweptN} stale run folder(s), $(fCleanup_Mb "${safeRmSweptKb}")"); _cleanKb=$((_cleanKb + safeRmSweptKb)); fi
+	if ((${#_cleanGone[@]} == 0)); then fEcho_Clean "Cleanup ....: nothing removed"; return 0; fi
+	local gone="" freed="" unknown=""
+	printf -v gone '%s, ' "${_cleanGone[@]}"
+	if [[ "${_cleanDockerFreed}" == "unknown" ]]; then unknown=", plus an unknown amount from docker, since docker system df didn't answer"; fi
+	freed="$(awk -v k="${_cleanKb}" -v d="${_cleanDockerFreed}" 'BEGIN { b = k * 1024 + d; if (b >= 1e9) printf "about %.1f GB", b / 1e9; else if (b >= 1e6) printf "about %d MB", b / 1e6; else printf "under 1 MB" }')"
+	fEcho_Clean "Cleanup ....: removed ${gone%, }; ${freed} freed${unknown}"
+}
+function fCleanup_Mb(){  ## KB
+	if (($1 < 1024)); then printf 'under 1 MB'; else printf '%s MB' "$(($1 / 1024))"; fi
 }
 function _fTrap_Exit(){
 	if [[ "${_wasCleanupRun}" == "0" ]]; then  ## String compare is less to fail than integer
 		_wasCleanupRun=1
 		_fRemoveScratchDirs
 		fContainer_StopRun
-		if ((${#_dockerGone[@]})); then fEcho_Clean "Docker .....: removed ${_dockerGone[*]} of this run"; fi
+		_cleanGone+=("${_dockerGone[@]}"); _dockerGone=()
 		_fRunDir_Remove
 		_fSingleExitPoint "${@}"
 	fi
@@ -5384,7 +5425,7 @@ function _fTrap_Error(){
 		_wasCleanupRun=1
 		_fRemoveScratchDirs
 		fContainer_StopRun
-		if ((${#_dockerGone[@]})); then fEcho_Clean "Docker .....: removed ${_dockerGone[*]} of this run"; fi
+		_cleanGone+=("${_dockerGone[@]}"); _dockerGone=()
 		_fRunDir_Remove
 		fEcho_ResetBlankCounter
 		_fSingleExitPoint "${@}"
@@ -5400,6 +5441,7 @@ function _fSingleExitPoint(){
 		fStep_Fail
 		fEcho "User interrupted."
 		fEcho_Clean
+		fCleanup_Say
 		exit 1
 	elif [[ "${signal}" == "TERM" || "${signal}" == "SIGHUP" ]]; then
 		## A trap that returns lets the run go on, after its folder is gone.
@@ -5407,6 +5449,7 @@ function _fSingleExitPoint(){
 		fStep_Fail
 		fEcho "Stopped by ${signal#SIG}."
 		fEcho_Clean
+		fCleanup_Say
 		exit 1
 	elif [[ "${errNum}" != "0" ]]; then
 		## Every failing tool here exits 1, including the trailing-'&&' bug this
@@ -5419,6 +5462,7 @@ function _fSingleExitPoint(){
 		fEcho_Clean
 		fStep_Fail
 	fi
+	fCleanup_Say
 }
 function fDefineTrap_Error_Fatal(){
 	true

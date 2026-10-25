@@ -1,0 +1,33 @@
+# Bumps come as PRs against dev, the same as any other change. Minor and patch
+# bumps share one PR per ecosystem, and a major one gets its own.
+# GO_VER, ZIG_VER and the other ARG pins in cicd/container/Dockerfile, and
+# ZIG_VER in workflows/macos.yml, are past what dependabot reads, so those
+# still move by hand. The base image's digest is in reach.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /go
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      go-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directory: /cicd/container
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      docker-minor-patch:
+        update-types: [minor, patch]
