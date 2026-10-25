@@ -267,6 +267,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261024-162331
 	- Opened by: JC
+	- Prereq IDs: 2026102416233103
+		- Its `--no-remote` comes from the standard flags item, so that goes first.
 	- Related IDs: 2026101410500001, 2026101312344407
 	- Requirements  [Feature]:
 		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
@@ -351,6 +353,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- The backlog and merge gate flags never dogfood, publish, commit, push, install, sync, rewrite a tracked file, or prompt. That covers the backup and `assets/demo.gif`.
 		- The pre-push hook runs `--merge-gate`, every check of the default run, on a push to main. A push whose commits change only docs and the other paths listed in one place the hook reads, such as `*.md`, `project/` and `assets/`, skips it. No gate on dev.
 		- Earlier decisions this overrides: the 20261019 call on 2026101816243852 that `--ci` is `--gate` again with no alias, the quick-only gate on main from 2026101410495991, and the private CI/CD notes, where `--quick` skips dogfood.
+	- Progress log:
+		- 20261025: `--no-container` is in, from 2026102406590100.
 
 - CICD reset: step output
 	- ID: 2026102416233104
