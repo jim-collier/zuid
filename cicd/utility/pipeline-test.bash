@@ -545,6 +545,7 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 		# shellcheck disable=2034  ## Read by the lifted fStage_Container.
 		{
 			repoRoot="$(cd "$1" && pwd -P)"; containerImage="zuid-cicd"; containerVolume="zuid-cicd-cache"; codeqlImage="zuid-codeql"
+			containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"
 			onlyToolchain="go"; doQuick="${quick:-1}"; doPackage=1; doLeakcheck="${leakcheck:-0}"; runStamp="20261019-101112"; _sectionWidth="123"
 			doFuzz="${fuzz:-0}"; doProfile="${profile:-0}"
 		}
@@ -584,7 +585,7 @@ fId EsJ9SjF "container run arguments"
 : > "${work}/engine-main"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-main")"
-wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder} -e ZUID_RUN_STAMP=20261019-101112 -e ZUID_COLUMNS=123"
+wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -v zuid-zig-cache:/zig-cache -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder} -e ZUID_RUN_STAMP=20261019-101112 -e ZUID_COLUMNS=123"
 wantRun+=" -w ${mainReal} ${newTag} bash ${mainReal}/cicd/cicd.bash -q --no-sync --no-backup --no-dogfood --only go --quick --package --no-leakcheck"
 if ((rc == 0)) && grep -qxF -- "${wantRun}" <<< "${log}" && ! grep -q '^build ' <<< "${log}"
 	then fPass
@@ -931,6 +932,7 @@ out="$(
 	# shellcheck disable=2034  ## Read by the lifted functions.
 	{
 		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerVolume="zuid-cicd-cache"; inContainer=0
+		containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"
 		containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine"
 	}
 	for fn in fInImage fContainer_RunArgs; do
@@ -949,6 +951,134 @@ if ((rc == 0)) && [[ "$(grep -c '^run ' <<< "${log}")" == "2" ]] \
 fi
 
 git -C "${worktreeMain}" worktree remove --force "${worktreeDir}"
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Zig never trims a cache, so the end of a run empties each of ours that's
+## over the cap or was filled by another Zig. A stand-in zig names the version.
+fZigTidyIn(){  ## repo dir, cap in MB, inContainer
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2329
+		zig(){ printf '0.17.0\n'; }
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{
+			repoRoot="$(cd "$1" && pwd -P)"; zigCacheCapMB="$2"; inContainer="$3"
+			zigCacheStamp=".cicd-zig-version"; containerZigCache="${zigGlobal:-/zig-cache}"
+		}
+		local fn=""
+		for fn in fZigCache_Tidy fZigCache_Empty; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		fZigCache_Tidy
+	) 2>&1
+}
+## A cache with a file in it, and a stamp if one is given.
+fZigCacheMake(){  ## dir, [stamp]
+	mkdir -p "$1/o/0123abcd"; printf 'x%.0s' {1..2000} > "$1/o/0123abcd/obj"
+	if [[ -n "${2:-}" ]]; then printf '%s\n' "$2" > "$1/.cicd-zig-version"; fi
+}
+## Only the stamp left, naming this Zig.
+fZigCacheEmptied(){  ## dir
+	[[ -d "$1" && "$(ls -A "$1")" == ".cicd-zig-version" && "$(cat "$1/.cicd-zig-version")" == "0.17.0" ]]
+}
+
+fId Etipgwi "a Zig cache over the cap is emptied whole"
+zt="${work}/zt-cap"; ztReal=""
+mkdir -p "${zt}/.git" "${work}/zt-cap-target"
+fZigCacheMake "${zt}/zig/.zig-cache" "0.17.0"
+fZigCacheMake "${zt}/zig/vendor/dep/.zig-cache"
+fZigCacheMake "${zt}/.git/.zig-cache"
+fZigCacheMake "${work}/zt-cap-target/.zig-cache"
+mkdir -p "${zt}/linked"; ln -s "${work}/zt-cap-target/.zig-cache" "${zt}/linked/.zig-cache"
+out="$(fZigTidyIn "${zt}" 0 0)" && rc=0 || rc=$?
+ztReal="$(cd "${zt}" && pwd -P)"
+capBad=""
+((rc == 0)) || capBad+=" exited ${rc};"
+fZigCacheEmptied "${zt}/zig/.zig-cache"            || capBad+=" zig/.zig-cache not emptied;"
+fZigCacheEmptied "${zt}/zig/vendor/dep/.zig-cache" || capBad+=" a dependency's not emptied;"
+fZigCacheEmptied "${work}/zt-cap-target/.zig-cache" || capBad+=" the linked one not emptied;"
+[[ -L "${zt}/linked/.zig-cache" ]]                 || capBad+=" the link is gone;"
+[[ -f "${zt}/.git/.zig-cache/o/0123abcd/obj" ]]    || capBad+=" went into .git;"
+[[ "${out}" == *"Zig cache ..: emptied ${ztReal}/zig/.zig-cache, "*" MB, over 0 MB"* ]] || capBad+=" no line for it;"
+if [[ -z "${capBad}" ]]
+	then fPass
+	else fFail "${capBad} said '${out//$'\n'/ | }'"
+fi
+
+fId Etipgwj "a Zig cache from another Zig is emptied, this one's kept"
+zt="${work}/zt-ver"
+mkdir -p "${zt}"
+fZigCacheMake "${zt}/old/.zig-cache" "0.16.0"
+fZigCacheMake "${zt}/same/.zig-cache" "0.17.0"
+fZigCacheMake "${zt}/unstamped/.zig-cache"
+out="$(fZigTidyIn "${zt}" 99999 0)" && rc=0 || rc=$?
+verBad=""
+((rc == 0)) || verBad+=" exited ${rc};"
+fZigCacheEmptied "${zt}/old/.zig-cache" || verBad+=" 0.16.0's not emptied;"
+[[ -f "${zt}/same/.zig-cache/o/0123abcd/obj" ]] || verBad+=" this Zig's emptied;"
+[[ -f "${zt}/unstamped/.zig-cache/o/0123abcd/obj" ]] || verBad+=" an unstamped one emptied;"
+[[ "$(cat "${zt}/unstamped/.zig-cache/.cicd-zig-version" 2>/dev/null || true)" == "0.17.0" ]] || verBad+=" an unstamped one not stamped;"
+[[ "${out}" == *"emptied "*"/old/.zig-cache, filled by Zig 0.16.0"* && "${out}" != *"/same/"* ]] || verBad+=" wrong lines;"
+if [[ -z "${verBad}" ]]
+	then fPass
+	else fFail "${verBad} said '${out//$'\n'/ | }'"
+fi
+
+fId Etipgwk "the image's Zig cache volume, only inside"
+zt="${work}/zt-global"
+mkdir -p "${zt}"
+fZigCacheMake "${work}/zt-global-cache" "0.17.0"
+zgReal="$(cd "${work}/zt-global-cache" && pwd -P)"
+out="$(ZIG_GLOBAL_CACHE_DIR="${zgReal}" zigGlobal="${zgReal}" fZigTidyIn "${zt}" 0 0)" || true
+globalBad=""
+[[ -f "${zgReal}/o/0123abcd/obj" ]] || globalBad+=" emptied outside the image;"
+out="$(ZIG_GLOBAL_CACHE_DIR="${zgReal}" zigGlobal="${zgReal}" fZigTidyIn "${zt}" 0 1)" && rc=0 || rc=$?
+((rc == 0)) || globalBad+=" exited ${rc};"
+fZigCacheEmptied "${zgReal}" || globalBad+=" not emptied inside;"
+if [[ -z "${globalBad}" ]]
+	then fPass
+	else fFail "${globalBad} said '${out//$'\n'/ | }'"
+fi
+
+fId Etipgwl "a Zig cache is emptied only where it's ours"
+zt="${work}/zt-guard"
+mkdir -p "${zt}" "${work}/zt-guard-notcache"
+fZigCacheMake "${work}/zt-guard-notcache"
+fZigCacheMake "${work}/zt-guard-outside/.zig-cache"
+mkdir -p "${zt}/bad"; ln -s "${work}/zt-guard-notcache" "${zt}/bad/.zig-cache"
+out="$(fZigTidyIn "${zt}" 0 0)" && rc=0 || rc=$?
+guardBad=""
+[[ -f "${work}/zt-guard-notcache/o/0123abcd/obj" ]] || guardBad+=" followed a link to something else;"
+[[ "${out}" == *"couldn't empty "*"/zt-guard/bad/.zig-cache, "* ]] || guardBad+=" didn't say so;"
+## Straight at the guard, the way a broken caller would be.
+guardOut="$(
+	# shellcheck disable=2034  ## Read by the lifted function.
+	{ repoRoot="$(cd "${zt}" && pwd -P)"; inContainer=0; containerZigCache="${work}/zt-guard-outside/.zig-cache" ;}
+	fLoad fZigCache_Empty || exit 2
+	for p in "${work}/zt-guard-outside/.zig-cache" "${repoRoot}/../zt-guard-outside/.zig-cache" "${repoRoot}" "${repoRoot}/bad/.zig-cache" "${containerZigCache}"; do
+		if fZigCache_Empty "${p}"; then printf 'took %s\n' "${p}"; fi
+	done
+	inContainer=1
+	if fZigCache_Empty "${repoRoot}/../zt-guard-outside/.zig-cache"; then printf 'took it through ..\n'; fi
+)" || guardBad+=" the guard's subshell failed;"
+[[ -z "${guardOut}" ]] || guardBad+=" ${guardOut//$'\n'/;}"
+[[ -f "${work}/zt-guard-outside/.zig-cache/o/0123abcd/obj" ]] || guardBad+=" emptied one outside the repo;"
+if [[ -z "${guardBad}" ]]
+	then fPass
+	else fFail "${guardBad} said '${out//$'\n'/ | }'"
+fi
+
+fId Etipgwm "the Zig caches are tidied where Zig ran"
+## The run inside the image does its own, and the run outside built nothing.
+mainBody="$(sed -n '/^fMain(){/,/^}/p' "${cicd}")"
+tidyAt="$(grep -n 'if ((doZig)) && ((! doContainer)); then fZigCache_Tidy; fi' <<< "${mainBody}" | cut -d: -f1 || true)"
+packageAt="$(grep -n 'then fStage_Package; fi' <<< "${mainBody}" | cut -d: -f1 || true)"
+if [[ "${tidyAt}" =~ ^[0-9]+$ && "${packageAt}" =~ ^[0-9]+$ ]] && ((tidyAt > packageAt))
+	then fPass
+	else fFail "fMain doesn't call fZigCache_Tidy after the package stage, outside the image's run"
+fi
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -1036,7 +1166,7 @@ fPsLintIn(){  ## skip reason, exit code for the run in the image
 		# shellcheck disable=2329,2034  ## Called by the lifted stage, and checkerSkipWhy is its local.
 		fGoCheckers_Ready(){ checkerSkipWhy="${PS_SKIP}"; }
 		# shellcheck disable=2034  ## Read by the lifted functions.
-		{ containerVolume="zuid-cicd-cache"; inContainer=0; containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine" ;}
+		{ containerVolume="zuid-cicd-cache"; containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"; inContainer=0; containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine" ;}
 		local fn=""
 		for fn in fId fInImage fContainer_RunArgs fStage_Shell_PowerShell; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
@@ -1920,6 +2050,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: The Zig cache tidy, and the Zig cache volume in the run arguments.
 ##		- 20261025 JC: The container by default, --no-container.
 ##		- 20261023 JC: --no-fuzz, --no-profile, --no-demo. cli-test.bash with a relative --bin.
 ##		- 20261019 JC: The CodeQL report, and CodeQL's image under --container.

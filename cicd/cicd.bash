@@ -25,6 +25,7 @@
 ##		- 20261019 JC: --ci is --gate again.
 ##		- 20261023 JC: --no-fuzz, --no-profile, --no-demo.
 ##		- 20261025 JC: The container by default where docker answers. --no-container.
+##		- 20261025 JC: Zig caches emptied over 2 GB or after a Zig change. The image's has its own volume.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Set by --container for the run it starts inside.
@@ -138,6 +139,15 @@ fConfig(){ :;
 	## Caches live in a named volume, out of the tree and its backups.
 	default_containerImage="zuid-cicd"
 	default_containerVolume="zuid-cicd-cache"
+	## Zig's global cache in the image gets a volume of its own, at the image's
+	## ZIG_GLOBAL_CACHE_DIR.
+	default_containerZigVolume="zuid-zig-cache"
+	default_containerZigCache="/zig-cache"
+	## Zig never trims a cache, so each of ours is emptied at the end of a run
+	## when it's over this, or when the Zig named in the stamp inside isn't
+	## this run's.
+	default_zigCacheCapMB=2048
+	default_zigCacheStamp=".cicd-zig-version"
 	## --leakcheck's CodeQL, built on that image from cicd/container/codeql/.
 	default_codeqlImage="zuid-codeql"
 
@@ -279,6 +289,12 @@ fPrint_Help(){
 		without it; --no-container stays here. ZUID_DOCKER can name another program
 		that takes docker's arguments. --container doesn't go with --publish.
 
+		Zig never trims its caches. At the end of a run that built with Zig, each
+		.zig-cache in the tree, and in the image the ${containerZigVolume} volume,
+		is emptied when it's over ${zigCacheCapMB} MB or was filled by another Zig.
+		A stamp file in each one records which. ~/.cache/zig is shared, so it's
+		left alone.
+
 		--leakcheck is a soak test of each side, clang's cross-file analyzer, and
 		CodeQL. The soaks repeat what a caller does and fail when the heap after
 		round 2N is bigger than after round N by more than a margin: the Go one on
@@ -340,6 +356,10 @@ fMain(){
 	local -i default_keepMonthly=0
 	local    default_containerImage=""
 	local    default_containerVolume=""
+	local    default_containerZigVolume=""
+	local    default_containerZigCache=""
+	local -i default_zigCacheCapMB=0
+	local    default_zigCacheStamp=""
 	local    default_codeqlImage=""
 	fConfig
 	local -r minVer_Go="${default_minVer_Go}"
@@ -361,6 +381,10 @@ fMain(){
 	local -ri keepMonthly="${default_keepMonthly}"
 	local -r  containerImage="${default_containerImage}"
 	local -r  containerVolume="${default_containerVolume}"
+	local -r  containerZigVolume="${default_containerZigVolume}"
+	local -r  containerZigCache="${default_containerZigCache}"
+	local -ri zigCacheCapMB="${default_zigCacheCapMB}"
+	local -r  zigCacheStamp="${default_zigCacheStamp}"
 	local -r  codeqlImage="${default_codeqlImage}"
 	local -r  containerEngine="${ZUID_DOCKER:-docker}"
 	## Set by fContainer_Image and fCodeql_Image.
@@ -481,6 +505,8 @@ fMain(){
 	if ((doDemo)) && ((! inContainer)); then fStage_Demo; fi
 	if ((doPackage)) && ((! doContainer)); then fStage_Package; fi
 	if [[ -n "${packageSkipWhy}" ]]; then fEcho_Clean; fEcho_Clean "Package ....: skipped, ${packageSkipWhy}"; fi
+	## After the last stage that runs Zig. With the image, the run inside does it.
+	if ((doZig)) && ((! doContainer)); then fZigCache_Tidy; fi
 	if ((doPublish));              then fStage_Publish;   fi
 	if ((doZig)) && ((doDogfood)); then fStage_Dogfood;   fi
 	if ((doBackup));               then fStage_Backup;    fi
@@ -905,11 +931,11 @@ fContainer_DropOthers(){  ## image, tag to keep, [and any tag ending in this]
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## The repo at its own path as the caller's uid, the caches volume, and a
+## The repo at its own path as the caller's uid, the cache volumes, and a
 ## linked worktree's main .git.
 fContainer_RunArgs(){  ## array to fill
 	local -n runArgs_k4w="$1"
-	runArgs_k4w=(--rm --init --user "$(id -u):$(id -g)" -v "${repoRoot}:${repoRoot}" -v "${containerVolume}:/cache")
+	runArgs_k4w=(--rm --init --user "$(id -u):$(id -g)" -v "${repoRoot}:${repoRoot}" -v "${containerVolume}:/cache" -v "${containerZigVolume}:${containerZigCache}")
 	local -r gitCommon="$(git -C "${repoRoot}" rev-parse --path-format=absolute --git-common-dir)"
 	if [[ "${gitCommon}" != "${repoRoot}/"* ]]; then runArgs_k4w+=(-v "${gitCommon}:${gitCommon}"); fi
 	## A Zig cache linked off the snapshotted dataset points at nothing inside,
@@ -4432,6 +4458,49 @@ fDropBadEpoch(){
 		fEcho_Clean "Epoch ......: SOURCE_DATE_EPOCH '${SOURCE_DATE_EPOCH}' is not a number; ignored, so the build number comes from the commit date"
 	fi
 	unset SOURCE_DATE_EPOCH
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Every .zig-cache in the tree, and inside the image its global cache volume.
+## Whole or not at all, since the manifests point into the rest. A cache with
+## no stamp was just filled by this run's Zig, so it only gets one.
+## ~/.cache/zig is every project's and every Zig's, so it's left alone.
+fZigCache_Tidy(){
+	local -r zigVer="$(zig version 2>/dev/null || true)"
+	local -a caches=()
+	local dir="" was="" why=""
+	local -i kb=0
+	while IFS= read -r -d '' dir; do caches+=("${dir}"); done < <(find "${repoRoot}" -path "${repoRoot}/.git" -prune -o -name .zig-cache \( -type d -o -type l \) -prune -print0 2>/dev/null || true)
+	if ((inContainer)) && [[ "${ZIG_GLOBAL_CACHE_DIR:-}" == "${containerZigCache}" ]]; then caches+=("${containerZigCache}"); fi
+	for dir in "${caches[@]}"; do
+		[[ -d "${dir}" ]] || continue
+		kb="$(du -sk "${dir}/" 2>/dev/null | awk '{print $1}' || true)"
+		was="$(cat "${dir}/${zigCacheStamp}" 2>/dev/null || true)"
+		why=""
+		if ((kb > zigCacheCapMB * 1024)); then why="$((kb / 1024)) MB, over ${zigCacheCapMB} MB"
+		elif [[ -n "${was}" && -n "${zigVer}" && "${was}" != "${zigVer}" ]]; then why="filled by Zig ${was}"; fi
+		if [[ -n "${why}" ]]; then
+			if ! fZigCache_Empty "${dir}"; then fEcho_Clean "Zig cache ..: couldn't empty ${dir}, ${why}"; continue; fi
+			fEcho_Clean "Zig cache ..: emptied ${dir}, ${why}"
+		fi
+		if [[ -n "${zigVer}" ]]; then printf '%s\n' "${zigVer}" > "${dir}/${zigCacheStamp}" || true; fi
+	done
+}
+
+
+## The only place a Zig cache is emptied. A .zig-cache under the repo, wherever
+## its link goes as long as that's a .zig-cache too, or inside the image its
+## global cache. The folder stays, since it may be a link's target or a mount.
+fZigCache_Empty(){  ## cache dir
+	local -r dir="${1%/}"
+	local real=""
+	[[ -n "${dir}" && "${dir}" != *..* && "${dir}" != *$'\n'* ]] || return 1
+	real="$(cd "${dir}" 2>/dev/null && pwd -P)" || return 1
+	if [[ "${dir}" == "${repoRoot}/"*.zig-cache && "${dir##*/}" == ".zig-cache" && "${real##*/}" == ".zig-cache" ]]; then :
+	elif ((inContainer)) && [[ "${dir}" == "${containerZigCache}" && "${real}" == "${containerZigCache}" ]]; then :
+	else return 1; fi
+	find "${real}" -xdev -mindepth 1 -delete
 }
 
 
