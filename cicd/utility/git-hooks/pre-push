@@ -1,8 +1,8 @@
 #!/bin/sh
-# Local merge gate. Before a push that updates main, run cicd.bash --gate on the
-# commit being pushed, in a scratch worktree, since the working tree often has
-# edits that aren't in it. Feature branches aren't gated; they're tested before
-# they merge.
+# Local merge gate. Before a push that updates main, run cicd.bash --merge-gate
+# on the commit being pushed, in a scratch worktree, since the working tree
+# often has edits that aren't in it. A push whose commits change only the paths
+# in no-gate-paths beside this skips it. dev and feature branches aren't gated.
 # SKIP_GATE=1 skips it. cicd.bash sets that for its own pushes, after a pass.
 #
 # Turn it on once per clone:  git config core.hooksPath cicd/utility/git-hooks
@@ -17,11 +17,12 @@ set -eu
 
 # stdin: "<local_ref> <local_sha> <remote_ref> <remote_sha>" per ref.
 mainSha=""
-while read -r _ localSha remoteRef _; do
+mainWas=""
+while read -r _ localSha remoteRef remoteSha; do
 	case "${remoteRef}" in
 		refs/heads/main)
 			# A delete pushes the zero sha, with nothing to check.
-			case "${localSha}" in *[!0]*) mainSha="${localSha}" ;; esac
+			case "${localSha}" in *[!0]*) mainSha="${localSha}"; mainWas="${remoteSha}" ;; esac
 			;;
 	esac
 done
@@ -36,7 +37,35 @@ fi
 
 [ -n "${mainSha}" ] || exit 0
 
-echo "pre-push: gating the push to main with cicd.bash --gate (SKIP_GATE=1 skips)" >&2
+# Prints the first changed path no-gate-paths doesn't cover, or nothing. A new
+# main, or one whose old tip isn't here, counts as changing everything.
+fGatedPath() {
+	case "${mainWas}" in *[!0]*) ;; *) echo "(new branch)"; return 0 ;; esac
+	changed="$(git -C "${top}" diff --name-only "${mainWas}" "${mainSha}" 2>/dev/null)" \
+		|| { echo "(${mainWas} isn't here)"; return 0; }
+	patterns=""
+	[ -f "${top}/cicd/utility/git-hooks/no-gate-paths" ] \
+		&& patterns="$(grep -v -e '^#' -e '^[[:space:]]*$' "${top}/cicd/utility/git-hooks/no-gate-paths" || :)"
+	printf '%s\n' "${changed}" | while IFS= read -r path; do
+		[ -n "${path}" ] || continue
+		covered=0
+		for pattern in ${patterns}; do
+			# shellcheck disable=2254  ## The pattern is meant to glob.
+			case "${path}" in ${pattern}) covered=1; break ;; esac
+		done
+		[ "${covered}" = "1" ] || { echo "${path}"; break; }
+	done
+}
+# The glob loop above must not expand the patterns against the filesystem.
+set -f
+gatedPath="$(fGatedPath)"
+set +f
+if [ -z "${gatedPath}" ]; then
+	echo "pre-push: no gate, the push to main changes only paths in no-gate-paths" >&2
+	exit 0
+fi
+
+echo "pre-push: gating the push to main with cicd.bash --merge-gate, for ${gatedPath} (SKIP_GATE=1 skips)" >&2
 gateDir="$(mktemp -d "${TMPDIR:-/tmp}/zuid-gate.XXXXXX")"
 tree="${gateDir}/tree"
 fCleanup() {
@@ -54,9 +83,10 @@ if [ -d "${top}/zig/vendor" ]; then
 fi
 ZIG_LOCAL_CACHE_DIR="${ZIG_LOCAL_CACHE_DIR:-${top}/zig/.zig-cache}"
 export ZIG_LOCAL_CACHE_DIR
-"${tree}/cicd/cicd.bash" --gate
+"${tree}/cicd/cicd.bash" --merge-gate
 
 ##	History:
 ##		- 20261014: Created, from silkterm's.
 ##		- 20261018: --gate is --ci.
 ##		- 20261019: --ci is --gate again.
+##		- 20261025: --merge-gate, the default run's checks. Docs-only pushes skip it.

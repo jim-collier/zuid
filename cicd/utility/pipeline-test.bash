@@ -100,9 +100,10 @@ fWantRefusal ErgqYt3 "--publish with --only go"            "--publish needs the 
 fWantRefusal EsJ9SjI "--publish with --container"          "does not go with --container" --publish --container
 fWantRefusal EshGwj4 "--gate won't commit"                  "--gate only builds and tests" --gate --commit
 fWantRefusal EshGwj5 "--gate won't package"                 "--gate only builds and tests" --gate --package
-## --ci was renamed back to --gate with no alias. The bad --only after it keeps
-## a build that still took --ci from starting a real run.
-fWantRefusal Et6FB1m "--ci is gone"                     "'--ci'" --ci --only nope
+## --ci was renamed back to --gate with no alias on 20261019, and came back as
+## another name for --merge-gate on 20261025. The bad --only after it keeps a
+## run from starting, and shows --ci was taken.
+fWantRefusal Et6FB1m "--ci is taken"                    "after --only" --ci --only nope
 fWantRefusal Eshc39l "--publish with --no-package"         "does not go with --no-package" --publish --no-package
 
 fId EsJ9cHS "--container from inside one"
@@ -123,8 +124,7 @@ fLoad(){  ## function name
 	eval "${body}"
 }
 
-## The lifted stages start with a header, which no case here reads but
-## EtB5PUX.
+## Headers come from fStep now, but a lifted helper may still print one.
 # shellcheck disable=2329  ## Called by the lifted functions.
 fSection(){ :; }
 
@@ -198,6 +198,119 @@ fi
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Machine use. The counts are worked out in one place, here with the CPU
+## count and the load stubbed.
+
+fJobsWith(){  ## cpus, load, [cap]
+	(
+		stubCpus="$1" stubLoad="$2"
+		# shellcheck disable=2329  ## Called by the lifted fJobs.
+		fCpuCount(){ printf '%s\n' "${stubCpus}"; }
+		# shellcheck disable=2329
+		fLoadAvg(){ printf '%s\n' "${stubLoad}"; }
+		fLoad fJobs || { echo "no fJobs in cicd.bash"; exit 2; }
+		local -i cpuCount=0 buildJobs=0 hardJobs=0 machineBusy=0
+		local loadNow=""
+		if [[ -n "${3:-}" ]]; then export ZUID_JOBS_CAP="$3"; else unset ZUID_JOBS_CAP; fi
+		fJobs
+		printf '%s %s %s %s\n' "${buildJobs}" "${hardJobs}" "${machineBusy}" "${loadNow}"
+	) 2>&1
+}
+
+fId Etj0Hby "job counts: half, a quarter when busy, a quarter for hard steps"
+jobsBad=""
+while IFS='|' read -r jobsCpus jobsLoad jobsCap jobsWant; do
+	jobsGot="$(fJobsWith "${jobsCpus}" "${jobsLoad}" "${jobsCap}" || true)"
+	[[ "${jobsGot}" == "${jobsWant}" ]] || jobsBad+=" ${jobsCpus} CPUs, load ${jobsLoad}, cap '${jobsCap}': got '${jobsGot}', wanted '${jobsWant}';"
+done <<- 'EOF'
+	32|15.99||16 8 0 15.99
+	32|16.00||16 8 0 16.00
+	32|16.01||8 8 1 16.01
+	32|20.39|4|4 4 1 20.39
+	32|1.00|x|16 8 0 1.00
+	6|2||3 1 0 2
+	3|9.5||1 1 1 9.5
+	1|0.00||1 1 0 0.00
+	EOF
+if [[ -z "${jobsBad}" ]]
+	then fPass
+	else fFail "${jobsBad}"
+fi
+
+## Compared as a number, so what the load reader hands back must never reach
+## arithmetic unchecked.
+fId Etj0Hbz "a bad load reading counts as no load"
+jobsBad=""
+for jobsLoad in "" "high" "1.5.2" "x[\$(touch ${work}/jobs-pwned)]"; do
+	jobsGot="$(fJobsWith 32 "${jobsLoad}" || true)"
+	[[ "${jobsGot}" == "16 8 0 unknown" ]] || jobsBad+=" load '${jobsLoad}' gave '${jobsGot}';"
+done
+[[ ! -e "${work}/jobs-pwned" ]] || jobsBad+=" a load reading ran a command;"
+if [[ -z "${jobsBad}" ]]
+	then fPass
+	else fFail "${jobsBad}"
+fi
+
+fId Etj0Hc0 "counts are checked again before each step"
+out="$(
+	stubLoad="1.00"
+	# shellcheck disable=2329  ## Called by the lifted functions.
+	fCpuCount(){ printf '32\n'; }
+	# shellcheck disable=2329
+	fLoadAvg(){ printf '%s\n' "${stubLoad}"; }
+	# shellcheck disable=2329
+	fEcho_Clean(){ printf '%s\n' "$*"; }
+	for fn in fJobs fJobs_Line fJobs_Recheck; do
+		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+	done
+	# shellcheck disable=2034  ## Read by the lifted functions.
+	{ cpuCount=0; buildJobs=0; hardJobs=0; machineBusy=0; loadNow="" ;}
+	unset ZUID_JOBS_CAP
+	fJobs_Recheck; echo "before: ${buildJobs}"
+	fJobs; fJobs_Recheck; echo "same: ${buildJobs}"
+	stubLoad="30.00"; fJobs_Recheck; echo "busy: ${buildJobs}"
+)" && rc=0 || rc=$?
+want=$'before: 0\nsame: 16\nJobs .......: 8, 8 for the hard steps (32 CPUs, load 30.00, busy)\nbusy: 8'
+if ((rc == 0)) && [[ "${out}" == "${want}" ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+## On the script's own process, so everything it starts inherits it. Read
+## through fNiceOf, since the image has no ps. Where there is /proc, its branch
+## is checked too, with ps hidden by a function.
+fId Etj0NB7 "the run lowers its own priority"
+out="$(bash -c "$(sed -n '/^fLowPriority(){/,/^}/p;/^fNiceOf(){/,/^}/p' "${cicd}")"'
+	fLowPriority
+	printf "%s|" "$(fNiceOf "$$")"
+	if [[ -r "/proc/$$/stat" ]]; then
+		printf "%s|" "$(command(){ [[ "$*" != "-v ps" ]] && builtin command "$@"; }; fNiceOf "$$")"
+	else
+		printf "19|"
+	fi
+	if command -v ionice >/dev/null; then ionice -p "$$"; fi
+' 2>&1)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == "19|19|"* ]] && { ! command -v ionice >/dev/null || [[ "${out}" == "19|19|idle"* ]]; }
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+## CodeQL ran on half the box, whatever cicd.bash was handing everything else.
+fId Etj0Hc3 "codeql.bash takes its thread count from cicd.bash"
+codeqlThreads="$(sed -n '/^fThreads(){/,/^}/p' "${cicd%/*}/utility/codeql.bash")"
+jobsBad=""
+[[ -n "${codeqlThreads}" ]] || jobsBad+=" no fThreads in codeql.bash;"
+for jobsCase in "5|5" "|1" "x|1" "0|1"; do
+	jobsGot="$(ZUID_JOBS="${jobsCase%|*}" bash -c "${codeqlThreads}"$'\nfThreads' 2>&1 || true)"
+	[[ "${jobsGot}" == "${jobsCase#*|}" ]] || jobsBad+=" ZUID_JOBS='${jobsCase%|*}' gave '${jobsGot}';"
+done
+if [[ -z "${jobsBad}" ]]
+	then fPass
+	else fFail "${jobsBad}"
+fi
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## A linked worktree, whose .git is a file. Sync and preflight used to test for
 ## a .git directory and refused one.
 
@@ -210,10 +323,10 @@ fGitCheckIn(){  ## repo dir, function names...
 		# shellcheck disable=2329
 		fThrowError(){ printf '%s\n' "$1"; exit 1; }
 		# shellcheck disable=2034  ## Read by the lifted functions.
-		{ repoRoot="$1"; runStamp="pipeline-test"; buildJobs=1; doGo=0; doZig=0; doPublish=0 ;}
+		{ repoRoot="$1"; runStamp="pipeline-test"; buildJobs=1; hardJobs=1; cpuCount=2; machineBusy=0; loadNow="0.00"; doGo=0; doZig=0; doPublish=0 ;}
 		shift
 		local fn=""
-		for fn in "$@"; do
+		for fn in "$@" fJobs_Line; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		for fn in "$@"; do "${fn}"; done
@@ -279,8 +392,9 @@ fInitIn(){  ## repo dir, args...
 			repoRoot="$1"; onlyToolchain=""; commitMsg=""; doQuietly=0
 			doCross=0; doQuick=0; doSync=1; doCommit=0; commitAsked=0; doPush=0; doPackage=0; noPackage=0; packageSkipWhy=""
 			doBackup=1; backupAsked=0; backupInWorktree=0; doDogfood=1; dogfoodAsked=0; doPublish=0; allowPartial=0
-			doContainer=0; inContainer=0; doGate=0; doLeakcheck=1; leakAsked=0
+			doContainer=0; containerMode="auto"; inContainer=0; doGate=0; doLeakcheck=1; leakAsked=0
 			doFuzz=1; doProfile=1; doDemo=1
+			doFullGate=0; gateFlag=""; aliasNote=""; doLong=0; doRemote=1
 		}
 		shift
 		local fn=""
@@ -296,10 +410,15 @@ fInitIn(){  ## repo dir, args...
 			printf 'doLeakcheck=%s\n' "${doLeakcheck}"
 		elif [[ "${showSlow:-0}" == "1" ]]; then
 			printf 'doFuzz=%s doProfile=%s doDemo=%s\n' "${doFuzz}" "${doProfile}" "${doDemo}"
+		elif [[ "${showFullGate:-0}" == "1" ]]; then
+			printf 'quick=%s sync=%s backup=%s dogfood=%s demo=%s quiet=%s leak=%s fuzz=%s profile=%s remote=%s note=%s\n' \
+				"${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}" "${doDemo}" "${doQuietly}" "${doLeakcheck}" "${doFuzz}" "${doProfile}" "${doRemote}" "${aliasNote:-none}"
 		elif [[ "${showGate:-0}" == "1" ]]; then
 			printf 'doQuick=%s doSync=%s doBackup=%s doDogfood=%s doPackage=%s\n' "${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}" "${doPackage}"
 		elif [[ "${showPackage:-0}" == "1" ]]; then
 			printf 'doPackage=%s skip=%s\n' "${doPackage}" "${packageSkipWhy}"
+		elif [[ "${showContainer:-0}" == "1" ]]; then
+			printf 'doContainer=%s mode=%s\n' "${doContainer}" "${containerMode}"
 		else
 			printf 'doBackup=%s backupInWorktree=%s\n' "${doBackup}" "${backupInWorktree}"
 		fi
@@ -369,16 +488,88 @@ if ((rc == 0)) && [[ "${out}" == "${wantSlow}" ]]
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
 fi
 
+## The gate flags never commit, push, install, publish or prompt. Through the
+## lifted fInit, since a refusal that broke would start a real run, and these
+## flags don't prompt.
+fId Etj4p9f "gate flags refuse the stages that write"
+gateBad=""
+for gateArgs in "--merge-gate --commit" "--merge-gate --push" "--merge-gate --dogfood" "--merge-gate --backup" "--merge-gate --publish" \
+	"--ci --commit" "--backlog-run-full --dogfood" "--backlog-run-quick --package" "--backlog-run-quick --push" "--gate -m msg"; do
+	# shellcheck disable=2086  ## Split on purpose.
+	out="$(fInitIn "${worktreeMain}" ${gateArgs})" && rc=0 || rc=$?
+	if ((rc == 0)) || [[ "${out}" != *"${gateArgs%% *} only builds and tests"* ]]; then gateBad+=" '${gateArgs}' exited ${rc}: ${out:0:80};"; fi
+done
+for gateArgs in "--merge-gate --quick" "--quick --ci" "--backlog-run-full --gate" "--long --quick" "--slow --backlog-run-quick"; do
+	# shellcheck disable=2086
+	out="$(fInitIn "${worktreeMain}" ${gateArgs})" && rc=0 || rc=$?
+	if ((rc == 0)) || [[ "${out}" != *"n't go "* ]]; then gateBad+=" '${gateArgs}' exited ${rc}: ${out:0:80};"; fi
+done
+if [[ -z "${gateBad}" ]]
+	then fPass
+	else fFail "${gateBad}"
+fi
+
+## What each gate flag runs. The full ones run the default run's checks, fuzz,
+## profile and leak checks included, minus what writes or prompts. --gate and
+## --ci say they're other names.
+fId Etj4p9g "what the gate flags run"
+out="$(for gateArgs in --backlog-run-quick --gate --backlog-run-full --merge-gate --ci "--merge-gate --no-remote"; do
+	# shellcheck disable=2086
+	showFullGate=1 fInitIn "${worktreeMain}" ${gateArgs}
+done)" && rc=0 || rc=$?
+wantGate="quick=1 sync=0 backup=0 dogfood=0 demo=0 quiet=1 leak=0 fuzz=0 profile=0 remote=1 note=none"
+wantGate+=$'\n'"quick=1 sync=0 backup=0 dogfood=0 demo=0 quiet=1 leak=0 fuzz=0 profile=0 remote=1 note=--gate is another name for --backlog-run-quick."
+wantGate+=$'\n'"quick=0 sync=0 backup=0 dogfood=0 demo=0 quiet=1 leak=1 fuzz=1 profile=1 remote=1 note=none"
+wantGate+=$'\n'"quick=0 sync=0 backup=0 dogfood=0 demo=0 quiet=1 leak=1 fuzz=1 profile=1 remote=1 note=none"
+wantGate+=$'\n'"quick=0 sync=0 backup=0 dogfood=0 demo=0 quiet=1 leak=1 fuzz=1 profile=1 remote=1 note=--ci is another name for --merge-gate."
+wantGate+=$'\n'"quick=0 sync=0 backup=0 dogfood=0 demo=0 quiet=1 leak=1 fuzz=1 profile=1 remote=0 note=none"
+if ((rc == 0)) && [[ "${out}" == "${wantGate}" ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+## --long and --slow are the default run for now. The note for --gate and --ci
+## goes out once the run log has started.
+fId Etj4p9h "--long, --slow, and the alias line"
+out="$(showFullGate=1 fInitIn "${worktreeMain}" --long; showFullGate=1 fInitIn "${worktreeMain}" --slow)" && rc=0 || rc=$?
+wantLong="quick=0 sync=1 backup=1 dogfood=1 demo=1 quiet=0 leak=1 fuzz=1 profile=1 remote=1 note=none"
+# shellcheck disable=2016  ## Script text, looked for as written.
+if ((rc == 0)) && [[ "${out}" == "${wantLong}"$'\n'"${wantLong}" ]] \
+	&& grep -A1 -F 'then fStartRunLog; fi' <<< "$(sed -n '/^fMain(){/,/^}/p' "${cicd}")" | grep -qF 'if [[ -n "${aliasNote}" ]]; then fEcho_Clean; fEcho_Clean "${aliasNote}"; fi'
+	then fPass
+	else fFail "exited ${rc} and said '${out//$'\n'/ | }', or fMain doesn't print the alias line after the log starts"
+fi
+
 fId Etab8wp "the stage calls follow the flags"
-## Read from fMain and the two fuzz call sites, so a stage that goes back to
-## keying on doQuick fails here.
+## Read from the step list and the Zig fuzz stage, so a stage that goes back
+## to keying on doQuick fails here. The list moved out of fMain into fSteps
+## on 2026102416233104.
 mainBody="$(sed -n '/^fMain(){/,/^}/p' "${cicd}")"
-goBody="$(sed -n '/^fStage_Go(){/,/^}/p' "${cicd}")"
+stepsBody="$(sed -n '/^fSteps(){/,/^}/p; /^fSteps_Checks(){/,/^}/p' "${cicd}")"
 zigFuzzBody="$(sed -n '/^fStage_Zig_Fuzz(){/,/^}/p' "${cicd}")"
-if grep -q 'if ((doProfile)); *then fStage_Profile;' <<< "${mainBody}" && grep -q 'if ((doDemo)) && ((! inContainer)); then fStage_Demo;' <<< "${mainBody}" \
-	&& grep -q 'if ((doFuzz)); then fStage_Go_Fuzz;' <<< "${goBody}" && grep -q 'if ((! doFuzz)); then' <<< "${zigFuzzBody}"
+if grep -q 'if ((doProfile)); then fStep "Profile" fStage_Profile$' <<< "${stepsBody}" \
+	&& grep -A1 -F 'if ((! inContainer)); then' <<< "${stepsBody}" | grep -q 'if ((doDemo)); then fStep "Demo" fStage_Demo$' \
+	&& grep -q 'if ((doFuzz)); then fStep "Go: fuzz" fStage_Go_Fuzz;' <<< "${stepsBody}" \
+	&& grep -q 'if ((doFuzz)); then fStep "Zig: fuzz" fStage_Zig_Fuzz;' <<< "${stepsBody}" && grep -q 'if ((! doFuzz)); then' <<< "${zigFuzzBody}"
 	then fPass
 	else fFail "a slow stage isn't keyed on its own flag in cicd.bash"
+fi
+
+## The run in the container can't start bash:3.2, so it skips those cases and
+## the run outside does them.
+fId Etika82 "bash 3.2 cases run outside the container"
+bash32Body="$(sed -n '/^fStage_Shell_Bash32(){/,/^}/p' "${cicd}")"
+installerBody="$(cat "${cicd%/cicd.bash}/utility/installer-test.bash")"
+## In the image branch of fSteps, after the run in the image, since 2026102416233104.
+imageBranch="$(sed -n '/^	if ((inImage)); then$/,/^	else$/p' <<< "${stepsBody}")"
+# shellcheck disable=2016  ## Script text, looked for as written.
+if grep -qF 'then fStage_Container; fi' <<< "${imageBranch}" && grep -qE '^[[:space:]]+fStep "Installers: bash 3.2" fStage_Shell_Bash32$' <<< "${imageBranch}" \
+	&& (($(grep -n 'fStage_Container' <<< "${imageBranch}" | cut -d: -f1) < $(grep -n 'fStage_Shell_Bash32' <<< "${imageBranch}" | cut -d: -f1))) \
+	&& grep -qF 'bash "${runner}" --only bash32' <<< "${bash32Body}" \
+	&& grep -qF 'if [[ "${ZUID_IN_CONTAINER:-}" == "1" ]]; then' <<< "${installerBody}" \
+	&& grep -A2 -F 'if [[ "${only}" == "bash32" ]]; then' <<< "${installerBody}" | grep -qE '^[[:space:]]+fCase_Bash32$'
+	then fPass
+	else fFail "the container run doesn't hand the bash 3.2 cases back to this machine"
 fi
 
 fId EtAUMRH "--help on --leakcheck"
@@ -498,18 +689,28 @@ if ((rc == 0)) && [[ "$(cat "${dogRoot}/fallback/zuid" 2>/dev/null)" == "zig-out
 fi
 
 ## The container stage, with a stand-in for docker that logs what it was asked.
-## Its image list always has an older tag beside the current one.
+## Its image list has the current tag, the one before and an older one, out
+## of order. ENGINE_VOLUMES names the volumes that are there already, and
+## ENGINE_DF a file of sizes, one line per 'system df'.
 cat > "${work}/engine" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${ENGINE_LOG}"
 case "$1 ${2:-}" in
 	"image inspect") [[ -f "${ENGINE_LOG}.built-${3//[:\/]/_}" ]] ;;
-	"build "*)       while (($#)) && [[ "$1" != "-t" ]]; do shift; done; : > "${ENGINE_LOG}.built-${2//[:\/]/_}" ;;
+	"build "*)       [[ "${ENGINE_BUILD_RC:-0}" == "0" ]] || exit "${ENGINE_BUILD_RC}"
+	                 while (($#)) && [[ "$1" != "-t" ]]; do shift; done; : > "${ENGINE_LOG}.built-${2//[:\/]/_}" ;;
 	"image ls")      if [[ "$3" == "zuid-codeql" ]]
-		then printf 'zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld\n%s\n' "${ENGINE_NEW_CODEQL:-}"
-		else printf 'zuid-cicd:0ld0ld0ld0ld\n%s\n' "${ENGINE_NEW}"
+		then printf '2026-10-01 01:00:00 -0700 PDT\tzuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld\n2026-10-24 01:00:00 -0700 PDT\t%s\n2026-10-12 01:00:00 -0700 PDT\tzuid-codeql:prevprevprev-prevprevprev\n' "${ENGINE_NEW_CODEQL:-}"
+		else printf '2026-10-01 01:00:00 -0700 PDT\tzuid-cicd:0ld0ld0ld0ld\n2026-10-24 01:00:00 -0700 PDT\t%s\n2026-10-12 01:00:00 -0700 PDT\tzuid-cicd:prevprevprev\n2026-10-11 01:00:00 -0700 PDT\t<none>:<none>\n' "${ENGINE_NEW}"
 		fi ;;
-	"run "*)         exit "${ENGINE_RUN_RC:-0}" ;;
+	"volume inspect") [[ " ${ENGINE_VOLUMES:-zuid-cicd-cache zuid-zig-cache} " == *" ${*: -1} "* ]] || exit 1
+	                  if [[ "$3" == "--format" ]]; then printf '%s\n' "${ENGINE_VOLUME_LABEL:-}"; fi ;;
+	"ps "*)          printf '%s' "${ENGINE_PS:-}" ;;
+	"images "*)      printf '%s' "${ENGINE_DANGLING:-}" ;;
+	"system df")     n="$(grep -c . "${ENGINE_LOG}.df" 2>/dev/null || true)"; echo x >> "${ENGINE_LOG}.df"
+	                 sed -n "$(( ${n:-0} + 1 ))p" "${ENGINE_DF:-/dev/null}" | tr ' ' '\n' ;;
+	"run "*)         if [[ "$*" == *"-cache-cap "* ]]; then printf '%s\n' "${ENGINE_CAP_OUT:-}"; fi
+	                 exit "${ENGINE_RUN_RC:-0}" ;;
 	"info "*)        exit "${ENGINE_INFO_RC:-0}" ;;
 esac
 STUB
@@ -523,21 +724,28 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 		fEcho_Clean(){ printf '%s\n' "$*"; }
 		# shellcheck disable=2329
 		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2329
+		fFindSde(){ printf '%s' "${rigSde:-}"; }
 		# shellcheck disable=2034  ## Read by the lifted fStage_Container.
 		{
 			repoRoot="$(cd "$1" && pwd -P)"; containerImage="zuid-cicd"; containerVolume="zuid-cicd-cache"; codeqlImage="zuid-codeql"
-			onlyToolchain="go"; doQuick="${quick:-1}"; doPackage=1; doLeakcheck="${leakcheck:-0}"; runStamp="20261019-101112"; _sectionWidth="123"
+			containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"
+			onlyToolchain="go"; doQuick="${quick:-1}"; doPackage=1; doLeakcheck="${leakcheck:-0}"; runStamp="20261019-101112"; _stepAt=2; _stepTotal=30
 			doFuzz="${fuzz:-0}"; doProfile="${profile:-0}"
+			projectName="zuid"; runName="20261019-101112"; keepTemp="${keep:-0}"; _dockerRun=""; buildJobs=3
 		}
 		local fn=""
-		for fn in _fMustBeInPath fStage_Container fContainer_Image fCodeql_Image fContainer_DropOthers fContainer_RunArgs; do
+		for fn in _fMustBeInPath fStage_Container fStep_UtcOffset fContainer_InnerArgs fContainer_Image fCodeql_Image fCodeql_Tag fContainer_Volumes fContainer_RunArgs; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		mkdir -p "${repoRoot}/cicd/container/codeql"
 		echo "FROM scratch" > "${repoRoot}/cicd/container/Dockerfile"
 		echo "FROM codeql" > "${repoRoot}/cicd/container/codeql/Dockerfile"
 		# shellcheck disable=2030  ## Each case sets its own.
-		export ZUID_DOCKER="${work}/engine" ENGINE_LOG="$2" ENGINE_RUN_RC="$3"
+		export ZUID_DOCKER="${work}/engine" ENGINE_LOG="$2" ENGINE_RUN_RC="$3" TZ="ABC7"
+		## The pre-push hook sets it, and the run lines below want it only when asked.
+		unset ZIG_LOCAL_CACHE_DIR
+		if [[ -n "${zigCache:-}" ]]; then export ZIG_LOCAL_CACHE_DIR="${zigCache}"; fi
 		ENGINE_NEW="zuid-cicd:$(git hash-object "${repoRoot}/cicd/container/Dockerfile" | cut -c1-12)"
 		ENGINE_NEW_CODEQL="zuid-codeql:$(git hash-object "${repoRoot}/cicd/container/codeql/Dockerfile" | cut -c1-12)-${ENGINE_NEW#*:}"
 		export ENGINE_NEW ENGINE_NEW_CODEQL
@@ -552,8 +760,9 @@ newTag="zuid-cicd:$(echo "FROM scratch" | git hash-object --stdin | cut -c1-12)"
 fId EsJ9SjE "image built by recipe hash"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-main" 2>/dev/null || true)"
-if ((rc == 0)) && grep -qxF "build -t ${newTag} ${mainReal}/cicd/container" <<< "${log}" \
-	&& grep -qxF "rmi zuid-cicd:0ld0ld0ld0ld" <<< "${log}" && ! grep -qxF "rmi ${newTag}" <<< "${log}"
+## Older tags wait for the end of a run that passed, since 2026102416233101.
+if ((rc == 0)) && grep -qxF "build --label dev.project=zuid --label dev.run=20261019-101112 -t ${newTag} ${mainReal}/cicd/container" <<< "${log}" \
+	&& ! grep -q "^rmi " <<< "${log}"
 	then fPass
 	else fFail "exited ${rc}, asked: ${log//$'\n'/ | }; said '${out}'"
 fi
@@ -562,8 +771,10 @@ fId EsJ9SjF "container run arguments"
 : > "${work}/engine-main"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-main")"
-wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder} -e ZUID_RUN_STAMP=20261019-101112 -e ZUID_COLUMNS=123"
-wantRun+=" -w ${mainReal} ${newTag} bash ${mainReal}/cicd/cicd.bash -q --no-sync --no-backup --no-dogfood --only go --quick --package --no-leakcheck"
+wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -v zuid-zig-cache:/zig-cache"
+wantRun+=" --name zuid-20261019-101112-container --label dev.project=zuid --label dev.run=20261019-101112 --cpus 3 --cpu-shares 256 -e ZUID_JOBS=3 -e ZUID_JOBS_CAP=3"
+wantRun+=" -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder} -e ZUID_RUN_STAMP=20261019-101112 -e ZUID_STEP_FIRST=2 -e ZUID_STEP_TOTAL=30 -e ZUID_STEP_UTC_OFFSET=-25200"
+wantRun+=" -w ${mainReal} ${newTag} nice -n 19 bash ${mainReal}/cicd/cicd.bash -q --no-sync --no-backup --no-dogfood --only go --quick --package --no-leakcheck"
 if ((rc == 0)) && grep -qxF -- "${wantRun}" <<< "${log}" && ! grep -q '^build ' <<< "${log}"
 	then fPass
 	else fFail "exited ${rc}, asked: ${log//$'\n'/ | }"
@@ -635,48 +846,143 @@ if ((rc == 0)) && [[ -z "${stampBad}" ]]
 	else fFail "exited ${rc},${stampBad} asked: $(grep '^run ' "${work}/engine-main" || true); said: ${stampOut//$'\n'/ | }"
 fi
 
-## A stage header is a blank line, a rule of dots as wide as the terminal,
-## then the title, the way silkterm prints one. A pipe or a log has no width,
-## so it gets silkterm's 74. The run in the container gets the outside's.
+## A section is a blank line, a rule of 79 dots, then the title, the way
+## silkterm prints one. A terminal, a pipe and the image all get 79, since
+## 2026102416233104. Before that the rule took the terminal's width.
 fId EtB5PUX "stage header layout"
 sectionScript="${work}/section.bash"
 sectionBad=""
 if (
-	for fn in fEcho_Clean fSection_Init fSection; do
+	for fn in fEcho_Clean fSection; do
 		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 	done
-	# shellcheck disable=2329  ## Called by the lifted fSection.
-	fEcho(){ fEcho_Clean "[ $* ]"; }
 	# shellcheck disable=2016  ## Expanded by the script, not here.
 	{
-		printf '%s\n' 'set -Eeuo pipefail' 'declare -i _wasLastEchoBlank=0' 'inContainer="${1:-0}"' '_sectionRule="" _sectionWidth=""'
-		declare -f fEcho_Clean fEcho fSection_Init fSection
-		printf '%s\n' 'fEcho_Clean "before"' 'fSection "A stage"' 'printf "width=%s\n" "${_sectionWidth}"'
+		printf '%s\n' 'set -Eeuo pipefail' 'declare -i _wasLastEchoBlank=0' 'inContainer="${1:-0}"'
+		grep -m1 '^declare -r _sectionRule=' "${cicd}"
+		grep -E '^function fEcho\(\) ' "${cicd}"
+		declare -f fEcho_Clean fSection
+		printf '%s\n' 'fEcho_Clean "before"' 'fSection "A stage"'
 	} > "${sectionScript}"
 ) > "${work}/section.out" 2>&1; then
-	printf -v rule74 '%*s' 74 ''; rule74="${rule74// /•}"
-	printf -v rule101 '%*s' 101 ''; rule101="${rule101// /•}"
-	printf -v rule123 '%*s' 123 ''; rule123="${rule123// /•}"
+	printf -v rule79 '%*s' 79 ''; rule79="${rule79// /•}"
+	want="before"$'\n'$'\n'"${rule79}"$'\n'"[ A stage ]"
 	got="$(bash "${sectionScript}" 0 | cat)"
-	[[ "${got}" == "before"$'\n'$'\n'"${rule74}"$'\n'"[ A stage ]"$'\n'"width=74" ]] || sectionBad+=" in a pipe it said '${got}';"
+	[[ "${got}" == "${want}" ]] || sectionBad+=" in a pipe it said '${got}';"
 	got="$(ZUID_COLUMNS=101 bash "${sectionScript}" 1 | cat)"
-	[[ "${got}" == *$'\n'"${rule101}"$'\n'"[ A stage ]"$'\n'"width=101" ]] || sectionBad+=" in the container it didn't take 101: '${got}';"
-	got="$(ZUID_COLUMNS=101 bash "${sectionScript}" 0 | cat)"
-	[[ "${got}" == *"width=74" ]] || sectionBad+=" on the host it took the container's width: '${got}';"
+	[[ "${got}" == "${want}" ]] || sectionBad+=" in the container it said '${got}';"
 	## A terminal, from util-linux's script, sized by hand.
 	if script --version 2>/dev/null | grep -q util-linux; then
 		got="$(script -qec "stty cols 123 rows 40; bash '${sectionScript}' 0" /dev/null < /dev/null | tr -d '\r')"
-		[[ "${got}" == *$'\n'"${rule123}"$'\n'"[ A stage ]"$'\n'"width=123"* ]] || sectionBad+=" in a 123-wide terminal it said '${got}';"
+		[[ "${got}" == *"${want}"* ]] || sectionBad+=" in a 123-wide terminal it said '${got}';"
 	fi
 else
 	sectionBad+=" $(cat "${work}/section.out");"
 fi
 : > "${work}/engine-main"
 fContainerIn "${worktreeMain}" "${work}/engine-main" 0 >/dev/null 2>&1 || true
-grep -q -- "^run .* -e ZUID_COLUMNS=123 .* bash " "${work}/engine-main" || sectionBad+=" the container wasn't handed the width;"
+if grep -q -- "^run .*ZUID_COLUMNS" "${work}/engine-main"; then sectionBad+=" the container was still handed a width;"; fi
 if [[ -z "${sectionBad}" ]]
 	then fPass
 	else fFail "${sectionBad}"
+fi
+
+## Each step opens with a stamped "Step N of M; Starting" line and closes
+## with PASS or FAIL. A step turned off isn't in M, and the first section
+## lists it with its reason.
+fId Etj8iKE "step lines"
+stepBad=""
+stepScript="${work}/steps.bash"
+if (
+	for fn in fEcho_Clean fSection fStep fStep_Off fStep_Fail fStep_Stamp fSteps_Plan fSteps_Print; do
+		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+	done
+	# shellcheck disable=2016  ## Expanded by the script, not here.
+	{
+		printf '%s\n' 'set -Eeuo pipefail' 'declare -i _wasLastEchoBlank=0'
+		grep -m1 '^declare -r _sectionRule=' "${cicd}"
+		printf '%s\n' 'declare -a _stepTitles=() _stepOffs=()' 'declare -i _stepPlanning=0 _stepElsewhere=0 _stepAt=0 _stepTotal=0' 'declare _stepOpen=""'
+		grep -E '^function (fEcho|fEcho_Force|fEcho_ResetBlankCounter)\(\) ' "${cicd}"
+		declare -f fEcho_Clean fSection fStep fStep_Off fStep_Fail fStep_Stamp fSteps_Plan fSteps_Print
+		printf '%s\n' 'fJobs_Recheck(){ :; }' 'fOne(){ echo one; }' 'fTwo(){ echo two; [[ "${1}" != fail ]] || exit 1; }'
+		printf '%s\n' 'fSteps(){ fStep "One" fOne; fStep_Off "Off one" "--no-off"; _stepElsewhere=1; fStep "Inside" fOne; _stepElsewhere=0; fStep "Two" fTwo "${mode}"; }'
+		printf '%s\n' 'mode="${1:-}"; trap fStep_Fail EXIT' 'fSteps_Plan; fSteps_Print; fSteps'
+	} > "${stepScript}"
+) > "${work}/steps.out" 2>&1; then
+	printf -v rule79 '%*s' 79 ''; rule79="${rule79// /•}"
+	ts='[0-9]{8}-[0-9]{6}\.[0-9]{2}'
+	wantRe="^"$'\n'"${rule79}"$'\n'"\[ ${ts}: 3 steps, 1 turned off \]"$'\n'"Off \.+: Off one \(--no-off\)"$'\n'$'\n'"${rule79}"$'\n'"\[ ${ts}: Step 1 of 3; Starting One \]"$'\n'"one"$'\n'"\[ ${ts}: Step 1 of 3; PASS One \]"$'\n'$'\n'"${rule79}"$'\n'"\[ ${ts}: Step 3 of 3; Starting Two \]"$'\n'"two"$'\n'
+	wantPass="${wantRe}\[ ${ts}: Step 3 of 3; PASS Two \]$"
+	wantFail="${wantRe}\[ ${ts}: Step 3 of 3; FAIL Two \]"$'\n'$'\n'"end$"
+	got="$(bash "${stepScript}" | cat)"
+	[[ "${got}" =~ ${wantPass} ]] || stepBad+=" passing run said '${got}';"
+	got="$(bash "${stepScript}" fail | cat; echo "end")"
+	[[ "${got}" =~ ${wantFail} ]] || stepBad+=" failing run said '${got}';"
+	## The image is on UTC, and takes the outside's offset.
+	stampBad="$(
+		for fn in fStep_Stamp fStep_UtcOffset; do fLoad "${fn}" || { echo "no ${fn}"; exit 0; }; done
+		## Run in the image, the harness has the outside's.
+		unset ZUID_STEP_UTC_OFFSET
+		for zone in "ABC7" "XYZ-5:30" "UTC0"; do
+			offset="$(TZ="${zone}" fStep_UtcOffset)"
+			outside="$(TZ="${zone}" fStep_Stamp)"; inside="$(TZ=UTC0 ZUID_STEP_UTC_OFFSET="${offset}" fStep_Stamp)"
+			[[ "${outside:0:13}" == "${inside:0:13}" ]] || echo "${zone} gave offset ${offset}, ${outside} outside and ${inside} inside;"
+		done
+	)"
+	[[ -z "${stampBad}" ]] || stepBad+=" ${stampBad}"
+else
+	stepBad+=" $(cat "${work}/steps.out");"
+fi
+if [[ -z "${stepBad}" ]]
+	then fPass
+	else fFail "${stepBad}"
+fi
+
+## The run in the image numbers its steps on from the outside's, so the
+## steps the outside counts for it have to be the ones it runs.
+fId Etj8iKF "image's steps match the outside's count"
+planBad=""
+fPlanIn(){  ## inContainer, planContainer, then name=value settings
+	(
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{
+			inContainer="$1"; planContainer="$2"; doContainer=0; repoRoot="${work}/plan/repo"
+			doSync=1; doGate=0; doFullGate=0; gateFlag=""; doQuick=0; doDemo=1; doPackage=0; noPackage=0; packageSkipWhy=""
+			onlyToolchain=""; doGo=1; doZig=1; doFuzz=1; doCross=1; doLeakcheck=1; leakAsked=0; doProfile=1
+			doPublish=0; doDogfood=1; doBackup=1; backupInWorktree=0; commitAsked=0; doCommit=0; doPush=0
+			_stepTitles=(); _stepOffs=(); _stepPlanning=0; _stepElsewhere=0; _stepAt=0; _stepTotal=0
+		}
+		shift 2
+		local kv=""; for kv in "$@"; do printf -v "${kv%%=*}" '%s' "${kv#*=}"; done
+		local fn=""
+		for fn in fSteps fSteps_Checks fSteps_Scrub fSteps_FuzzWhy fSteps_Packages fSteps_Plan fStep_Off; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		## Marks the ones the image runs.
+		# shellcheck disable=2329  ## Called by the lifted fSteps.
+		fStep(){ if ((_stepPlanning)); then _stepTitles+=("$( ((_stepElsewhere)) && echo '*')$1"); fi; }
+		fSteps_Plan
+		printf '%s\n' "${_stepTitles[@]}"
+	)
+}
+## A scrub beside the repo, which only this machine can see.
+mkdir -p "${work}/plan/repo" "${work}/plan/private/hooks"
+printf '#!/usr/bin/env bash\n' > "${work}/plan/private/hooks/scrub.bash"; chmod +x "${work}/plan/private/hooks/scrub.bash"
+for planCase in "" "doQuick=1 doFuzz=0 doProfile=0 doLeakcheck=0 doDemo=0" "onlyToolchain=go doZig=0" "doPackage=1 doFuzz=0" "packageSkipWhy=no-llvm"; do
+	# shellcheck disable=2086  ## Each case is a list of settings.
+	outside="$(fPlanIn 0 1 ${planCase})" || { planBad+=" '${planCase}' outside: ${outside};"; continue; }
+	insideWant="$(sed -n 's/^\*//p' <<< "${outside}")"
+	## What the image's cicd.bash is handed, per fContainer_InnerArgs.
+	innerCase="${planCase//packageSkipWhy=no-llvm/doPackage=1}"
+	# shellcheck disable=2086
+	inside="$(fPlanIn 1 0 doSync=0 doDogfood=0 doBackup=0 ${innerCase})" || { planBad+=" '${planCase}' inside: ${inside};"; continue; }
+	[[ -n "${insideWant}" && "${inside}" == "${insideWant}" ]] || planBad+=" '${planCase}': outside counts '${insideWant//$'\n'/, }', inside runs '${inside//$'\n'/, }';"
+	grep -qx "Content scrub" <<< "${inside}" && planBad+=" '${planCase}': the image can't see the scrub;"
+	grep -qx "Content scrub" <<< "${outside}" || planBad+=" '${planCase}': this machine doesn't run the scrub;"
+done
+if [[ -z "${planBad}" ]]
+	then fPass
+	else fFail "${planBad}"
 fi
 
 ## CodeQL is about 480 MB, so a run that doesn't want it never builds it.
@@ -685,9 +991,9 @@ codeqlTag="zuid-codeql:$(echo "FROM codeql" | git hash-object --stdin | cut -c1-
 out="$(leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-codeql" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-codeql" 2>/dev/null || true)"
 plainOut="$(fContainerIn "${worktreeMain}" "${work}/engine-plain" 0)" && plainRc=0 || plainRc=$?
-if ((rc == 0)) && grep -qxF "build --build-arg BASE=${newTag} -t ${codeqlTag} ${mainReal}/cicd/container/codeql" <<< "${log}" \
-	&& grep -q -- "^run .* ${codeqlTag} bash .* --leakcheck$" <<< "${log}" && grep -qxF "rmi zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld" <<< "${log}" \
-	&& ! grep -qxF "rmi ${codeqlTag}" <<< "${log}" && ((plainRc == 0)) && ! grep -qE '^(build|run) .*codeql' "${work}/engine-plain"
+if ((rc == 0)) && grep -qxF "build --build-arg BASE=${newTag} --label dev.project=zuid --label dev.run=20261019-101112 -t ${codeqlTag} ${mainReal}/cicd/container/codeql" <<< "${log}" \
+	&& grep -q -- "^run .* ${codeqlTag} nice -n 19 bash .* --leakcheck$" <<< "${log}" && ! grep -q "^rmi " <<< "${log}" \
+	&& ((plainRc == 0)) && ! grep -qE '^(build|run) .*codeql' "${work}/engine-plain"
 	then fPass
 	else fFail "exited ${rc} and ${plainRc}, asked: ${log//$'\n'/ | }; said '${out}' and '${plainOut}'"
 fi
@@ -703,13 +1009,14 @@ for pass in built found; do
 	rmis="$(grep '^rmi ' <<< "${log}" || true)"
 	((rc == 0)) || staleBad+=" ${pass}: exited ${rc}, said '${out}';"
 	! grep -qE '^(build|run) .*codeql' <<< "${log}" || staleBad+=" ${pass}: built or ran CodeQL;"
-	## The old main tag goes after the CodeQL one, or that one's layers stay.
+	## Since 2026102416233101 nothing goes during the stage. EtitVm9 has the
+	## old CodeQL tag going at the end, ahead of the old main one.
 	if [[ "${pass}" == "built" ]]; then
-		grep -q '^build -t zuid-cicd' <<< "${log}" || staleBad+=" built: no build;"
-		[[ "${rmis}" == "rmi zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld"$'\n'"rmi zuid-cicd:0ld0ld0ld0ld" ]] || staleBad+=" built: removed '${rmis//$'\n'/ | }';"
+		grep -q '^build .*-t zuid-cicd' <<< "${log}" || staleBad+=" built: no build;"
+		[[ -z "${rmis}" ]] || staleBad+=" built: removed '${rmis//$'\n'/ | }';"
 	else
 		! grep -q '^build ' <<< "${log}" || staleBad+=" found: built again;"
-		[[ "${rmis}" == "rmi zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld" ]] || staleBad+=" found: removed '${rmis//$'\n'/ | }';"
+		[[ -z "${rmis}" ]] || staleBad+=" found: removed '${rmis//$'\n'/ | }';"
 	fi
 done
 if [[ -z "${staleBad}" ]]
@@ -730,8 +1037,9 @@ out="$(
 	# shellcheck disable=2034  ## Read by the lifted functions.
 	{
 		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerImage="zuid-cicd"; codeqlImage="zuid-codeql"; inContainer=0; containerTag=""; checkerSkipWhy=""
+		containerVolume="zuid-cicd-cache"; containerZigVolume="zuid-zig-cache"; projectName="zuid"; runName="20261019-101112"; _dockerRun=""
 	}
-	for fn in _fMustBeInPath fGoCheckers_Ready fContainer_Image fContainer_DropOthers; do
+	for fn in _fMustBeInPath fGoCheckers_Ready fContainer_Image fContainer_Volumes; do
 		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 	done
 	# shellcheck disable=2030,2031  ## The stub reads it; the earlier subshell's copy is gone.
@@ -741,6 +1049,7 @@ out="$(
 	fGoCheckers_Ready; printf 'missing=%s\n' "${checkerSkipWhy}"
 	# shellcheck disable=2034
 	containerEngine="${work}/engine"
+	# shellcheck disable=2030  ## Only this subshell's.
 	export ENGINE_INFO_RC=1
 	fGoCheckers_Ready; printf 'silent=%s\n' "${checkerSkipWhy}"
 	export ENGINE_INFO_RC=0
@@ -752,6 +1061,156 @@ if ((rc == 0)) && grep -qxF "missing=no ${work}/no-such-engine to run the pinned
 	else fFail "exited ${rc} and said: ${out//$'\n'/ | }"
 fi
 
+fId Etij2SB "--container, --no-container"
+out="$(for containerArgs in "" --no-container --container "--container --no-container" "--gate --no-container" "--gate --container"; do
+	# shellcheck disable=2086  ## Empty means no argument at all.
+	showContainer=1 fInitIn "${worktreeMain}" ${containerArgs}
+done)" && rc=0 || rc=$?
+wantContainer="doContainer=0 mode=auto"$'\n'"doContainer=0 mode=off"$'\n'"doContainer=1 mode=on"$'\n'"doContainer=0 mode=off"$'\n'"doContainer=0 mode=off"$'\n'"doContainer=1 mode=on"
+if ((rc == 0)) && [[ "${out}" == "${wantContainer}" ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+## A run's own pick of the container, with the stand-in engine above.
+fPickIn(){  ## engine log; the case's settings come in as pick* variables
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2329
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2329
+		uname(){ case "$1" in -s) echo "${pickOs:-Linux}" ;; -m) echo x86_64 ;; esac; }
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{
+			repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerImage="zuid-cicd"; codeqlImage="zuid-codeql"; containerTag=""
+			inContainer="${pickInside:-0}"; containerMode="${pickMode:-auto}"; doContainer="${pickAsked:-0}"
+			doPublish="${pickPublish:-0}"; doPackage=0; packageSkipWhy="${pickSkip:-}"; imageSkipWhy=""
+			containerEngine="${pickEngine:-${work}/engine}"
+			containerVolume="zuid-cicd-cache"; containerZigVolume="zuid-zig-cache"; projectName="zuid"; runName="20261019-101112"; _dockerRun=""
+		}
+		local fn=""
+		for fn in _fMustBeInPath fContainer_Pick fContainer_Where fContainer_Image fContainer_Volumes; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		# shellcheck disable=2030,2031  ## The stub reads them; each case has its own.
+		export ENGINE_LOG="$1" ENGINE_INFO_RC="${pickInfoRc:-0}" ENGINE_BUILD_RC="${pickBuildRc:-0}"
+		: > "${ENGINE_LOG}"
+		fContainer_Pick
+		printf 'doContainer=%s doPackage=%s skip=%s image=%s tag=%s\n' "${doContainer}" "${doPackage}" "${packageSkipWhy}" "${imageSkipWhy}" "${containerTag}"
+	) 2>&1
+}
+pickSkipWhy="no llvm-objcopy to strip the release with"
+
+## The image has the tools, so a full run that couldn't package here does there.
+fId Etij2SC "the container where docker answers"
+out="$(pickSkip="${pickSkipWhy}" fPickIn "${work}/engine-pick")" && rc=0 || rc=$?
+if ((rc == 0)) && grep -qxF "build --label dev.project=zuid --label dev.run=20261019-101112 -t ${newTag} ${mainReal}/cicd/container" "${work}/engine-pick" \
+	&& [[ "${out}" == *$'\n'"doContainer=1 doPackage=1 skip= image= tag=${newTag}" ]]
+	then fPass
+	else fFail "exited ${rc} and said: ${out//$'\n'/ | }"
+fi
+
+fId Etij2SD "this machine with a note, without docker"
+pickBad=""
+fWantPick(){  ## why, then the case's pick* settings as name=value
+	local -r why="$1"; shift
+	local got="" imageWant=""
+	if [[ "${why}" == "the image didn't build" ]]; then imageWant="${why}"; fi
+	# shellcheck disable=2163  ## Exports the name=value pairs it was handed.
+	got="$(export "$@" pickSkip="${pickSkipWhy}"; fPickIn "${work}/engine-pick-fb")" || { pickBad+=" '${why}' exited $?: ${got//$'\n'/ | };"; return 0; }
+	if [[ "${got}" != *"Container ..: not used, ${why}, so this runs here"$'\n'"doContainer=0 doPackage=0 skip=${pickSkipWhy} image=${imageWant} tag=" ]]; then pickBad+=" '${why}' said: ${got//$'\n'/ | };"; fi
+}
+fWantPick "no ${work}/no-such-engine"            pickEngine="${work}/no-such-engine"
+fWantPick "${work}/engine isn't answering"       pickInfoRc=1
+fWantPick "the image didn't build"               pickBuildRc=1
+fWantPick "--publish runs on this machine"       pickPublish=1
+fWantPick "the image is Linux x86_64 only"       pickOs=Darwin
+if [[ -z "${pickBad}" ]]
+	then fPass
+	else fFail "${pickBad}"
+fi
+
+## Asked for by name, or already inside, nothing is asked of docker.
+fId Etij2SE "--container, --no-container and the run inside decide alone"
+pickBad=""
+out="$(pickMode=off fPickIn "${work}/engine-pick-off")" || pickBad+=" off exited $?;"
+[[ "${out}" == "Container ..: off (--no-container), so this runs here"$'\n'"doContainer=0 doPackage=0 skip= image= tag=" ]] || pickBad+=" off said: ${out//$'\n'/ | };"
+out="$(pickMode=on pickAsked=1 fPickIn "${work}/engine-pick-on")" || pickBad+=" on exited $?;"
+[[ "${out}" == "doContainer=1 doPackage=0 skip= image= tag=" ]] || pickBad+=" on said: ${out//$'\n'/ | };"
+out="$(pickInside=1 fPickIn "${work}/engine-pick-in")" || pickBad+=" inside exited $?;"
+[[ "${out}" == "doContainer=0 doPackage=0 skip= image= tag=" ]] || pickBad+=" inside said: ${out//$'\n'/ | };"
+for pickLog in off on in; do
+	if [[ -s "${work}/engine-pick-${pickLog}" ]]; then pickBad+=" ${pickLog} asked the engine: $(tr '\n' '|' < "${work}/engine-pick-${pickLog}");"; fi
+done
+if [[ -z "${pickBad}" ]]
+	then fPass
+	else fFail "${pickBad}"
+fi
+
+## The checkers would only try the same failed build again.
+fId Etij2SF "checkers skip on an image that didn't build"
+: > "${work}/engine-noimage"
+out="$(
+	# shellcheck disable=2329  ## Called by the lifted functions, not here.
+	fEcho_Clean(){ :; }
+	# shellcheck disable=2034  ## Read by the lifted functions.
+	{ inContainer=0; checkerSkipWhy=""; imageSkipWhy="the image didn't build"; containerEngine="${work}/engine"; }
+	fLoad fGoCheckers_Ready || { echo "no fGoCheckers_Ready in cicd.bash"; exit 2; }
+	# shellcheck disable=2030,2031  ## The stub reads it.
+	export ENGINE_LOG="${work}/engine-noimage"
+	fGoCheckers_Ready; printf 'why=%s\n' "${checkerSkipWhy}"
+)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == "why=the image didn't build" ]] && [[ ! -s "${work}/engine-noimage" ]]
+	then fPass
+	else fFail "exited ${rc}, said '${out}', asked: $(tr '\n' '|' < "${work}/engine-noimage")"
+fi
+
+## The pre-push hook points the worktree's Zig at the checkout's cache.
+fId EtijCAL "the hook's Zig cache goes in"
+mkdir -p "${work}/hook-zig-cache" "${mainReal}/zig/.zig-cache"
+: > "${work}/engine-zc"
+out="$(zigCache="${work}/hook-zig-cache" fContainerIn "${worktreeMain}" "${work}/engine-zc" 0)" && rc=0 || rc=$?
+: > "${work}/engine-zc-in"
+zigCache="${mainReal}/zig/.zig-cache" fContainerIn "${worktreeMain}" "${work}/engine-zc-in" 0 >/dev/null 2>&1 || rc=$?
+if ((rc == 0)) && grep -q -- "^run .* -v ${work}/hook-zig-cache:${work}/hook-zig-cache .* -e ZIG_LOCAL_CACHE_DIR=${work}/hook-zig-cache " "${work}/engine-zc" \
+	&& grep -q -- "^run .* -e ZIG_LOCAL_CACHE_DIR=${mainReal}/zig/.zig-cache " "${work}/engine-zc-in" && ! grep -q -- "-v ${mainReal}/zig/.zig-cache:" "${work}/engine-zc-in"
+	then fPass
+	else fFail "exited ${rc}, asked: $(grep '^run ' "${work}/engine-zc" "${work}/engine-zc-in" || true)"
+fi
+
+## This checkout's cache is a link off the snapshotted dataset, and Zig
+## stopped on NotDir in the container.
+fId EtimFcG "a Zig cache linked out of the tree goes in"
+workReal="$(cd "${work}" && pwd -P)"
+mkdir -p "${work}/zc-target" "${mainReal}/zig"
+zcLinkBad=""
+if [[ -e "${mainReal}/zig/.zig-cache" && ! -L "${mainReal}/zig/.zig-cache" ]]; then
+	mv "${mainReal}/zig/.zig-cache" "${mainReal}/zig/.zig-cache.real"
+fi
+ln -sfn "${work}/zc-target" "${mainReal}/zig/.zig-cache"
+: > "${work}/engine-zclink"
+fContainerIn "${worktreeMain}" "${work}/engine-zclink" 0 >/dev/null 2>&1 || zcLinkBad+=" the stage exited $?;"
+rm -f -- "${mainReal}/zig/.zig-cache"
+if [[ -d "${mainReal}/zig/.zig-cache.real" ]]; then mv "${mainReal}/zig/.zig-cache.real" "${mainReal}/zig/.zig-cache"; fi
+grep -q -- "^run .* -v ${workReal}/zc-target:${workReal}/zc-target " "${work}/engine-zclink" || zcLinkBad+=" no mount for it;"
+if [[ -z "${zcLinkBad}" ]]
+	then fPass
+	else fFail "${zcLinkBad} asked: $(grep '^run ' "${work}/engine-zclink" || true)"
+fi
+
+## SDE is a kit on this machine, so the packaging inside can only find it
+## when it's handed in.
+fId EtimFcH "SDE goes in for packaging"
+mkdir -p "${work}/sde-kit"
+: > "${work}/sde-kit/sde64"; chmod +x "${work}/sde-kit/sde64"
+: > "${work}/engine-sde"
+out="$(rigSde="${work}/sde-kit/sde64" fContainerIn "${worktreeMain}" "${work}/engine-sde" 0)" && rc=0 || rc=$?
+if ((rc == 0)) && grep -q -- "^run .* -v ${workReal}/sde-kit:${workReal}/sde-kit:ro .* -e ZUID_SDE=${workReal}/sde-kit/sde64 " "${work}/engine-sde"
+	then fPass
+	else fFail "exited ${rc}, asked: $(grep '^run ' "${work}/engine-sde" || true)"
+fi
+
 ## The C sanitizer builds go to a scratch dir outside the repo, which the
 ## image only sees if it's mounted.
 fId EtAHpAi "mounts for a folder outside the repo"
@@ -759,7 +1218,9 @@ out="$(
 	# shellcheck disable=2034  ## Read by the lifted functions.
 	{
 		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerVolume="zuid-cicd-cache"; inContainer=0
+		containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"
 		containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine"
+		projectName="zuid"; runName="20261019-101112"; keepTemp=0; _dockerSteps=0; _dockerPid="${BASHPID}"; buildJobs=3
 	}
 	for fn in fInImage fContainer_RunArgs; do
 		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
@@ -770,13 +1231,310 @@ out="$(
 )" && rc=0 || rc=$?
 log="$(cat "${work}/engine-inimage" 2>/dev/null || true)"
 if ((rc == 0)) && [[ "$(grep -c '^run ' <<< "${log}")" == "2" ]] \
-	&& grep -qF -- "-v ${work}/outside:${work}/outside -w ${work}/outside zuid-cicd:t3st true" <<< "${log}" \
+	&& grep -qF -- "-v ${work}/outside:${work}/outside -w ${work}/outside zuid-cicd:t3st nice -n 19 true" <<< "${log}" \
 	&& grep -- "-w ${mainReal}/go " <<< "${log}" | grep -qvF -- "-v ${mainReal}/go:"
 	then fPass
 	else fFail "exited ${rc}, said '${out}', asked: ${log//$'\n'/ | }"
 fi
 
+## Each step in the image is held to its own count, a hard step to the
+## quarter, and nice inside, since the image's processes aren't ours.
+fId Etj0Hc2 "steps in the image get the step's job count"
+out="$(
+	# shellcheck disable=2034  ## Read by the lifted functions.
+	{
+		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerVolume="zuid-cicd-cache"; inContainer=0
+		containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"
+		containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine"
+		projectName="zuid"; runName="20261019-101112"; keepTemp=0; _dockerSteps=0; _dockerPid="${BASHPID}"; buildJobs=3; hardJobs=2
+	}
+	for fn in fInImage fContainer_RunArgs; do
+		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+	done
+	# shellcheck disable=2030,2031  ## The stub reads it; each case has its own.
+	export ENGINE_LOG="${work}/engine-jobs"
+	fInImage "${repoRoot}" true
+	# shellcheck disable=2034  ## Read by the lifted fInImage.
+	fHard(){ local -ri imageJobs="${hardJobs}"; fInImage "${repoRoot}" "$@"; }
+	fHard true
+	inContainer=1
+	fHard printenv ZUID_JOBS
+)" && rc=0 || rc=$?
+log="$(cat "${work}/engine-jobs" 2>/dev/null || true)"
+jobsBad=""
+grep -q -- "^run .*-hard-2 .* --cpus 2 --cpu-shares 256 -e ZUID_JOBS=2 -e ZUID_JOBS_CAP=2 .* zuid-cicd:t3st nice -n 19 true$" <<< "${log}" || jobsBad+=" the hard step;"
+grep -v -- "-hard-" <<< "${log}" | grep -q -- "^run .* --cpus 3 --cpu-shares 256 -e ZUID_JOBS=3 -e ZUID_JOBS_CAP=3 .* zuid-cicd:t3st nice -n 19 true$" || jobsBad+=" the plain step;"
+[[ "${out}" == "2" ]] || jobsBad+=" inside the image it said '${out}';"
+if ((rc == 0)) && [[ -z "${jobsBad}" ]]
+	then fPass
+	else fFail "exited ${rc},${jobsBad} asked: ${log//$'\n'/ | }"
+fi
+
+## Cleanup finds a run's leftovers by label, so everything gets them. docker
+## makes a missing volume on first use with none.
+fId EtitVm7 "containers, images and volumes are labeled and named"
+labelBad=""
+: > "${work}/engine-label"
+out="$(ENGINE_VOLUMES="zuid-cicd-cache" leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-label" 0)" || labelBad+=" the stage exited $?: ${out};"
+log="$(cat "${work}/engine-label")"
+labels="--label dev.project=zuid --label dev.run=20261019-101112"
+grep -qxF "volume create ${labels} zuid-zig-cache" <<< "${log}" || labelBad+=" no labeled zuid-zig-cache;"
+! grep -q "^volume create .*zuid-cicd-cache" <<< "${log}" || labelBad+=" made a volume that was there;"
+grep -q -- "^build ${labels} -t zuid-cicd:" <<< "${log}" || labelBad+=" main image unlabeled;"
+grep -q -- "^build --build-arg BASE=.* ${labels} -t zuid-codeql:" <<< "${log}" || labelBad+=" CodeQL image unlabeled;"
+grep -q -- "^run --rm .* --name zuid-20261019-101112-container ${labels} " <<< "${log}" || labelBad+=" stage container unnamed or unlabeled;"
+## Steps in the image, two of them in a $(...), named apart, and --keep-temp
+## drops --rm.
+out="$(
+	# shellcheck disable=2034  ## Read by the lifted functions.
+	{
+		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerVolume="zuid-cicd-cache"; inContainer=0
+		containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"
+		containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine"
+		projectName="zuid"; runName="20261019-101112"; keepTemp=0; _dockerSteps=0; _dockerPid="${BASHPID}"; buildJobs=3
+	}
+	for fn in fInImage fContainer_RunArgs; do
+		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+	done
+	# shellcheck disable=2030,2031  ## The stub reads them; each case has its own.
+	export ENGINE_LOG="${work}/engine-steps"
+	fStage_Go_Checkers(){ fInImage "${repoRoot}" true; a="$(fInImage "${repoRoot}" true)"; b="$(fInImage "${repoRoot}" true)"; : "${a}${b}"; }
+	fStage_Go_Checkers
+	keepTemp=1
+	fInImage "${repoRoot}" true
+)" || labelBad+=" fInImage exited $?: ${out};"
+mapfile -t names < <(grep -o -- '--name [^ ]*' "${work}/engine-steps" | cut -d' ' -f2 || true)
+if ((${#names[@]} != 4)) || [[ "$(printf '%s\n' "${names[@]}" | sort -u | wc -l | tr -d ' ')" != "4" ]]; then labelBad+=" names not 4 apart: ${names[*]};"; fi
+[[ "${names[0]:-}" == "zuid-20261019-101112-go-checkers-1" ]] || labelBad+=" first step named '${names[0]:-}';"
+[[ "${names[1]:-}" == zuid-20261019-101112-go-checkers-2-* ]] || labelBad+=" second step named '${names[1]:-}';"
+[[ "$(grep -c -- "^run --rm --init .* ${labels} " "${work}/engine-steps" || true)" == "3" ]] || labelBad+=" not 3 labeled --rm runs;"
+grep -q -- "^run --init .* ${labels} " "${work}/engine-steps" || labelBad+=" --keep-temp still has --rm;"
+if [[ -z "${labelBad}" ]]
+	then fPass
+	else fFail "${labelBad}"
+fi
+
+## The end of a run, failed or not, stops and removes its own containers.
+fStopIn(){  ## engine log; keep, run come in as variables
+	(
+		# shellcheck disable=2329  ## Called by the lifted function.
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		fLoad fContainer_StopRun || { echo "no fContainer_StopRun in cicd.bash"; exit 2; }
+		# shellcheck disable=2034  ## Read by the lifted function.
+		{ _dockerEngine="${work}/engine"; _dockerProject="zuid"; _dockerRun="${run-20261019-101112}"; _dockerPid="${BASHPID}"; keepTemp="${keep:-0}"; _dockerGone=(); }
+		# shellcheck disable=2030,2031  ## The stub reads them; each case has its own.
+		export ENGINE_LOG="$1" ENGINE_PS=$'c0ffee1\nc0ffee2\n'
+		: > "${ENGINE_LOG}"
+		fContainer_StopRun
+		printf 'gone=%s\n' "${_dockerGone[*]}"
+	) 2>&1
+}
+fId EtitVm8 "a run's containers go at its end, unless --keep-temp"
+stopBad=""
+out="$(fStopIn "${work}/engine-stop")" || stopBad+=" exited $?;"
+log="$(cat "${work}/engine-stop")"
+[[ "${log}" == "ps -aq --filter label=dev.project=zuid --filter label=dev.run=20261019-101112"$'\n'"stop -t 10 c0ffee1 c0ffee2"$'\n'"rm c0ffee1 c0ffee2" ]] || stopBad+=" asked: ${log//$'\n'/ | };"
+[[ "${out}" == "gone=2 container(s)" ]] || stopBad+=" said '${out}';"
+out="$(keep=1 fStopIn "${work}/engine-stop-keep")" || stopBad+=" keep exited $?;"
+! grep -qE '^(stop|rm) ' "${work}/engine-stop-keep" || stopBad+=" --keep-temp removed them;"
+[[ "${out}" == *"kept 2 container(s)"* ]] || stopBad+=" keep said '${out}';"
+out="$(run="" fStopIn "${work}/engine-stop-none")" || stopBad+=" none exited $?;"
+[[ ! -s "${work}/engine-stop-none" ]] || stopBad+=" a run without docker asked: $(tr '\n' '|' < "${work}/engine-stop-none");"
+## Both traps call it, and fMain tidies once the stages have passed.
+trapBody="$(sed -n '/^function _fTrap_Exit(){/,/^}/p; /^function _fTrap_Error(){/,/^}/p' "${cicd}")"
+[[ "$(grep -c 'fContainer_StopRun' <<< "${trapBody}")" == "2" ]] || stopBad+=" not called from both traps;"
+## In fSteps since 2026102416233104.
+mainBody="$(sed -n '/^fSteps(){/,/^}/p' "${cicd}")"
+tidyAt="$(grep -n '^		fContainer_Tidy$' <<< "${mainBody}" | cut -d: -f1 || true)"
+zigAt="$(grep -n 'then fZigCache_Tidy; fi' <<< "${mainBody}" | cut -d: -f1 || true)"
+publishAt="$(grep -n 'then fStep "Publish" fStage_Publish;' <<< "${mainBody}" | cut -d: -f1 || true)"
+if ! [[ "${tidyAt}" =~ ^[0-9]+$ && "${zigAt}" =~ ^[0-9]+$ && "${publishAt}" =~ ^[0-9]+$ ]] || ((tidyAt < zigAt || tidyAt > publishAt)); then
+	stopBad+=" fMain doesn't call fContainer_Tidy after the stages;"
+fi
+if [[ -z "${stopBad}" ]]
+	then fPass
+	else fFail "${stopBad}"
+fi
+
+## Only the project's, older tags keeping the one before the current, a week
+## of build cache, the volume's cap, and one line.
+fTidyIn(){  ## engine log; label, cap come in as variables
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions.
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		for fn in fContainer_Tidy fContainer_StopRun fContainer_DropOlder fContainer_VolumeCap fDocker_Bytes fCodeql_Tag; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{
+			repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerEngine="${work}/engine"; projectName="zuid"; runName="20261019-101112"
+			containerImage="zuid-cicd"; codeqlImage="zuid-codeql"; containerVolume="zuid-cicd-cache"; zigCacheCapMB=2048; keepTemp=0
+			containerTag="${newTag}"; _dockerEngine="${containerEngine}"; _dockerProject="zuid"; _dockerRun="${runName}"; _dockerGone=(); _dockerPid="${BASHPID}"
+		}
+		mkdir -p "${repoRoot}/cicd/container/codeql"; echo "FROM codeql" > "${repoRoot}/cicd/container/codeql/Dockerfile"
+		ENGINE_NEW="${newTag}" ENGINE_NEW_CODEQL="zuid-codeql:$(echo "FROM codeql" | git hash-object --stdin | cut -c1-12)-${newTag#*:}"
+		# shellcheck disable=2030,2031  ## The stub reads them; each case has its own.
+		export ENGINE_LOG="$1" ENGINE_NEW ENGINE_NEW_CODEQL ENGINE_DANGLING=$'d4ng1e\n' ENGINE_VOLUME_LABEL="${label-zuid}" ENGINE_CAP_OUT="${cap:-}" ENGINE_DF="${work}/df-sizes"
+		printf '%s\n' "142.5GB 7.052GB 14.91GB 137.3GB" "${dfAfter-139.6GB 7.052GB 14.61GB 136.8GB}" > "${ENGINE_DF}"
+		: > "${ENGINE_LOG}"; rm -f "${ENGINE_LOG}.df"
+		fContainer_Tidy
+		printf 'run=%s\n' "${_dockerRun}"
+	) 2>&1
+}
+fId EtitVm9 "a passing run tidies docker by label"
+tidyBad=""
+out="$(cap="emptied 3145728" fTidyIn "${work}/engine-tidy")" || tidyBad+=" exited $?: ${out};"
+log="$(cat "${work}/engine-tidy")"
+rmis="$(grep '^rmi ' <<< "${log}" || true)"
+[[ "${rmis}" == "rmi zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld"$'\n'"rmi zuid-cicd:0ld0ld0ld0ld"$'\n'"rmi d4ng1e" ]] || tidyBad+=" removed '${rmis//$'\n'/ | }';"
+grep -qxF "image ls zuid-cicd --filter label=dev.project=zuid --format {{.CreatedAt}}"$'\t'"{{.Repository}}:{{.Tag}}" <<< "${log}" || tidyBad+=" tags not listed by label;"
+grep -qxF "images -q --filter dangling=true --filter label=dev.project=zuid" <<< "${log}" || tidyBad+=" dangling not by label;"
+grep -qxF "builder prune -f --filter until=168h" <<< "${log}" || tidyBad+=" no builder prune;"
+grep -q -- "^run --rm --init .* -v zuid-cicd-cache:/cache --name zuid-20261019-101112-cache-cap --label dev.project=zuid --label dev.run=20261019-101112 --cpus 1 --cpu-shares 256 ${newTag} nice -n 19 sh -c" <<< "${log}" \
+	&& grep -q -- " sh 2097152$" <<< "${log}" || tidyBad+=" no capped volume check;"
+! grep -qE '^(rmi|.*-f ).*(prevprevprev|'"${newTag#*:}"')' <<< "${rmis}" || tidyBad+=" removed a kept tag;"
+! grep -qE '^(system prune|rmi -f|image prune)' <<< "${log}" || tidyBad+=" pruned wide;"
+want="Docker .....: removed zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld, zuid-cicd:0ld0ld0ld0ld, 1 dangling image(s), zuid-cicd-cache's contents, 3072 MB, build cache over a week old; about 3.7 GB freed"
+[[ "${out}" == *"${want}"$'\n'"run=" ]] || tidyBad+=" said '${out//$'\n'/ | }';"
+out="$(label="" dfAfter="" fTidyIn "${work}/engine-tidy-nolabel")" || tidyBad+=" unlabeled exited $?;"
+! grep -q -- "-cache-cap" "${work}/engine-tidy-nolabel" || tidyBad+=" checked an unlabeled volume;"
+## A df that didn't answer is no reason to claim the whole lot was freed.
+[[ "${out}" == *"; an unknown amount freed, since docker system df didn't answer"$'\n'* ]] || tidyBad+=" a silent df said '${out//$'\n'/ | }';"
+if [[ -z "${tidyBad}" ]]
+	then fPass
+	else fFail "${tidyBad}"
+fi
+
 git -C "${worktreeMain}" worktree remove --force "${worktreeDir}"
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Zig never trims a cache, so the end of a run empties each of ours that's
+## over the cap or was filled by another Zig. A stand-in zig names the version.
+fZigTidyIn(){  ## repo dir, cap in MB, inContainer
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2329
+		zig(){ printf '0.17.0\n'; }
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{
+			repoRoot="$(cd "$1" && pwd -P)"; zigCacheCapMB="$2"; inContainer="$3"
+			zigCacheStamp=".cicd-zig-version"; containerZigCache="${zigGlobal:-/zig-cache}"
+		}
+		local fn=""
+		for fn in fZigCache_Tidy fZigCache_Empty; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		fZigCache_Tidy
+	) 2>&1
+}
+## A cache with a file in it, and a stamp if one is given.
+fZigCacheMake(){  ## dir, [stamp]
+	mkdir -p "$1/o/0123abcd"; printf 'x%.0s' {1..2000} > "$1/o/0123abcd/obj"
+	if [[ -n "${2:-}" ]]; then printf '%s\n' "$2" > "$1/.cicd-zig-version"; fi
+}
+## Only the stamp left, naming this Zig.
+fZigCacheEmptied(){  ## dir
+	[[ -d "$1" && "$(ls -A "$1")" == ".cicd-zig-version" && "$(cat "$1/.cicd-zig-version")" == "0.17.0" ]]
+}
+
+fId Etipgwi "a Zig cache over the cap is emptied whole"
+zt="${work}/zt-cap"; ztReal=""
+mkdir -p "${zt}/.git" "${work}/zt-cap-target"
+fZigCacheMake "${zt}/zig/.zig-cache" "0.17.0"
+fZigCacheMake "${zt}/zig/vendor/dep/.zig-cache"
+fZigCacheMake "${zt}/.git/.zig-cache"
+fZigCacheMake "${work}/zt-cap-target/.zig-cache"
+mkdir -p "${zt}/linked"; ln -s "${work}/zt-cap-target/.zig-cache" "${zt}/linked/.zig-cache"
+out="$(fZigTidyIn "${zt}" 0 0)" && rc=0 || rc=$?
+ztReal="$(cd "${zt}" && pwd -P)"
+capBad=""
+((rc == 0)) || capBad+=" exited ${rc};"
+fZigCacheEmptied "${zt}/zig/.zig-cache"            || capBad+=" zig/.zig-cache not emptied;"
+fZigCacheEmptied "${zt}/zig/vendor/dep/.zig-cache" || capBad+=" a dependency's not emptied;"
+fZigCacheEmptied "${work}/zt-cap-target/.zig-cache" || capBad+=" the linked one not emptied;"
+[[ -L "${zt}/linked/.zig-cache" ]]                 || capBad+=" the link is gone;"
+[[ -f "${zt}/.git/.zig-cache/o/0123abcd/obj" ]]    || capBad+=" went into .git;"
+[[ "${out}" == *"Zig cache ..: emptied ${ztReal}/zig/.zig-cache, "*" MB, over 0 MB"* ]] || capBad+=" no line for it;"
+if [[ -z "${capBad}" ]]
+	then fPass
+	else fFail "${capBad} said '${out//$'\n'/ | }'"
+fi
+
+fId Etipgwj "a Zig cache from another Zig is emptied, this one's kept"
+zt="${work}/zt-ver"
+mkdir -p "${zt}"
+fZigCacheMake "${zt}/old/.zig-cache" "0.16.0"
+fZigCacheMake "${zt}/same/.zig-cache" "0.17.0"
+fZigCacheMake "${zt}/unstamped/.zig-cache"
+out="$(fZigTidyIn "${zt}" 99999 0)" && rc=0 || rc=$?
+verBad=""
+((rc == 0)) || verBad+=" exited ${rc};"
+fZigCacheEmptied "${zt}/old/.zig-cache" || verBad+=" 0.16.0's not emptied;"
+[[ -f "${zt}/same/.zig-cache/o/0123abcd/obj" ]] || verBad+=" this Zig's emptied;"
+[[ -f "${zt}/unstamped/.zig-cache/o/0123abcd/obj" ]] || verBad+=" an unstamped one emptied;"
+[[ "$(cat "${zt}/unstamped/.zig-cache/.cicd-zig-version" 2>/dev/null || true)" == "0.17.0" ]] || verBad+=" an unstamped one not stamped;"
+[[ "${out}" == *"emptied "*"/old/.zig-cache, filled by Zig 0.16.0"* && "${out}" != *"/same/"* ]] || verBad+=" wrong lines;"
+if [[ -z "${verBad}" ]]
+	then fPass
+	else fFail "${verBad} said '${out//$'\n'/ | }'"
+fi
+
+fId Etipgwk "the image's Zig cache volume, only inside"
+zt="${work}/zt-global"
+mkdir -p "${zt}"
+fZigCacheMake "${work}/zt-global-cache" "0.17.0"
+zgReal="$(cd "${work}/zt-global-cache" && pwd -P)"
+out="$(ZIG_GLOBAL_CACHE_DIR="${zgReal}" zigGlobal="${zgReal}" fZigTidyIn "${zt}" 0 0)" || true
+globalBad=""
+[[ -f "${zgReal}/o/0123abcd/obj" ]] || globalBad+=" emptied outside the image;"
+out="$(ZIG_GLOBAL_CACHE_DIR="${zgReal}" zigGlobal="${zgReal}" fZigTidyIn "${zt}" 0 1)" && rc=0 || rc=$?
+((rc == 0)) || globalBad+=" exited ${rc};"
+fZigCacheEmptied "${zgReal}" || globalBad+=" not emptied inside;"
+if [[ -z "${globalBad}" ]]
+	then fPass
+	else fFail "${globalBad} said '${out//$'\n'/ | }'"
+fi
+
+fId Etipgwl "a Zig cache is emptied only where it's ours"
+zt="${work}/zt-guard"
+mkdir -p "${zt}" "${work}/zt-guard-notcache"
+fZigCacheMake "${work}/zt-guard-notcache"
+fZigCacheMake "${work}/zt-guard-outside/.zig-cache"
+mkdir -p "${zt}/bad"; ln -s "${work}/zt-guard-notcache" "${zt}/bad/.zig-cache"
+out="$(fZigTidyIn "${zt}" 0 0)" && rc=0 || rc=$?
+guardBad=""
+[[ -f "${work}/zt-guard-notcache/o/0123abcd/obj" ]] || guardBad+=" followed a link to something else;"
+[[ "${out}" == *"couldn't empty "*"/zt-guard/bad/.zig-cache, "* ]] || guardBad+=" didn't say so;"
+## Straight at the guard, the way a broken caller would be.
+guardOut="$(
+	# shellcheck disable=2034  ## Read by the lifted function.
+	{ repoRoot="$(cd "${zt}" && pwd -P)"; inContainer=0; containerZigCache="${work}/zt-guard-outside/.zig-cache" ;}
+	fLoad fZigCache_Empty || exit 2
+	for p in "${work}/zt-guard-outside/.zig-cache" "${repoRoot}/../zt-guard-outside/.zig-cache" "${repoRoot}" "${repoRoot}/bad/.zig-cache" "${containerZigCache}"; do
+		if fZigCache_Empty "${p}"; then printf 'took %s\n' "${p}"; fi
+	done
+	inContainer=1
+	if fZigCache_Empty "${repoRoot}/../zt-guard-outside/.zig-cache"; then printf 'took it through ..\n'; fi
+)" || guardBad+=" the guard's subshell failed;"
+[[ -z "${guardOut}" ]] || guardBad+=" ${guardOut//$'\n'/;}"
+[[ -f "${work}/zt-guard-outside/.zig-cache/o/0123abcd/obj" ]] || guardBad+=" emptied one outside the repo;"
+if [[ -z "${guardBad}" ]]
+	then fPass
+	else fFail "${guardBad} said '${out//$'\n'/ | }'"
+fi
+
+fId Etipgwm "the Zig caches are tidied where Zig ran"
+## The run inside the image does its own, and the run outside built nothing.
+## In fSteps since 2026102416233104, after the last place Package can run.
+mainBody="$(sed -n '/^fSteps(){/,/^}/p' "${cicd}")"
+tidyAt="$(grep -n 'if ((doZig)) && ((! doContainer)); then fZigCache_Tidy; fi' <<< "${mainBody}" | cut -d: -f1 || true)"
+packageAt="$(grep -n 'then fStep "Package" fStage_Package; fi' <<< "${mainBody}" | tail -n1 | cut -d: -f1 || true)"
+if [[ "${tidyAt}" =~ ^[0-9]+$ && "${packageAt}" =~ ^[0-9]+$ ]] && ((tidyAt > packageAt))
+	then fPass
+	else fFail "fMain doesn't call fZigCache_Tidy after the package stage, outside the image's run"
+fi
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -864,7 +1622,8 @@ fPsLintIn(){  ## skip reason, exit code for the run in the image
 		# shellcheck disable=2329,2034  ## Called by the lifted stage, and checkerSkipWhy is its local.
 		fGoCheckers_Ready(){ checkerSkipWhy="${PS_SKIP}"; }
 		# shellcheck disable=2034  ## Read by the lifted functions.
-		{ containerVolume="zuid-cicd-cache"; inContainer=0; containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine" ;}
+		{ containerVolume="zuid-cicd-cache"; containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"; inContainer=0; containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine"
+		  projectName="zuid"; runName="20261019-101112"; keepTemp=0; _dockerSteps=0; _dockerPid="${BASHPID}"; buildJobs=3 ;}
 		local fn=""
 		for fn in fId fInImage fContainer_RunArgs fStage_Shell_PowerShell; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
@@ -892,7 +1651,7 @@ if ((rc != 0)) || ! grep -qxF "  ok ....: EtB6KVF PSScriptAnalyzer on our PowerS
 		grep -qF "${repoRoot}/${psFile}" <<< "${psLog}" || psBad+=" ${psFile} wasn't linted;"
 	done
 }
-grep -q -- "^run .* zuid-cicd:t3st env ZUID_PS_FILES=" <<< "${psLog}" || psBad+=" it didn't run in the image: '${psLog}';"
+grep -q -- "^run .* zuid-cicd:t3st nice -n 19 env ZUID_PS_FILES=" <<< "${psLog}" || psBad+=" it didn't run in the image: '${psLog}';"
 out="$(fPsLintIn "" 1)" && rc=0 || rc=$?
 if ((rc == 0)) || [[ "${out}" != *"PSScriptAnalyzer found something"* ]]; then psBad+=" a finding didn't fail it: '${out}';"; fi
 : > "${work}/engine-pslint"
@@ -1469,6 +2228,7 @@ mkdir -p "${fuzzBin}"
 ## A find names the test, as Zig 0.17.0 words it, and leaves the input in the cache.
 cat > "${fuzzBin}/zig" <<'EOF'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >> "${FAKE_ZIG_ARGS:-/dev/null}"
 case "${FAKE_FUZZ}" in
 	clean) echo "======= FUZZING REPORT ======="; exit 0 ;;
 	broken) echo "error: the build broke"; exit 1 ;;
@@ -1504,7 +2264,7 @@ fFuzzIn(){  ## mode, name of the test that finds
 		done
 		# shellcheck disable=2034  ## Read by the lifted functions.
 		{
-			doQuick=0; doFuzz=1; zigDir="${dir}/zig"; buildJobs=1
+			doQuick=0; doFuzz=1; zigDir="${dir}/zig"; buildJobs=5; hardJobs=2
 			_scratchDirs=(); artifactDir="${dir}/artifacts"; runStamp="pipeline-test"
 		}
 		## The script's own exit cleanup. A failed case leaves through exit 1,
@@ -1558,6 +2318,15 @@ done
 if ((rc != 0)) && [[ -z "${fuzzBad}" ]]
 	then fPass
 	else fFail "exited ${rc},${fuzzBad} said '${out}'"
+fi
+
+## Fuzzing is a hard step, so it gets a quarter of the box, not the build's half.
+fId Etj0Hc1 "fuzzing takes the hard-step job count"
+: > "${work}/fuzz-args"
+out="$(FAKE_ZIG_ARGS="${work}/fuzz-args" fFuzzIn clean)" && rc=0 || rc=$?
+if ((rc == 0)) && grep -qxF -- "build -j2 test --fuzz=50K" "${work}/fuzz-args"
+	then fPass
+	else fFail "exited ${rc}, zig was asked: '$(tr '\n' ' ' < "${work}/fuzz-args")'"
 fi
 
 ## Each case above left its fuzz.log folder in the temp dir, 2 a run, since
@@ -1741,6 +2510,48 @@ else
 	fi
 fi
 
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## The pre-push hook, in a scratch repo with a bare remote. The committed
+## cicd.bash is a stand-in that writes down what it was asked for.
+
+fId Etj4p9i "the hook gates main with --merge-gate"
+hookRepo="${work}/hook/repo"
+gateLog="${work}/hook/gate.log"
+git init -q --bare "${work}/hook/remote.git"
+git init -q -b main "${hookRepo}"
+git -C "${hookRepo}" config user.name t
+git -C "${hookRepo}" config user.email t@t
+mkdir -p "${hookRepo}/cicd/utility/git-hooks" "${hookRepo}/go" "${hookRepo}/project"
+cp "${cicd%/cicd.bash}/utility/git-hooks/pre-push" "${cicd%/cicd.bash}/utility/git-hooks/no-gate-paths" "${hookRepo}/cicd/utility/git-hooks/"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\n' "${gateLog}" > "${hookRepo}/cicd/cicd.bash"
+chmod +x "${hookRepo}/cicd/cicd.bash"
+printf 'x\n' > "${hookRepo}/README.md"; printf 'package x\n' > "${hookRepo}/go/x.go"
+git -C "${hookRepo}" add -A
+git -C "${hookRepo}" commit -q -m first
+git -C "${hookRepo}" config core.hooksPath cicd/utility/git-hooks
+git -C "${hookRepo}" remote add origin "${work}/hook/remote.git"
+fHookPush(){  ## ref
+	: > "${gateLog}"
+	env -u SKIP_GATE TMPDIR="${work}/hook" git -C "${hookRepo}" push -q origin "$1" > /dev/null 2>&1 || printf 'push failed\n' >> "${gateLog}"
+	tr '\n' ' ' < "${gateLog}"
+}
+hookBad=""
+out="$(fHookPush main)";                          [[ "${out}" == "--merge-gate " ]] || hookBad+=" a new main said '${out}';"
+printf 'y\n' >> "${hookRepo}/README.md"; printf 'y\n' > "${hookRepo}/project/notes.txt"
+git -C "${hookRepo}" add -A; git -C "${hookRepo}" commit -q -m docs
+out="$(fHookPush main)";                          [[ -z "${out}" ]] || hookBad+=" docs only said '${out}';"
+printf 'y\n' >> "${hookRepo}/README.md"; printf '// y\n' >> "${hookRepo}/go/x.go"
+git -C "${hookRepo}" add -A; git -C "${hookRepo}" commit -q -m code
+out="$(fHookPush main)";                          [[ "${out}" == "--merge-gate " ]] || hookBad+=" docs and code said '${out}';"
+printf '// z\n' >> "${hookRepo}/go/x.go"
+git -C "${hookRepo}" add -A; git -C "${hookRepo}" commit -q -m dev
+out="$(fHookPush HEAD:refs/heads/dev)";           [[ -z "${out}" ]] || hookBad+=" a push to dev said '${out}';"
+if [[ -z "${hookBad}" ]]
+	then fPass
+	else fFail "${hookBad}"
+fi
+
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
 fLine ""
@@ -1748,6 +2559,9 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: The gate flags, and the pre-push hook's --merge-gate and docs skip.
+##		- 20261025 JC: The Zig cache tidy, and the Zig cache volume in the run arguments.
+##		- 20261025 JC: The container by default, --no-container.
 ##		- 20261023 JC: --no-fuzz, --no-profile, --no-demo. cli-test.bash with a relative --bin.
 ##		- 20261019 JC: The CodeQL report, and CodeQL's image under --container.
 ##		- 20261019 JC: --leakcheck.

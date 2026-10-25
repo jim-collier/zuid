@@ -81,9 +81,11 @@ RUN curl -fsSLo /tmp/pssa.nupkg "https://www.powershellgallery.com/api/v2/packag
 
 # Runs as the caller's uid, which has no passwd entry here. /cache is where the
 # named volume goes, and a new volume takes this dir's mode, so anyone can write.
-RUN mkdir -m 1777 /cache /cache/home
+# Zig's global cache has a volume of its own, so cicd.bash can empty it whole.
+RUN mkdir -m 1777 /cache /cache/home /zig-cache
 ENV PATH=/opt/go/bin:/opt/zig:${PATH} \
 	HOME=/cache/home \
+	ZIG_GLOBAL_CACHE_DIR=/zig-cache \
 	GOTOOLCHAIN=local \
 	POWERSHELL_TELEMETRY_OPTOUT=1 \
 	POWERSHELL_UPDATECHECK=Off \
