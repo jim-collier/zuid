@@ -370,7 +370,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - Comments and notes say the image has no `ionice`, but it does.
 	- ID: 2026102509054739
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261025-090547
 	- Opened by: JC
@@ -382,6 +382,15 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Expected behavior [Bug]: Either the containers also get `ionice -c 3` inside, or the comment says why not.
 	- Reproduced [Bug]: Yes, 20261025, on b23. Preflight inside the image printed "IO idle".
 	- Possible cause [Bug]: The comment was written from an assumption, not a check.
+	- Actual cause [Bug]: As above. The image, and the CodeQL image, both have `/usr/bin/ionice`.
+	- Actual fix [Bug]: The three `docker run` lines for the images in `cicd.bash` (the container stage, the CodeQL run, and `fInImage`) now start `ionice -c 3 nice -n 19`. The wrong comment is corrected.
+	- Decisions:
+		- 20261025: 2026102416233102's log line "The image has no ionice" is closed history and stays. This item is the correction.
+	- Swept: every `ionice` and `nice -n` in `cicd/`. The `bash:3.2` runs in `installer-test.bash` keep plain `nice`, since that is a different image. Both zuid images answered `command -v ionice`.
+	- Branch: round1025b
+	- Test case: The `run` line asserts in `pipeline-test.bash` (EsJ9SjF, EtAj5P2, Etij2SC family, Etj0Hc2, and the cache cap and ps cases) now want `ionice -c 3 nice -n 19`. Updated for the change this item asked for, not newly written.
+	- Verified: 20261025, `pipeline-test.bash` 128 of 128, shellcheck, `test-ids.py check`.
+	- Closed: 20261025-102455
 
 - The FreeBSD release has no `.pkg`.
 	- ID: 2026101410500001

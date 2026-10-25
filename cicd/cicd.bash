@@ -1088,7 +1088,7 @@ fStage_Container(){
 	fContainer_InnerArgs innerArgs
 
 	"${containerEngine}" run "${runArgs[@]}" "${innerEnv[@]}" -w "${repoRoot}" \
-		"${runTag}" nice -n 19 bash "${repoRoot}/cicd/cicd.bash" "${innerArgs[@]}" \
+		"${runTag}" ionice -c 3 nice -n 19 bash "${repoRoot}/cicd/cicd.bash" "${innerArgs[@]}" \
 		|| { _wasLastEchoBlank=1; fThrowError "The run in the container failed; its output is above."  "${FUNCNAME[0]}"; }
 
 }
@@ -1259,7 +1259,7 @@ fContainer_VolumeCap(){
 	if ((! keepTemp)); then runArgs=(--rm "${runArgs[@]}"); fi
 	runArgs+=(--cpus 1 --cpu-shares 256)
 	# shellcheck disable=2016  ## Expanded inside.
-	out="$("${containerEngine}" run "${runArgs[@]}" "${containerTag}" nice -n 19 sh -c '
+	out="$("${containerEngine}" run "${runArgs[@]}" "${containerTag}" ionice -c 3 nice -n 19 sh -c '
 		kb="$(du -sk /cache | cut -f1)"
 		if [ "${kb}" -gt "$1" ]; then chmod -R u+w /cache 2>/dev/null; find /cache -xdev -mindepth 1 -user "$(id -u)" -delete; echo "emptied ${kb}"; fi
 	' sh "$((zigCacheCapMB * 1024))" 2>/dev/null || true)"
@@ -1783,8 +1783,8 @@ fInImage(){  ## folder, command...
 	local -a runArgs=()
 	fContainer_RunArgs runArgs "${step}" "${jobs}"
 	if [[ "${dir}" != "${repoRoot}" && "${dir}" != "${repoRoot}/"* ]]; then runArgs+=(-v "${dir}:${dir}"); fi
-	## The image has no ionice.
-	"${containerEngine}" run "${runArgs[@]}" -w "${dir}" "${containerTag}" nice -n 19 "$@"
+	## util-linux is in the image, so ionice runs here too.
+	"${containerEngine}" run "${runArgs[@]}" -w "${dir}" "${containerTag}" ionice -c 3 nice -n 19 "$@"
 }
 
 
@@ -4731,7 +4731,7 @@ fLoadAvg(){
 
 ## Children inherit it, so every tool this starts runs low. The image's
 ## processes are docker's children, not ours, so fInImage and fStage_Container
-## add nice inside as well, and --cpu-shares.
+## add ionice and nice inside as well, and --cpu-shares.
 fLowPriority(){
 	renice 19 -p "$$" >/dev/null 2>&1 || true
 	if command -v ionice &>/dev/null; then ionice -c 3 -p "$$" >/dev/null 2>&1 || true; fi
