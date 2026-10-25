@@ -105,6 +105,36 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: round1025b
 	- Test case: dedvn in `cli-test.bash`. It failed with the cache load turned off, and passes with it on. The other two items name existing tests.
 
+- CICD reset: test IDs
+	- ID: 2026102416233106
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, for the lines from the fuzz, leak check, packaging and profile steps, which a quick run doesn't reach.
+	- Needs external testing: The `macos` workflow on the round branch, for `test-ids.py` and the new pipeline cases under the Mac's Python and bash.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the ID and per-test line bullets in `Testing` in the shared CICD rules. Every test already has an ID and prints one line.
+		- An ID is whole minutes since 2000-01-01 00:00 UTC, in lowercase Crockford base 32, such as `decp8`. Today they're milliseconds in base 62.
+		- Every existing ID is converted once, from the time it already holds. When 2 come out the same, the newer one takes the next free minute.
+		- The ID check, the `Test case:` rows in this backlog and the private notes move to the new IDs together.
+		- Each test prints `PASS <id> <name>`, `FAIL <id> <name>` or `SKIP <id> <why>`, in place of `ok ....:`, `FAIL ..:` and `skip ..:`. The lint report reads the old lines, so it changes with them.
+		- Earlier decisions this overrides: the private test ID rule, from the 20260930 request.
+	- Progress log:
+		- 20261025: All 485 IDs, and 3 retired ones still named in comments and here, converted once from the times they held. 386 shared a minute with an older one and took the next free one, at most 37 minutes later. The old-to-new map is kept outside the repo.
+		- 20261025: `test-ids.py` encodes and decodes minutes in Crockford base 32. `new` skips minutes already taken in the tree, since `-n 5` now spans 5 minutes.
+		- 20261025: The stray ID check now reads any 5-symbol word that decodes into range. Zig's `defer` decodes to 2026-10-26, so plain words like it are listed in `WORDS` in `test-ids.py`, and a word joined by `_` no longer counts.
+		- 20261025: `fTestPass`, `fTestSkip` and `fTestFail` in `cicd.bash`, the three harnesses and `test-ids.py go|zig` print `PASS`, `FAIL` and `SKIP`. `lint-report.bash` drops the PASS lines in place of the `ok ....:` ones.
+	- Decisions:
+		- 20261025: A SKIP line keeps the test's name, with the reason after it in parentheses, so it reads `SKIP <id> <name> (<why>)`, not `SKIP <id> <why>`. The lines keep their two-space indent under the step.
+		- 20261025: dedw3 checks `dan8z`, the minute before the first commit, not `decp8`, since a `decp8` written into a harness would be read as a stray ID.
+	- Swept: every `ok ....:`, `FAIL ..:`, `skip ..:` and `???????` in `cicd/` and `.github/`, every 7-symbol pattern in the harnesses (the `--list` case had one), `lint-report.bash`, `development.md` and `design.md` (no line or ID format in either), and every tracked file for an old ID, none left.
+	- Branch: round1025b
+	- Test case: dedw3 (minutes in Crockford base 32, both ways), dedw4 (`new` skips taken minutes), dedw5 (plain words are not strays), dedw6 (PASS, FAIL and SKIP lines from `test-ids.py zig`). dedw3, dedw4 and dedw6 failed against the old `test-ids.py`, and so did dedty, the `--list` case. dedw5 failed with `WORDS` emptied.
+	- Verified: 20261025, `pipeline-test.bash` 138 of 138, `test-ids.py check` (489, all unique), shellcheck, and `cicd.bash --backlog-run-quick shell installers docs go`, 14 of 14 steps in the image, and `--backlog-run-quick zig`, 8 of 8. `lint-report.bash` on a made-up log counted the FAIL line and the real warning, not the PASS one. Load about 2 to 6 on 32 CPUs.
+
 - Run CICD on GitHub's free arm64 macOS runners.
 	- ID: 2026102318361185
 	- Type: Enhancement
@@ -325,36 +355,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Decisions:
 		- 20261025: Nothing moves to `--long`. The default run took about 17 minutes on b23 on 20261023, well under the hour.
 
-- CICD reset: test IDs
-	- ID: 2026102416233106
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, for the lines from the fuzz, leak check, packaging and profile steps, which a quick run doesn't reach.
-	- Needs external testing: The `macos` workflow on the round branch, for `test-ids.py` and the new pipeline cases under the Mac's Python and bash.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261024-162331
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per the ID and per-test line bullets in `Testing` in the shared CICD rules. Every test already has an ID and prints one line.
-		- An ID is whole minutes since 2000-01-01 00:00 UTC, in lowercase Crockford base 32, such as `decp8`. Today they're milliseconds in base 62.
-		- Every existing ID is converted once, from the time it already holds. When 2 come out the same, the newer one takes the next free minute.
-		- The ID check, the `Test case:` rows in this backlog and the private notes move to the new IDs together.
-		- Each test prints `PASS <id> <name>`, `FAIL <id> <name>` or `SKIP <id> <why>`, in place of `ok ....:`, `FAIL ..:` and `skip ..:`. The lint report reads the old lines, so it changes with them.
-		- Earlier decisions this overrides: the private test ID rule, from the 20260930 request.
-	- Progress log:
-		- 20261025: All 485 IDs, and 3 retired ones still named in comments and here, converted once from the times they held. 386 shared a minute with an older one and took the next free one, at most 37 minutes later. The old-to-new map is kept outside the repo.
-		- 20261025: `test-ids.py` encodes and decodes minutes in Crockford base 32. `new` skips minutes already taken in the tree, since `-n 5` now spans 5 minutes.
-		- 20261025: The stray ID check now reads any 5-symbol word that decodes into range. Zig's `defer` decodes to 2026-10-26, so plain words like it are listed in `WORDS` in `test-ids.py`, and a word joined by `_` no longer counts.
-		- 20261025: `fTestPass`, `fTestSkip` and `fTestFail` in `cicd.bash`, the three harnesses and `test-ids.py go|zig` print `PASS`, `FAIL` and `SKIP`. `lint-report.bash` drops the PASS lines in place of the `ok ....:` ones.
-	- Decisions:
-		- 20261025: A SKIP line keeps the test's name, with the reason after it in parentheses, so it reads `SKIP <id> <name> (<why>)`, not `SKIP <id> <why>`. The lines keep their two-space indent under the step.
-		- 20261025: dedw3 checks `dan8z`, the minute before the first commit, not `decp8`, since a `decp8` written into a harness would be read as a stray ID.
-	- Swept: every `ok ....:`, `FAIL ..:`, `skip ..:` and `???????` in `cicd/` and `.github/`, every 7-symbol pattern in the harnesses (the `--list` case had one), `lint-report.bash`, `development.md` and `design.md` (no line or ID format in either), and every tracked file for an old ID, none left.
-	- Branch: round1025b
-	- Test case: dedw3 (minutes in Crockford base 32, both ways), dedw4 (`new` skips taken minutes), dedw5 (plain words are not strays), dedw6 (PASS, FAIL and SKIP lines from `test-ids.py zig`). dedw3, dedw4 and dedw6 failed against the old `test-ids.py`, and so did dedty, the `--list` case. dedw5 failed with `WORDS` emptied.
-	- Verified: 20261025, `pipeline-test.bash` 138 of 138, `test-ids.py check` (489, all unique), shellcheck, and `cicd.bash --backlog-run-quick shell installers docs go`, 14 of 14 steps in the image, and `--backlog-run-quick zig`, 8 of 8. `lint-report.bash` on a made-up log counted the FAIL line and the real warning, not the PASS one. Load about 2 to 6 on 32 CPUs.
-
 - CICD reset: temp files and safe removal
 	- ID: 2026102416233107
 	- Type: Enhancement
@@ -426,31 +426,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 			- A format with `%c` can't repeat within a run, so the repeat warning never fires for it.
 	- Decisions:
 		- 20261024: The proposal above, as asked. Its C context change goes in design.md beside the old rule.
-
-- Comments and notes say the image has no `ionice`, but it does.
-	- ID: 2026102509054739
-	- Type: Bug
-	- Status: Done
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261025-090547
-	- Opened by: JC
-	- Related IDs: 2026102416233102, 2026102508540624
-	- Target OS: Linux
-	- Steps to reproduce [Bug]:
-		- Run `command -v ionice` in `zuid-cicd:8029eec721c8`.
-	- Incorrect behavior [Bug]: It's `/usr/bin/ionice`, from util-linux. `fInImage` in `cicd.bash` says "The image has no ionice" and runs only `nice -n 19` inside, and 2026102416233102's log says the same.
-	- Expected behavior [Bug]: Either the containers also get `ionice -c 3` inside, or the comment says why not.
-	- Reproduced [Bug]: Yes, 20261025, on b23. Preflight inside the image printed "IO idle".
-	- Possible cause [Bug]: The comment was written from an assumption, not a check.
-	- Actual cause [Bug]: As above. The image, and the CodeQL image, both have `/usr/bin/ionice`.
-	- Actual fix [Bug]: The three `docker run` lines for the images in `cicd.bash` (the container stage, the CodeQL run, and `fInImage`) now start `ionice -c 3 nice -n 19`. The wrong comment is corrected.
-	- Decisions:
-		- 20261025: 2026102416233102's log line "The image has no ionice" is closed history and stays. This item is the correction.
-	- Swept: every `ionice` and `nice -n` in `cicd/`. The `bash:3.2` runs in `installer-test.bash` keep plain `nice`, since that is a different image. Both zuid images answered `command -v ionice`.
-	- Branch: round1025b
-	- Test case: The `run` line asserts in `pipeline-test.bash` (ddrj1, de5ea, dedm0 family, dedp8, and the cache cap and ps cases) now want `ionice -c 3 nice -n 19`. Updated for the change this item asked for, not newly written.
-	- Verified: 20261025, `pipeline-test.bash` 128 of 128, shellcheck, `test-ids.py check`.
-	- Closed: 20261025-102455
 
 - The FreeBSD release has no `.pkg`.
 	- ID: 2026101410500001
@@ -1887,6 +1862,31 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: none. A check of the test machine, not of zuid; the runs above are the result.
 	- Acceptance signoff: Self-closed: the update check and the retest ran.
 	- Closed: 20261004-183600
+
+- Comments and notes say the image has no `ionice`, but it does.
+	- ID: 2026102509054739
+	- Type: Bug
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261025-090547
+	- Opened by: JC
+	- Related IDs: 2026102416233102, 2026102508540624
+	- Target OS: Linux
+	- Steps to reproduce [Bug]:
+		- Run `command -v ionice` in `zuid-cicd:8029eec721c8`.
+	- Incorrect behavior [Bug]: It's `/usr/bin/ionice`, from util-linux. `fInImage` in `cicd.bash` says "The image has no ionice" and runs only `nice -n 19` inside, and 2026102416233102's log says the same.
+	- Expected behavior [Bug]: Either the containers also get `ionice -c 3` inside, or the comment says why not.
+	- Reproduced [Bug]: Yes, 20261025, on b23. Preflight inside the image printed "IO idle".
+	- Possible cause [Bug]: The comment was written from an assumption, not a check.
+	- Actual cause [Bug]: As above. The image, and the CodeQL image, both have `/usr/bin/ionice`.
+	- Actual fix [Bug]: The three `docker run` lines for the images in `cicd.bash` (the container stage, the CodeQL run, and `fInImage`) now start `ionice -c 3 nice -n 19`. The wrong comment is corrected.
+	- Decisions:
+		- 20261025: 2026102416233102's log line "The image has no ionice" is closed history and stays. This item is the correction.
+	- Swept: every `ionice` and `nice -n` in `cicd/`. The `bash:3.2` runs in `installer-test.bash` keep plain `nice`, since that is a different image. Both zuid images answered `command -v ionice`.
+	- Branch: round1025b
+	- Test case: The `run` line asserts in `pipeline-test.bash` (ddrj1, de5ea, dedm0 family, dedp8, and the cache cap and ps cases) now want `ionice -c 3 nice -n 19`. Updated for the change this item asked for, not newly written.
+	- Verified: 20261025, `pipeline-test.bash` 128 of 128, shellcheck, `test-ids.py check`.
+	- Closed: 20261025-102455
 
 - `cli-test.bash` fails ddj75 when `--bin` is a relative path.
 	- ID: 2026102321183047
