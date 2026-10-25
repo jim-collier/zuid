@@ -184,12 +184,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: `cicd.bash` exits at once when the guard file is missing. A copy of the script without it ran on and left its folder, which ddhnc's copied tree showed. ddhnc copies the guard now.
 		- Verified: `pipeline-test.bash` 144 of 144, with `HOST_TEMP` set and with it and `TMPDIR` unset. `--backlog-run-quick shell go --no-container`, `--backlog-run-quick shell` and `--backlog-run-quick zig` in the image passed, and left no run folder or container. shellcheck on the stage's list, the guard added, is clean.
 		- Verified: Each new case failed with its fault put in: the guard's path rule taken out (dee1p), no live-process check (dee1q), no removal in the exit trap (dee1r, dee1s), and the old TERM handling (dee1s). Against the old `cicd.bash`, dee1q, dee1r and dee1s failed.
+		- 20261025: dee1q failed on the `macos` workflow (run 40241731556), and so did dee2b. The run folder was right: the test read `TMPDIR`, `TEMP` and `TMP` with one `printenv`, and the Mac's takes only one name. The harness reads them one at a time now (d6bd26c).
+		- Verified: with the old harness, dee1q and dee2b failed on vmKt6m under bash 5.3, and here with a one-name `printenv` stand-in on PATH. With the fix, `pipeline-test.bash` is 151 of 151 on vmKt6m, and 152 of 152 here, with the stand-in and without. shellcheck on the stage's list is clean.
 	- Decisions:
 		- 20261025: The guard prints nothing when it removes something, unlike the shared one. 2026102416233109's line at the end of a run says what went.
 		- 20261025: A `HOST_TEMP` that isn't there stops the run, rather than being made. It most likely means a disk that isn't mounted.
-	- Swept: every `rm -r` in `cicd.bash`. Every function `pipeline-test.bash` lifts that removes a folder: `_fRemoveScratchDirs` and `fStage_Zig_Fuzz`. The only copy of `cicd.bash` in the harnesses is ddhnc's. The harnesses, the hook, the packager and the installers are the other 2 children.
+	- Swept: every `rm -r` in `cicd.bash`. Every function `pipeline-test.bash` lifts that removes a folder: `_fRemoveScratchDirs` and `fStage_Zig_Fuzz`. The only copy of `cicd.bash` in the harnesses is ddhnc's. The harnesses, the hook, the packager and the installers are the other 2 children. For the `printenv` fix: every `printenv` in the repo. Only these 2 named more than one.
 	- Branch: round1025c
-	- Commit: 5b2f7c3
+	- Commit: 5b2f7c3, d6bd26c
 	- Test case: dee1p, dee1q, dee1r and dee1s.
 
 - CICD reset: guard in the harnesses and the hook
@@ -214,12 +216,13 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: Found while testing: the stale sweep ran before `cicd.bash`'s exit trap knew the new folder, so a Ctrl+C in that window left it. dee1s caught it. The sweep is its own call now, after.
 		- Verified: `pipeline-test.bash` 147 of 147, alone and with `ZUID_RUN_DIR` set. `installer-test.bash` 95 of 95. `cli-test.bash` 91 of 91. `cicd.bash --backlog-run-quick shell installers`, here and in the image, passed, with the harness folders inside the run's and nothing left after. shellcheck on the stage's list is clean.
 		- Verified: Against the old scripts, dee2c and dee2d failed. dee2b failed with the nesting taken out, and dee2c with only the old `cli-test.bash` put back.
+		- 20261025: dee2b failed on the `macos` workflow (run 40241731556), from the same `printenv` read as dee1q on 2026102514072140. Fixed there (d6bd26c). It passed on vmKt6m after, and failed before.
 	- Decisions:
 		- 20261025: The hook went from `sh` to Bash, rather than calling Bash for each guard call.
 		- 20261025: A harness run alone sweeps the project's stale run folders too, the same as `cicd.bash`.
 	- Swept: every `rm -r`, `-exec rm` and `Remove-Item -Recurse` in the 3 harnesses, the hook, `package.bash`, both installers, `cicd.bash` and the guard, which dee2c now checks. Every copy of a script in the harnesses that needs the guard beside it: ddhnc, ddgmp's `package.bash` and dedps's hook.
 	- Branch: round1025c
-	- Commit: a07c50e
+	- Commit: a07c50e, d6bd26c
 	- Test case: dee2b (the folder, nested or alone), dee2c (no recursive removal outside a guard), dee2d (the hook's run folder, gone after).
 
 - CICD reset: guard in the packager and the installers
