@@ -55,6 +55,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every `fStep` and `fStep_Off` in `fSteps` and `fSteps_Checks`, `fContainer_InnerArgs`, the dogfood reason that read `doZig`, `--help`, `development.md`, and the `fInitIn`, `fPlanIn` and `fContainerIn` rigs in `pipeline-test.bash`. The pre-push hook and the `macos` workflow pass no areas.
 	- Branch: round1025b
 	- Test case: dedtw (area parsing and refusals), dedtx (the steps each area runs, here and in the image, and the areas handed in), dedty (`--list` runs nothing, and every test ID is in some step). Each failed against the scripts before the change. dedtx also failed with the areas left out of the image's arguments and with the bash 3.2 step ungated, and dedty with the old function scan in `test-ids.py`.
+	- Verified: 20261025, `pipeline-test.bash` 131 of 131, shellcheck, `test-ids.py check` (481, all unique), the content scrub, and `cicd.bash --backlog-run-quick shell docs` on this machine and in the image, 8 of 8 steps each. `--list` with no other options took 0.24 s. Load about 11 on 32 CPUs.
 	- Verified: 20261025, the `macos` workflow on `dev` at d5b6fe9, run 40233761521, a full run on the arm64 runner, passed all 22 steps, 527 PASS and 0 FAIL, dedty included.
 	- Acceptance signoff: Self-closed 20261025. Pipeline-only, checked on both hosts, and nothing a person would see differently.
 	- Closed: 20261025-215500
@@ -85,6 +86,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every `doQuick` and `doFuzz` read in `cicd.bash`, the fuzz skip reasons, `fContainer_InnerArgs`, `--help`, `development.md`, `install.md` and `design.md` -> "Testing". The pre-push hook passes `--merge-gate`, and the `macos` workflow `--no-dogfood`, so neither changes.
 	- Branch: round1025b
 	- Test case: dedv6 (what `--quick` and the gates plan), dedv7 (the quick fuzz budgets), dedv8 (`--no-fuzz` handed to the image on a quick run), and debne. Each failed against the old `cicd.bash` and passes now.
+	- Verified: 20261025, `pipeline-test.bash` 134 of 134, here and with `ZUID_IN_CONTAINER=1`. shellcheck, `test-ids.py check` (484, all unique), and the content scrub. `cicd.bash -q --quick --no-dogfood --no-sync --no-backup --only go --no-container` passed 14 of 14 steps, Go fuzz included. The same with `--only zig --container` passed 16 of 16 steps across the handoff to the image, Zig fuzz at 5K included. Load about 4 to 16 on 32 CPUs.
 	- Verified: 20261025, the `macos` workflow on `dev` at d5b6fe9, run 40233761521, a full run on the arm64 runner, passed all 22 steps, 527 PASS and 0 FAIL. Zig fuzz ran on a Mac for the first time and passed, step 18.
 	- Acceptance signoff: Self-closed 20261025. Pipeline-only, and the Mac run read right.
 	- Closed: 20261025-215500
