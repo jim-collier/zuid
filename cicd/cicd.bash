@@ -26,8 +26,11 @@
 ##		- 20261023 JC: --no-fuzz, --no-profile, --no-demo.
 ##		- 20261025 JC: The container by default where docker answers. --no-container.
 ##		- 20261025 JC: Zig caches emptied over 2 GB or after a Zig change. The image's has its own volume.
+##		- 20261025 JC: Docker cleanup by label at the end of a run. --keep-temp.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
+## Global, since the exit trap reads it after fMain has gone.
+declare -i keepTemp=0
 ## Set by --container for the run it starts inside.
 declare -i inContainer=0; [[ "${ZUID_IN_CONTAINER:-}" == "1" ]] && inContainer=1
 declare    thisVersion="0.1.0"
@@ -137,6 +140,9 @@ fConfig(){ :;
 
 	## --container. The image is tagged with cicd/container/Dockerfile's git hash.
 	## Caches live in a named volume, out of the tree and its backups.
+	## Every container, image and volume a run makes is labeled with this and
+	## the run's name. Nothing without this label is ever removed.
+	default_projectName="zuid"
 	default_containerImage="zuid-cicd"
 	default_containerVolume="zuid-cicd-cache"
 	## Zig's global cache in the image gets a volume of its own, at the image's
@@ -224,6 +230,8 @@ fPrint_Help(){
 		    --leakcheck       Add the slow leak checks. On by default, so this is for
 		                      a --quick or --gate run. See below.
 		    --no-leakcheck    Leave the slow leak checks out.
+		    --keep-temp       Keep this run's containers, rather than removing them
+		                      at the end. See below.
 		    -q, --quiet       No banner and no prompting. Without -m the commit
 		                      message is generated.
 		    -h, --help        This.
@@ -295,6 +303,16 @@ fPrint_Help(){
 		A stamp file in each one records which. ~/.cache/zig is shared, so it's
 		left alone.
 
+		Every container, image and volume a run makes is labeled dev.project=${projectName}
+		and dev.run=<run>, and each container is named ${projectName}-<run>-<step>. At the
+		end of a run, failed or interrupted too, its containers are stopped and
+		removed, unless --keep-temp. A run that passed then removes the project's
+		dangling images, and every tag of ${containerImage} and ${codeqlImage} but the current
+		one and the one before it. Then a docker builder prune keeps the last week
+		of build cache, and the ${containerVolume} volume is emptied when it's over
+		${zigCacheCapMB} MB. One line says what went and about what it freed. Nothing
+		without the project's label is touched.
+
 		--leakcheck is a soak test of each side, clang's cross-file analyzer, and
 		CodeQL. The soaks repeat what a caller does and fail when the heap after
 		round 2N is bigger than after round N by more than a margin: the Go one on
@@ -354,6 +372,7 @@ fMain(){
 	local -i default_keepDaily=0
 	local -i default_keepWeekly=0
 	local -i default_keepMonthly=0
+	local    default_projectName=""
 	local    default_containerImage=""
 	local    default_containerVolume=""
 	local    default_containerZigVolume=""
@@ -379,6 +398,7 @@ fMain(){
 	local -ri keepDaily="${default_keepDaily}"
 	local -ri keepWeekly="${default_keepWeekly}"
 	local -ri keepMonthly="${default_keepMonthly}"
+	local -r  projectName="${default_projectName}"
 	local -r  containerImage="${default_containerImage}"
 	local -r  containerVolume="${default_containerVolume}"
 	local -r  containerZigVolume="${default_containerZigVolume}"
@@ -405,6 +425,8 @@ fMain(){
 	local -r utilityDir="${repoRoot}/cicd/utility"
 	local -r incomingDir="${repoRoot}/dist-incoming"
 	local -r runStamp="$(fRunStamp)"
+	## Becomes the run folder's name with 2026102416233107.
+	local -r runName="${runStamp}"
 	fSection_Init
 
 	## No single stage gets the whole machine. Half the cores, at least one.
@@ -507,6 +529,8 @@ fMain(){
 	if [[ -n "${packageSkipWhy}" ]]; then fEcho_Clean; fEcho_Clean "Package ....: skipped, ${packageSkipWhy}"; fi
 	## After the last stage that runs Zig. With the image, the run inside does it.
 	if ((doZig)) && ((! doContainer)); then fZigCache_Tidy; fi
+	## Only once the run's image has passed, since older tags go then.
+	fContainer_Tidy
 	if ((doPublish));              then fStage_Publish;   fi
 	if ((doZig)) && ((doDogfood)); then fStage_Dogfood;   fi
 	if ((doBackup));               then fStage_Backup;    fi
@@ -576,6 +600,7 @@ fInit(){
 			--no-fuzz)    doFuzz=0    ;;
 			--no-profile) doProfile=0 ;;
 			--no-demo)    doDemo=0    ;;
+			--keep-temp)  keepTemp=1  ;;
 			-q|--quiet)   doQuietly=1 ;;
 
 			## ¯\_(:/)_/¯
@@ -827,7 +852,7 @@ fStage_Container(){
 	if ((doLeakcheck)); then fCodeql_Image; runTag="${codeqlTag}"; fi
 
 	local -a runArgs=()
-	fContainer_RunArgs runArgs
+	fContainer_RunArgs runArgs container
 
 	local -a innerEnv=(-e ZUID_IN_CONTAINER=1 -e "USER=${USER:-builder}" -e "ZUID_RUN_STAMP=${runStamp}" -e "ZUID_COLUMNS=${_sectionWidth}")
 	if [[ -n "${SOURCE_DATE_EPOCH+set}" ]]; then innerEnv+=(-e "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"); fi
@@ -853,6 +878,7 @@ fStage_Container(){
 	## --quick already says these. The demo stays out here anyway.
 	if ((! doQuick)) && ((! doFuzz));    then innerArgs+=(--no-fuzz);    fi
 	if ((! doQuick)) && ((! doProfile)); then innerArgs+=(--no-profile); fi
+	if ((keepTemp)); then innerArgs+=(--keep-temp); fi
 	fEcho_Clean "Runs .......: cicd.bash ${innerArgs[*]}"
 
 	"${containerEngine}" run "${runArgs[@]}" "${innerEnv[@]}" -w "${repoRoot}" \
@@ -873,21 +899,20 @@ fContainer_Image(){  ## [soft]
 
 	## Tagged by the recipe's hash, so an edited recipe can't run on the old image.
 	containerTag="${containerImage}:$(git hash-object "${recipe}" | cut -c1-12)"
-	local -i built=0
 	if "${containerEngine}" image inspect "${containerTag}" &>/dev/null; then
 		fEcho_Clean "Image ......: ${containerTag}"
 	else
 		fEcho_Clean "Image ......: building ${containerTag}"
-		if ! "${containerEngine}" build -t "${containerTag}" "$(dirname "${recipe}")"; then
+		if ! "${containerEngine}" build --label "dev.project=${projectName}" --label "dev.run=${runName}" -t "${containerTag}" "$(dirname "${recipe}")"; then
 			if [[ "${1:-}" == "soft" ]]; then fEcho_Clean "Image ......: ${containerTag} didn't build"; containerTag=""; return 1; fi
 			fThrowError "Could not build '${containerTag}'."  "${FUNCNAME[0]}"
 		fi
-		built=1
 	fi
-	## A CodeQL image on an older main one is never run again, and it holds
-	## that image's layers, so it goes first. Only --leakcheck rebuilds it.
-	fContainer_DropOthers "${codeqlImage}" "" "-${containerTag##*:}"
-	if ((built)); then fContainer_DropOthers "${containerImage}" "${containerTag}"; fi
+	## Older tags wait for fContainer_Tidy, once this one has passed.
+	if [[ -z "${_dockerRun}" ]]; then
+		fContainer_Volumes
+		_dockerEngine="${containerEngine}" _dockerProject="${projectName}" _dockerRun="${runName}" _dockerPid="${BASHPID}"
+	fi
 
 }
 
@@ -900,42 +925,44 @@ fCodeql_Image(){
 	local -r recipe="${repoRoot}/cicd/container/codeql/Dockerfile"
 	[[ -f "${recipe}" ]] || fThrowError "Missing CodeQL's container recipe: '${recipe}'."  "${FUNCNAME[0]}"
 
-	## A new main image means a new CodeQL one, so both hashes are in the tag.
-	codeqlTag="${codeqlImage}:$(git hash-object "${recipe}" | cut -c1-12)-${containerTag##*:}"
+	codeqlTag="$(fCodeql_Tag)"
 	if "${containerEngine}" image inspect "${codeqlTag}" &>/dev/null; then
 		fEcho_Clean "CodeQL .....: ${codeqlTag}"
 		return 0
 	fi
 	fEcho_Clean "CodeQL .....: building ${codeqlTag}"
-	"${containerEngine}" build --build-arg "BASE=${containerTag}" -t "${codeqlTag}" "$(dirname "${recipe}")" \
+	"${containerEngine}" build --build-arg "BASE=${containerTag}" --label "dev.project=${projectName}" --label "dev.run=${runName}" \
+		-t "${codeqlTag}" "$(dirname "${recipe}")" \
 		|| fThrowError "Could not build '${codeqlTag}'."  "${FUNCNAME[0]}"
-	fContainer_DropOthers "${codeqlImage}" "${codeqlTag}"
 
 }
 
+## A new main image means a new CodeQL one, so both hashes are in the tag.
+fCodeql_Tag(){ printf '%s:%s-%s\n' "${codeqlImage}" "$(git hash-object "${repoRoot}/cicd/container/codeql/Dockerfile" | cut -c1-12)" "${containerTag##*:}" ;}
 
-## What a new image replaces is a couple of GB nobody runs again. A plain rmi,
-## so one a container still uses stays.
-fContainer_DropOthers(){  ## image, tag to keep, [and any tag ending in this]
-	local -r image="$1" keep="$2" keepEnd="${3:-}"
-	local old=""
-	while IFS= read -r old; do
-		if [[ -z "${old}" ]] || [[ "${old}" == "${keep}" ]]; then continue; fi
-		if [[ -n "${keepEnd}" && "${old}" == *"${keepEnd}" ]]; then continue; fi
-		if "${containerEngine}" rmi "${old}" >/dev/null 2>&1
-			then fEcho_Clean "Removed ....: ${old}"
-			else fEcho_Clean "Kept .......: ${old} (in use)"
-		fi
-	done < <("${containerEngine}" image ls "${image}" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
+
+## docker makes a missing volume on first use, with no labels, so ours are
+## made first.
+fContainer_Volumes(){
+	local vol=""
+	for vol in "${containerVolume}" "${containerZigVolume}"; do
+		if "${containerEngine}" volume inspect "${vol}" &>/dev/null; then continue; fi
+		"${containerEngine}" volume create --label "dev.project=${projectName}" --label "dev.run=${runName}" "${vol}" >/dev/null \
+			|| fEcho_Clean "Volume .....: couldn't make ${vol}, so docker makes it unlabeled"
+	done
 }
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The repo at its own path as the caller's uid, the cache volumes, and a
-## linked worktree's main .git.
-fContainer_RunArgs(){  ## array to fill
+## linked worktree's main .git. Named and labeled for the run, so its end
+## finds what's left.
+fContainer_RunArgs(){  ## array to fill, step
 	local -n runArgs_k4w="$1"
-	runArgs_k4w=(--rm --init --user "$(id -u):$(id -g)" -v "${repoRoot}:${repoRoot}" -v "${containerVolume}:/cache" -v "${containerZigVolume}:${containerZigCache}")
+	runArgs_k4w=()
+	if ((! keepTemp)); then runArgs_k4w+=(--rm); fi
+	runArgs_k4w+=(--init --user "$(id -u):$(id -g)" -v "${repoRoot}:${repoRoot}" -v "${containerVolume}:/cache" -v "${containerZigVolume}:${containerZigCache}")
+	runArgs_k4w+=(--name "${projectName}-${runName}-${2:?}" --label "dev.project=${projectName}" --label "dev.run=${runName}")
 	local -r gitCommon="$(git -C "${repoRoot}" rev-parse --path-format=absolute --git-common-dir)"
 	if [[ "${gitCommon}" != "${repoRoot}/"* ]]; then runArgs_k4w+=(-v "${gitCommon}:${gitCommon}"); fi
 	## A Zig cache linked off the snapshotted dataset points at nothing inside,
@@ -944,6 +971,105 @@ fContainer_RunArgs(){  ## array to fill
 	local zigCacheReal=""
 	if [[ -L "${zigCacheLink}" ]]; then zigCacheReal="$(readlink -f "${zigCacheLink}" || true)"; fi
 	if [[ -d "${zigCacheReal}" && "${zigCacheReal}" != "${repoRoot}/"* ]]; then runArgs_k4w+=(-v "${zigCacheReal}:${zigCacheReal}"); fi
+}
+
+
+## The run's own containers, by label. --rm takes them on a clean exit, so
+## this is for a failed or interrupted one, or --keep-temp's. Called from the
+## exit trap too, after fMain's locals are gone, so it reads only globals.
+fContainer_StopRun(){
+	## Not from a $(...)'s ERR trap, while the run goes on.
+	if [[ -z "${_dockerRun}" || "${BASHPID}" != "${_dockerPid}" ]]; then return 0; fi
+	local -a ids=()
+	mapfile -t ids < <("${_dockerEngine}" ps -aq --filter "label=dev.project=${_dockerProject}" --filter "label=dev.run=${_dockerRun}" 2>/dev/null || true)
+	if ((${#ids[@]} == 0)) || [[ -z "${ids[0]}" ]]; then return 0; fi
+	if ((keepTemp)); then
+		fEcho_Clean "Docker .....: kept ${#ids[@]} container(s), labeled dev.run=${_dockerRun} (--keep-temp)"
+		return 0
+	fi
+	"${_dockerEngine}" stop -t 10 "${ids[@]}" >/dev/null 2>&1 || true
+	## One run with --rm is already gone once it stops.
+	"${_dockerEngine}" rm "${ids[@]}" >/dev/null 2>&1 || true
+	_dockerGone+=("${#ids[@]} container(s)")
+}
+
+
+## The end of a run that passed: its containers, the project's dangling images,
+## older tags, a week of build cache kept, and the cache volume's cap. Only
+## what has the project's label, and a plain rmi, so one in use stays.
+fContainer_Tidy(){
+	if [[ -z "${_dockerRun}" ]]; then return 0; fi
+	local -r before="$(fDocker_Bytes)"
+	_dockerGone=()
+	fContainer_StopRun
+	## CodeQL's first, since each holds the layers of the main one under it.
+	fContainer_DropOlder "${codeqlImage}" "$(fCodeql_Tag)"
+	fContainer_DropOlder "${containerImage}" "${containerTag}"
+	local -a ids=()
+	mapfile -t ids < <("${containerEngine}" images -q --filter dangling=true --filter "label=dev.project=${projectName}" 2>/dev/null || true)
+	if ((${#ids[@]})) && [[ -n "${ids[0]}" ]] && "${containerEngine}" rmi "${ids[@]}" >/dev/null 2>&1; then _dockerGone+=("${#ids[@]} dangling image(s)"); fi
+	"${containerEngine}" builder prune -f --filter until=168h >/dev/null 2>&1 || true
+	fContainer_VolumeCap
+	local -r after="$(fDocker_Bytes)"
+	local freed="an unknown amount freed, since docker system df didn't answer" gone=""
+	if ((${#_dockerGone[@]})); then printf -v gone '%s, ' "${_dockerGone[@]}"; fi
+	if [[ -n "${before}" && -n "${after}" ]]; then
+		freed="about $(awk -v b="${before}" -v a="${after}" 'BEGIN { d = b - a; if (d < 0) d = 0; printf "%.1f GB", d / 1e9 }') freed"
+	fi
+	fEcho_Clean
+	fEcho_Clean "Docker .....: removed ${gone}build cache over a week old; ${freed}"
+	## Done, so the exit trap has nothing to ask.
+	_dockerRun="" _dockerGone=()
+}
+
+
+## Keeps the current tag and the newest other one, which is the last to pass
+## before it.
+fContainer_DropOlder(){  ## image, current tag
+	local -r image="$1" current="$2"
+	local ref="" line=""
+	local -i kept=0
+	while IFS= read -r line; do
+		ref="${line##*$'\t'}"
+		if [[ -z "${ref}" || "${ref}" == "${current}" || "${ref}" == *"<none>"* ]]; then continue; fi
+		if ((kept == 0)); then kept=1; continue; fi
+		if "${containerEngine}" rmi "${ref}" >/dev/null 2>&1; then _dockerGone+=("${ref}"); fi
+	done < <("${containerEngine}" image ls "${image}" --filter "label=dev.project=${projectName}" --format '{{.CreatedAt}}'$'\t''{{.Repository}}:{{.Tag}}' 2>/dev/null | sort -r || true)
+}
+
+
+## The cache volume is emptied when it's over the cap, the same rule as the
+## Zig caches. From inside, since only there can its size be read. Everything
+## the runs wrote goes; the image's own root-owned folders stay. Go's module
+## cache is read-only, hence the chmod.
+fContainer_VolumeCap(){
+	local label="" out=""
+	label="$("${containerEngine}" volume inspect --format '{{index .Labels "dev.project"}}' "${containerVolume}" 2>/dev/null || true)"
+	if [[ "${label}" != "${projectName}" || -z "${containerTag}" ]]; then return 0; fi
+	local -a runArgs=(--init --user "$(id -u):$(id -g)" -v "${containerVolume}:/cache" --name "${projectName}-${runName}-cache-cap" --label "dev.project=${projectName}" --label "dev.run=${runName}")
+	if ((! keepTemp)); then runArgs=(--rm "${runArgs[@]}"); fi
+	# shellcheck disable=2016  ## Expanded inside.
+	out="$("${containerEngine}" run "${runArgs[@]}" "${containerTag}" sh -c '
+		kb="$(du -sk /cache | cut -f1)"
+		if [ "${kb}" -gt "$1" ]; then chmod -R u+w /cache 2>/dev/null; find /cache -xdev -mindepth 1 -user "$(id -u)" -delete; echo "emptied ${kb}"; fi
+	' sh "$((zigCacheCapMB * 1024))" 2>/dev/null || true)"
+	if [[ "${out}" == "emptied "* ]]; then _dockerGone+=("${containerVolume}'s contents, $((${out#emptied } / 1024)) MB"); fi
+}
+
+
+## Total bytes docker reports, or nothing when it doesn't answer. Shared
+## layers count once, which is why the freed figure comes from this and not
+## from what was removed. One call has come back empty, cause not found
+## (2026102416233101).
+fDocker_Bytes(){
+	local sizes=""
+	sizes="$("${containerEngine}" system df --format '{{.Size}}' 2>/dev/null)" || return 0
+	if [[ -z "${sizes}" ]]; then return 0; fi
+	awk '
+		{ n = $1 + 0; u = $1; sub(/^[0-9.]+/, "", u); u = toupper(u)
+		  m = (u == "KB") ? 1e3 : (u == "MB") ? 1e6 : (u == "GB") ? 1e9 : (u == "TB") ? 1e12 : 1
+		  t += n * m }
+		END { printf "%.0f\n", t }' <<< "${sizes}"
 }
 
 
@@ -1459,8 +1585,15 @@ fInImage(){  ## folder, command...
 		(cd "${dir}" && "$@")
 		return
 	fi
+	## Named for the stage that asked, and numbered, since --keep-temp keeps
+	## each one. A count bumped in a $(...) is lost, so there the pid helps.
+	local step="${FUNCNAME[1]:-image}"
+	if [[ "${step}" == "fCCheck" ]]; then step="${FUNCNAME[2]:-image}"; fi
+	step="${step#fStage_}"; step="${step#f}"; step="${step,,}"; step="${step//_/-}"
+	_dockerSteps=$((_dockerSteps + 1)); step+="-${_dockerSteps}"
+	if [[ "${BASHPID}" != "${_dockerPid}" ]]; then step+="-${BASHPID}"; fi
 	local -a runArgs=()
-	fContainer_RunArgs runArgs
+	fContainer_RunArgs runArgs "${step}"
 	if [[ "${dir}" != "${repoRoot}" && "${dir}" != "${repoRoot}/"* ]]; then runArgs+=(-v "${dir}:${dir}"); fi
 	"${containerEngine}" run "${runArgs[@]}" -w "${dir}" "${containerTag}" "$@"
 }
@@ -4574,6 +4707,10 @@ function fSection(){
 
 declare -i _wasCleanupRun=0
 declare -a _scratchDirs=()
+## Set by fContainer_Image, for the exit trap.
+declare _dockerEngine="" _dockerProject="" _dockerRun="" _dockerPid=""
+declare -i _dockerSteps=0
+declare -a _dockerGone=()
 
 function fThrowError(){
 	local    errMsg="${1:-}"
@@ -4605,6 +4742,8 @@ function _fTrap_Exit(){
 	if [[ "${_wasCleanupRun}" == "0" ]]; then  ## String compare is less to fail than integer
 		_wasCleanupRun=1
 		_fRemoveScratchDirs
+		fContainer_StopRun
+		if ((${#_dockerGone[@]})); then fEcho_Clean "Docker .....: removed ${_dockerGone[*]} of this run"; fi
 		_fSingleExitPoint "${@}"
 	fi
 }
@@ -4612,6 +4751,8 @@ function _fTrap_Error(){
 	if [[ "${_wasCleanupRun}" == "0" ]]; then  ## String compare is less to fail than integer
 		_wasCleanupRun=1
 		_fRemoveScratchDirs
+		fContainer_StopRun
+		if ((${#_dockerGone[@]})); then fEcho_Clean "Docker .....: removed ${_dockerGone[*]} of this run"; fi
 		fEcho_ResetBlankCounter
 		_fSingleExitPoint "${@}"
 	fi

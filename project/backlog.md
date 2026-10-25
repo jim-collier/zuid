@@ -291,6 +291,46 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: deb8b3a
 	- Test case: Etipgwi (over the cap, every cache in the tree, through a link, never `.git`), Etipgwj (another Zig's stamp, and none), Etipgwk (the image's volume, only inside), Etipgwl (the guard), Etipgwm (where fMain calls it). Each failed against the script before the change, and passes after.
 
+- CICD reset: container cleanup
+	- ID: 2026102416233101
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: The round's `--gate`, which builds the new `zuid-cicd` image. It should end with one `Docker .....:` line. After it, `docker image inspect` on the new tag should show both labels, `docker volume ls --filter label=dev.project=zuid` should list `zuid-cicd-cache` and `zuid-zig-cache`, and `docker ps -a --filter label=dev.project=zuid` should list nothing.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101916041200, 2026102406590100
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the container bullets in `Cleanup after a run` in the shared CICD rules. Containers already run with `--rm`.
+		- Every container, image and volume the pipeline makes gets 2 labels, `dev.project=zuid` and `dev.run=<run folder>`. Containers are named `zuid-<run folder>-<step>`.
+		- At the end of a run, on failure and Ctrl+C too, the run's containers are stopped and removed by label. `--keep-temp` keeps them.
+		- Dangling images go by the project label. An older tag goes once a newer one has passed, and the current tag and the one before it stay. Today every other tag goes right after a build.
+		- Then `docker builder prune -f --filter until=168h`, so a week of build cache stays warm.
+		- The cache volume follows the same 2 GB rule as the Zig caches.
+		- One line at the end says what was removed and about what it freed, from `docker system df` before and after.
+		- What was built before the labels gets one pass by hand, by ID.
+		- Earlier decisions this overrides: the 20261023 note on 2026101916041200 that docker's build cache stays with a prune by hand, and the private container notes, where a build drops every other `zuid-cicd` tag.
+	- Progress log:
+		- 20261025: Every container, image and volume a run makes has `dev.project=zuid` and `dev.run=<run>`. Containers are `zuid-<run>-<step>`, numbered per step. The two cache volumes are made labeled when missing, since docker makes them bare.
+		- 20261025: At the end of a run, failed or interrupted too, its containers are stopped and removed by both labels. `--keep-temp` keeps them, and drops `--rm`.
+		- 20261025: A run that passed then removes, by the project label only, every `zuid-codeql` and `zuid-cicd` tag but the current one and the one before it, CodeQL's first, and the dangling images. Then `docker builder prune -f --filter until=168h`, and `zuid-cicd-cache` is emptied when it's over 2048 MB. One `Docker .....:` line says what went and about what it freed.
+		- 20261025: Images are no longer dropped right after a build.
+		- 20261025: Hand pass: `zuid-cicd-cache` (421 MB, 336 MB of it the old Zig cache at `/cache/home/.cache/zig`) was removed, so the next run makes it labeled. No container used it.
+		- 20261025: Left for a hand pass by ID: `zuid-cicd:856cd00870eb` (`6f89bc5604b3`) and `zuid-codeql:de7763196c93-856cd00870eb` (`d2cc10f16f9a`). They're unlabeled, so the rule never removes them, and `dev` and `main` still run on them. They go once a newer labeled image has passed.
+		- 20261025: On b23 one `docker system df` call in a run came back empty, and the line said the whole of docker was freed. 12 calls in a row and 2 at once all answered, so the cause is not found. The line now says the amount is unknown when either call is empty.
+		- 20261025: EsJ9SjE now wants no `rmi` during the stage, where it wanted `rmi zuid-cicd:0ld0ld0ld0ld`. Its build line, and those of EtAj5P2 and Etij2SC, have the two labels now.
+		- 20261025: EsJ9SjF's run line has `--name zuid-20261019-101112-container --label dev.project=zuid --label dev.run=20261019-101112` after the volumes now.
+		- 20261025: EtAj5P2 and EtaIbeg now want no `rmi` during the stage, where they wanted the old CodeQL tag, then the old main one. EtitVm9 checks that order at the end of the run instead.
+		- Verified: `pipeline-test.bash` 115 of 115. With each of 4 faults put in, its own case failed: an unlabeled volume (EtitVm7), the one before not kept (EtitVm9), `--keep-temp` ignored (EtitVm8), and no call from the exit trap (EtitVm8). Against a scratch label on b23's docker, the volumes came up labeled, a left-running container was stopped and removed, and the line was printed.
+	- Decisions:
+		- 20261025: `dev.run` is the run's stamp for now. It becomes the run folder's name when 2026102416233107 makes one.
+		- 20261025: Tags are removed only at the end of a run that passed, so a failed build never costs the one before it.
+		- 20261025: The volume cap empties what the runs wrote, which is everything but the image's own root-owned folders.
+	- Swept: every `docker run` goes through `fContainer_RunArgs` (the stage and `fInImage`), except the volume check, which labels its own. Both image builds are labeled. installer-test's `bash:3.2` runs belong to that harness, with `--rm`, and are left to 2026102416233107. Every rig that lifts `fContainer_Image`, `fInImage` or `fContainer_RunArgs` sets the run and project.
+	- Branch: round1025
+	- Test case: EtitVm7 (labels and names), EtitVm8 (the run's containers at its end, and the traps), EtitVm9 (the passing run's tidy). Each failed with its part of the change broken.
+
 - CICD reset: other hosts and VMs
 	- ID: 2026102416233100
 	- Type: Enhancement
@@ -310,26 +350,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- A box that doesn't answer is a `SKIP` in its step and in the summary, and never stops the run, `--merge-gate` included.
 		- Each box gets a work folder of its own for the project, under its temp root.
 		- Windows tests use `b29w`, never `b29w-wif`. Nothing in the repo names `b29w-wif` today.
-
-- CICD reset: container cleanup
-	- ID: 2026102416233101
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261024-162331
-	- Opened by: JC
-	- Related IDs: 2026101916041200, 2026102406590100
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per the container bullets in `Cleanup after a run` in the shared CICD rules. Containers already run with `--rm`.
-		- Every container, image and volume the pipeline makes gets 2 labels, `dev.project=zuid` and `dev.run=<run folder>`. Containers are named `zuid-<run folder>-<step>`.
-		- At the end of a run, on failure and Ctrl+C too, the run's containers are stopped and removed by label. `--keep-temp` keeps them.
-		- Dangling images go by the project label. An older tag goes once a newer one has passed, and the current tag and the one before it stay. Today every other tag goes right after a build.
-		- Then `docker builder prune -f --filter until=168h`, so a week of build cache stays warm.
-		- The cache volume follows the same 2 GB rule as the Zig caches.
-		- One line at the end says what was removed and about what it freed, from `docker system df` before and after.
-		- What was built before the labels gets one pass by hand, by ID.
-		- Earlier decisions this overrides: the 20261023 note on 2026101916041200 that docker's build cache stays with a prune by hand, and the private container notes, where a build drops every other `zuid-cicd` tag.
 
 - CICD reset: CPU and priority
 	- ID: 2026102416233102

@@ -514,7 +514,9 @@ if ((rc == 0)) && [[ "$(cat "${dogRoot}/fallback/zuid" 2>/dev/null)" == "zig-out
 fi
 
 ## The container stage, with a stand-in for docker that logs what it was asked.
-## Its image list always has an older tag beside the current one.
+## Its image list has the current tag, the one before and an older one, out
+## of order. ENGINE_VOLUMES names the volumes that are there already, and
+## ENGINE_DF a file of sizes, one line per 'system df'.
 cat > "${work}/engine" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${ENGINE_LOG}"
@@ -523,10 +525,17 @@ case "$1 ${2:-}" in
 	"build "*)       [[ "${ENGINE_BUILD_RC:-0}" == "0" ]] || exit "${ENGINE_BUILD_RC}"
 	                 while (($#)) && [[ "$1" != "-t" ]]; do shift; done; : > "${ENGINE_LOG}.built-${2//[:\/]/_}" ;;
 	"image ls")      if [[ "$3" == "zuid-codeql" ]]
-		then printf 'zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld\n%s\n' "${ENGINE_NEW_CODEQL:-}"
-		else printf 'zuid-cicd:0ld0ld0ld0ld\n%s\n' "${ENGINE_NEW}"
+		then printf '2026-10-01 01:00:00 -0700 PDT\tzuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld\n2026-10-24 01:00:00 -0700 PDT\t%s\n2026-10-12 01:00:00 -0700 PDT\tzuid-codeql:prevprevprev-prevprevprev\n' "${ENGINE_NEW_CODEQL:-}"
+		else printf '2026-10-01 01:00:00 -0700 PDT\tzuid-cicd:0ld0ld0ld0ld\n2026-10-24 01:00:00 -0700 PDT\t%s\n2026-10-12 01:00:00 -0700 PDT\tzuid-cicd:prevprevprev\n2026-10-11 01:00:00 -0700 PDT\t<none>:<none>\n' "${ENGINE_NEW}"
 		fi ;;
-	"run "*)         exit "${ENGINE_RUN_RC:-0}" ;;
+	"volume inspect") [[ " ${ENGINE_VOLUMES:-zuid-cicd-cache zuid-zig-cache} " == *" ${*: -1} "* ]] || exit 1
+	                  if [[ "$3" == "--format" ]]; then printf '%s\n' "${ENGINE_VOLUME_LABEL:-}"; fi ;;
+	"ps "*)          printf '%s' "${ENGINE_PS:-}" ;;
+	"images "*)      printf '%s' "${ENGINE_DANGLING:-}" ;;
+	"system df")     n="$(grep -c . "${ENGINE_LOG}.df" 2>/dev/null || true)"; echo x >> "${ENGINE_LOG}.df"
+	                 sed -n "$(( ${n:-0} + 1 ))p" "${ENGINE_DF:-/dev/null}" | tr ' ' '\n' ;;
+	"run "*)         if [[ "$*" == *"-cache-cap "* ]]; then printf '%s\n' "${ENGINE_CAP_OUT:-}"; fi
+	                 exit "${ENGINE_RUN_RC:-0}" ;;
 	"info "*)        exit "${ENGINE_INFO_RC:-0}" ;;
 esac
 STUB
@@ -548,9 +557,10 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 			containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"
 			onlyToolchain="go"; doQuick="${quick:-1}"; doPackage=1; doLeakcheck="${leakcheck:-0}"; runStamp="20261019-101112"; _sectionWidth="123"
 			doFuzz="${fuzz:-0}"; doProfile="${profile:-0}"
+			projectName="zuid"; runName="20261019-101112"; keepTemp="${keep:-0}"; _dockerRun=""
 		}
 		local fn=""
-		for fn in _fMustBeInPath fStage_Container fContainer_Image fCodeql_Image fContainer_DropOthers fContainer_RunArgs; do
+		for fn in _fMustBeInPath fStage_Container fContainer_Image fCodeql_Image fCodeql_Tag fContainer_Volumes fContainer_RunArgs; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		mkdir -p "${repoRoot}/cicd/container/codeql"
@@ -575,8 +585,9 @@ newTag="zuid-cicd:$(echo "FROM scratch" | git hash-object --stdin | cut -c1-12)"
 fId EsJ9SjE "image built by recipe hash"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-main" 2>/dev/null || true)"
-if ((rc == 0)) && grep -qxF "build -t ${newTag} ${mainReal}/cicd/container" <<< "${log}" \
-	&& grep -qxF "rmi zuid-cicd:0ld0ld0ld0ld" <<< "${log}" && ! grep -qxF "rmi ${newTag}" <<< "${log}"
+## Older tags wait for the end of a run that passed, since 2026102416233101.
+if ((rc == 0)) && grep -qxF "build --label dev.project=zuid --label dev.run=20261019-101112 -t ${newTag} ${mainReal}/cicd/container" <<< "${log}" \
+	&& ! grep -q "^rmi " <<< "${log}"
 	then fPass
 	else fFail "exited ${rc}, asked: ${log//$'\n'/ | }; said '${out}'"
 fi
@@ -585,7 +596,8 @@ fId EsJ9SjF "container run arguments"
 : > "${work}/engine-main"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-main")"
-wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -v zuid-zig-cache:/zig-cache -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder} -e ZUID_RUN_STAMP=20261019-101112 -e ZUID_COLUMNS=123"
+wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -v zuid-zig-cache:/zig-cache"
+wantRun+=" --name zuid-20261019-101112-container --label dev.project=zuid --label dev.run=20261019-101112 -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder} -e ZUID_RUN_STAMP=20261019-101112 -e ZUID_COLUMNS=123"
 wantRun+=" -w ${mainReal} ${newTag} bash ${mainReal}/cicd/cicd.bash -q --no-sync --no-backup --no-dogfood --only go --quick --package --no-leakcheck"
 if ((rc == 0)) && grep -qxF -- "${wantRun}" <<< "${log}" && ! grep -q '^build ' <<< "${log}"
 	then fPass
@@ -708,9 +720,9 @@ codeqlTag="zuid-codeql:$(echo "FROM codeql" | git hash-object --stdin | cut -c1-
 out="$(leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-codeql" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-codeql" 2>/dev/null || true)"
 plainOut="$(fContainerIn "${worktreeMain}" "${work}/engine-plain" 0)" && plainRc=0 || plainRc=$?
-if ((rc == 0)) && grep -qxF "build --build-arg BASE=${newTag} -t ${codeqlTag} ${mainReal}/cicd/container/codeql" <<< "${log}" \
-	&& grep -q -- "^run .* ${codeqlTag} bash .* --leakcheck$" <<< "${log}" && grep -qxF "rmi zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld" <<< "${log}" \
-	&& ! grep -qxF "rmi ${codeqlTag}" <<< "${log}" && ((plainRc == 0)) && ! grep -qE '^(build|run) .*codeql' "${work}/engine-plain"
+if ((rc == 0)) && grep -qxF "build --build-arg BASE=${newTag} --label dev.project=zuid --label dev.run=20261019-101112 -t ${codeqlTag} ${mainReal}/cicd/container/codeql" <<< "${log}" \
+	&& grep -q -- "^run .* ${codeqlTag} bash .* --leakcheck$" <<< "${log}" && ! grep -q "^rmi " <<< "${log}" \
+	&& ((plainRc == 0)) && ! grep -qE '^(build|run) .*codeql' "${work}/engine-plain"
 	then fPass
 	else fFail "exited ${rc} and ${plainRc}, asked: ${log//$'\n'/ | }; said '${out}' and '${plainOut}'"
 fi
@@ -726,13 +738,14 @@ for pass in built found; do
 	rmis="$(grep '^rmi ' <<< "${log}" || true)"
 	((rc == 0)) || staleBad+=" ${pass}: exited ${rc}, said '${out}';"
 	! grep -qE '^(build|run) .*codeql' <<< "${log}" || staleBad+=" ${pass}: built or ran CodeQL;"
-	## The old main tag goes after the CodeQL one, or that one's layers stay.
+	## Since 2026102416233101 nothing goes during the stage. EtitVm9 has the
+	## old CodeQL tag going at the end, ahead of the old main one.
 	if [[ "${pass}" == "built" ]]; then
-		grep -q '^build -t zuid-cicd' <<< "${log}" || staleBad+=" built: no build;"
-		[[ "${rmis}" == "rmi zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld"$'\n'"rmi zuid-cicd:0ld0ld0ld0ld" ]] || staleBad+=" built: removed '${rmis//$'\n'/ | }';"
+		grep -q '^build .*-t zuid-cicd' <<< "${log}" || staleBad+=" built: no build;"
+		[[ -z "${rmis}" ]] || staleBad+=" built: removed '${rmis//$'\n'/ | }';"
 	else
 		! grep -q '^build ' <<< "${log}" || staleBad+=" found: built again;"
-		[[ "${rmis}" == "rmi zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld" ]] || staleBad+=" found: removed '${rmis//$'\n'/ | }';"
+		[[ -z "${rmis}" ]] || staleBad+=" found: removed '${rmis//$'\n'/ | }';"
 	fi
 done
 if [[ -z "${staleBad}" ]]
@@ -753,8 +766,9 @@ out="$(
 	# shellcheck disable=2034  ## Read by the lifted functions.
 	{
 		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerImage="zuid-cicd"; codeqlImage="zuid-codeql"; inContainer=0; containerTag=""; checkerSkipWhy=""
+		containerVolume="zuid-cicd-cache"; containerZigVolume="zuid-zig-cache"; projectName="zuid"; runName="20261019-101112"; _dockerRun=""
 	}
-	for fn in _fMustBeInPath fGoCheckers_Ready fContainer_Image fContainer_DropOthers; do
+	for fn in _fMustBeInPath fGoCheckers_Ready fContainer_Image fContainer_Volumes; do
 		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 	done
 	# shellcheck disable=2030,2031  ## The stub reads it; the earlier subshell's copy is gone.
@@ -802,9 +816,10 @@ fPickIn(){  ## engine log; the case's settings come in as pick* variables
 			inContainer="${pickInside:-0}"; containerMode="${pickMode:-auto}"; doContainer="${pickAsked:-0}"
 			doPublish="${pickPublish:-0}"; doPackage=0; packageSkipWhy="${pickSkip:-}"; imageSkipWhy=""
 			containerEngine="${pickEngine:-${work}/engine}"
+			containerVolume="zuid-cicd-cache"; containerZigVolume="zuid-zig-cache"; projectName="zuid"; runName="20261019-101112"; _dockerRun=""
 		}
 		local fn=""
-		for fn in _fMustBeInPath fContainer_Pick fContainer_Image fContainer_DropOthers; do
+		for fn in _fMustBeInPath fContainer_Pick fContainer_Image fContainer_Volumes; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		# shellcheck disable=2030,2031  ## The stub reads them; each case has its own.
@@ -819,7 +834,7 @@ pickSkipWhy="no llvm-objcopy to strip the release with"
 ## The image has the tools, so a full run that couldn't package here does there.
 fId Etij2SC "the container where docker answers"
 out="$(pickSkip="${pickSkipWhy}" fPickIn "${work}/engine-pick")" && rc=0 || rc=$?
-if ((rc == 0)) && grep -qxF "build -t ${newTag} ${mainReal}/cicd/container" "${work}/engine-pick" \
+if ((rc == 0)) && grep -qxF "build --label dev.project=zuid --label dev.run=20261019-101112 -t ${newTag} ${mainReal}/cicd/container" "${work}/engine-pick" \
 	&& [[ "${out}" == *$'\n'"doContainer=1 doPackage=1 skip= image= tag=${newTag}" ]]
 	then fPass
 	else fFail "exited ${rc} and said: ${out//$'\n'/ | }"
@@ -934,6 +949,7 @@ out="$(
 		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerVolume="zuid-cicd-cache"; inContainer=0
 		containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"
 		containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine"
+		projectName="zuid"; runName="20261019-101112"; keepTemp=0; _dockerSteps=0; _dockerPid="${BASHPID}"
 	}
 	for fn in fInImage fContainer_RunArgs; do
 		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
@@ -948,6 +964,140 @@ if ((rc == 0)) && [[ "$(grep -c '^run ' <<< "${log}")" == "2" ]] \
 	&& grep -- "-w ${mainReal}/go " <<< "${log}" | grep -qvF -- "-v ${mainReal}/go:"
 	then fPass
 	else fFail "exited ${rc}, said '${out}', asked: ${log//$'\n'/ | }"
+fi
+
+## Cleanup finds a run's leftovers by label, so everything gets them. docker
+## makes a missing volume on first use with none.
+fId EtitVm7 "containers, images and volumes are labeled and named"
+labelBad=""
+: > "${work}/engine-label"
+out="$(ENGINE_VOLUMES="zuid-cicd-cache" leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-label" 0)" || labelBad+=" the stage exited $?: ${out};"
+log="$(cat "${work}/engine-label")"
+labels="--label dev.project=zuid --label dev.run=20261019-101112"
+grep -qxF "volume create ${labels} zuid-zig-cache" <<< "${log}" || labelBad+=" no labeled zuid-zig-cache;"
+! grep -q "^volume create .*zuid-cicd-cache" <<< "${log}" || labelBad+=" made a volume that was there;"
+grep -q -- "^build ${labels} -t zuid-cicd:" <<< "${log}" || labelBad+=" main image unlabeled;"
+grep -q -- "^build --build-arg BASE=.* ${labels} -t zuid-codeql:" <<< "${log}" || labelBad+=" CodeQL image unlabeled;"
+grep -q -- "^run --rm .* --name zuid-20261019-101112-container ${labels} " <<< "${log}" || labelBad+=" stage container unnamed or unlabeled;"
+## Steps in the image, two of them in a $(...), named apart, and --keep-temp
+## drops --rm.
+out="$(
+	# shellcheck disable=2034  ## Read by the lifted functions.
+	{
+		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerVolume="zuid-cicd-cache"; inContainer=0
+		containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"
+		containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine"
+		projectName="zuid"; runName="20261019-101112"; keepTemp=0; _dockerSteps=0; _dockerPid="${BASHPID}"
+	}
+	for fn in fInImage fContainer_RunArgs; do
+		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+	done
+	# shellcheck disable=2030,2031  ## The stub reads them; each case has its own.
+	export ENGINE_LOG="${work}/engine-steps"
+	fStage_Go_Checkers(){ fInImage "${repoRoot}" true; a="$(fInImage "${repoRoot}" true)"; b="$(fInImage "${repoRoot}" true)"; : "${a}${b}"; }
+	fStage_Go_Checkers
+	keepTemp=1
+	fInImage "${repoRoot}" true
+)" || labelBad+=" fInImage exited $?: ${out};"
+mapfile -t names < <(grep -o -- '--name [^ ]*' "${work}/engine-steps" | cut -d' ' -f2 || true)
+if ((${#names[@]} != 4)) || [[ "$(printf '%s\n' "${names[@]}" | sort -u | wc -l)" != "4" ]]; then labelBad+=" names not 4 apart: ${names[*]};"; fi
+[[ "${names[0]:-}" == "zuid-20261019-101112-go-checkers-1" ]] || labelBad+=" first step named '${names[0]:-}';"
+[[ "${names[1]:-}" == zuid-20261019-101112-go-checkers-2-* ]] || labelBad+=" second step named '${names[1]:-}';"
+[[ "$(grep -c -- "^run --rm --init .* ${labels} " "${work}/engine-steps" || true)" == "3" ]] || labelBad+=" not 3 labeled --rm runs;"
+grep -q -- "^run --init .* ${labels} " "${work}/engine-steps" || labelBad+=" --keep-temp still has --rm;"
+if [[ -z "${labelBad}" ]]
+	then fPass
+	else fFail "${labelBad}"
+fi
+
+## The end of a run, failed or not, stops and removes its own containers.
+fStopIn(){  ## engine log; keep, run come in as variables
+	(
+		# shellcheck disable=2329  ## Called by the lifted function.
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		fLoad fContainer_StopRun || { echo "no fContainer_StopRun in cicd.bash"; exit 2; }
+		# shellcheck disable=2034  ## Read by the lifted function.
+		{ _dockerEngine="${work}/engine"; _dockerProject="zuid"; _dockerRun="${run-20261019-101112}"; _dockerPid="${BASHPID}"; keepTemp="${keep:-0}"; _dockerGone=(); }
+		# shellcheck disable=2030,2031  ## The stub reads them; each case has its own.
+		export ENGINE_LOG="$1" ENGINE_PS=$'c0ffee1\nc0ffee2\n'
+		: > "${ENGINE_LOG}"
+		fContainer_StopRun
+		printf 'gone=%s\n' "${_dockerGone[*]}"
+	) 2>&1
+}
+fId EtitVm8 "a run's containers go at its end, unless --keep-temp"
+stopBad=""
+out="$(fStopIn "${work}/engine-stop")" || stopBad+=" exited $?;"
+log="$(cat "${work}/engine-stop")"
+[[ "${log}" == "ps -aq --filter label=dev.project=zuid --filter label=dev.run=20261019-101112"$'\n'"stop -t 10 c0ffee1 c0ffee2"$'\n'"rm c0ffee1 c0ffee2" ]] || stopBad+=" asked: ${log//$'\n'/ | };"
+[[ "${out}" == "gone=2 container(s)" ]] || stopBad+=" said '${out}';"
+out="$(keep=1 fStopIn "${work}/engine-stop-keep")" || stopBad+=" keep exited $?;"
+! grep -qE '^(stop|rm) ' "${work}/engine-stop-keep" || stopBad+=" --keep-temp removed them;"
+[[ "${out}" == *"kept 2 container(s)"* ]] || stopBad+=" keep said '${out}';"
+out="$(run="" fStopIn "${work}/engine-stop-none")" || stopBad+=" none exited $?;"
+[[ ! -s "${work}/engine-stop-none" ]] || stopBad+=" a run without docker asked: $(tr '\n' '|' < "${work}/engine-stop-none");"
+## Both traps call it, and fMain tidies once the stages have passed.
+trapBody="$(sed -n '/^function _fTrap_Exit(){/,/^}/p; /^function _fTrap_Error(){/,/^}/p' "${cicd}")"
+[[ "$(grep -c 'fContainer_StopRun' <<< "${trapBody}")" == "2" ]] || stopBad+=" not called from both traps;"
+mainBody="$(sed -n '/^fMain(){/,/^}/p' "${cicd}")"
+tidyAt="$(grep -n '^	fContainer_Tidy$' <<< "${mainBody}" | cut -d: -f1 || true)"
+zigAt="$(grep -n 'then fZigCache_Tidy; fi' <<< "${mainBody}" | cut -d: -f1 || true)"
+publishAt="$(grep -n 'then fStage_Publish;' <<< "${mainBody}" | cut -d: -f1 || true)"
+if ! [[ "${tidyAt}" =~ ^[0-9]+$ && "${zigAt}" =~ ^[0-9]+$ && "${publishAt}" =~ ^[0-9]+$ ]] || ((tidyAt < zigAt || tidyAt > publishAt)); then
+	stopBad+=" fMain doesn't call fContainer_Tidy after the stages;"
+fi
+if [[ -z "${stopBad}" ]]
+	then fPass
+	else fFail "${stopBad}"
+fi
+
+## Only the project's, older tags keeping the one before the current, a week
+## of build cache, the volume's cap, and one line.
+fTidyIn(){  ## engine log; label, cap come in as variables
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions.
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		for fn in fContainer_Tidy fContainer_StopRun fContainer_DropOlder fContainer_VolumeCap fDocker_Bytes fCodeql_Tag; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{
+			repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerEngine="${work}/engine"; projectName="zuid"; runName="20261019-101112"
+			containerImage="zuid-cicd"; codeqlImage="zuid-codeql"; containerVolume="zuid-cicd-cache"; zigCacheCapMB=2048; keepTemp=0
+			containerTag="${newTag}"; _dockerEngine="${containerEngine}"; _dockerProject="zuid"; _dockerRun="${runName}"; _dockerGone=(); _dockerPid="${BASHPID}"
+		}
+		mkdir -p "${repoRoot}/cicd/container/codeql"; echo "FROM codeql" > "${repoRoot}/cicd/container/codeql/Dockerfile"
+		ENGINE_NEW="${newTag}" ENGINE_NEW_CODEQL="zuid-codeql:$(echo "FROM codeql" | git hash-object --stdin | cut -c1-12)-${newTag#*:}"
+		# shellcheck disable=2030,2031  ## The stub reads them; each case has its own.
+		export ENGINE_LOG="$1" ENGINE_NEW ENGINE_NEW_CODEQL ENGINE_DANGLING=$'d4ng1e\n' ENGINE_VOLUME_LABEL="${label-zuid}" ENGINE_CAP_OUT="${cap:-}" ENGINE_DF="${work}/df-sizes"
+		printf '%s\n' "142.5GB 7.052GB 14.91GB 137.3GB" "${dfAfter-139.6GB 7.052GB 14.61GB 136.8GB}" > "${ENGINE_DF}"
+		: > "${ENGINE_LOG}"; rm -f "${ENGINE_LOG}.df"
+		fContainer_Tidy
+		printf 'run=%s\n' "${_dockerRun}"
+	) 2>&1
+}
+fId EtitVm9 "a passing run tidies docker by label"
+tidyBad=""
+out="$(cap="emptied 3145728" fTidyIn "${work}/engine-tidy")" || tidyBad+=" exited $?: ${out};"
+log="$(cat "${work}/engine-tidy")"
+rmis="$(grep '^rmi ' <<< "${log}" || true)"
+[[ "${rmis}" == "rmi zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld"$'\n'"rmi zuid-cicd:0ld0ld0ld0ld"$'\n'"rmi d4ng1e" ]] || tidyBad+=" removed '${rmis//$'\n'/ | }';"
+grep -qxF "image ls zuid-cicd --filter label=dev.project=zuid --format {{.CreatedAt}}"$'\t'"{{.Repository}}:{{.Tag}}" <<< "${log}" || tidyBad+=" tags not listed by label;"
+grep -qxF "images -q --filter dangling=true --filter label=dev.project=zuid" <<< "${log}" || tidyBad+=" dangling not by label;"
+grep -qxF "builder prune -f --filter until=168h" <<< "${log}" || tidyBad+=" no builder prune;"
+grep -q -- "^run --rm --init .* -v zuid-cicd-cache:/cache --name zuid-20261019-101112-cache-cap --label dev.project=zuid --label dev.run=20261019-101112 ${newTag} sh -c" <<< "${log}" \
+	&& grep -q -- " sh 2097152$" <<< "${log}" || tidyBad+=" no capped volume check;"
+! grep -qE '^(rmi|.*-f ).*(prevprevprev|'"${newTag#*:}"')' <<< "${rmis}" || tidyBad+=" removed a kept tag;"
+! grep -qE '^(system prune|rmi -f|image prune)' <<< "${log}" || tidyBad+=" pruned wide;"
+want="Docker .....: removed zuid-codeql:0ld0ld0ld0ld-0ld0ld0ld0ld, zuid-cicd:0ld0ld0ld0ld, 1 dangling image(s), zuid-cicd-cache's contents, 3072 MB, build cache over a week old; about 3.7 GB freed"
+[[ "${out}" == *"${want}"$'\n'"run=" ]] || tidyBad+=" said '${out//$'\n'/ | }';"
+out="$(label="" dfAfter="" fTidyIn "${work}/engine-tidy-nolabel")" || tidyBad+=" unlabeled exited $?;"
+! grep -q -- "-cache-cap" "${work}/engine-tidy-nolabel" || tidyBad+=" checked an unlabeled volume;"
+## A df that didn't answer is no reason to claim the whole lot was freed.
+[[ "${out}" == *"; an unknown amount freed, since docker system df didn't answer"$'\n'* ]] || tidyBad+=" a silent df said '${out//$'\n'/ | }';"
+if [[ -z "${tidyBad}" ]]
+	then fPass
+	else fFail "${tidyBad}"
 fi
 
 git -C "${worktreeMain}" worktree remove --force "${worktreeDir}"
@@ -1166,7 +1316,8 @@ fPsLintIn(){  ## skip reason, exit code for the run in the image
 		# shellcheck disable=2329,2034  ## Called by the lifted stage, and checkerSkipWhy is its local.
 		fGoCheckers_Ready(){ checkerSkipWhy="${PS_SKIP}"; }
 		# shellcheck disable=2034  ## Read by the lifted functions.
-		{ containerVolume="zuid-cicd-cache"; containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"; inContainer=0; containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine" ;}
+		{ containerVolume="zuid-cicd-cache"; containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"; inContainer=0; containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine"
+		  projectName="zuid"; runName="20261019-101112"; keepTemp=0; _dockerSteps=0; _dockerPid="${BASHPID}" ;}
 		local fn=""
 		for fn in fId fInImage fContainer_RunArgs fStage_Shell_PowerShell; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
