@@ -358,7 +358,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - CICD reset: temp files and safe removal
 	- ID: 2026102416233107
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261024-162331
 	- Opened by: JC
@@ -373,6 +373,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 38 recursive removals in 10 files, none through a guard. File list in the private notes.
 	- Progress log:
 		- 20261025: Split in 3. The run folder, its cleanup and the guard in `cicd.bash` are 2026102514072140. The harnesses and the hook are 2026102514072145. The packager and the installers are 2026102514072150.
+		- 20261025: All 3 children are in, and wait on the round's full run and the `macos` workflow. 2026102514072150 also waits on a Windows run of `install.ps1`.
 
 - CICD reset: run folder and guard in cicd.bash
 	- ID: 2026102514072140
@@ -410,7 +411,9 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - CICD reset: guard in the harnesses and the hook
 	- ID: 2026102514072145
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, in the image, for the harnesses inside a whole run.
+	- Needs external testing: The `macos` workflow, which that run starts once the branch is pushed. dee2b, dee2c and dee2d under the Mac's `find`, `realpath` and `rm`.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261025-140721
 	- Opened by: JC
@@ -420,11 +423,27 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- `cli-test.bash`, `pipeline-test.bash`, `installer-test.bash` and the pre-push hook remove only through the guard from 2026102514072140.
 		- Run alone, each makes its own run folder the same way. Run from `cicd.bash`, each makes its folder inside the run's.
 	- 20261025: the guard from 2026102514072140 is in at 5b2f7c3 and only its full run is left, so it no longer holds this back.
+	- Progress log:
+		- 20261025: The run folder code moved into the guard's file, so `cicd.bash` and the rest make it one way. `cicd.bash` exports `ZUID_RUN_DIR`. A harness, the hook or `package.bash` run from it makes `<name>_<NNN>` inside the run's folder, and may remove only under that. Run alone, each makes a run folder like `cicd.bash`'s, with a `run.pid`, and sweeps the stale ones.
+		- 20261025: Every recursive removal in the 3 harnesses and the hook goes through `fSafeRm`. Each exit trap is set before the folder is made, so an interrupt can't leave it.
+		- 20261025: The hook is Bash now, so it can source the guard. Ctrl+C or SIGTERM stops it with exit 1, after the cleanup.
+		- 20261025: Found while testing: the stale sweep ran before `cicd.bash`'s exit trap knew the new folder, so a Ctrl+C in that window left it. dee1s caught it. The sweep is its own call now, after.
+		- Verified: `pipeline-test.bash` 147 of 147, alone and with `ZUID_RUN_DIR` set. `installer-test.bash` 95 of 95. `cli-test.bash` 91 of 91. `cicd.bash --backlog-run-quick shell installers`, here and in the image, passed, with the harness folders inside the run's and nothing left after. shellcheck on the stage's list is clean.
+		- Verified: Against the old scripts, dee2c and dee2d failed. dee2b failed with the nesting taken out, and dee2c with only the old `cli-test.bash` put back.
+	- Decisions:
+		- 20261025: The hook went from `sh` to Bash, rather than calling Bash for each guard call.
+		- 20261025: A harness run alone sweeps the project's stale run folders too, the same as `cicd.bash`.
+	- Swept: every `rm -r`, `-exec rm` and `Remove-Item -Recurse` in the 3 harnesses, the hook, `package.bash`, both installers, `cicd.bash` and the guard, which dee2c now checks. Every copy of a script in the harnesses that needs the guard beside it: ddhnc, ddgmp's `package.bash` and dedps's hook.
+	- Branch: round1025c
+	- Commit: a07c50e
+	- Test case: dee2b (the folder, nested or alone), dee2c (no recursive removal outside a guard), dee2d (the hook's run folder, gone after).
 
 - CICD reset: guard in the packager and the installers
 	- ID: 2026102514072150
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, in the image. Its package step empties `dist/` through the guard for real.
+	- Needs external testing: The `macos` workflow, which that run starts once the branch is pushed, for dee2e to dee2j under the Mac's tools. `install.ps1` on b29w under Windows PowerShell 5.1 and 7, user and system, install over an old one and uninstall, for the tree walk and the read-only flag.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261025-140721
 	- Opened by: JC
@@ -435,6 +454,20 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- `install.bash` and `install.ps1` carry their own guard, since they run alone from a download. The install dir is the one parent each names. `install.bash` stays Bash 3.2.
 		- The 4 `rm -rf` in the 2 Dockerfiles run inside the image build, on fixed paths. Left as they are unless asked.
 	- 20261025: the guard from 2026102514072140 is in at 5b2f7c3 and only its full run is left, so it no longer holds this back.
+	- Progress log:
+		- 20261025: `package.bash` works in a run folder from the guard's file, removed through `fSafeRm`. `dist/` or `--out` is emptied one entry at a time through `fSafeRm_Under`, with that folder, resolved, as the parent. A link in it is only unlinked.
+		- 20261025: `install.bash` has its own `fSafeRm_Under`, Bash 3.2. The install dir is emptied one entry at a time with it as the parent, then filled or, on uninstall, `rmdir`ed. It has to be named `zuid` and not be a link. Its temp dir is `zuid-install.XXXXXX` in `TMPDIR`, removed through the same guard.
+		- 20261025: `install.ps1` has `Remove-Under` and `Clear-InstallDirectory`, ASCII only. They walk the tree and unlink a link rather than follow it, which Windows PowerShell 5.1's `Remove-Item -Recurse` can't promise. Its temp dir goes the same way.
+		- 20261025: Found while testing: the new temp dir's name starts with `zuid-`, and `install.bash` looked for the unpacked release as `zuid-*` from depth 0, so it took the temp dir itself. It looks from depth 1 now.
+		- Verified: `installer-test.bash` 95 of 95, the bash 3.2 cases included, and in the image. PSScriptAnalyzer finds nothing in `install.ps1`.
+		- Verified: Against the old scripts, dee2e, dee2f and dee2g failed. dee2h and dee2j pass either way here, since `rm -rf` and PowerShell 7 already don't follow a link. They're there for 5.1.
+	- Decisions:
+		- 20261025: An install dir reached through a link higher up, such as a linked home, is still allowed. It's resolved, and the resolved dir has to be named `zuid`. Only an install dir that is itself a link is refused.
+		- 20261025: The Dockerfiles' `rm -rf` are left as they are.
+	- Swept: dee2c checks every recursive removal in both installers and `package.bash`. The installers' other removals are a single file or link, with `rm -f` or `Remove-Item -Force`.
+	- Branch: round1025c
+	- Commit: a07c50e
+	- Test case: dee2e (`--out` emptied through the guard), dee2f and dee2g (an install dir that's a link is refused), dee2h and dee2j (a link inside is unlinked, and nothing's left in the temp dir).
 
 - CICD reset: version line
 	- ID: 2026102416233108
