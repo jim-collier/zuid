@@ -58,7 +58,14 @@ flameReport="${repoRoot}/cicd/utility/flame-report.py"
 [[ -f "${cicd}" ]] || fDie "could not find cicd.bash from ${repoRoot}"
 
 work="$(mktemp -d)"
+## Physical, since the guard refuses a path through a link, and macOS's temp
+## folder sits behind /var.
+work="$(cd "${work}" && pwd -P)"
 trap 'rm -rf "${work}"' EXIT
+## For the lifted functions that remove a folder.
+# shellcheck source=cicd/utility/include/safe-rm.bash
+source "${repoRoot}/cicd/utility/include/safe-rm.bash"
+safeRmOwn="${work}"
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
@@ -372,8 +379,9 @@ fi
 ## Run through a symlinked folder, the root kept the link's name, and a find
 ## started there listed only the link. The sync refusal names the root.
 fId ddhnc "repo root through a symlink"
-mkdir -p "${work}/linked/real/cicd"
+mkdir -p "${work}/linked/real/cicd/utility/include"
 cp "${cicd}" "${work}/linked/real/cicd/"
+cp "${cicd%/cicd.bash}/utility/include/safe-rm.bash" "${work}/linked/real/cicd/utility/include/"
 ln -s real "${work}/linked/link"
 out="$(cd "${work}/linked" && env -u ZUID_CICD_QUIET bash link/cicd/cicd.bash -q --no-backup --no-dogfood 2>&1 < /dev/null)" && rc=0 || rc=$?
 if ((rc != 0)) && [[ "${out}" == *"Not a git repo: '$(cd "${work}/linked/real" && pwd -P)'"* ]]
@@ -2667,6 +2675,137 @@ fi
 if [[ -z "${cleanBad}" ]]
 	then fPass
 	else fFail "${cleanBad}"
+fi
+
+## The guard every recursive removal goes through. The refusals run against a
+## stand-in for rm, so a broken guard removes nothing, /usr/bin included.
+fId dee1p "safe-rm refuses all but its own"
+rmRoot="${work}/saferm"
+mkdir -p "${rmRoot}/own/a" "${rmRoot}/own/gone" "${rmRoot}/own/target" "${rmRoot}/vendor/pkg" "${rmRoot}/other/pkg"
+ln -s "${rmRoot}/own/target" "${rmRoot}/own/link"
+ln -s "${rmRoot}/own" "${rmRoot}/via"
+rmBad="$(
+	safeRmOwn="${rmRoot}/own"
+	(
+		# shellcheck disable=2329  ## Called by the guard.
+		_fSafeRm_Do(){ printf 'took %s;' "$1"; }
+		for bad in "" "own/a" "${rmRoot}/own/../own/a" "${rmRoot}//own/a" "${rmRoot}/own/link" "${rmRoot}/via/a" "${rmRoot}/own/nope" "/usr/bin"; do
+			fSafeRm "${bad}" 2>/dev/null || true
+		done
+		fSafeRm "${rmRoot}/own/a" "${rmRoot}/own/gone" 2>/dev/null || true
+		fSafeRm_Under "${rmRoot}/vendor" "${rmRoot}/other/pkg" 2>/dev/null || true
+		fSafeRm_Under "${rmRoot}/vendor" "${rmRoot}/vendor"    2>/dev/null || true
+		fSafeRm_Under "${rmRoot}/via"    "${rmRoot}/via/a"     2>/dev/null || true
+	)
+	fSafeRm "${rmRoot}/own/gone/"                              || printf 'refused its own;'
+	fSafeRm_Under "${rmRoot}/vendor" "${rmRoot}/vendor/pkg"    || printf 'refused one under its parent;'
+	true
+)"
+[[ ! -e "${rmRoot}/own/gone" ]]   || rmBad+=" kept own/gone;"
+[[ ! -e "${rmRoot}/vendor/pkg" ]] || rmBad+=" kept vendor/pkg;"
+[[ -d "${rmRoot}/own/target" && -d "${rmRoot}/own/a" ]] || rmBad+=" removed a refused one;"
+if [[ -z "${rmBad}" ]]
+	then fPass
+	else fFail "${rmBad}"
+fi
+
+## Each run's folder in HOST_TEMP, numbered past a taken one, and the project's
+## stale ones gone: over 2 days old with no live run.pid. A live, a young and a
+## foreign-named one stay.
+fId dee1q "run folder made, stale ones removed"
+htRoot="${work}/ht"
+mkdir -p "${htRoot}/zuid/20260101-000000_001" "${htRoot}/zuid/20260101-000000_002" "${htRoot}/zuid/20260101-000000_003" \
+	"${htRoot}/zuid/keep-me" "${htRoot}/zuid/20261019-101112_001"
+printf '999999999\n' > "${htRoot}/zuid/20260101-000000_001/run.pid"
+printf '%s\n' "$$"   > "${htRoot}/zuid/20260101-000000_002/run.pid"
+touch -t 202601010000 "${htRoot}/zuid/20260101-000000_001" "${htRoot}/zuid/20260101-000000_002" "${htRoot}/zuid/keep-me"
+runBad=""
+if ! out="$(
+	fLoad fRunDir || { echo "no fRunDir in cicd.bash"; exit 2; }
+	# shellcheck disable=2329  ## Called by the lifted fRunDir.
+	fThrowError(){ printf '%s\n' "$1"; exit 1; }
+	# shellcheck disable=2034  ## Read by the lifted function.
+	{ projectName="zuid"; HOST_TEMP="${htRoot}"; safeRmOwn=""; }
+	fRunDir 20261019-101112
+	## printenv, since it's the exported ones the stages see.
+	# shellcheck disable=2154  ## Set by the lifted fRunDir.
+	printf 'dir=%s\nvars=%s\nown=%s\npid=%s\n' "${_runDir}" "$(printenv TMPDIR TEMP TMP | tr '\n' ' ')" "${safeRmOwn}" "$(cat "${_runDir}/run.pid")"
+)"; then
+	runBad=" ${out};"
+else
+	want="${htRoot}/zuid/20261019-101112_002"
+	[[ "${out}" == *"dir=${want}"$'\n'* ]]                 || runBad+=" not ${want}: ${out};"
+	[[ "${out}" == *"vars=${want} ${want} ${want} "$'\n'* ]] || runBad+=" TMPDIR, TEMP or TMP not set: ${out};"
+	[[ "${out}" == *"own=${htRoot}/zuid"$'\n'* ]]          || runBad+=" the guard's own folder wasn't set;"
+	[[ "${out}" == *"pid=$$" ]]                            || runBad+=" run.pid isn't the run's;"
+	[[ ! -e "${htRoot}/zuid/20260101-000000_001" ]]         || runBad+=" kept a stale one;"
+	[[ -d "${htRoot}/zuid/20260101-000000_002" ]]           || runBad+=" removed a live one;"
+	[[ -d "${htRoot}/zuid/20260101-000000_003" ]]           || runBad+=" removed a young one;"
+	[[ -d "${htRoot}/zuid/keep-me" ]]                       || runBad+=" removed one not named like a run;"
+fi
+if [[ -z "${runBad}" ]]
+	then fPass
+	else fFail "${runBad}"
+fi
+
+## A whole run: the folder goes at the end, failed or interrupted too, and
+## --keep-temp keeps it and says where.
+fId dee1r "run folder gone after a run, kept with --keep-temp"
+e2eRoot="${work}/e2e"
+mkdir -p "${e2eRoot}"
+e2eBad=""
+env -u ZUID_CICD_QUIET HOST_TEMP="${e2eRoot}" bash "${cicd}" --list --only go > /dev/null 2>&1 < /dev/null || e2eBad+=" --list failed;"
+env -u ZUID_CICD_QUIET HOST_TEMP="${e2eRoot}" bash "${cicd}" --gate --commit > /dev/null 2>&1 < /dev/null && e2eBad+=" the refusal ran;"
+left="$(find "${e2eRoot}/zuid" -mindepth 1 2>&1 | tr '\n' ' ' || true)"
+[[ -z "${left}" ]] || e2eBad+=" left ${left};"
+out="$(env -u ZUID_CICD_QUIET HOST_TEMP="${e2eRoot}" bash "${cicd}" --keep-temp --gate --commit 2>&1 < /dev/null)" || true
+kept="$(find "${e2eRoot}/zuid" -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true)"
+if [[ -z "${kept}" || "${kept}" == *$'\n'* ]]; then e2eBad+=" --keep-temp kept '${kept}';"
+elif [[ "${out}" != *"kept ${kept} (--keep-temp)"* ]]; then e2eBad+=" --keep-temp didn't say where: ${out:0:200};"
+else fSafeRm "${kept}"
+fi
+if [[ -z "${e2eBad}" ]]
+	then fPass
+	else fFail "${e2eBad}"
+fi
+
+## Ctrl+C, and SIGTERM, which let the run go on after its cleanup until
+## 20261025. A stand-in find holds the run just after its folder is made, and
+## the signal goes to its whole group, as a terminal's does.
+fId dee1s "run folder gone after Ctrl+C or SIGTERM"
+intRoot="${work}/int"
+mkdir -p "${intRoot}/bin" "${intRoot}/temp"
+# shellcheck disable=2016  ## The stand-in's own text.
+printf '#!/usr/bin/env bash\n: > "%s/held"\nsleep 30\n' "${intRoot}" > "${intRoot}/bin/find"
+chmod +x "${intRoot}/bin/find"
+intBad="$(python3 -I -B - "${cicd}" "${intRoot}" <<'PY'
+import os, signal, subprocess, sys, time
+cicd, root = sys.argv[1], sys.argv[2]
+env = dict(os.environ, HOST_TEMP=root + "/temp", PATH=root + "/bin:" + os.environ["PATH"])
+env.pop("ZUID_CICD_QUIET", None)
+for sig in (signal.SIGINT, signal.SIGTERM):
+	if os.path.exists(root + "/held"): os.remove(root + "/held")
+	p = subprocess.Popen(["bash", cicd, "--list", "--only", "go"], env=env, stdin=subprocess.DEVNULL,
+		stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+		preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
+	for _ in range(200):
+		if os.path.exists(root + "/held"): break
+		time.sleep(0.05)
+	else:
+		os.killpg(p.pid, signal.SIGKILL); p.wait(); print("never reached the stand-in;"); sys.exit()
+	runs = os.listdir(root + "/temp/zuid")
+	os.killpg(p.pid, sig)
+	rc = p.wait(timeout=20)
+	name = signal.Signals(sig).name
+	if len(runs) != 1: print("%s: had %s during the run;" % (name, runs))
+	if rc == 0: print("%s: exited 0;" % name)
+	left = os.listdir(root + "/temp/zuid")
+	if left: print("%s: left %s;" % (name, left))
+PY
+)" || intBad+=" the rig failed;"
+if [[ -z "${intBad}" ]]
+	then fPass
+	else fFail "${intBad}"
 fi
 
 ## The profile report sorted self time by the leaf's own name, and registry

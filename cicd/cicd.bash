@@ -32,6 +32,7 @@
 ##		- 20261025 JC: --quick fuzzes on a short budget, and dogfoods.
 ##		- 20261025 JC: PASS, FAIL and SKIP test lines, and test IDs in minutes.
 ##		- 20261025 JC: A full run starts the macos workflow on GitHub and waits for it. --no-remote skips it.
+##		- 20261025 JC: A run folder of its own in HOST_TEMP, removed at the end. Removals go through the safe removal guard.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Global, since the exit trap reads it after fMain has gone.
@@ -41,6 +42,10 @@ declare -i inContainer=0; [[ "${ZUID_IN_CONTAINER:-}" == "1" ]] && inContainer=1
 declare    thisVersion="0.1.0"
 declare    copyrightYear="2026"
 declare    author="Jim Collier"
+
+## fSafeRm and fSafeRm_Under. Every recursive removal goes through them.
+# shellcheck source=cicd/utility/include/safe-rm.bash
+source "$(dirname "${BASH_SOURCE[0]}")/utility/include/safe-rm.bash" || { printf 'cicd.bash: no utility/include/safe-rm.bash beside it.\n' >&2; exit 1; }
 
 ## gitsby picks the git host account from the repo's path. A plain clone
 ## without it gets plain git and gh.
@@ -260,8 +265,8 @@ fPrint_Help(){
 		    --leakcheck       Add the slow leak checks. On by default, so this is for
 		                      a quick run. See below.
 		    --no-leakcheck    Leave the slow leak checks out.
-		    --keep-temp       Keep this run's containers, rather than removing them
-		                      at the end. See below.
+		    --keep-temp       Keep this run's temp folder and containers, rather
+		                      than removing them at the end. See below.
 		    --list            Print the steps the other options would run, and the
 		                      test IDs in each, then stop. Nothing is run.
 		    -q, --quiet       No banner and no prompting. Without -m the commit
@@ -342,6 +347,13 @@ fPrint_Help(){
 		is emptied when it's over ${zigCacheCapMB} MB or was filled by another Zig.
 		A stamp file in each one records which. ~/.cache/zig is shared, so it's
 		left alone.
+
+		Each run works in its own folder, \${HOST_TEMP}/${projectName}/<run>, where <run> is
+		the start time and a counter, such as 20261025-140500_001. HOST_TEMP falls
+		back to TMPDIR, then /tmp. TMPDIR, TEMP and TMP point into it. The folder
+		goes at the end, failed or interrupted too, unless --keep-temp, which
+		prints where it is. A run also removes the project's run folders over 2
+		days old whose run.pid names no live process.
 
 		Every container, image and volume a run makes is labeled dev.project=${projectName}
 		and dev.run=<run>, and each container is named ${projectName}-<run>-<step>. At the
@@ -473,8 +485,8 @@ fMain(){
 	local -r utilityDir="${repoRoot}/cicd/utility"
 	local -r incomingDir="${repoRoot}/dist-incoming"
 	local -r runStamp="$(fRunStamp)"
-	## Becomes the run folder's name with 2026102416233107.
-	local -r runName="${runStamp}"
+	fRunDir "${runStamp}"
+	local -r runName="${_runDir##*/}"
 
 	## No single stage gets the whole machine. fJobs works the counts out, here
 	## and again from fStep before each step, since the load moves.
@@ -1498,7 +1510,8 @@ fStage_Shell(){
 		shellcheck "${repoRoot}/cicd/cicd.bash" "${repoRoot}/install.bash" \
 			"${utilityDir}/installer-test.bash" "${utilityDir}/cli-test.bash" \
 			"${utilityDir}/pipeline-test.bash" "${utilityDir}/package.bash" \
-			"${utilityDir}/c-checks.bash" "${utilityDir}/git-hooks/pre-push"
+			"${utilityDir}/c-checks.bash" "${utilityDir}/git-hooks/pre-push" \
+			"${utilityDir}/include/safe-rm.bash"
 		fEcho_Clean "Clean."
 	fi
 
@@ -1972,7 +1985,7 @@ fStage_Go_Consumer(){
 	) || fTestFail "a program importing github.com/jim-collier/zuid/go/zuid did not build and run."
 	fTestPass
 
-	rm -rf "${consumerDir}"
+	fSafeRm "${consumerDir}"
 
 }
 
@@ -2180,7 +2193,7 @@ fVendor_Wasmtime(){  ## platform, destination
 		tar --no-same-owner --no-same-permissions -xf "${wtTar}" -C "${parentDir}"
 	fi
 	rm -f "${wtTar}"
-	rm -rf "${dest:?}"
+	if [[ -e "${dest}" ]]; then fSafeRm_Under "${vendorDir:?}" "${dest}"; fi
 	mv "${parentDir}/${wtName}" "${dest}"
 	printf '%s\n' "${wasmtimeVer}" > "${wtStamp}"
 	fEcho_Clean "Wasmtime ...: vendored ${platform}"
@@ -2208,7 +2221,7 @@ fVendor_FreeBSD(){  ## destination
 	_fMustBeInPath shasum
 	_fMustBeInPath tar
 	local -r unpackDir="${parentDir}/.freebsd-unpack"
-	rm -rf "${unpackDir:?}"
+	if [[ -e "${unpackDir}" ]]; then fSafeRm_Under "${vendorDir:?}" "${unpackDir}"; fi
 	mkdir -p "${unpackDir}"
 	local pin="" pkgName="" pkgSum="" pkgFile="" gotSum=""
 	for pin in "${freebsdPkgs[@]}"; do
@@ -2225,7 +2238,7 @@ fVendor_FreeBSD(){  ## destination
 	done
 
 	local -r usrLocal="${unpackDir}/usr/local"
-	rm -rf "${dest:?}"
+	if [[ -e "${dest}" ]]; then fSafeRm_Under "${vendorDir:?}" "${dest}"; fi
 	mkdir -p "${dest}/lib"
 	cp -R "${usrLocal}/include" "${dest}/"
 	cp "${usrLocal}/lib/libwasmtime.a" "${usrLocal}/lib/libzstd.a" "${dest}/lib/"
@@ -2237,7 +2250,7 @@ fVendor_FreeBSD(){  ## destination
 	## so this is upstream's text, LLVM exception and all.
 	cp "$(find "${usrLocal}/share/licenses" -path '*/libwasmtime-*/APACHE20' -print -quit)" "${dest}/LICENSE" \
 		|| fThrowError "The libwasmtime package has no APACHE20 license file."  "${FUNCNAME[0]}"
-	rm -rf "${unpackDir:?}"
+	fSafeRm_Under "${vendorDir:?}" "${unpackDir}"
 	printf '%s\n' "${want}" > "${stamp}"
 	fEcho_Clean "Wasmtime ...: vendored ${want} x86_64-freebsd"
 
@@ -2358,7 +2371,7 @@ fStage_Zig_Fuzz(){
 			fId "${fuzzIds[i]}" "${fuzzNames[i]}, fuzzed for ${fuzzLimit} iterations"
 			fTestPass
 		done
-		rm -rf "${logDir}"
+		fSafeRm "${logDir}"
 		return 0
 	fi
 
@@ -2505,7 +2518,7 @@ fStage_Zig_BuildStamp(){
 	[[ "${dated}" == *"(build bz4zn) (2023-11-15)" ]] || fTestFail "at UTC+14, --version said '${dated}', not the 2023-11-15 build date."
 	fTestPass
 
-	rm -rf "${stampDir}"
+	fSafeRm "${stampDir}"
 
 }
 
@@ -2678,7 +2691,7 @@ fStage_Zig_CApi(){
 	fi
 	fTestPass
 
-	rm -rf "${buildDir}"
+	fSafeRm "${buildDir}"
 
 }
 
@@ -2735,7 +2748,7 @@ fStage_Zig_CChecks(){
 	fCCheck "${buildDir}" "the analyzer found something. What it said is above." \
 		bash "${cChecks}" clang-analyzer "${cWarn[@]}" -I "${zigDir}/lib/include" -- "${cFiles[@]}"
 
-	rm -rf "${buildDir}"
+	fSafeRm "${buildDir}"
 
 }
 
@@ -2801,7 +2814,7 @@ fLeakcheck_Go(){  ## artifact dir
 		mv "${soakDir}/heap-2n.pprof" "${profile2N}"
 		fEcho_Clean "Profiles ...: go tool pprof -top -base ${profileN} ${profile2N}"
 	fi
-	rm -rf "${soakDir}"
+	fSafeRm "${soakDir}"
 	((rc == 0)) || fThrowError "The Go soak test failed. What it said is above."  "${FUNCNAME[0]}"
 
 }
@@ -2847,7 +2860,7 @@ fLeakcheck_C(){  ## artifact dir
 	fCCheck "${buildDir}" "the analyzer found something. What it said is above." \
 		bash "${cChecks}" clang-ctu "${cWarn[@]}" -I "${zigDir}/lib/include" -- "${cFiles[@]}"
 
-	rm -rf "${buildDir}"
+	fSafeRm "${buildDir}"
 
 }
 
@@ -2886,7 +2899,7 @@ fLeakcheck_CodeQL(){  ## artifact dir
 			-std=c99 -Wall -Wextra -Wpedantic -Werror -I "${zigDir}/lib/include" -- "${cFiles[@]}"
 	fi
 
-	rm -rf "${workDir}"
+	fSafeRm "${workDir}"
 
 }
 
@@ -2964,7 +2977,7 @@ fProfile_Cli(){
 	## process. Say which knob rather than failing the build over a profile.
 	if ! perf record -q -g -o "${scratch}/perf.data" -- "${exe}" -f '%d%h%u%f%m%g%r' >/dev/null 2>"${scratch}/perf.err"; then
 		fEcho_Clean "CLI ........: skipped - perf could not record (kernel.perf_event_paranoid is $(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null || echo unknown))"
-		rm -rf "${scratch}"
+		fSafeRm "${scratch}"
 		return 0
 	fi
 	perf script -i "${scratch}/perf.data" 2>/dev/null \
@@ -2972,7 +2985,7 @@ fProfile_Cli(){
 		| inferno-flamegraph --title "zuid CLI" 2>/dev/null \
 		> "${profileDir}/flame_${runStamp}_cli.svg"
 	fEcho_Clean "CLI ........: flame_${runStamp}_cli.svg"
-	rm -rf "${scratch}"
+	fSafeRm "${scratch}"
 
 }
 
@@ -3190,7 +3203,7 @@ fStage_Package(){
 
 	fStage_Package_MacRun "${thinDir}" "${release}" "${packageVersion}"
 
-	rm -rf "${thinDir}"
+	fSafeRm "${thinDir}"
 
 }
 
@@ -4812,6 +4825,40 @@ fRunStamp(){
 	fi
 }
 
+## The run's folder, ${HOST_TEMP}/<project>/<stamp>_<NNN>, which TMPDIR, TEMP
+## and TMP point at, so every mktemp -d lands in it. Globals, since the exit
+## trap removes it. Physical, since the guard refuses a path through a link,
+## and macOS's temp folder sits behind /var.
+fRunDir(){  ## stamp
+	local root="${HOST_TEMP:-${TMPDIR:-/tmp}}" dir="" stale="" pid="" num=""
+	local -i n=1
+	root="$(realpath -- "${root}" 2>/dev/null)" || fThrowError "The temp root '${HOST_TEMP:-${TMPDIR:-/tmp}}' isn't there."  "${FUNCNAME[0]}"
+	root="${root%/}/${projectName}"
+	mkdir -p "${root}" || fThrowError "Could not make '${root}'."  "${FUNCNAME[0]}"
+	safeRmOwn="${root}"
+
+	## A plain mkdir, so two runs started in one second can't share one.
+	while ((n <= 999)); do
+		printf -v num '%03d' "${n}"
+		dir="${root}/${1:?}_${num}"
+		if mkdir "${dir}" 2>/dev/null; then break; fi
+		n+=1
+	done
+	((n <= 999)) || fThrowError "No free run folder for ${1} under '${root}'."  "${FUNCNAME[0]}"
+	printf '%s\n' "$$" > "${dir}/run.pid"
+	_runDir="${dir}"; _runPid="${BASHPID}"
+	export TMPDIR="${dir}" TEMP="${dir}" TMP="${dir}"
+
+	## Our own leftovers: over 2 days old, and no live run. The name pattern
+	## keeps anything else in there out of it.
+	while IFS= read -r stale; do
+		[[ "${stale##*/}" =~ ^[0-9]{8}-[0-9]{6}_[0-9]{3}$ ]] || continue
+		pid=""; { read -r pid < "${stale}/run.pid" ;} 2>/dev/null || true
+		if [[ "${pid}" =~ ^[0-9]+$ ]] && kill -0 "${pid}" 2>/dev/null; then continue; fi
+		fSafeRm "${stale}" || true
+	done < <(find "${root}" -mindepth 1 -maxdepth 1 -type d -mmin +2880 2>/dev/null || true)
+}
+
 ## Tees the whole run to a dated log, so lint-report.bash has something to read
 ## and a failure can be looked at after the fact.
 fStartRunLog(){
@@ -5177,6 +5224,8 @@ function fStep_UtcOffset(){
 
 declare -i _wasCleanupRun=0
 declare -a _scratchDirs=()
+## Set by fRunDir, for the exit trap.
+declare _runDir="" _runPid=""
 ## Set by fContainer_Image, for the exit trap.
 declare _dockerEngine="" _dockerProject="" _dockerRun="" _dockerPid=""
 declare -i _dockerSteps=0
@@ -5197,6 +5246,8 @@ function fThrowError(){
 	exit 1
 }
 function _fRemoveScratchDirs(){
+	## --keep-temp keeps what a failed stage left, with the run folder.
+	if ((${keepTemp:-0})); then return 0; fi
 	## Only a bare mktemp -d's own tmp.* folder, in TMPDIR or /tmp. Checking for
 	## /tmp alone kept every one when TMPDIR was elsewhere, as it is on macOS.
 	local tmpRoot="${TMPDIR:-/tmp}"; tmpRoot="${tmpRoot%/}"
@@ -5204,9 +5255,21 @@ function _fRemoveScratchDirs(){
 	for dir in "${_scratchDirs[@]}"; do
 		[[ -n "${dir}" && -d "${dir}" && ! -L "${dir}" && "${dir##*/}" == tmp.* ]] || continue
 		parent="${dir%/*}"; parent="${parent%/}"
-		if [[ "${parent}" == "${tmpRoot}" || "${parent}" == "/tmp" ]]; then rm -rf "${dir}"; fi
+		if [[ "${parent}" == "${tmpRoot}" || "${parent}" == "/tmp" ]]; then fSafeRm "${dir}" || true; fi
 	done
 	_scratchDirs=()
+}
+## The run folder goes last, unless --keep-temp. Only from the process that
+## made it, not a $(...)'s ERR trap while the run goes on.
+function _fRunDir_Remove(){
+	if [[ -z "${_runDir}" || "${BASHPID}" != "${_runPid}" ]]; then return 0; fi
+	if ((keepTemp)); then
+		fEcho_Clean "Temp .......: kept ${_runDir} (--keep-temp)"
+	elif [[ -d "${_runDir}" ]]; then
+		cd / 2>/dev/null || true
+		fSafeRm "${_runDir}" || true
+	fi
+	_runDir=""
 }
 function _fTrap_Exit(){
 	if [[ "${_wasCleanupRun}" == "0" ]]; then  ## String compare is less to fail than integer
@@ -5214,6 +5277,7 @@ function _fTrap_Exit(){
 		_fRemoveScratchDirs
 		fContainer_StopRun
 		if ((${#_dockerGone[@]})); then fEcho_Clean "Docker .....: removed ${_dockerGone[*]} of this run"; fi
+		_fRunDir_Remove
 		_fSingleExitPoint "${@}"
 	fi
 }
@@ -5223,6 +5287,7 @@ function _fTrap_Error(){
 		_fRemoveScratchDirs
 		fContainer_StopRun
 		if ((${#_dockerGone[@]})); then fEcho_Clean "Docker .....: removed ${_dockerGone[*]} of this run"; fi
+		_fRunDir_Remove
 		fEcho_ResetBlankCounter
 		_fSingleExitPoint "${@}"
 	fi
@@ -5236,6 +5301,13 @@ function _fSingleExitPoint(){
 		fEcho_Force
 		fStep_Fail
 		fEcho "User interrupted."
+		fEcho_Clean
+		exit 1
+	elif [[ "${signal}" == "TERM" || "${signal}" == "SIGHUP" ]]; then
+		## A trap that returns lets the run go on, after its folder is gone.
+		fEcho_Force
+		fStep_Fail
+		fEcho "Stopped by ${signal#SIG}."
 		fEcho_Clean
 		exit 1
 	elif [[ "${errNum}" != "0" ]]; then
