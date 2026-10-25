@@ -85,6 +85,26 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: EtjfGH0 (what `--quick` and the gates plan), EtjfGH1 (the quick fuzz budgets), EtjfGH2 (`--no-fuzz` handed to the image on a quick run), and Etab8wo. Each failed against the old `cicd.bash` and passes now.
 	- Verified: 20261025, `pipeline-test.bash` 134 of 134, here and with `ZUID_IN_CONTAINER=1`. shellcheck, `test-ids.py check` (484, all unique), and the content scrub. `cicd.bash -q --quick --no-dogfood --no-sync --no-backup --only go --no-container` passed 14 of 14 steps, Go fuzz included. The same with `--only zig --container` passed 16 of 16 steps across the handoff to the image, Zig fuzz at 5K included. Load about 4 to 16 on 32 CPUs.
 
+- CICD reset: a test for every Done item
+	- ID: 2026102416233105
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs external testing: the `macos.yml` workflow, for EtjiwMO on the universal build.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026100519164741, 2026101312344407
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the regression bullet in `Testing` in the shared CICD rules. Every Done item in the new format names its test case. 3 old-format Done items don't: packaging for other platforms, the C module cross targets, and CLI startup time.
+		- Each of those gets a test where one could exist and would make sense, or a line saying why not.
+	- Progress log:
+		- 20261025: Packaging and the C module cross targets already had tests, one or more per target, in the Package step. Each item now names them.
+		- 20261025: The startup item had cache tests, but none that a warm run skips the compile. Every one of them passed with the cache never read. EtjiwMO is new, and compares a warm run's CPU with a cold one's.
+	- Swept: every old-format and new-format Done item for a `Test case` line. Only these 3 lacked one.
+	- Branch: round1025b
+	- Test case: EtjiwMO in `cli-test.bash`. It failed with the cache load turned off, and passes with it on. The other two items name existing tests.
+
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -257,18 +277,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: Split in 3. The gate flags, `--long`, `--no-remote` and the hook are 2026102508153575. Areas and `--list` are 2026102508153578. `--quick`'s fuzz and dogfood are 2026102508153580. `--keep-temp` was already in, from 2026102416233101.
 	- Decisions:
 		- 20261025: Nothing moves to `--long`. The default run took about 17 minutes on b23 on 20261023, well under the hour.
-
-- CICD reset: a test for every Done item
-	- ID: 2026102416233105
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261024-162331
-	- Opened by: JC
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per the regression bullet in `Testing` in the shared CICD rules. Every Done item in the new format names its test case. 3 old-format Done items don't: packaging for other platforms, the C module cross targets, and CLI startup time.
-		- Each of those gets a test where one could exist and would make sense, or a line saying why not.
 
 - CICD reset: test IDs
 	- ID: 2026102416233106
@@ -3178,6 +3186,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Note: 20261004, every target is built now. Windows x86_64 and arm64 zips are cross-built on Linux, and the x86_64 one passed on vm925w. Left to run: the arm64 Windows build and the arm64 macOS slice, on real arm64 machines.
 	- Note: 20261005, the arm64 Windows zip and its C module ran under Wine on vmDebARM64. See 2026100416052036. The arm64 macOS slice still has no Apple Silicon machine to run on.
 	- Note: 20261013, every target builds, and every one but the arm64 runs passed on its own OS. Those runs moved to 2026101312344407.
+	- Test case: the Package step's checks, at least one per target. ErgjCkT for Linux arm64, ErlUUiQ for FreeBSD, ErmM9mS and ErmS0zE for the Windows zips, and Erfhegq for the macOS universal tarball, on a Mac. ErbFB7B, ErgjCkU, ErlUUiR and ErmS0zB hold each to its CPU floor, and ErmYT8O to ErmYT8V check the Wasmtime license in every archive. ErgqYt9 refuses a publish with a target missing. All of them predate 20261025 and were named, not written, then.
 	- Opened: 20260802-025417
 	- Closed: 20261013-123444
 
@@ -3188,11 +3197,13 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Note: 20261004, Windows x86_64 and arm64 are built too. `capi_smoke.c` passed on vm925w with mingw gcc against both libraries, and with MSVC against the DLL. Same arm64 gap as packaging.
 	- Note: 20261005, `capi_smoke.c` passed under Wine on vmDebARM64 against the arm64 Windows DLL and static library.
 	- Note: 20261013, the C module builds for every target and passed `capi_smoke.c` everywhere but on real arm64 machines. That moved to 2026101312344407.
+	- Test case: the Package step links `capi_smoke.c` against each cross-built release's static and shared library. ErgjCkW and ErgjCkX for Linux arm64, ErmM9mU, ErmM9mV, ErmS0zG and ErmS0zH for Windows, ErlUUiT and ErlUUiU for FreeBSD, and EtaL129 to EtaL12C for both macOS slices, on a Mac. ErmM9mT and ErmS0zF check the DLL's exports. All of them predate 20261025 and were named, not written, then.
 	- Opened: 20260801-090104
 	- Closed: 20261013-123444
 
 - ✅ CLI startup is ~0.5 s, nearly all of it the module's own `_initialize` building the base registry inside the wasm. Options if it starts to matter: ask upstream about lazier registry construction, or cache a precompiled module per machine. Deferred until the surface settles.
 	- Done: 20261005, both. The command caches its compiled module, and upstream has a lazy registry waiting on a release. See 2026100519164741 and 2026100519164742.
+	- Test case: EtjiwMO in `cli-test.bash`, written 20261025. A warm run has to spend under half a cold run's CPU. With the cache load turned off it failed, cold 3653 ms and warm 3631 ms, while Ersmdcr to Ersmdcu all still passed. Those and Ersmdcv cover the cache file itself. Wall time has no test, since a busy box swings it, and the `_initialize` half waits on 2026100519164742.
 	- Opened: 20260802-104116
 	- Closed: 20261005-191647
 

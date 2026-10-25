@@ -432,6 +432,24 @@ if [[ ! -e "${cacheDir}/module-0000000000000000.cwasm" && -s "${cached[0]}" ]]
 	else fFail "left: $(ls "${cacheDir}")"
 fi
 
+## The point of the cache: a cold start spent seconds of CPU compiling the
+## module, on every core. CPU time, not wall time, so a busy box can't fake it.
+fCpuMs(){  ## -> one default run's user plus system time, in ms
+	local TIMEFORMAT='%3U %3S' times="" user="" sys=""
+	times="$({ time fRun >/dev/null; } 2>&1)" || true
+	read -r user sys <<< "${times}"
+	user="${user//[^0-9]/}"; sys="${sys//[^0-9]/}"
+	printf '%s' "$((10#${user:-0} + 10#${sys:-0}))"
+}
+fId EtjiwMO "a warm run loads the module, not compiles it"
+rm -f "${cached[0]}"
+coldMs="$(fCpuMs)"
+warmMs="$(fCpuMs)"
+if [[ -s "${cached[0]}" ]] && ((warmMs * 2 < coldMs))
+	then fPass
+	else fFail "cold ${coldMs} ms of CPU, warm ${warmMs} ms"
+fi
+
 ## Per the XDG spec, a relative XDG_CACHE_HOME is ignored.
 if [[ "$(uname -s)" != Darwin ]]; then
 	fId Ersmdcu "a relative XDG_CACHE_HOME falls back to ~/.cache"
@@ -467,3 +485,4 @@ fLine ""
 ##		- 20260930 JC: Test IDs. Precision, attached values, --version, --about, --donate, help.
 ##		- 20261005 JC: Module cache, and a scratch HOME so the real cache is left alone.
 ##		- 20261023 JC: A relative --bin.
+##		- 20261025 JC: A warm run's CPU against a cold one's.
