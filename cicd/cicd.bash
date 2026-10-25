@@ -28,6 +28,7 @@
 ##		- 20261025 JC: Zig caches emptied over 2 GB or after a Zig change. The image's has its own volume.
 ##		- 20261025 JC: Docker cleanup by label at the end of a run. --keep-temp.
 ##		- 20261025 JC: --backlog-run-quick, --backlog-run-full, --merge-gate, --long, --no-remote. --gate and --ci are other names.
+##		- 20261025 JC: Areas for --backlog-run-quick. --list.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Global, since the exit trap reads it after fMain has gone.
@@ -158,6 +159,17 @@ fConfig(){ :;
 	## --leakcheck's CodeQL, built on that image from cicd/container/codeql/.
 	default_codeqlImage="zuid-codeql"
 
+	## What --backlog-run-quick can be narrowed to, as "area|what it runs" for
+	## --help. fSteps_Checks says which steps each one is. Preflight and the
+	## test ID check run whatever the areas.
+	default_areas=(
+		"go|The Go stages."
+		"zig|The Zig stages, the command and the C module included."
+		"shell|Bash and PowerShell lint, and the pipeline's own tests."
+		"installers|install.bash and install.ps1 against a local release."
+		"docs|The docs checks and the content scrub."
+	)
+
 }
 
 
@@ -209,10 +221,11 @@ fPrint_Help(){
 		    --no-sync         Skip the remote refresh at the start.
 		    --long, --slow    Everything. Nothing in the default run takes long enough
 		                      to be left out of it yet, so for now this is the same.
-		    --backlog-run-quick
+		    --backlog-run-quick [<area>...]
 		                      What a backlog worker runs before it commits: --quick,
 		                      with no sync, dogfood, backup, demo, commit or push,
-		                      and no prompt. --gate is another name for it.
+		                      and no prompt. --gate is another name for it. Areas
+		                      named after it narrow it to theirs. See below.
 		    --backlog-run-full
 		                      What a backlog round runs once at its end: every check
 		                      of the default run, with none of the above.
@@ -244,6 +257,8 @@ fPrint_Help(){
 		    --no-leakcheck    Leave the slow leak checks out.
 		    --keep-temp       Keep this run's containers, rather than removing them
 		                      at the end. See below.
+		    --list            Print the steps the other options would run, and the
+		                      test IDs in each, then stop. Nothing is run.
 		    -q, --quiet       No banner and no prompting. Without -m the commit
 		                      message is generated.
 		    -h, --help        This.
@@ -338,6 +353,10 @@ fPrint_Help(){
 
 		With no options a run does every stage but --publish.
 
+		The areas --backlog-run-quick takes, any number of them. With none it runs
+		them all. Preflight and the test ID check run either way.
+		$(for area in "${areas[@]}"; do printf '    %-12s%s\n' "${area%%|*}" "${area#*|}"; done)
+
 		--merge-gate is what cicd/utility/git-hooks/pre-push runs before a push to
 		main, on the commit being pushed, in a scratch worktree. A push whose
 		commits change only the paths in cicd/utility/git-hooks/no-gate-paths, such
@@ -394,6 +413,7 @@ fMain(){
 	local -i default_zigCacheCapMB=0
 	local    default_zigCacheStamp=""
 	local    default_codeqlImage=""
+	local -a default_areas=()
 	fConfig
 	local -r minVer_Go="${default_minVer_Go}"
 	local -r minVer_Zig="${default_minVer_Zig}"
@@ -420,6 +440,7 @@ fMain(){
 	local -ri zigCacheCapMB="${default_zigCacheCapMB}"
 	local -r  zigCacheStamp="${default_zigCacheStamp}"
 	local -r  codeqlImage="${default_codeqlImage}"
+	local -ra areas=("${default_areas[@]}")
 	local -r  containerEngine="${ZUID_DOCKER:-docker}"
 	## Set by fContainer_Image and fCodeql_Image.
 	local containerTag="" codeqlTag=""
@@ -485,6 +506,8 @@ fMain(){
 	local -i doFuzz=1
 	local -i doProfile=1
 	local -i doDemo=1
+	local -a runAreas=()
+	local -i doList=0
 	fInit "${@}"
 	readonly onlyToolchain
 	readonly doCross
@@ -500,6 +523,9 @@ fMain(){
 	readonly doFuzz
 	readonly doProfile
 	readonly doDemo
+	readonly runAreas doList
+	## Why a step is off for the areas named.
+	local -r areaWhy="not in ${gateFlag} ${runAreas[*]}"
 
 	## Set by the publish preflight, read by the publish stage.
 	local publishVersion="" publishRemote="" publishHead="" publishRepoUrl=""
@@ -518,10 +544,12 @@ fMain(){
 
 	local -i doGo=1;  [[ "${onlyToolchain}" == "zig" ]] && doGo=0
 	local -i doZig=1; [[ "${onlyToolchain}" == "go"  ]] && doZig=0
+	if ! fArea go;  then doGo=0;  fi
+	if ! fArea zig; then doZig=0; fi
 
 	## Ask for the commit message before anything slow runs, so the build is not
 	## finished and then thrown away because nobody was there to answer.
-	fAskForCommitMessage
+	if ((! doList)); then fAskForCommitMessage; fi
 	readonly commitMsg
 	readonly doCommit
 
@@ -530,7 +558,7 @@ fMain(){
 	##
 
 	## Inside a container the outer run already logs everything this prints.
-	if ((! inContainer)); then fStartRunLog; fi
+	if ((! inContainer)) && ((! doList)); then fStartRunLog; fi
 	if [[ -n "${aliasNote}" ]]; then fEcho_Clean; fEcho_Clean "${aliasNote}"; fi
 
 	## The image or not is picked again by the Container step, after the sync,
@@ -538,6 +566,7 @@ fMain(){
 	local -i planContainer="${doContainer}"
 	if ((! inContainer)) && [[ "${containerMode}" == "auto" ]] && [[ -z "$(fContainer_Where)" ]]; then planContainer=1; fi
 	fSteps_Plan
+	if ((doList)); then fSteps_List; return 0; fi
 	## The run in the image numbers its steps on from the outside's, which
 	## has listed the ones off and says when it's done.
 	local -i stepsHanded=0
@@ -579,7 +608,9 @@ fSteps(){
 		fSteps_Checks
 		if fSteps_Packages; then fStep "Package" fStage_Package; fi
 		_stepElsewhere=0
-		fStep "Installers: bash 3.2" fStage_Shell_Bash32
+		if fArea installers; then
+			fStep "Installers: bash 3.2" fStage_Shell_Bash32
+		fi
 		fSteps_Scrub
 	else
 		fSteps_Checks
@@ -611,7 +642,7 @@ fSteps(){
 	if ((inContainer)); then return 0; fi
 	if ((doPublish)); then fStep "Publish" fStage_Publish; else fStep_Off "Publish" "only with --publish"; fi
 	if ((doZig)) && ((doDogfood)); then fStep "Dogfood" fStage_Dogfood
-	elif ((! doZig)); then fStep_Off "Dogfood" "--only go"
+	elif [[ "${onlyToolchain}" == "go" ]]; then fStep_Off "Dogfood" "--only go"
 	elif ((doGate)) || ((doFullGate)); then fStep_Off "Dogfood" "${gateFlag}"
 	elif ((doQuick)); then fStep_Off "Dogfood" "--quick, unless --dogfood"
 	else fStep_Off "Dogfood" "--no-dogfood"; fi
@@ -630,12 +661,16 @@ fSteps(){
 fSteps_Checks(){
 
 	fStep "Preflight"                         fPreflight
-	fStep "Bash: lint"                        fStage_Shell
-	fStep "PowerShell: lint"                  fStage_Shell_PowerShell
+	if fArea shell; then
+		fStep "Bash: lint"                        fStage_Shell
+		fStep "PowerShell: lint"                  fStage_Shell_PowerShell
+	else
+		fStep_Off "Bash and PowerShell lint" "${areaWhy}"
+	fi
 	fStep "Test IDs"                          fStage_TestIds
-	fStep "Pipeline"                          fStage_Shell_Pipeline
-	fStep "Installers"                        fStage_Shell_Installers
-	fStep "Docs: claims that can be counted"  fStage_Docs
+	if fArea shell; then fStep "Pipeline" fStage_Shell_Pipeline; else fStep_Off "Pipeline" "${areaWhy}"; fi
+	if fArea installers; then fStep "Installers" fStage_Shell_Installers; else fStep_Off "Installers" "${areaWhy}"; fi
+	if fArea docs; then fStep "Docs: claims that can be counted" fStage_Docs; else fStep_Off "Docs" "${areaWhy}"; fi
 	## The image can't see the folder beside the repo, so there it runs after.
 	if ((! _stepElsewhere)) && ((! inContainer)); then fSteps_Scrub; fi
 
@@ -644,8 +679,10 @@ fSteps_Checks(){
 		fStep "Go: vet, staticcheck, govulncheck"  fStage_Go_Checks
 		fStep "Go: a consumer of the module"       fStage_Go_Consumer
 		if ((doFuzz)); then fStep "Go: fuzz" fStage_Go_Fuzz; else fStep_Off "Go: fuzz" "$(fSteps_FuzzWhy)"; fi
-	else
+	elif [[ -n "${onlyToolchain}" ]]; then
 		fStep_Off "Go stages" "--only zig"
+	else
+		fStep_Off "Go stages" "${areaWhy}"
 	fi
 	if ((doZig)); then
 		fStep "Zig: vendor"                           fStage_Zig_Vendor
@@ -654,8 +691,10 @@ fSteps_Checks(){
 		fStep "Zig: C module from a system compiler"  fStage_Zig_CApi
 		fStep "Zig: C sanitizers and analyzers"       fStage_Zig_CChecks
 		if ((doFuzz)); then fStep "Zig: fuzz" fStage_Zig_Fuzz; else fStep_Off "Zig: fuzz" "$(fSteps_FuzzWhy)"; fi
-	else
+	elif [[ -n "${onlyToolchain}" ]]; then
 		fStep_Off "Zig stages" "--only go"
+	else
+		fStep_Off "Zig stages" "${areaWhy}"
 	fi
 	if ((doCross)) && ((doGo)); then fStep "Go: cross-compile" fStage_Go_Cross; fi
 	if ((doLeakcheck)); then fStep "Leak check: soak tests, cross-file analysis and CodeQL" fStage_Leakcheck
@@ -669,7 +708,8 @@ fSteps_Checks(){
 
 ## A public clone has no private folder beside it.
 fSteps_Scrub(){
-	if [[ -x "${repoRoot}/../private/hooks/scrub.bash" ]]; then fStep "Content scrub" fContentScrub
+	if ! fArea docs; then fStep_Off "Content scrub" "${areaWhy}"
+	elif [[ -x "${repoRoot}/../private/hooks/scrub.bash" ]]; then fStep "Content scrub" fContentScrub
 	else fStep_Off "Content scrub" "no private/hooks/scrub.bash beside the repo"; fi
 }
 
@@ -684,7 +724,7 @@ fSteps_Packages(){
 }
 
 fSteps_Plan(){
-	_stepPlanning=1; _stepTitles=(); _stepOffs=()
+	_stepPlanning=1; _stepTitles=(); _stepFuncs=(); _stepOffs=()
 	fSteps
 	_stepPlanning=0
 	_stepTotal="${#_stepTitles[@]}"
@@ -695,6 +735,37 @@ fSteps_Print(){
 	local off=""
 	fSection "$(fStep_Stamp): ${_stepTotal} steps, ${#_stepOffs[@]} turned off"
 	for off in "${_stepOffs[@]}"; do fEcho_Clean "Off ........: ${off}"; done
+}
+
+## --list: the plan, then each step with the tests it runs. What a step runs
+## besides cicd.bash's own checks is named here, for test-ids.py.
+fSteps_List(){
+	local -A suites=(
+		[fStage_Shell_Pipeline]="pipeline-test"   [fStage_Shell_Installers]="installer-test"
+		[fStage_Shell_Bash32]="installer-test:fCase_Bash32"
+		[fStage_Go]="go"   [fStage_Go_Fuzz]="go:FuzzGenerate"   [fStage_Leakcheck]="go:TestSoak"
+		[fStage_Zig]="zig" [fStage_Zig_Fuzz]="zig-fuzz"         [fStage_Zig_Cli]="cli-test"
+	)
+	local -a stepArgs=() rows=()
+	local func="" found="" row=""
+	local -i i=0 at=0
+	for func in "${_stepFuncs[@]}"; do stepArgs+=("${func}=${suites[${func}]:-}"); done
+	found="$(python3 "${utilityDir}/test-ids.py" steps "${stepArgs[@]}")"
+	if [[ -n "${found}" ]]; then mapfile -t rows <<< "${found}"; fi
+	fSteps_Print
+	fEcho_Clean
+	## Rows come in step order, as "step<tab>id<tab>name".
+	for i in "${!_stepTitles[@]}"; do
+		printf '%s. %s\n' "$((i + 1))" "${_stepTitles[i]}"
+		while ((at < ${#rows[@]})) && [[ "${rows[at]%%$'\t'*}" == "${i}" ]]; do
+			row="${rows[at]#*$'\t'}"
+			printf '      %s %s\n' "${row%%$'\t'*}" "${row#*$'\t'}"
+			at+=1
+		done
+	done
+	fEcho_Clean_Force
+	fEcho_Clean "${_stepTotal} steps, ${#rows[@]} tests. Nothing was run."
+	fEcho_Clean
 }
 
 
@@ -748,8 +819,15 @@ fInit(){
 			--container)  doContainer=1; containerMode="on"  ;;
 			--no-container) doContainer=0; containerMode="off" ;;
 			## gateFlag is as typed, for the refusals.
-			--backlog-run-quick) doGate=1;     gateFlag="${currentArg}" ;;
-			--gate)              doGate=1;     gateFlag="${currentArg}"; aliasNote="--gate is another name for --backlog-run-quick." ;;
+			--backlog-run-quick|--gate)
+				doGate=1; gateFlag="${currentArg}"
+				if [[ "${currentArg}" == "--gate" ]]; then aliasNote="--gate is another name for --backlog-run-quick."; fi
+				## Any words after it, up to the next option, are areas.
+				while [[ -n "${2:-}" && "${2}" != -* ]]; do
+					fInit_Area "${2,,}"
+					shift
+				done
+				;;
 			--backlog-run-full)  doFullGate=1; gateFlag="${currentArg}" ;;
 			--merge-gate)        doFullGate=1; gateFlag="${currentArg}" ;;
 			--ci)                doFullGate=1; gateFlag="${currentArg}"; aliasNote="--ci is another name for --merge-gate." ;;
@@ -763,6 +841,7 @@ fInit(){
 			--no-profile) doProfile=0 ;;
 			--no-demo)    doDemo=0    ;;
 			--keep-temp)  keepTemp=1  ;;
+			--list)       doList=1    ;;
 			-q|--quiet)   doQuietly=1 ;;
 
 			## ¯\_(:/)_/¯
@@ -786,6 +865,9 @@ fInit(){
 		doSync=0; doBackup=0; doDogfood=0; doDemo=0; doQuietly=1
 	fi
 	if ((doGate)); then doQuick=1; fi
+	if ((${#runAreas[@]})) && [[ -n "${onlyToolchain}" ]]; then
+		fThrowError "The areas after ${gateFlag} already pick the toolchains, so drop --only."  "${FUNCNAME[0]}"
+	fi
 	if ((doFullGate)) && ((doQuick)); then
 		fThrowError "${gateFlag} runs every check of the default run, so it doesn't go with --quick."  "${FUNCNAME[0]}"
 	fi
@@ -857,6 +939,27 @@ fInit(){
 		if [[ -z "${packageSkipWhy}" ]]; then doPackage=1; fi
 	fi
 
+}
+
+
+fInit_Area(){  ## area
+	local known="" names=""
+	for known in "${areas[@]}"; do
+		names+=" ${known%%|*}"
+		if [[ "${known%%|*}" == "${1}" ]]; then runAreas+=("${1}"); return 0; fi
+	done
+	fThrowError "No area '${1}' for ${gateFlag}. The areas are:${names}."  "fInit"
+}
+
+
+## True with no areas named, or when this one was.
+fArea(){  ## area
+	local named=""
+	if ((! ${#runAreas[@]})); then return 0; fi
+	for named in "${runAreas[@]}"; do
+		if [[ "${named}" == "${1}" ]]; then return 0; fi
+	done
+	return 1
 }
 
 
@@ -1046,6 +1149,7 @@ fContainer_InnerArgs(){  ## array to fill
 	if ((! doQuick)) && ((! doFuzz));    then innerArgs_m2q+=(--no-fuzz);    fi
 	if ((! doQuick)) && ((! doProfile)); then innerArgs_m2q+=(--no-profile); fi
 	if ((keepTemp)); then innerArgs_m2q+=(--keep-temp); fi
+	if ((${#runAreas[@]})); then innerArgs_m2q+=(--backlog-run-quick "${runAreas[@]}"); fi
 }
 
 
@@ -4916,12 +5020,12 @@ function fSection(){
 ## goes through once with _stepPlanning set, to fill the titles and the
 ## reasons for the ones off, then again to run them. _stepElsewhere counts a
 ## step the run in the image does, without running it here.
-declare -a _stepTitles=() _stepOffs=()
+declare -a _stepTitles=() _stepFuncs=() _stepOffs=()
 declare -i _stepPlanning=0 _stepElsewhere=0 _stepAt=0 _stepTotal=0
 declare _stepOpen=""
 function fStep(){  ## title, function, args...
 	local -r title="$1"; shift
-	if ((_stepPlanning)); then _stepTitles+=("${title}"); return 0; fi
+	if ((_stepPlanning)); then _stepTitles+=("${title}"); _stepFuncs+=("${1:-}"); return 0; fi
 	_stepAt+=1
 	((! _stepElsewhere)) || return 0
 	fSection "$(fStep_Stamp): Step ${_stepAt} of ${_stepTotal}; Starting ${title}"

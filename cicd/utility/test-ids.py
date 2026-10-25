@@ -12,6 +12,7 @@
 ##		test-ids.py go  < 'go test -json'        one line per Go test, with its ID
 ##		test-ids.py zig < test runner stderr     one line per Zig test, with its ID
 ##		test-ids.py fuzzers                      the Zig fuzz tests, as 'ID<tab>name'
+##		test-ids.py steps FUNC[=SUITE,...]...    the tests each cicd.bash step runs, for --list
 ##	History: At bottom of script.
 
 ##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
@@ -239,6 +240,91 @@ def fCmd_Lookup(args):
 	return 1
 
 
+FUNC_RE = re.compile(r"^(?:function\s+)?(_?f\w+)\(\)\s*\{")
+CALL_RE = re.compile(r"\b_?f\w+\b")
+
+
+def fBashTests(path):
+	"""A harness's tests as (id, name, enclosing function or None)."""
+	found, func = [], None
+	for line in path.read_text(encoding="utf-8").splitlines():
+		m = FUNC_RE.match(line)
+		if m:
+			## A one-liner ends where it starts.
+			func = None if line.rstrip().endswith("}") else m.group(1)
+			continue
+		if line == "}":
+			func = None
+		m = BASH_CALL_RE.match(line)
+		if not m:
+			continue
+		try:
+			words = shlex.split(m.group(2).rstrip().removesuffix("\\"))
+		except ValueError:
+			continue
+		pairs = [w.split("=", 1) for w in words[1:-1] if "=" in w] if m.group(1) == "fId" else []
+		if pairs:
+			found += [(ident, f"{words[-1]} ({key})", func) for key, ident in pairs]
+		elif words and ID_RE.match(words[0]):
+			found.append((words[0], words[1] if len(words) > 1 else "", func))
+	return found
+
+
+def fCalledFrom(path, start, stop):
+	"""start and every function in path it calls, however deep, short of the
+	ones in stop."""
+	bodies, func = {}, None
+	for line in path.read_text(encoding="utf-8").splitlines():
+		m = FUNC_RE.match(line)
+		if m:
+			func = m.group(1)
+			bodies[func] = [line[m.end():]]
+		elif func:
+			bodies[func].append(line)
+	todo, seen = [start], set()
+	while todo:
+		f = todo.pop()
+		if f in seen or f not in bodies or (f in stop and f != start):
+			continue
+		seen.add(f)
+		todo += [c for line in bodies[f] if not line.lstrip().startswith("#") for c in CALL_RE.findall(line)]
+	return seen
+
+
+def fCmd_Steps(args):
+	"""The tests each of cicd.bash's steps runs, as 'N<tab>ID<tab>name', N
+	counting the arguments from 0. An argument is a step's function, then
+	what else it runs after '=': go, go:<test>, zig, zig-fuzz, or a harness,
+	such as cli-test, optionally :<its function>. cicd.bash's own checks are
+	found from the function and everything it calls."""
+	cicd = REPO / "cicd/cicd.bash"
+	own = fBashTests(cicd)
+	tests = fScan()
+	harness = {}
+	## The steps are run by fSteps, which the Container step calls to count
+	## them again, so no step reaches into another.
+	steps = [arg.partition("=")[0] for arg in args.steps]
+	stop = {*steps, "fSteps", "fSteps_Plan", "fSteps_Checks"}
+	for i, arg in enumerate(args.steps):
+		func, _, extra = arg.partition("=")
+		called = fCalledFrom(cicd, func, stop)
+		rows = [(ident, name) for ident, name, f in own if f in called]
+		for suite in filter(None, extra.split(",")):
+			kind, _, which = suite.partition(":")
+			if kind in ("go", "zig"):
+				rows += [(ident, name) for ident, s, name, _ in tests if s == kind and which in ("", name)]
+			elif kind == "zig-fuzz":
+				rows += fZigFuzzTests()
+			else:
+				path = REPO / "cicd/utility" / f"{kind}.bash"
+				if path not in harness:
+					harness[path] = fBashTests(path) if path.exists() else []
+				rows += [(ident, name) for ident, name, f in harness[path] if which in ("", f)]
+		for ident, name in rows:
+			print(f"{i}\t{ident or '???????'}\t{name}")
+	return 0
+
+
 def fLine(status, ident, name):
 	label = {"pass": "ok ....", "fail": "FAIL ..", "skip": "skip .."}[status]
 	print(f"  {label}: {ident or '???????'} {name}", flush=True)
@@ -364,9 +450,10 @@ def main():
 	sub.add_parser("go")
 	sub.add_parser("zig")
 	sub.add_parser("fuzzers")
+	p = sub.add_parser("steps");  p.add_argument("steps", nargs="*")
 	args = ap.parse_args()
 	return {"new": fCmd_New, "decode": fCmd_Decode, "check": fCmd_Check, "lookup": fCmd_Lookup,
-		"go": fCmd_Go, "zig": fCmd_Zig, "fuzzers": fCmd_Fuzzers}[args.cmd](args)
+		"go": fCmd_Go, "zig": fCmd_Zig, "fuzzers": fCmd_Fuzzers, "steps": fCmd_Steps}[args.cmd](args)
 
 
 if __name__ == "__main__":
@@ -378,3 +465,4 @@ if __name__ == "__main__":
 ##		- 20261004 JC: check also flags an ID no test line names. Added fuzzers.
 ##		- 20261004 JC: --at takes a trailing Z on python 3.9.
 ##		- 20261019 JC: go reports TestMain, where goleak runs, from the package result.
+##		- 20261025 JC: steps, for cicd.bash --list.

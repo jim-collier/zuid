@@ -394,13 +394,16 @@ fInitIn(){  ## repo dir, args...
 			doBackup=1; backupAsked=0; backupInWorktree=0; doDogfood=1; dogfoodAsked=0; doPublish=0; allowPartial=0
 			doContainer=0; containerMode="auto"; inContainer=0; doGate=0; doLeakcheck=1; leakAsked=0
 			doFuzz=1; doProfile=1; doDemo=1
-			doFullGate=0; gateFlag=""; aliasNote=""; doLong=0; doRemote=1
+			doFullGate=0; gateFlag=""; aliasNote=""; doLong=0; doRemote=1; runAreas=(); doList=0
 		}
 		shift
 		local fn=""
-		for fn in fMustBeAValue fPackageBlocker fInit; do
+		for fn in fMustBeAValue fPackageBlocker fInit fInit_Area fConfig; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
+		fConfig
+		# shellcheck disable=2034,2154  ## Read by the lifted fInit_Area, set by the lifted fConfig.
+		areas=("${default_areas[@]}")
 		# shellcheck disable=2030  ## Only this subshell's PATH, on purpose.
 		if [[ -n "${fakePath:-}" ]]; then PATH="${fakePath}"; fi
 		fInit "$@"
@@ -413,6 +416,8 @@ fInitIn(){  ## repo dir, args...
 		elif [[ "${showFullGate:-0}" == "1" ]]; then
 			printf 'quick=%s sync=%s backup=%s dogfood=%s demo=%s quiet=%s leak=%s fuzz=%s profile=%s remote=%s note=%s\n' \
 				"${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}" "${doDemo}" "${doQuietly}" "${doLeakcheck}" "${doFuzz}" "${doProfile}" "${doRemote}" "${aliasNote:-none}"
+		elif [[ "${showAreas:-0}" == "1" ]]; then
+			printf 'areas=%s quick=%s list=%s only=%s\n' "${runAreas[*]:-none}" "${doQuick}" "${doList}" "${onlyToolchain:-none}"
 		elif [[ "${showGate:-0}" == "1" ]]; then
 			printf 'doQuick=%s doSync=%s doBackup=%s doDogfood=%s doPackage=%s\n' "${doQuick}" "${doSync}" "${doBackup}" "${doDogfood}" "${doPackage}"
 		elif [[ "${showPackage:-0}" == "1" ]]; then
@@ -538,6 +543,27 @@ if ((rc == 0)) && [[ "${out}" == "${wantLong}"$'\n'"${wantLong}" ]] \
 	&& grep -A1 -F 'then fStartRunLog; fi' <<< "$(sed -n '/^fMain(){/,/^}/p' "${cicd}")" | grep -qF 'if [[ -n "${aliasNote}" ]]; then fEcho_Clean; fEcho_Clean "${aliasNote}"; fi'
 	then fPass
 	else fFail "exited ${rc} and said '${out//$'\n'/ | }', or fMain doesn't print the alias line after the log starts"
+fi
+
+## Words after --backlog-run-quick, up to the next option, are areas. Only
+## known ones, and not with --only, since the areas pick the toolchains.
+fId Etjcehs "areas after --backlog-run-quick"
+out="$(for areaArgs in "--backlog-run-quick go zig" "--gate SHELL --no-container" "--backlog-run-quick" "--list --backlog-run-quick docs installers -q"; do
+	# shellcheck disable=2086
+	showAreas=1 fInitIn "${worktreeMain}" ${areaArgs}
+done)" && rc=0 || rc=$?
+wantAreas="areas=go zig quick=1 list=0 only=none"$'\n'"areas=shell quick=1 list=0 only=none"$'\n'"areas=none quick=1 list=0 only=none"$'\n'"areas=docs installers quick=1 list=1 only=none"
+areaBad=""
+((rc == 0)) && [[ "${out}" == "${wantAreas}" ]] || areaBad+=" exited ${rc} and said '${out//$'\n'/ | }';"
+for areaArgs in "--backlog-run-quick nope|for --backlog-run-quick. The areas are: go zig shell installers docs." \
+	"--gate go --only zig|already pick the toolchains" "--only go --backlog-run-quick go|already pick the toolchains" "--backlog-run-full go|not expected in this context"; do
+	# shellcheck disable=2086
+	out="$(showAreas=1 fInitIn "${worktreeMain}" ${areaArgs%%|*})" && rc=0 || rc=$?
+	if ((rc == 0)) || [[ "${out}" != *"${areaArgs#*|}"* ]]; then areaBad+=" '${areaArgs%%|*}' exited ${rc}: ${out:0:100};"; fi
+done
+if [[ -z "${areaBad}" ]]
+	then fPass
+	else fFail "${areaBad}"
 fi
 
 fId Etab8wp "the stage calls follow the flags"
@@ -733,6 +759,7 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 			onlyToolchain="go"; doQuick="${quick:-1}"; doPackage=1; doLeakcheck="${leakcheck:-0}"; runStamp="20261019-101112"; _stepAt=2; _stepTotal=30
 			doFuzz="${fuzz:-0}"; doProfile="${profile:-0}"
 			projectName="zuid"; runName="20261019-101112"; keepTemp="${keep:-0}"; _dockerRun=""; buildJobs=3
+			read -r -a runAreas <<< "${areasIn:-}"
 		}
 		local fn=""
 		for fn in _fMustBeInPath fStage_Container fStep_UtcOffset fContainer_InnerArgs fContainer_Image fCodeql_Image fCodeql_Tag fContainer_Volumes fContainer_RunArgs; do
@@ -951,11 +978,12 @@ fPlanIn(){  ## inContainer, planContainer, then name=value settings
 			onlyToolchain=""; doGo=1; doZig=1; doFuzz=1; doCross=1; doLeakcheck=1; leakAsked=0; doProfile=1
 			doPublish=0; doDogfood=1; doBackup=1; backupInWorktree=0; commitAsked=0; doCommit=0; doPush=0
 			_stepTitles=(); _stepOffs=(); _stepPlanning=0; _stepElsewhere=0; _stepAt=0; _stepTotal=0
+			read -r -a runAreas <<< "${planAreas:-}"; areaWhy="not in --backlog-run-quick ${planAreas:-}"
 		}
 		shift 2
 		local kv=""; for kv in "$@"; do printf -v "${kv%%=*}" '%s' "${kv#*=}"; done
 		local fn=""
-		for fn in fSteps fSteps_Checks fSteps_Scrub fSteps_FuzzWhy fSteps_Packages fSteps_Plan fStep_Off; do
+		for fn in fSteps fSteps_Checks fSteps_Scrub fSteps_FuzzWhy fSteps_Packages fSteps_Plan fStep_Off fArea; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		## Marks the ones the image runs.
@@ -983,6 +1011,61 @@ done
 if [[ -z "${planBad}" ]]
 	then fPass
 	else fFail "${planBad}"
+fi
+
+## Areas narrow --backlog-run-quick to their steps, here and in the image
+## alike, and the image's run is handed the same areas.
+fId Etjceht "areas pick the steps"
+areaBad=""
+## fMain sets doGo and doZig from the areas, which --list's case below covers.
+for areaCase in "shell|doGo=0 doZig=0|Pipeline|Installers" "go docs|doZig=0|Content scrub|Bash: lint" "installers zig|doGo=0|Installers: bash 3.2|Docs: claims that can be counted"; do
+	planAreas="${areaCase%%|*}"; rest="${areaCase#*|}"; toolchains="${rest%%|*}"; rest="${rest#*|}"; wantIn="${rest%%|*}"; wantOut="${rest#*|}"
+	# shellcheck disable=2086  ## Settings, split on purpose.
+	outside="$(planAreas="${planAreas}" fPlanIn 0 1 doGate=1 doQuick=1 doFuzz=0 doProfile=0 doLeakcheck=0 doDemo=0 ${toolchains})" || { areaBad+=" '${planAreas}': ${outside};"; continue; }
+	# shellcheck disable=2086
+	inside="$(planAreas="${planAreas}" fPlanIn 1 0 doGate=1 doQuick=1 doFuzz=0 doProfile=0 doLeakcheck=0 doDemo=0 doSync=0 doDogfood=0 doBackup=0 ${toolchains})" || { areaBad+=" '${planAreas}' inside: ${inside};"; continue; }
+	plain="${outside//\*/}"
+	grep -qxF "${wantIn}" <<< "${plain}" || areaBad+=" '${planAreas}' has no ${wantIn};"
+	grep -q "^${wantOut}" <<< "${plain}" && areaBad+=" '${planAreas}' has ${wantOut};"
+	[[ "${inside}" == "$(sed -n 's/^\*//p' <<< "${outside}")" ]] || areaBad+=" '${planAreas}': outside counts what inside doesn't run;"
+done
+## Preflight and the test IDs, whatever the areas.
+outside="$(planAreas="docs" fPlanIn 0 1 doGate=1 doQuick=1)" || true
+grep -qx '\*Preflight' <<< "${outside}" && grep -qx '\*Test IDs' <<< "${outside}" || areaBad+=" docs alone drops Preflight or Test IDs;"
+inner="$(
+	fLoad fContainer_InnerArgs || exit 2
+	# shellcheck disable=2034  ## Read by the lifted function.
+	{ onlyToolchain=""; doQuick=1; doPackage=0; doLeakcheck=0; doFuzz=0; doProfile=0; keepTemp=0; runAreas=(go docs); }
+	args=(); fContainer_InnerArgs args; printf '%s\n' "${args[*]}"
+)" || true
+[[ "${inner}" == *" --backlog-run-quick go docs" ]] || areaBad+=" the image is handed '${inner}';"
+if [[ -z "${areaBad}" ]]
+	then fPass
+	else fFail "${areaBad}"
+fi
+
+## --list prints the plan and each step's tests, and runs nothing, the run
+## log included. Every test with an ID is in some step.
+fId Etjcehu "--list runs nothing, and names every test"
+listBad=""
+logsBefore="$(find "${cicd%/cicd.bash}/artifacts" -maxdepth 1 -newer "${cicd}" 2>/dev/null | sort || true)"
+out="$(bash "${cicd}" --list --backlog-run-quick go --no-container < /dev/null 2>&1)" && rc=0 || rc=$?
+((rc == 0)) || listBad+=" exited ${rc}: ${out:0:200};"
+grep -qE '^[0-9]+\. Go: build, vet, format, test$' <<< "${out}" || listBad+=" no Go step;"
+grep -qx '      ElmNxqS TestVectors' <<< "${out}" || listBad+=" no TestVectors under it;"
+grep -qE '^[0-9]+\. Zig' <<< "${out}" && listBad+=" a Zig step with only go named;"
+grep -qE ' steps, [0-9]+ tests\. Nothing was run\.$' <<< "${out}" || listBad+=" no closing line;"
+out="$(bash "${cicd}" --list --no-container --package --leakcheck < /dev/null 2>&1)" && rc=0 || rc=$?
+((rc == 0)) || listBad+=" the full list exited ${rc};"
+listed="$(sed -n 's/^      \([0-9A-Za-z]\{7\}\) .*/\1/p' <<< "${out}" | sort -u)"
+known="$(python3 -I -B -c 'import importlib.util as u, sys; s = u.spec_from_file_location("t", sys.argv[1]); t = u.module_from_spec(s); s.loader.exec_module(t); print("\n".join(sorted({i for i, *_ in t.fScan() if i})))' "${cicd%/cicd.bash}/utility/test-ids.py")"
+missing="$(comm -13 <(printf '%s\n' "${listed}") <(printf '%s\n' "${known}") | tr '\n' ' ')"
+[[ -n "${known}" && -z "${missing// /}" ]] || listBad+=" not in any step: ${missing:0:200};"
+logsAfter="$(find "${cicd%/cicd.bash}/artifacts" -maxdepth 1 -newer "${cicd}" 2>/dev/null | sort || true)"
+[[ "${logsAfter}" == "${logsBefore}" ]] || listBad+=" it wrote to cicd/artifacts;"
+if [[ -z "${listBad}" ]]
+	then fPass
+	else fFail "${listBad}"
 fi
 
 ## CodeQL is about 480 MB, so a run that doesn't want it never builds it.
@@ -2560,6 +2643,7 @@ fLine ""
 
 ##	History:
 ##		- 20261025 JC: The gate flags, and the pre-push hook's --merge-gate and docs skip.
+##		- 20261025 JC: Areas for --backlog-run-quick, and --list.
 ##		- 20261025 JC: The Zig cache tidy, and the Zig cache volume in the run arguments.
 ##		- 20261025 JC: The container by default, --no-container.
 ##		- 20261023 JC: --no-fuzz, --no-profile, --no-demo. cli-test.bash with a relative --bin.

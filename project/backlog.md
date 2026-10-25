@@ -30,6 +30,33 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## Issues
 
+- CICD reset: standard flags, areas and `--list`
+	- ID: 2026102508153578
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-quick`, with no areas, in the image, to show the plain run still runs every step.
+	- Needs external testing: The `macos` workflow on the round branch, for Etjcehu under the Mac's bash and Python.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-081535
+	- Opened by: JC
+	- Parent ID: 2026102416233103
+	- Prereq IDs: 2026102508153575
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- `--backlog-run-quick [<area>...]` runs only the areas named, such as `go`, `zig`, `shell` or `docs`. `--help` lists the areas.
+		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
+	- Progress log:
+		- 20261025: The areas are `go`, `zig`, `shell`, `installers` and `docs`, from one table in `fConfig` that `--help` prints. `shell` is the Bash and PowerShell lint and `pipeline-test.bash`. `installers` is `installer-test.bash` and the bash 3.2 cases. `docs` is the docs checks and the content scrub. Preflight and the test ID check run whatever the areas.
+		- 20261025: Words after `--backlog-run-quick` or `--gate`, up to the next option, are areas. An unknown one is refused with the list, and so are areas with `--only`. The run in the image is handed the same areas.
+		- 20261025: `--list` plans the run as usual, then prints the plan, each step and the test IDs in it, and stops. No run log, no prompt. `test-ids.py steps` finds each step's IDs: cicd.bash's own checks from the step's function and what it calls, plus the harness or test suite it runs, named in `fSteps_List`.
+	- Decisions:
+		- 20261025: `installers` is an area of its own, apart from `shell`, since `installer-test.bash` is 70 s of a quick run.
+		- 20261025: Areas are only taken after `--backlog-run-quick` or `--gate`, per the requirement. A word after any other option is still refused.
+	- Swept: every `fStep` and `fStep_Off` in `fSteps` and `fSteps_Checks`, `fContainer_InnerArgs`, the dogfood reason that read `doZig`, `--help`, `development.md`, and the `fInitIn`, `fPlanIn` and `fContainerIn` rigs in `pipeline-test.bash`. The pre-push hook and the `macos` workflow pass no areas.
+	- Branch: round1025b
+	- Test case: Etjcehs (area parsing and refusals), Etjceht (the steps each area runs, here and in the image, and the areas handed in), Etjcehu (`--list` runs nothing, and every test ID is in some step). Each failed against the scripts before the change. Etjceht also failed with the areas left out of the image's arguments and with the bash 3.2 step ungated, and Etjcehu with the old function scan in `test-ids.py`.
+	- Verified: 20261025, `pipeline-test.bash` 131 of 131, shellcheck, `test-ids.py check` (481, all unique), the content scrub, and `cicd.bash --backlog-run-quick shell docs` on this machine and in the image, 8 of 8 steps each. `--list` with no other options took 0.24 s. Load about 11 on 32 CPUs.
+
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -202,20 +229,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: Split in 3. The gate flags, `--long`, `--no-remote` and the hook are 2026102508153575. Areas and `--list` are 2026102508153578. `--quick`'s fuzz and dogfood are 2026102508153580. `--keep-temp` was already in, from 2026102416233101.
 	- Decisions:
 		- 20261025: Nothing moves to `--long`. The default run took about 17 minutes on b23 on 20261023, well under the hour.
-
-- CICD reset: standard flags, areas and `--list`
-	- ID: 2026102508153578
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261025-081535
-	- Opened by: JC
-	- Parent ID: 2026102416233103
-	- Prereq IDs: 2026102508153575
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- `--backlog-run-quick [<area>...]` runs only the areas named, such as `go`, `zig`, `shell` or `docs`. `--help` lists the areas.
-		- `--list` prints the steps and test IDs the other flags given would run, and runs nothing.
 
 - CICD reset: standard flags, `--quick` fuzz and dogfood
 	- ID: 2026102508153580
