@@ -564,7 +564,9 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - CICD reset: version line
 	- ID: 2026102416233108
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, with the branch pushed first, for debmx, de5hy and de5hz on the release build.
+	- Needs external testing: The `macos` workflow that run starts, for debke and debkf on the universal release.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261024-162331
 	- Opened by: JC
@@ -576,6 +578,17 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- `--about`, the Windows version resource and the release notes use the same line.
 		- Both installers read the first line, so they change with it.
 		- Earlier decisions this overrides: `Version, about, donate` in `style-guide_cli.md`, the old Done item "Command help and version output cleaned up.", and the private notes on the bare line.
+	- Progress log:
+		- 20261025: `--version` prints `zuid v1.0.0-beta.1 build dee3e (2026-10-25)`, then the copyright line from `--about`. `--about` and `--help` open with the same line, and the Windows resource has it without the date. The release notes take the first line as it is.
+		- 20261025: Both installers take either line, since beta.1 and earlier installs print the old one. Both are 1.3.1.
+		- 20261025: Asserts changed: ddb03 wants 2 lines, not 1. ddb04's pattern was `^<version> \(build <n>\)( \(<date>\))?$` and is `^zuid v<version> build <n>( \(<date>\))?` then a newline. ddybx wants a blank line after the build line, not just a newline. ddb05, "--version has no copyright", is commented out, since this reverses it.
+	- Decisions:
+		- 20261025: The copyright line is the one `--about` already had, ID included, so there's one copy. Check entry in questions.md.
+	- Swept: every `--version` reader. `install.bash`, `install.ps1`, `cicd.bash` (dcrga, ddwn8, debmw, debmx, debke, debkf, de5hy, de5hz, the notes), `cli-test.bash`, the stand-ins in `installer-test.bash` and `pipeline-test.bash`, `box-release-test.bash`, which prints the first line, `style-guide_cli.md` and `design.md`. The Go module and the C library have no version line.
+	- Verified: `cli-test.bash` passed 92 of 92 on the new build, and on the synced beta.1 build ddb03, ddb04, dee3h and dee3j failed. `installer-test.bash` passed 97 of 97. dee3k failed with install.bash reading only the new line, and dcrfx, dcrfz and dcrmj failed with the old install.bash. `pipeline-test.bash` passed 150 of 150, and ddybx failed with the old notes parse. `cicd.bash --backlog-run-quick zig docs` passed, with dcrga, ddwn8 and debmw. The bash 3.2 image reads both lines. A `-Drelease` Windows x86_64 build's resource has `zuid v1.0.0-beta.1 build dee3e`, the same as the Linux release's first line. shellcheck and PSScriptAnalyzer are clean.
+	- Branch: round1025c
+	- Commit: 11d7e9c
+	- Test case: dee3h, dee3j, dee3k, dee3m, with ddb03, ddb04 and ddybx updated. debmx, de5hy, de5hz, debke and debkf read the new line on a release build.
 
 - CICD reset: CICD process gaps
 	- ID: 2026102416233109
