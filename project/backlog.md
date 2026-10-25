@@ -402,7 +402,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ID: 2026102416233104
 	- Type: Enhancement
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full` once, in the image as it picks by default, for the Zig, leak check and package steps and the numbering after the image's run. It stops at the Pipeline step in the image until 2026102508540624 is fixed.
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full` once, in the image as it picks by default, for the Zig, leak check and package steps and the numbering after the image's run. 2026102508540624 fixed the Pipeline stop in the image, in 26605ac.
 	- Needs external testing: the `macos` workflow on the round branch's push, for the step lines under the Mac's bash.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261024-162331
@@ -707,6 +707,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Actual fix [Bug]: `fNiceOf` in `cicd.bash` reads the nice value with `ps` where there is one, and from `/proc/<pid>/stat` where there isn't. Preflight and Etj0NB7 both use it. Etj0NB7 also checks the `/proc` branch wherever `/proc` exists, with `ps` hidden. Preflight says `unknown` rather than nothing when neither works.
 	- Swept: every `ps` in `cicd/` and `.github/`. The only others are `docker ps`, and a stub of it in `pipeline-test.bash`.
 	- Branch: round1025-fix
+	- Commit: 26605ac
 	- Test case: Etj0NB7. It failed in the image before the fix, "ps: command not found", and passes after. With the `/proc` field index broken by hand it fails on the host too, "19|39|idle".
 	- Verified: 20261025, `pipeline-test.bash` 128 of 128 on the host and in `zuid-cicd:8029eec721c8`. `cicd.bash --backlog-run-quick --only go` in the image passed, steps 1 to 14 of 14, with "Priority ...: nice 19, IO idle" from inside the image, at load 44. shellcheck, `test-ids.py check` and the scrub are clean.
 	- Closed: 20261025-090547
