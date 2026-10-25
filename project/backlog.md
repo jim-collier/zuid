@@ -363,6 +363,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: The `-race` test run counts as a hard step, for its memory, though it wasn't on the list.
 	- Swept: every `-j`, `-p`, `-parallel` and `--threads` in cicd.bash, codeql.bash and package.bash, and every `docker run` in the repo: the container stage, `fInImage`, the cache cap check and installer-test's two bash 3.2 runs. package.bash keeps its own half only for a run by hand.
 	- Branch: round1025
+	- Commit: fc2e692
 	- Test case: Etj0Hby (the counts), Etj0Hbz (a bad load reading), Etj0Hc0 (checked again before each step), Etj0NB7 (the priority), Etj0Hc1 (Zig fuzz), Etj0Hc2 (steps in the image), Etj0Hc3 (`codeql.bash`). Each failed against the scripts before the change, and passes after.
 	- Verified: 20261025, `pipeline-test.bash` 122 of 122, the bash 3.2 installer cases, and `cicd.bash --gate --only go --no-container` with docker absent, at load 31 to 71 on 32 CPUs.
 
