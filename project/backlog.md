@@ -33,7 +33,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - Installer options and messages per the house installer rules.
 	- ID: 2026101410495989
 	- Type: Enhancement
-	- Status: Waiting on signoff
+	- Status: Waiting on automated testing
+		- 20261025: Moved from signoff, since a machine can run the Windows step on b29w.
 	- Needs local test suite run?: Done. `installer-test.bash` 83 of 83.
 	- Needs external testing: A real run of the PowerShell one-liner on a Windows box. The Mac one passed on b26 on 20261024.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
@@ -86,7 +87,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - A Windows install leaves `PATH` to the user.
 	- ID: 2026101410495985
 	- Type: Enhancement
-	- Status: Waiting on signoff
+	- Status: Waiting on automated testing
+		- 20261025: Moved from signoff, since a machine can run the Windows step on b29w.
 	- Needs local test suite run?: Done. `installer-test.bash` 86 of 86.
 	- Needs external testing: A system install from an admin account, which goes on the machine `PATH`. The user `PATH` passed on b29w under 5.1 and 7.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
