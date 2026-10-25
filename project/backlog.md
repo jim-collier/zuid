@@ -329,6 +329,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: The volume cap empties what the runs wrote, which is everything but the image's own root-owned folders.
 	- Swept: every `docker run` goes through `fContainer_RunArgs` (the stage and `fInImage`), except the volume check, which labels its own. Both image builds are labeled. installer-test's `bash:3.2` runs belong to that harness, with `--rm`, and are left to 2026102416233107. Every rig that lifts `fContainer_Image`, `fInImage` or `fContainer_RunArgs` sets the run and project.
 	- Branch: round1025
+	- Commit: c50557e
 	- Test case: EtitVm7 (labels and names), EtitVm8 (the run's containers at its end, and the traps), EtitVm9 (the passing run's tidy). Each failed with its part of the change broken.
 
 - CICD reset: other hosts and VMs
