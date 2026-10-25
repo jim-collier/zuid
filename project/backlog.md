@@ -34,8 +34,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ID: 2026102508153578
 	- Type: Enhancement
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-quick`, with no areas, in the image, to show the plain run still runs every step.
-	- Needs external testing: The `macos` workflow on the round branch, for dedty under the Mac's bash and Python.
+	- Needs local test suite run?: none left. A plain `--backlog-run-quick` in the image passed on 20261025 at b13fb46, 432 PASS and 4 SKIP, every step run.
+	- Needs external testing: The `macos` workflow on `dev`, the round branch since merged, for dedty under the Mac's bash and Python.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261025-081535
 	- Opened by: JC
@@ -61,7 +61,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- ID: 2026102508153580
 	- Type: Enhancement
 	- Status: Waiting on automated testing
-	- Needs external testing: The `macos` workflow on the round branch. Its `--quick` now fuzzes, and Zig fuzz has never run on a Mac.
+	- Needs external testing: The `macos` workflow on `dev`, the round branch since merged. Its `--quick` now fuzzes, and Zig fuzz has never run on a Mac.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261025-081535
 	- Opened by: JC
@@ -110,7 +110,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Type: Enhancement
 	- Status: Waiting on automated testing
 	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, for the lines from the fuzz, leak check, packaging and profile steps, which a quick run doesn't reach.
-	- Needs external testing: The `macos` workflow on the round branch, for `test-ids.py` and the new pipeline cases under the Mac's Python and bash.
+	- Needs external testing: The `macos` workflow on `dev`, the round branch since merged, for `test-ids.py` and the new pipeline cases under the Mac's Python and bash.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261024-162331
 	- Opened by: JC
@@ -140,7 +140,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Type: Enhancement
 	- Status: Waiting on automated testing
 	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, with the round branch pushed first, so its start and result steps start a real `macos` run and wait for it (dedwh, dedwj).
-	- Needs external testing: The `macos` workflow on the round branch, which that run starts: the first full run on the Mac, Go and Zig fuzz, the Go soak and the profile included, and the docker checks skipping. By hand it's `gitsby raw gh workflow run macos.yml --ref round1025b`.
+	- Needs external testing: The `macos` workflow on `dev`, the round branch since merged, which that run starts: the first full run on the Mac, Go and Zig fuzz, the Go soak and the profile included, and the docker checks skipping. By hand it's `gitsby raw gh workflow run macos.yml --ref dev`.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261023-183527
 	- Opened by: JC
