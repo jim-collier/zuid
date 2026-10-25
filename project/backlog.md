@@ -77,6 +77,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261023: Zig's caches never shrink. Split off as 2026102320181236, waiting on a question.
 		- 20261023: Docker's build cache is shared with sister projects, and their steps can't be told from ours. So it stays with the hand prune after a build.
 		- 20261023: Full run `cicd.bash -q --no-sync --no-dogfood --no-backup --no-demo` at 1942bb2 passed in 17 minutes, 439 ok, 13 skips, no failures. It built the CodeQL image fresh, since none was left from before. EtaIbeg passed in it. Nothing of the run's was left in its TMPDIR, `/tmp`, `/mnt/tmpfs/tmp` or `~/.cache`, no zuid container or process was left, and no volume was added. `assets/demo.gif` was unchanged.
+		- 20261024: The build cache note above is superseded by 2026102416233101, from the CICD reset.
 	- Swept: the only 2 image builds are the main and CodeQL ones. Both lifts of `fContainer_Image` in `pipeline-test.bash` set `codeqlImage`. The run inside the container never calls it.
 	- Branch: round1023
 	- Commit: 0562b45
@@ -228,33 +229,158 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261024: Split from 2026101410495999. Waits on a logo, and `private/logo/` is empty.
 
-- Zig's build caches grow without limit.
-	- ID: 2026102320181236
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261023-201812
-	- Opened by: JC
-	- Parent ID: 2026101916041200
-	- Requirements  [Feature]:
-		- Zig never prunes its cache. On b23 `zig/.zig-cache` reached 711 MB in 5 days, and the Zig cache in the `zuid-cicd-cache` volume 336 MB. Go's build cache trims itself.
-		- Zig's global cache in `~/.cache/zig` is shared with other projects and Zig versions, so it isn't ours to prune.
-	- Progress log:
-		- 20261024: Answered: (b). At the end of a run, `cicd.bash` empties `zig/.zig-cache`, or the volume's Zig cache under `--container`, when it's over about 2 GB. `~/.cache/zig` is left alone.
-
 - CICD runs on the host unless asked for the container.
 	- ID: 2026102406590100
 	- Type: Enhancement
 	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261024-065901
 	- Opened by: JC
 	- Related IDs: 2026102318361185
 	- Requirements  [Feature]:
 		- A plain run uses the container when docker works, and the host when it doesn't, with a note. A missing docker never fails a run.
 		- A flag forces the host.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
 	- Progress log:
 		- 20261024: From the round settings answer: CICD should try to use containers where possible, but not fail without.
+		- 20261024: Raised to high by the CICD reset, per `Containers` in the shared CICD rules. The flag that forces the host is `--no-container`. A step whose point is the real OS, such as the demo with this machine's fonts, stays on the host or a test box.
+
+- CICD reset: other hosts and VMs
+	- ID: 2026102416233100
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101410500001, 2026101312344407
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per `Other hosts and VMs` in the shared CICD rules. Nothing in the pipeline uses a test box yet. The Mac build, the Windows installer runs and the FreeBSD runs are done by hand.
+		- The default run builds and tests on the boxes the project needs: Windows on b29w, macOS on b26 or vmKt6m, FreeBSD on vmFreeBSD, and Linux arm64 on vmDebARM64. `--no-remote` skips them.
+		- The Mac's universal build comes back into `dist-incoming/` from that run, not by hand.
+		- Each box is held through the shared host lock for as long as it's used. A VM is put back the way it was found, through the VM state helper.
+		- A box that doesn't answer is a `SKIP` in its step and in the summary, and never stops the run, `--merge-gate` included.
+		- Each box gets a work folder of its own for the project, under its temp root.
+		- Windows tests use `b29w`, never `b29w-wif`. Nothing in the repo names `b29w-wif` today.
+
+- Zig's build caches grow without limit.
+	- ID: 2026102320181236
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261023-201812
+	- Opened by: JC
+	- Parent ID: 2026101916041200
+	- Requirements  [Feature]:
+		- Zig never prunes its cache. On b23 `zig/.zig-cache` reached 711 MB in 5 days, and the Zig cache in the `zuid-cicd-cache` volume 336 MB. Go's build cache trims itself.
+		- Zig's global cache in `~/.cache/zig` is shared with other projects and Zig versions, so it isn't ours to prune.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+	- Progress log:
+		- 20261024: Answered: (b). At the end of a run, `cicd.bash` empties `zig/.zig-cache`, or the volume's Zig cache under `--container`, when it's over about 2 GB. `~/.cache/zig` is left alone.
+		- 20261024: Raised to high by the CICD reset, per the Zig bullets in `Cleanup after a run` in the shared CICD rules. A cache is also emptied when the Zig that filled it isn't the current one, from a stamp file inside it, and that goes for every `.zig-cache/` in the tree. In the container, Zig's global cache gets a volume of its own, `zuid-zig-cache`, under the same 2 GB rule. Always the whole folder.
+
+- CICD reset: container cleanup
+	- ID: 2026102416233101
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101916041200, 2026102406590100
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the container bullets in `Cleanup after a run` in the shared CICD rules. Containers already run with `--rm`.
+		- Every container, image and volume the pipeline makes gets 2 labels, `dev.project=zuid` and `dev.run=<run folder>`. Containers are named `zuid-<run folder>-<step>`.
+		- At the end of a run, on failure and Ctrl+C too, the run's containers are stopped and removed by label. `--keep-temp` keeps them.
+		- Dangling images go by the project label. An older tag goes once a newer one has passed, and the current tag and the one before it stay. Today every other tag goes right after a build.
+		- Then `docker builder prune -f --filter until=168h`, so a week of build cache stays warm.
+		- The cache volume follows the same 2 GB rule as the Zig caches.
+		- One line at the end says what was removed and about what it freed, from `docker system df` before and after.
+		- What was built before the labels gets one pass by hand, by ID.
+		- Earlier decisions this overrides: the 20261023 note on 2026101916041200 that docker's build cache stays with a prune by hand, and the private container notes, where a build drops every other `zuid-cicd` tag.
+
+- CICD reset: CPU and priority
+	- ID: 2026102416233102
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101410500008
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per `Machine use` in the shared CICD rules. Half the cores, at least 1, is already worked out in one place and handed to Go and Zig.
+		- A quarter of the cores on a busy box, where the 1-minute load is over half the CPU count. Checked at the start and again before each step.
+		- A quarter, busy or not, for the hard steps: fuzzing, the leak checks, the sanitizer builds, the soak tests and CodeQL.
+		- Steps that run side by side share the count. `codeql.bash` works out its own today, and takes it from cicd instead.
+		- Everything runs under `nice -n 19`, plus `ionice -c 3` where it exists.
+		- Container runs get `--cpus <jobs>` and `--cpu-shares 256`, and `nice` inside too.
+		- The same rules on the test boxes, with each box's own CPU count and load.
+		- Earlier decisions this overrides: 2026101410500008, which gave Go fuzzing and packaging half the cores, and the Zig fuzz line in the private round settings, which passes half.
+
+- CICD reset: standard flags
+	- ID: 2026102416233103
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101816243852, 2026101410495991, 2026102318361185
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the flags in `CICD style guide` and per `Merge gate`, in the shared CICD rules.
+		- New flags: `--long`, with `--slow` as another name, `--backlog-run-quick [<area>...]`, `--backlog-run-full`, `--merge-gate`, `--no-container`, `--no-remote`, `--keep-temp` and `--list`. `--help` lists the areas.
+		- `--gate` and `--ci` stay as other names for `--backlog-run-quick` and `--merge-gate`, and say so in one line when used.
+		- `--quick` keeps fuzzing at a short budget, and copies the release-optimized native build to dogfood. Today it drops both.
+		- The default run stays under about an hour. A step that pushes it past moves to `--long`.
+		- The backlog and merge gate flags never dogfood, publish, commit, push, install, sync, rewrite a tracked file, or prompt. That covers the backup and `assets/demo.gif`.
+		- The pre-push hook runs `--merge-gate`, every check of the default run, on a push to main. A push whose commits change only docs and the other paths listed in one place the hook reads, such as `*.md`, `project/` and `assets/`, skips it. No gate on dev.
+		- Earlier decisions this overrides: the 20261019 call on 2026101816243852 that `--ci` is `--gate` again with no alias, the quick-only gate on main from 2026101410495991, and the private CI/CD notes, where `--quick` skips dogfood.
+
+- CICD reset: step output
+	- ID: 2026102416233104
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101410495998
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the step lines in `CICD style guide` in the shared CICD rules. Stage headers already have the blank line, the rule of `•` and the bracketed title.
+		- The rule is 79 `•` wide, always.
+		- Each step opens with `[ <local time to the hundredth>: Step N of M; Starting <name> ]` and closes with the same line saying `PASS` or `FAIL`.
+		- A step that's turned off isn't counted in M. The first section lists those, with the flag or reason for each.
+		- One blank line between sections, and one at the end.
+		- Earlier decisions this overrides: 2026101410495998, which sizes the rule to the terminal, and to 74 in a pipe or a log.
+
+- CICD reset: a test for every Done item
+	- ID: 2026102416233105
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the regression bullet in `Testing` in the shared CICD rules. Every Done item in the new format names its test case. 3 old-format Done items don't: packaging for other platforms, the C module cross targets, and CLI startup time.
+		- Each of those gets a test where one could exist and would make sense, or a line saying why not.
+
+- CICD reset: test IDs
+	- ID: 2026102416233106
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the ID and per-test line bullets in `Testing` in the shared CICD rules. Every test already has an ID and prints one line.
+		- An ID is whole minutes since 2000-01-01 00:00 UTC, in lowercase Crockford base 32, such as `decp8`. Today they're milliseconds in base 62.
+		- Every existing ID is converted once, from the time it already holds. When 2 come out the same, the newer one takes the next free minute.
+		- The ID check, the `Test case:` rows in this backlog and the private notes move to the new IDs together.
+		- Each test prints `PASS <id> <name>`, `FAIL <id> <name>` or `SKIP <id> <why>`, in place of `ok ....:`, `FAIL ..:` and `skip ..:`. The lint report reads the old lines, so it changes with them.
+		- Earlier decisions this overrides: the private test ID rule, from the 20260930 request.
 
 - Run CICD on GitHub's free arm64 macOS runners.
 	- ID: 2026102318361185
@@ -268,6 +394,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Target OS: macOS
 	- Requirements  [Feature]:
 		- Build, run the tests, and smoke-test the CLI on the built binary.
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
 	- Progress log:
 		- 20261023: It would be the first run of the arm64 slice on Apple Silicon, which 2026101312344407 is stalled on.
 		- 20261023: `.github/workflows/macos.yml` runs `cicd.bash --quick --package` on `macos-15`, then `cli-test.bash` on the universal release. It runs on a push to any branch, skipping docs-only pushes, or by hand.
@@ -276,6 +403,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261023: Found there: EsZni4i failed on `/Users/runner` in the release. Wasmtime is built on GitHub's runners, and its build paths stay in every binary that links it, so a runner's home matches them. When a vendored Wasmtime archive already has the home in it, only the checkout and Zig paths are looked for now. The run before the fix failed on it, and the one after passed.
 		- 20261023: Waits on signoff for the trigger: a push to any branch, docs-only pushes skipped. The arm64 macOS half of 2026101312344407 ran in this run.
 		- 20261024: Answered: use GitHub's free arm64 macOS runner, and other boxes, but not with `--quick`. So the workflow does the full run, less what needs docker.
+		- 20261024: The CICD reset's `macOS builds on GitHub` matches what's here. What's left is the answer above, and picking which flags start the workflow by how long they take, in place of every push to any branch.
 	- Verified:
 		- 20261023, run 40059817674 on `macos-15` at 878f5b9: `cicd.bash -q --quick --package --no-sync --no-backup --no-dogfood` passed, 473 ok, no failures. `cli-test.bash` passed 89 on the universal release, the arm64 slice natively.
 		- Locally: shellcheck, `test-ids.py check` (442, all unique), `pipeline-test.bash` 94 passed, the content scrub.
@@ -288,6 +416,55 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: round1023
 	- Commit: 878f5b9
 	- Test case: EtaL127 and EtaL128 run each slice, EtaL129 to EtaL12C link and run `capi_smoke.c` against the tarball per slice and link kind. EsZni4i failed on the runner before its fix and passed after.
+
+- CICD reset: temp files and safe removal
+	- ID: 2026102416233107
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101916041200, 2026101912130117
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per `Temp files` and `Safe removal` in the shared CICD rules. Every scratch folder is already a `mktemp -d` that goes on exit.
+		- Each run makes one folder, `${HOST_TEMP}/zuid/<YYYYmmDD-HHMMSS>_<NNN>/`, with a plain `mkdir` and a counter, and points `TMPDIR`, `TEMP` and `TMP` at it. Stages and harnesses make theirs inside it.
+		- The run removes it at the end, on failure and Ctrl+C too. `--keep-temp` keeps it and prints where it is.
+		- Each run writes a `run.pid` in it, and removes the project's own stale run folders: over 2 days old, with no live process.
+		- Every recursive removal goes through the repo's own copy of the safe removal guard: the pipeline, the harnesses, the hook, the packager and the installers. One outside the temp root, such as `dist/` or an install dir, names the one parent it may remove under.
+		- 38 recursive removals in 10 files, none through a guard. File list in the private notes.
+
+- CICD reset: version line
+	- ID: 2026102416233108
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101410500009
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per the build number bullets in `Branches and releases` in the shared CICD rules. The build number and the date on a non-release build are already right.
+		- `--version` prints `zuid v<version> build <build>`, plus ` (YYYY-mm-DD)` on a non-release build, then the copyright line. Today it's `1.0.0-beta.1 (build ddytm)` alone.
+		- `--about`, the Windows version resource and the release notes use the same line.
+		- Both installers read the first line, so they change with it.
+		- Earlier decisions this overrides: `Version, about, donate` in `style-guide_cli.md`, the old Done item "Command help and version output cleaned up.", and the private notes on the bare line.
+
+- CICD reset: CICD process gaps
+	- ID: 2026102416233109
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101916041200
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- What else the shared CICD rules ask for that no other reset item covers:
+			- A dependabot config for the hosted workflow, with dependency and toolchain bumps as PRs against dev, minor and patch grouped.
+			- One line at the end of a run saying what was removed and about what it freed, files as well as docker.
+			- Go's module cache in the volume pruned of what the current `go.sum` doesn't name.
+			- A check that cleanup holds: 2 runs, one killed partway, and nothing new piles up.
 
 - Identifiers from one tick have no counter.
 	- ID: 2026102409130649
