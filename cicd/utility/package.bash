@@ -48,7 +48,7 @@ DESC_LONG="Generates identifiers built from a timestamp and optional host, user,
 
 VERSION="$(cd "${root}" && git describe --tags --always --dirty 2>/dev/null || echo dev)"
 OUT="${root}/dist"
-## Half the cores, like cicd.bash, which passes its own count in.
+## cicd.bash passes its own count in. By hand it's half the cores.
 jobs="${ZUID_JOBS:-}"
 if [[ -z "${jobs}" ]]; then
 	jobs="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"

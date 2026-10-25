@@ -1123,8 +1123,8 @@ fCase_Bash32(){
 	fi
 	home="$(fNewHome "bash32")"
 	if [[ -z "${skipWhy}" ]]; then
-		out="$(docker run --rm --network none -e HOME=/home -v "${home}:/home" -v "${bashCopy}:/install.bash:ro" \
-			bash:3.2 bash /install.bash --uninstall --target user --yes 2>&1)" || rc=$?
+		out="$(docker run --rm --network none --cpus 1 --cpu-shares 256 -e HOME=/home -v "${home}:/home" -v "${bashCopy}:/install.bash:ro" \
+			bash:3.2 nice -n 19 bash /install.bash --uninstall --target user --yes 2>&1)" || rc=$?
 	fi
 	fId EshFEk5 "bash 3.2: uninstall runs"
 	if ((rc == 0)) && [[ "${out}" == *"Removed."* ]]
@@ -1133,8 +1133,8 @@ fCase_Bash32(){
 	fi
 	rc=0
 	if [[ -z "${skipWhy}" ]]; then
-		out="$(docker run --rm --network none -v "${bashCopy}:/install.bash:ro" \
-			bash:3.2 bash -c 'bash <(cat /install.bash) --help' 2>&1)" || rc=$?
+		out="$(docker run --rm --network none --cpus 1 --cpu-shares 256 -v "${bashCopy}:/install.bash:ro" \
+			bash:3.2 nice -n 19 bash -c 'bash <(cat /install.bash) --help' 2>&1)" || rc=$?
 	fi
 	fId EshFEk6 "bash 3.2: --help works from a pipe"
 	if ((rc == 0)) && [[ "${out}" == *"Usage:"* ]]

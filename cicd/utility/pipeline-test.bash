@@ -198,6 +198,112 @@ fi
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## Machine use. The counts are worked out in one place, here with the CPU
+## count and the load stubbed.
+
+fJobsWith(){  ## cpus, load, [cap]
+	(
+		stubCpus="$1" stubLoad="$2"
+		# shellcheck disable=2329  ## Called by the lifted fJobs.
+		fCpuCount(){ printf '%s\n' "${stubCpus}"; }
+		# shellcheck disable=2329
+		fLoadAvg(){ printf '%s\n' "${stubLoad}"; }
+		fLoad fJobs || { echo "no fJobs in cicd.bash"; exit 2; }
+		local -i cpuCount=0 buildJobs=0 hardJobs=0 machineBusy=0
+		local loadNow=""
+		if [[ -n "${3:-}" ]]; then export ZUID_JOBS_CAP="$3"; else unset ZUID_JOBS_CAP; fi
+		fJobs
+		printf '%s %s %s %s\n' "${buildJobs}" "${hardJobs}" "${machineBusy}" "${loadNow}"
+	) 2>&1
+}
+
+fId Etj0Hby "job counts: half, a quarter when busy, a quarter for hard steps"
+jobsBad=""
+while IFS='|' read -r jobsCpus jobsLoad jobsCap jobsWant; do
+	jobsGot="$(fJobsWith "${jobsCpus}" "${jobsLoad}" "${jobsCap}" || true)"
+	[[ "${jobsGot}" == "${jobsWant}" ]] || jobsBad+=" ${jobsCpus} CPUs, load ${jobsLoad}, cap '${jobsCap}': got '${jobsGot}', wanted '${jobsWant}';"
+done <<- 'EOF'
+	32|15.99||16 8 0 15.99
+	32|16.00||16 8 0 16.00
+	32|16.01||8 8 1 16.01
+	32|20.39|4|4 4 1 20.39
+	32|1.00|x|16 8 0 1.00
+	6|2||3 1 0 2
+	3|9.5||1 1 1 9.5
+	1|0.00||1 1 0 0.00
+	EOF
+if [[ -z "${jobsBad}" ]]
+	then fPass
+	else fFail "${jobsBad}"
+fi
+
+## Compared as a number, so what the load reader hands back must never reach
+## arithmetic unchecked.
+fId Etj0Hbz "a bad load reading counts as no load"
+jobsBad=""
+for jobsLoad in "" "high" "1.5.2" "x[\$(touch ${work}/jobs-pwned)]"; do
+	jobsGot="$(fJobsWith 32 "${jobsLoad}" || true)"
+	[[ "${jobsGot}" == "16 8 0 unknown" ]] || jobsBad+=" load '${jobsLoad}' gave '${jobsGot}';"
+done
+[[ ! -e "${work}/jobs-pwned" ]] || jobsBad+=" a load reading ran a command;"
+if [[ -z "${jobsBad}" ]]
+	then fPass
+	else fFail "${jobsBad}"
+fi
+
+fId Etj0Hc0 "counts are checked again before each step"
+out="$(
+	stubLoad="1.00"
+	# shellcheck disable=2329  ## Called by the lifted functions.
+	fCpuCount(){ printf '32\n'; }
+	# shellcheck disable=2329
+	fLoadAvg(){ printf '%s\n' "${stubLoad}"; }
+	# shellcheck disable=2329
+	fEcho_Clean(){ printf '%s\n' "$*"; }
+	for fn in fJobs fJobs_Line fJobs_Recheck; do
+		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+	done
+	# shellcheck disable=2034  ## Read by the lifted functions.
+	{ cpuCount=0; buildJobs=0; hardJobs=0; machineBusy=0; loadNow="" ;}
+	unset ZUID_JOBS_CAP
+	fJobs_Recheck; echo "before: ${buildJobs}"
+	fJobs; fJobs_Recheck; echo "same: ${buildJobs}"
+	stubLoad="30.00"; fJobs_Recheck; echo "busy: ${buildJobs}"
+)" && rc=0 || rc=$?
+want=$'before: 0\nsame: 16\nJobs .......: 8, 8 for the hard steps (32 CPUs, load 30.00, busy)\nbusy: 8'
+if ((rc == 0)) && [[ "${out}" == "${want}" ]]
+	then fPass
+	else fFail "exited ${rc} and said '${out//$'\n'/ | }'"
+fi
+
+## On the script's own process, so everything it starts inherits it.
+fId Etj0NB7 "the run lowers its own priority"
+out="$(bash -c "$(sed -n '/^fLowPriority(){/,/^}/p' "${cicd}")"'
+	fLowPriority
+	printf "%s|" "$(ps -o nice= -p "$$" | tr -d " ")"
+	if command -v ionice >/dev/null; then ionice -p "$$"; fi
+' 2>&1)" && rc=0 || rc=$?
+if ((rc == 0)) && [[ "${out}" == "19|"* ]] && { ! command -v ionice >/dev/null || [[ "${out}" == "19|idle"* ]]; }
+	then fPass
+	else fFail "exited ${rc} and said '${out}'"
+fi
+
+## CodeQL ran on half the box, whatever cicd.bash was handing everything else.
+fId Etj0Hc3 "codeql.bash takes its thread count from cicd.bash"
+codeqlThreads="$(sed -n '/^fThreads(){/,/^}/p' "${cicd%/*}/utility/codeql.bash")"
+jobsBad=""
+[[ -n "${codeqlThreads}" ]] || jobsBad+=" no fThreads in codeql.bash;"
+for jobsCase in "5|5" "|1" "x|1" "0|1"; do
+	jobsGot="$(ZUID_JOBS="${jobsCase%|*}" bash -c "${codeqlThreads}"$'\nfThreads' 2>&1 || true)"
+	[[ "${jobsGot}" == "${jobsCase#*|}" ]] || jobsBad+=" ZUID_JOBS='${jobsCase%|*}' gave '${jobsGot}';"
+done
+if [[ -z "${jobsBad}" ]]
+	then fPass
+	else fFail "${jobsBad}"
+fi
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## A linked worktree, whose .git is a file. Sync and preflight used to test for
 ## a .git directory and refused one.
 
@@ -210,10 +316,10 @@ fGitCheckIn(){  ## repo dir, function names...
 		# shellcheck disable=2329
 		fThrowError(){ printf '%s\n' "$1"; exit 1; }
 		# shellcheck disable=2034  ## Read by the lifted functions.
-		{ repoRoot="$1"; runStamp="pipeline-test"; buildJobs=1; doGo=0; doZig=0; doPublish=0 ;}
+		{ repoRoot="$1"; runStamp="pipeline-test"; buildJobs=1; hardJobs=1; cpuCount=2; machineBusy=0; loadNow="0.00"; doGo=0; doZig=0; doPublish=0 ;}
 		shift
 		local fn=""
-		for fn in "$@"; do
+		for fn in "$@" fJobs_Line; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		for fn in "$@"; do "${fn}"; done
@@ -557,7 +663,7 @@ fContainerIn(){  ## repo dir, engine log, run exit code
 			containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"
 			onlyToolchain="go"; doQuick="${quick:-1}"; doPackage=1; doLeakcheck="${leakcheck:-0}"; runStamp="20261019-101112"; _sectionWidth="123"
 			doFuzz="${fuzz:-0}"; doProfile="${profile:-0}"
-			projectName="zuid"; runName="20261019-101112"; keepTemp="${keep:-0}"; _dockerRun=""
+			projectName="zuid"; runName="20261019-101112"; keepTemp="${keep:-0}"; _dockerRun=""; buildJobs=3
 		}
 		local fn=""
 		for fn in _fMustBeInPath fStage_Container fContainer_Image fCodeql_Image fCodeql_Tag fContainer_Volumes fContainer_RunArgs; do
@@ -597,8 +703,9 @@ fId EsJ9SjF "container run arguments"
 out="$(fContainerIn "${worktreeMain}" "${work}/engine-main" 0)" && rc=0 || rc=$?
 log="$(cat "${work}/engine-main")"
 wantRun="run --rm --init --user $(id -u):$(id -g) -v ${mainReal}:${mainReal} -v zuid-cicd-cache:/cache -v zuid-zig-cache:/zig-cache"
-wantRun+=" --name zuid-20261019-101112-container --label dev.project=zuid --label dev.run=20261019-101112 -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder} -e ZUID_RUN_STAMP=20261019-101112 -e ZUID_COLUMNS=123"
-wantRun+=" -w ${mainReal} ${newTag} bash ${mainReal}/cicd/cicd.bash -q --no-sync --no-backup --no-dogfood --only go --quick --package --no-leakcheck"
+wantRun+=" --name zuid-20261019-101112-container --label dev.project=zuid --label dev.run=20261019-101112 --cpus 3 --cpu-shares 256 -e ZUID_JOBS=3 -e ZUID_JOBS_CAP=3"
+wantRun+=" -e ZUID_IN_CONTAINER=1 -e USER=${USER:-builder} -e ZUID_RUN_STAMP=20261019-101112 -e ZUID_COLUMNS=123"
+wantRun+=" -w ${mainReal} ${newTag} nice -n 19 bash ${mainReal}/cicd/cicd.bash -q --no-sync --no-backup --no-dogfood --only go --quick --package --no-leakcheck"
 if ((rc == 0)) && grep -qxF -- "${wantRun}" <<< "${log}" && ! grep -q '^build ' <<< "${log}"
 	then fPass
 	else fFail "exited ${rc}, asked: ${log//$'\n'/ | }"
@@ -677,7 +784,7 @@ fId EtB5PUX "stage header layout"
 sectionScript="${work}/section.bash"
 sectionBad=""
 if (
-	for fn in fEcho_Clean fSection_Init fSection; do
+	for fn in fEcho_Clean fSection_Init fSection fJobs_Recheck; do
 		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 	done
 	# shellcheck disable=2329  ## Called by the lifted fSection.
@@ -685,7 +792,7 @@ if (
 	# shellcheck disable=2016  ## Expanded by the script, not here.
 	{
 		printf '%s\n' 'set -Eeuo pipefail' 'declare -i _wasLastEchoBlank=0' 'inContainer="${1:-0}"' '_sectionRule="" _sectionWidth=""'
-		declare -f fEcho_Clean fEcho fSection_Init fSection
+		declare -f fEcho_Clean fEcho fSection_Init fSection fJobs_Recheck
 		printf '%s\n' 'fEcho_Clean "before"' 'fSection "A stage"' 'printf "width=%s\n" "${_sectionWidth}"'
 	} > "${sectionScript}"
 ) > "${work}/section.out" 2>&1; then
@@ -721,7 +828,7 @@ out="$(leakcheck=1 fContainerIn "${worktreeMain}" "${work}/engine-codeql" 0)" &&
 log="$(cat "${work}/engine-codeql" 2>/dev/null || true)"
 plainOut="$(fContainerIn "${worktreeMain}" "${work}/engine-plain" 0)" && plainRc=0 || plainRc=$?
 if ((rc == 0)) && grep -qxF "build --build-arg BASE=${newTag} --label dev.project=zuid --label dev.run=20261019-101112 -t ${codeqlTag} ${mainReal}/cicd/container/codeql" <<< "${log}" \
-	&& grep -q -- "^run .* ${codeqlTag} bash .* --leakcheck$" <<< "${log}" && ! grep -q "^rmi " <<< "${log}" \
+	&& grep -q -- "^run .* ${codeqlTag} nice -n 19 bash .* --leakcheck$" <<< "${log}" && ! grep -q "^rmi " <<< "${log}" \
 	&& ((plainRc == 0)) && ! grep -qE '^(build|run) .*codeql' "${work}/engine-plain"
 	then fPass
 	else fFail "exited ${rc} and ${plainRc}, asked: ${log//$'\n'/ | }; said '${out}' and '${plainOut}'"
@@ -949,7 +1056,7 @@ out="$(
 		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerVolume="zuid-cicd-cache"; inContainer=0
 		containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"
 		containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine"
-		projectName="zuid"; runName="20261019-101112"; keepTemp=0; _dockerSteps=0; _dockerPid="${BASHPID}"
+		projectName="zuid"; runName="20261019-101112"; keepTemp=0; _dockerSteps=0; _dockerPid="${BASHPID}"; buildJobs=3
 	}
 	for fn in fInImage fContainer_RunArgs; do
 		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
@@ -960,10 +1067,43 @@ out="$(
 )" && rc=0 || rc=$?
 log="$(cat "${work}/engine-inimage" 2>/dev/null || true)"
 if ((rc == 0)) && [[ "$(grep -c '^run ' <<< "${log}")" == "2" ]] \
-	&& grep -qF -- "-v ${work}/outside:${work}/outside -w ${work}/outside zuid-cicd:t3st true" <<< "${log}" \
+	&& grep -qF -- "-v ${work}/outside:${work}/outside -w ${work}/outside zuid-cicd:t3st nice -n 19 true" <<< "${log}" \
 	&& grep -- "-w ${mainReal}/go " <<< "${log}" | grep -qvF -- "-v ${mainReal}/go:"
 	then fPass
 	else fFail "exited ${rc}, said '${out}', asked: ${log//$'\n'/ | }"
+fi
+
+## Each step in the image is held to its own count, a hard step to the
+## quarter, and nice inside, since the image's processes aren't ours.
+fId Etj0Hc2 "steps in the image get the step's job count"
+out="$(
+	# shellcheck disable=2034  ## Read by the lifted functions.
+	{
+		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerVolume="zuid-cicd-cache"; inContainer=0
+		containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"
+		containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine"
+		projectName="zuid"; runName="20261019-101112"; keepTemp=0; _dockerSteps=0; _dockerPid="${BASHPID}"; buildJobs=3; hardJobs=2
+	}
+	for fn in fInImage fContainer_RunArgs; do
+		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+	done
+	# shellcheck disable=2030,2031  ## The stub reads it; each case has its own.
+	export ENGINE_LOG="${work}/engine-jobs"
+	fInImage "${repoRoot}" true
+	# shellcheck disable=2034  ## Read by the lifted fInImage.
+	fHard(){ local -ri imageJobs="${hardJobs}"; fInImage "${repoRoot}" "$@"; }
+	fHard true
+	inContainer=1
+	fHard printenv ZUID_JOBS
+)" && rc=0 || rc=$?
+log="$(cat "${work}/engine-jobs" 2>/dev/null || true)"
+jobsBad=""
+grep -q -- "^run .*-hard-2 .* --cpus 2 --cpu-shares 256 -e ZUID_JOBS=2 -e ZUID_JOBS_CAP=2 .* zuid-cicd:t3st nice -n 19 true$" <<< "${log}" || jobsBad+=" the hard step;"
+grep -v -- "-hard-" <<< "${log}" | grep -q -- "^run .* --cpus 3 --cpu-shares 256 -e ZUID_JOBS=3 -e ZUID_JOBS_CAP=3 .* zuid-cicd:t3st nice -n 19 true$" || jobsBad+=" the plain step;"
+[[ "${out}" == "2" ]] || jobsBad+=" inside the image it said '${out}';"
+if ((rc == 0)) && [[ -z "${jobsBad}" ]]
+	then fPass
+	else fFail "exited ${rc},${jobsBad} asked: ${log//$'\n'/ | }"
 fi
 
 ## Cleanup finds a run's leftovers by label, so everything gets them. docker
@@ -987,7 +1127,7 @@ out="$(
 		repoRoot="$(cd "${worktreeMain}" && pwd -P)"; containerVolume="zuid-cicd-cache"; inContainer=0
 		containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"
 		containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine"
-		projectName="zuid"; runName="20261019-101112"; keepTemp=0; _dockerSteps=0; _dockerPid="${BASHPID}"
+		projectName="zuid"; runName="20261019-101112"; keepTemp=0; _dockerSteps=0; _dockerPid="${BASHPID}"; buildJobs=3
 	}
 	for fn in fInImage fContainer_RunArgs; do
 		fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
@@ -1085,7 +1225,7 @@ rmis="$(grep '^rmi ' <<< "${log}" || true)"
 grep -qxF "image ls zuid-cicd --filter label=dev.project=zuid --format {{.CreatedAt}}"$'\t'"{{.Repository}}:{{.Tag}}" <<< "${log}" || tidyBad+=" tags not listed by label;"
 grep -qxF "images -q --filter dangling=true --filter label=dev.project=zuid" <<< "${log}" || tidyBad+=" dangling not by label;"
 grep -qxF "builder prune -f --filter until=168h" <<< "${log}" || tidyBad+=" no builder prune;"
-grep -q -- "^run --rm --init .* -v zuid-cicd-cache:/cache --name zuid-20261019-101112-cache-cap --label dev.project=zuid --label dev.run=20261019-101112 ${newTag} sh -c" <<< "${log}" \
+grep -q -- "^run --rm --init .* -v zuid-cicd-cache:/cache --name zuid-20261019-101112-cache-cap --label dev.project=zuid --label dev.run=20261019-101112 --cpus 1 --cpu-shares 256 ${newTag} nice -n 19 sh -c" <<< "${log}" \
 	&& grep -q -- " sh 2097152$" <<< "${log}" || tidyBad+=" no capped volume check;"
 ! grep -qE '^(rmi|.*-f ).*(prevprevprev|'"${newTag#*:}"')' <<< "${rmis}" || tidyBad+=" removed a kept tag;"
 ! grep -qE '^(system prune|rmi -f|image prune)' <<< "${log}" || tidyBad+=" pruned wide;"
@@ -1317,7 +1457,7 @@ fPsLintIn(){  ## skip reason, exit code for the run in the image
 		fGoCheckers_Ready(){ checkerSkipWhy="${PS_SKIP}"; }
 		# shellcheck disable=2034  ## Read by the lifted functions.
 		{ containerVolume="zuid-cicd-cache"; containerZigVolume="zuid-zig-cache"; containerZigCache="/zig-cache"; inContainer=0; containerTag="zuid-cicd:t3st"; containerEngine="${work}/engine"
-		  projectName="zuid"; runName="20261019-101112"; keepTemp=0; _dockerSteps=0; _dockerPid="${BASHPID}" ;}
+		  projectName="zuid"; runName="20261019-101112"; keepTemp=0; _dockerSteps=0; _dockerPid="${BASHPID}"; buildJobs=3 ;}
 		local fn=""
 		for fn in fId fInImage fContainer_RunArgs fStage_Shell_PowerShell; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
@@ -1345,7 +1485,7 @@ if ((rc != 0)) || ! grep -qxF "  ok ....: EtB6KVF PSScriptAnalyzer on our PowerS
 		grep -qF "${repoRoot}/${psFile}" <<< "${psLog}" || psBad+=" ${psFile} wasn't linted;"
 	done
 }
-grep -q -- "^run .* zuid-cicd:t3st env ZUID_PS_FILES=" <<< "${psLog}" || psBad+=" it didn't run in the image: '${psLog}';"
+grep -q -- "^run .* zuid-cicd:t3st nice -n 19 env ZUID_PS_FILES=" <<< "${psLog}" || psBad+=" it didn't run in the image: '${psLog}';"
 out="$(fPsLintIn "" 1)" && rc=0 || rc=$?
 if ((rc == 0)) || [[ "${out}" != *"PSScriptAnalyzer found something"* ]]; then psBad+=" a finding didn't fail it: '${out}';"; fi
 : > "${work}/engine-pslint"
@@ -1922,6 +2062,7 @@ mkdir -p "${fuzzBin}"
 ## A find names the test, as Zig 0.17.0 words it, and leaves the input in the cache.
 cat > "${fuzzBin}/zig" <<'EOF'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >> "${FAKE_ZIG_ARGS:-/dev/null}"
 case "${FAKE_FUZZ}" in
 	clean) echo "======= FUZZING REPORT ======="; exit 0 ;;
 	broken) echo "error: the build broke"; exit 1 ;;
@@ -1957,7 +2098,7 @@ fFuzzIn(){  ## mode, name of the test that finds
 		done
 		# shellcheck disable=2034  ## Read by the lifted functions.
 		{
-			doQuick=0; doFuzz=1; zigDir="${dir}/zig"; buildJobs=1
+			doQuick=0; doFuzz=1; zigDir="${dir}/zig"; buildJobs=5; hardJobs=2
 			_scratchDirs=(); artifactDir="${dir}/artifacts"; runStamp="pipeline-test"
 		}
 		## The script's own exit cleanup. A failed case leaves through exit 1,
@@ -2011,6 +2152,15 @@ done
 if ((rc != 0)) && [[ -z "${fuzzBad}" ]]
 	then fPass
 	else fFail "exited ${rc},${fuzzBad} said '${out}'"
+fi
+
+## Fuzzing is a hard step, so it gets a quarter of the box, not the build's half.
+fId Etj0Hc1 "fuzzing takes the hard-step job count"
+: > "${work}/fuzz-args"
+out="$(FAKE_ZIG_ARGS="${work}/fuzz-args" fFuzzIn clean)" && rc=0 || rc=$?
+if ((rc == 0)) && grep -qxF -- "build -j2 test --fuzz=50K" "${work}/fuzz-args"
+	then fPass
+	else fFail "exited ${rc}, zig was asked: '$(tr '\n' ' ' < "${work}/fuzz-args")'"
 fi
 
 ## Each case above left its fuzz.log folder in the temp dir, 2 a run, since

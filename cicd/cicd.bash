@@ -429,8 +429,12 @@ fMain(){
 	local -r runName="${runStamp}"
 	fSection_Init
 
-	## No single stage gets the whole machine. Half the cores, at least one.
-	local -ri buildJobs="$(fHalfTheCores)"
+	## No single stage gets the whole machine. fJobs works the counts out, here
+	## and again from fSection before each step, since the load moves.
+	local -i cpuCount=1 buildJobs=1 hardJobs=1 machineBusy=0
+	local    loadNow=""
+	fJobs
+	fLowPriority
 
 	## Args; 1] Define placeholder variables; 2] Call fInit() to set them; 3] Freeze them read-only.
 	local    onlyToolchain=""
@@ -852,7 +856,7 @@ fStage_Container(){
 	if ((doLeakcheck)); then fCodeql_Image; runTag="${codeqlTag}"; fi
 
 	local -a runArgs=()
-	fContainer_RunArgs runArgs container
+	fContainer_RunArgs runArgs container "${buildJobs}"
 
 	local -a innerEnv=(-e ZUID_IN_CONTAINER=1 -e "USER=${USER:-builder}" -e "ZUID_RUN_STAMP=${runStamp}" -e "ZUID_COLUMNS=${_sectionWidth}")
 	if [[ -n "${SOURCE_DATE_EPOCH+set}" ]]; then innerEnv+=(-e "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"); fi
@@ -882,7 +886,7 @@ fStage_Container(){
 	fEcho_Clean "Runs .......: cicd.bash ${innerArgs[*]}"
 
 	"${containerEngine}" run "${runArgs[@]}" "${innerEnv[@]}" -w "${repoRoot}" \
-		"${runTag}" bash "${repoRoot}/cicd/cicd.bash" "${innerArgs[@]}" \
+		"${runTag}" nice -n 19 bash "${repoRoot}/cicd/cicd.bash" "${innerArgs[@]}" \
 		|| fThrowError "The run in the container failed; its output is above."  "${FUNCNAME[0]}"
 
 }
@@ -956,13 +960,16 @@ fContainer_Volumes(){
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The repo at its own path as the caller's uid, the cache volumes, and a
 ## linked worktree's main .git. Named and labeled for the run, so its end
-## finds what's left.
-fContainer_RunArgs(){  ## array to fill, step
+## finds what's left. Held to the step's job count, which goes in too, as the
+## count to use and as a cap for a run of this script inside.
+fContainer_RunArgs(){  ## array to fill, step, jobs
 	local -n runArgs_k4w="$1"
+	local -r jobs_k4w="${3:?}"
 	runArgs_k4w=()
 	if ((! keepTemp)); then runArgs_k4w+=(--rm); fi
 	runArgs_k4w+=(--init --user "$(id -u):$(id -g)" -v "${repoRoot}:${repoRoot}" -v "${containerVolume}:/cache" -v "${containerZigVolume}:${containerZigCache}")
 	runArgs_k4w+=(--name "${projectName}-${runName}-${2:?}" --label "dev.project=${projectName}" --label "dev.run=${runName}")
+	runArgs_k4w+=(--cpus "${jobs_k4w}" --cpu-shares 256 -e "ZUID_JOBS=${jobs_k4w}" -e "ZUID_JOBS_CAP=${jobs_k4w}")
 	local -r gitCommon="$(git -C "${repoRoot}" rev-parse --path-format=absolute --git-common-dir)"
 	if [[ "${gitCommon}" != "${repoRoot}/"* ]]; then runArgs_k4w+=(-v "${gitCommon}:${gitCommon}"); fi
 	## A Zig cache linked off the snapshotted dataset points at nothing inside,
@@ -1048,8 +1055,9 @@ fContainer_VolumeCap(){
 	if [[ "${label}" != "${projectName}" || -z "${containerTag}" ]]; then return 0; fi
 	local -a runArgs=(--init --user "$(id -u):$(id -g)" -v "${containerVolume}:/cache" --name "${projectName}-${runName}-cache-cap" --label "dev.project=${projectName}" --label "dev.run=${runName}")
 	if ((! keepTemp)); then runArgs=(--rm "${runArgs[@]}"); fi
+	runArgs+=(--cpus 1 --cpu-shares 256)
 	# shellcheck disable=2016  ## Expanded inside.
-	out="$("${containerEngine}" run "${runArgs[@]}" "${containerTag}" sh -c '
+	out="$("${containerEngine}" run "${runArgs[@]}" "${containerTag}" nice -n 19 sh -c '
 		kb="$(du -sk /cache | cut -f1)"
 		if [ "${kb}" -gt "$1" ]; then chmod -R u+w /cache 2>/dev/null; find /cache -xdev -mindepth 1 -user "$(id -u)" -delete; echo "emptied ${kb}"; fi
 	' sh "$((zigCacheCapMB * 1024))" 2>/dev/null || true)"
@@ -1086,7 +1094,11 @@ fPreflight(){
 	if [[ -n "$(git -C "${repoRoot}" status --porcelain)" ]]; then
 		fEcho_Clean "Tree .......: uncommitted changes present"
 	fi
-	fEcho_Clean "Jobs .......: ${buildJobs}"
+	fJobs_Line
+	local niceNow="" ioNow=""
+	niceNow="$(ps -o nice= -p "$$" 2>/dev/null || true)"
+	if command -v ionice &>/dev/null; then ioNow="$(ionice -p "$$" 2>/dev/null || true)"; fi
+	fEcho_Clean "Priority ...: nice ${niceNow// /}${ioNow:+, IO ${ioNow%%:*}}"
 
 	if ((doGo)); then
 		_fMustBeInPath go
@@ -1467,9 +1479,13 @@ fStage_Go(){
 	## keep it. It needs cgo, which the module itself doesn't. -count=1 since a
 	## cached pass would skip goleak and the race detector both. The JSON stream
 	## is what gives one line per test, with its ID.
-	local -a testFlags=(-p "${buildJobs}" -count=1)
+	## The race detector's memory makes it a hard step.
+	local -a testFlags=(-count=1)
 	local raceSkipWhy=""
-	if [[ "$(go env CGO_ENABLED)" == "1" ]]; then testFlags+=(-race); else raceSkipWhy="cgo is off here, and -race needs it"; fi
+	if [[ "$(go env CGO_ENABLED)" == "1" ]]
+		then testFlags+=(-race -p "${hardJobs}")
+		else testFlags+=(-p "${buildJobs}"); raceSkipWhy="cgo is off here, and -race needs it"
+	fi
 	if [[ -n "$(command -v python3 2>/dev/null || true)" ]]; then
 		go test "${testFlags[@]}" -json ./... | python3 "${utilityDir}/test-ids.py" go
 	else
@@ -1579,10 +1595,12 @@ fGoCheckers_Ready(){
 ## One of the image's pinned tools, run in a folder. Inside the container
 ## that's a plain call. A folder outside the repo, such as a scratch dir, is
 ## mounted at its own path too.
+## A hard step sets imageJobs to hardJobs first.
 fInImage(){  ## folder, command...
 	local -r dir="$1"; shift
+	local -ri jobs="${imageJobs:-${buildJobs:?}}"
 	if ((inContainer)); then
-		(cd "${dir}" && "$@")
+		(cd "${dir}" && export ZUID_JOBS="${jobs}" && "$@")
 		return
 	fi
 	## Named for the stage that asked, and numbered, since --keep-temp keeps
@@ -1593,9 +1611,10 @@ fInImage(){  ## folder, command...
 	_dockerSteps=$((_dockerSteps + 1)); step+="-${_dockerSteps}"
 	if [[ "${BASHPID}" != "${_dockerPid}" ]]; then step+="-${BASHPID}"; fi
 	local -a runArgs=()
-	fContainer_RunArgs runArgs "${step}"
+	fContainer_RunArgs runArgs "${step}" "${jobs}"
 	if [[ "${dir}" != "${repoRoot}" && "${dir}" != "${repoRoot}/"* ]]; then runArgs+=(-v "${dir}:${dir}"); fi
-	"${containerEngine}" run "${runArgs[@]}" -w "${dir}" "${containerTag}" "$@"
+	## The image has no ionice.
+	"${containerEngine}" run "${runArgs[@]}" -w "${dir}" "${containerTag}" nice -n 19 "$@"
 }
 
 
@@ -1687,7 +1706,7 @@ fStage_Go_Fuzz(){
 
 	while ((attempt < 2)); do
 		attempt=$((attempt + 1))
-		if output="$(go test -run=xxx -fuzz=FuzzGenerate -fuzztime="${fuzzTime}" -parallel="${buildJobs}" ./zuid 2>&1)"; then
+		if output="$(go test -p "${hardJobs}" -run=xxx -fuzz=FuzzGenerate -fuzztime="${fuzzTime}" -parallel="${hardJobs}" ./zuid 2>&1)"; then
 			fTestPass
 			return 0
 		fi
@@ -2052,7 +2071,7 @@ fStage_Zig_Fuzz(){
 	## The limit has to stay attached with '='. A bare --fuzz never ends and
 	## starts a web server, and that is how a separate word would be read.
 	local -i exitCode=0
-	env -u DISPLAY -u WAYLAND_DISPLAY zig build "-j${buildJobs}" test "--fuzz=${fuzzLimit}" > "${fuzzLog}" 2>&1 || exitCode=$?
+	env -u DISPLAY -u WAYLAND_DISPLAY zig build "-j${hardJobs}" test "--fuzz=${fuzzLimit}" > "${fuzzLog}" 2>&1 || exitCode=$?
 
 	local -r findLine="$(grep -m1 -F "input saved to '" "${fuzzLog}" || true)"
 	if [[ -z "${findLine}" ]] && ((exitCode == 0)); then
@@ -2401,6 +2420,7 @@ fStage_Zig_CChecks(){
 	fSection "Zig: C sanitizers and analyzers"
 
 	local checkerSkipWhy=""
+	local -ri imageJobs="${hardJobs}"
 	fGoCheckers_Ready
 
 	local -r cChecks="${utilityDir}/c-checks.bash"
@@ -2485,6 +2505,7 @@ fLeakcheck_Go(){  ## artifact dir
 
 	local -r leakDir="$1"
 	cd "${goDir}" || fThrowError "Missing the Go tree: '${goDir}'."  "${FUNCNAME[0]}"
+	local -rx GOMAXPROCS="${hardJobs}"
 	local soakDir=""
 	soakDir="$(mktemp -d)" || fThrowError "Could not make a temporary directory."  "${FUNCNAME[0]}"
 	_scratchDirs+=("${soakDir}")
@@ -2493,10 +2514,10 @@ fLeakcheck_Go(){  ## artifact dir
 	## are moved, since a failed run is when they're wanted.
 	local -i rc=0
 	if [[ -n "$(command -v python3 2>/dev/null || true)" ]]; then
-		ZUID_SOAK_DIR="${soakDir}" go test -count=1 -run '^TestSoak$' -json ./zuid | python3 "${utilityDir}/test-ids.py" go || rc=$?
+		ZUID_SOAK_DIR="${soakDir}" go test -p "${hardJobs}" -count=1 -run '^TestSoak$' -json ./zuid | python3 "${utilityDir}/test-ids.py" go || rc=$?
 	else
 		fEcho_Clean "IDs ........: skipped, no python3"
-		ZUID_SOAK_DIR="${soakDir}" go test -count=1 -run '^TestSoak$' -v ./zuid || rc=$?
+		ZUID_SOAK_DIR="${soakDir}" go test -p "${hardJobs}" -count=1 -run '^TestSoak$' -v ./zuid || rc=$?
 	fi
 
 	local -r profileN="${leakDir}/go-soak-n_${runStamp}.pprof" profile2N="${leakDir}/go-soak-2n_${runStamp}.pprof"
@@ -2521,6 +2542,7 @@ fLeakcheck_C(){  ## artifact dir
 
 	local -r leakDir="$1"
 	local checkerSkipWhy=""
+	local -ri imageJobs="${hardJobs}"
 	fGoCheckers_Ready
 
 	local -r cChecks="${utilityDir}/c-checks.bash"
@@ -2566,6 +2588,7 @@ fLeakcheck_CodeQL(){  ## artifact dir
 
 	local -r leakDir="$1"
 	local checkerSkipWhy=""
+	local -ri imageJobs="${hardJobs}"
 	fGoCheckers_Ready
 	if [[ -z "${checkerSkipWhy}" ]] && ((! inContainer)); then fCodeql_Image; fi
 	## fInImage starts whatever containerTag names.
@@ -4516,15 +4539,75 @@ fRotate_Artifacts(){
 
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-## Half the cores, rounded down, never less than one. No stage is allowed the
-## whole machine.
-fHalfTheCores(){
-	local -i cores=1
-	if command -v nproc &>/dev/null; then cores="$(nproc)"
-	elif command -v sysctl &>/dev/null; then cores="$(sysctl -n hw.ncpu 2>/dev/null || echo 1)"; fi
-	local -i half=$((cores / 2))
-	((half > 0)) || half=1
-	printf '%s\n' "${half}"
+## Machine use, per the shared CICD rules. buildJobs is half the CPUs, or a
+## quarter when the 1-minute load is over half of them. hardJobs is a quarter
+## either way, for fuzzing, the sanitizers, the soaks and CodeQL. Never less
+## than one. Inside the image, never more than the --cpus the run outside gave
+## it, since nproc there still counts the whole box.
+fJobs(){
+	local -i cores=1 half=1 quarter=1 load100=0 busy=0
+	cores="$(fCpuCount)"
+	local load="" frac=""
+	load="$(fLoadAvg)"
+	if [[ "${load}" =~ ^([0-9]{1,6})(\.([0-9]+))?$ ]]; then
+		frac="${BASH_REMATCH[3]}00"
+		load100=$((10#${BASH_REMATCH[1]} * 100 + 10#${frac:0:2}))
+	else
+		load=""
+	fi
+	half=$((cores / 2));    ((half > 0))    || half=1
+	quarter=$((cores / 4)); ((quarter > 0)) || quarter=1
+	if ((load100 * 2 > cores * 100)); then busy=1; fi
+	buildJobs="${half}"; if ((busy)); then buildJobs="${quarter}"; fi
+	hardJobs="${quarter}"
+	if [[ "${ZUID_JOBS_CAP:-}" =~ ^[1-9][0-9]{0,5}$ ]]; then
+		if ((buildJobs > ZUID_JOBS_CAP)); then buildJobs="${ZUID_JOBS_CAP}"; fi
+		if ((hardJobs > ZUID_JOBS_CAP));  then hardJobs="${ZUID_JOBS_CAP}";  fi
+	fi
+	cpuCount="${cores}"; machineBusy="${busy}"; loadNow="${load:-unknown}"
+}
+
+fJobs_Line(){
+	local busyNote=""; if ((machineBusy)); then busyNote=", busy"; fi
+	fEcho_Clean "Jobs .......: ${buildJobs}, ${hardJobs} for the hard steps (${cpuCount} CPUs, load ${loadNow}${busyNote})"
+}
+
+## Before each step. Says so only when a count moved.
+fJobs_Recheck(){
+	## fSection runs outside fMain too, in the test rigs.
+	[[ -n "${loadNow:-}" ]] || return 0
+	local -ri wasBuild="${buildJobs}" wasHard="${hardJobs}"
+	fJobs
+	if ((buildJobs != wasBuild || hardJobs != wasHard)); then fJobs_Line; fi
+}
+
+fCpuCount(){
+	local n=""
+	if command -v nproc &>/dev/null; then n="$(nproc 2>/dev/null || true)"; fi
+	if [[ ! "${n}" =~ ^[1-9][0-9]*$ ]]; then n="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"; fi
+	if [[ ! "${n}" =~ ^[1-9][0-9]*$ ]]; then n="$(sysctl -n hw.ncpu 2>/dev/null || true)"; fi
+	if [[ ! "${n}" =~ ^[1-9][0-9]*$ ]]; then n=1; fi
+	printf '%s\n' "${n}"
+}
+
+## The 1-minute load as the system gives it, or nothing.
+fLoadAvg(){
+	local l1="" rest=""
+	if [[ -r /proc/loadavg ]]; then
+		read -r l1 rest < /proc/loadavg || true
+	else
+		## macOS and BSD: "{ 1.23 1.45 1.67 }".
+		read -r rest l1 rest <<< "$(sysctl -n vm.loadavg 2>/dev/null || true)" || true
+	fi
+	printf '%s\n' "${l1}"
+}
+
+## Children inherit it, so every tool this starts runs low. The image's
+## processes are docker's children, not ours, so fInImage and fStage_Container
+## add nice inside as well, and --cpu-shares.
+fLowPriority(){
+	renice 19 -p "$$" >/dev/null 2>&1 || true
+	if command -v ionice &>/dev/null; then ionice -c 3 -p "$$" >/dev/null 2>&1 || true; fi
 }
 
 
@@ -4697,6 +4780,7 @@ function fSection(){
 	fEcho_Clean
 	fEcho_Clean "${_sectionRule}"
 	fEcho "$*"
+	fJobs_Recheck
 }
 
 

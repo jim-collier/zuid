@@ -332,6 +332,40 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: c50557e
 	- Test case: EtitVm7 (labels and names), EtitVm8 (the run's containers at its end, and the traps), EtitVm9 (the passing run's tidy). Each failed with its part of the change broken.
 
+- CICD reset: CPU and priority
+	- ID: 2026102416233102
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: The round's full run, `cicd/cicd.bash -q --no-sync --no-dogfood --no-backup --no-demo`, in the image as it picks by default. It's the first run of fuzzing, the leak checks, the C sanitizers and CodeQL at the new counts, in containers held by `--cpus`.
+	- Needs external testing: The `macos` workflow on the round branch's push. Its Jobs line should show the runner's CPUs and load, and its Priority line nice 19.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Related IDs: 2026101410500008
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per `Machine use` in the shared CICD rules. Half the cores, at least 1, is already worked out in one place and handed to Go and Zig.
+		- A quarter of the cores on a busy box, where the 1-minute load is over half the CPU count. Checked at the start and again before each step.
+		- A quarter, busy or not, for the hard steps: fuzzing, the leak checks, the sanitizer builds, the soak tests and CodeQL.
+		- Steps that run side by side share the count. `codeql.bash` works out its own today, and takes it from cicd instead.
+		- Everything runs under `nice -n 19`, plus `ionice -c 3` where it exists.
+		- Container runs get `--cpus <jobs>` and `--cpu-shares 256`, and `nice` inside too.
+		- The same rules on the test boxes, with each box's own CPU count and load.
+		- Earlier decisions this overrides: 2026101410500008, which gave Go fuzzing and packaging half the cores, and the Zig fuzz line in the private round settings, which passes half.
+	- Progress log:
+		- 20261025: `fJobs` works out both counts, at the start and from `fSection` before each step. Preflight prints them with the load, and a count that moves gets its own line.
+		- 20261025: The run renices itself to 19, with `ionice -c 3` where there is one, so whatever it starts inherits it. Each container gets `--cpus` and `--cpu-shares 256` for its step's count, and `nice -n 19` inside. The image has no ionice.
+		- 20261025: The count goes into the image as `ZUID_JOBS`, which `codeql.bash` reads, and `ZUID_JOBS_CAP`, which the run inside never goes over. `codeql.bash` by hand uses 1.
+		- 20261025: Nothing runs side by side yet, so there is no count to share.
+		- 20261025: Test boxes work out their own count and load, on Linux, macOS and FreeBSD. cicd.bash doesn't run on Windows.
+		- 20261025: EsJ9SjF, EtAj5P2, EtAHpAi, EtB6KVG and EtitVm9 now expect `--cpus`, `--cpu-shares 256` and `nice -n 19` in their docker run lines, which had none.
+	- Decisions:
+		- 20261025: The `-race` test run counts as a hard step, for its memory, though it wasn't on the list.
+	- Swept: every `-j`, `-p`, `-parallel` and `--threads` in cicd.bash, codeql.bash and package.bash, and every `docker run` in the repo: the container stage, `fInImage`, the cache cap check and installer-test's two bash 3.2 runs. package.bash keeps its own half only for a run by hand.
+	- Branch: round1025
+	- Test case: Etj0Hby (the counts), Etj0Hbz (a bad load reading), Etj0Hc0 (checked again before each step), Etj0NB7 (the priority), Etj0Hc1 (Zig fuzz), Etj0Hc2 (steps in the image), Etj0Hc3 (`codeql.bash`). Each failed against the scripts before the change, and passes after.
+	- Verified: 20261025, `pipeline-test.bash` 122 of 122, the bash 3.2 installer cases, and `cicd.bash --gate --only go --no-container` with docker absent, at load 31 to 71 on 32 CPUs.
+
 - CICD reset: other hosts and VMs
 	- ID: 2026102416233100
 	- Type: Enhancement
@@ -351,25 +385,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- A box that doesn't answer is a `SKIP` in its step and in the summary, and never stops the run, `--merge-gate` included.
 		- Each box gets a work folder of its own for the project, under its temp root.
 		- Windows tests use `b29w`, never `b29w-wif`. Nothing in the repo names `b29w-wif` today.
-
-- CICD reset: CPU and priority
-	- ID: 2026102416233102
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261024-162331
-	- Opened by: JC
-	- Related IDs: 2026101410500008
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per `Machine use` in the shared CICD rules. Half the cores, at least 1, is already worked out in one place and handed to Go and Zig.
-		- A quarter of the cores on a busy box, where the 1-minute load is over half the CPU count. Checked at the start and again before each step.
-		- A quarter, busy or not, for the hard steps: fuzzing, the leak checks, the sanitizer builds, the soak tests and CodeQL.
-		- Steps that run side by side share the count. `codeql.bash` works out its own today, and takes it from cicd instead.
-		- Everything runs under `nice -n 19`, plus `ionice -c 3` where it exists.
-		- Container runs get `--cpus <jobs>` and `--cpu-shares 256`, and `nice` inside too.
-		- The same rules on the test boxes, with each box's own CPU count and load.
-		- Earlier decisions this overrides: 2026101410500008, which gave Go fuzzing and packaging half the cores, and the Zig fuzz line in the private round settings, which passes half.
 
 - CICD reset: standard flags
 	- ID: 2026102416233103

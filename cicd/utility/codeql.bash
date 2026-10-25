@@ -27,9 +27,10 @@ set -Eeuo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly here
 
+## cicd.bash works the count out and hands it in, since it knows the load and
+## what else is running. By hand it's one.
 fThreads(){
-	local -i half=$(( $(nproc) / 2 ))
-	echo $(( half > 0 ? half : 1 ))
+	if [[ "${ZUID_JOBS:-}" =~ ^[1-9][0-9]*$ ]]; then echo "${ZUID_JOBS}"; else echo 1; fi
 }
 
 ## Its own output is long and mostly progress, so it's shown only on a failure.
