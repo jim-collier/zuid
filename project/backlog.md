@@ -593,7 +593,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - CICD reset: CICD process gaps
 	- ID: 2026102416233109
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, in the image, for the cleanup line at the end of a full run that passed, with the volume step's Go module prune.
+	- Needs external testing: The `macos` workflow, which that run starts once the branch is pushed. dee45 and dee46 under the Mac's `find` and Bash, and the run log's `tee` there.
+	- Needs hand testing: Once `.github/dependabot.yml` is on `main`, GitHub's Dependabot page lists its 3 ecosystems with no config error, and the first PRs go against `dev`, grouped.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261024-162331
 	- Opened by: JC
@@ -605,6 +608,21 @@ Going forward, new issues in the new template at the bottom of this file, will g
 			- One line at the end of a run saying what was removed and about what it freed, files as well as docker.
 			- Go's module cache in the volume pruned of what the current `go.sum` doesn't name.
 			- A check that cleanup holds: 2 runs, one killed partway, and nothing new piles up.
+	- Progress log:
+		- 20261025: `.github/dependabot.yml` covers the Go module, the actions and the Dockerfile's base image, weekly, with PRs against `dev` and minor and patch grouped per ecosystem. The `ARG` toolchain pins are past what it reads, so they stay hand bumps.
+		- 20261025: Every run ends on one `Cleanup ....:` line, failed or interrupted too. It names the run folder, stale run folders, Zig caches, containers, images, the volume's prune and cap and the week-old build cache, and about what they freed. It replaces the `Docker .....:` line. The run in the image prints none, since the outer run says it.
+		- 20261025: `cicd/utility/gomod-prune.bash` removes every module `go/go.sum` doesn't name from the volume's Go module cache, unpacked and downloaded. It runs in the volume step at the end of a run that passed, before the 2 GB cap.
+		- 20261025: Found while testing: Ctrl+C or a TERM to the group killed the run log's `tee`, so a stopped run's last lines never showed. The `tee` ignores them now.
+		- 20261025: `docker system df` came back empty again in one quick run in the image, then answered in every later call, 4 at once and one during `builder prune` included. Cause still not found. What it says now goes to stderr.
+		- 20261025: dednb now wants the `Cleanup ....:` line, where it wanted `Docker .....: removed ...; about 3.7 GB freed`, plus the prune's item. Its silent `df` case wants "under 1 MB freed, plus an unknown amount from docker", where it wanted "an unknown amount freed".
+		- Verified: `pipeline-test.bash` 152 of 152, also with `ZUID_IN_CONTAINER=1`. `--backlog-run-quick shell docs` in the image passed, ended on one cleanup line, and left no container. The prune in the image removed a module planted in `zuid-cicd-cache` and kept the named ones. shellcheck on the stage's list is clean.
+		- Verified: dee46 failed with the old `tee` put back, and dee45 with the capital escape taken out. Against the old `cicd.bash` the harness stops at dednb, which needs the new function.
+	- Decisions:
+		- 20261025: The calls to check are under `Check:` in `questions.md`: dependabot's reach, no line from the run in the image, the Zig lines kept, the `tee`, and dee46's shape.
+	- Swept: every place that printed or did a cleanup: `fContainer_Tidy`, `fContainer_VolumeCap`, both exit traps, `fZigCache_Tidy`, `_fRunDir_Remove` and `fRunDir_Sweep`. The only test that read the old line was dednb, and the only lift of `fZigCache_Tidy` is `fZigTidyIn`. dee2c and the shellcheck stage both list the new script.
+	- Branch: round1025c
+	- Commit: 1d57a5b
+	- Test case: dee45 (the prune), dee46 (2 runs, one killed, nothing left), dednb (the line).
 
 - Identifiers from one tick have no counter.
 	- ID: 2026102409130649
