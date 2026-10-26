@@ -32,7 +32,7 @@ pub fn generating(w: *std.Io.Writer, err: anyerror, detail: []const u8, given: G
     }
     if (detail.len > 0) return w.writeAll(detail);
     switch (err) {
-        error.UnknownComponent => try w.print("Unknown format component '%{s}'. Known: %d %h %u %f %m %g %r, and %% for a literal.", .{unknownVerb(given.format)}),
+        error.UnknownComponent => try w.print("Unknown format component '%{s}'. Known: %d %h %u %f %m %g %r %c, and %% for a literal.", .{unknownVerb(given.format)}),
         error.BareFormatPercent => try w.writeAll("The format string ends on a bare '%'."),
         error.ClockBeforeEpoch => try w.writeAll("The clock predates the Unix epoch."),
         error.WidthOverflow => try w.writeAll("The clock is past the padding horizon, so the timestamp no longer fits its fixed width."),
@@ -42,6 +42,7 @@ pub fn generating(w: *std.Io.Writer, err: anyerror, detail: []const u8, given: G
         error.SaltTooLong => try w.print("The salt is {d} bytes. Want at most {d}.", .{ given.salt_len, given.max_salt }),
         error.BufferTooSmall => try w.print("That format renders more than {d} bytes, which is past what this command will print.", .{given.max_out}),
         error.RuntimeFailed => try w.writeAll("The embedded wasm runtime or its module failed."),
+        error.CounterFull => try w.writeAll("More identifiers in one tick than %c counts."),
         else => try w.print("Generation failed: {t}.", .{err}),
     }
 }
@@ -67,7 +68,7 @@ fn unknownVerb(format: []const u8) []const u8 {
         if (format[i] != '%') continue;
         i += 1;
         switch (format[i]) {
-            '%', 'd', 'h', 'u', 'f', 'm', 'g', 'r' => {},
+            '%', 'd', 'h', 'u', 'f', 'm', 'g', 'r', 'c' => {},
             else => {
                 const len = std.unicode.utf8ByteSequenceLength(format[i]) catch 1;
                 return format[i..@min(i + len, format.len)];

@@ -13,7 +13,8 @@
 ##		report against a stand-in zig. So does package.bash, to see what
 ##		SOURCE_DATE_EPOCH it hands on. The profile report reads a made-up
 ##		flamegraph, the vuln report made-up govulncheck output, and the CodeQL
-##		report made-up SARIF.
+##		report made-up SARIF. The FreeBSD vendor step reads a stand-in repo
+##		with its own signed catalog.
 ##	Syntax:
 ##		pipeline-test.bash
 ##	History: At bottom.
@@ -1003,16 +1004,20 @@ fPlanIn(){  ## inContainer, planContainer, then name=value settings
 			doSync=1; doGate=0; doFullGate=0; gateFlag=""; doQuick=0; doDemo=1; doPackage=0; noPackage=0; packageSkipWhy=""
 			onlyToolchain=""; doGo=1; doZig=1; doFuzz=1; doCross=1; doLeakcheck=1; leakAsked=0; doProfile=1
 			doPublish=0; doDogfood=1; doBackup=1; backupInWorktree=0; commitAsked=0; doCommit=0; doPush=0; doRemote=1
-			freebsdBox="bsdtest@vmFreeBSD"
+			freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"; macBox="collierjr@b26"; windowsBox="collierjr@b29w"
 			_stepTitles=(); _stepOffs=(); _stepPlanning=0; _stepElsewhere=0; _stepAt=0; _stepTotal=0
 			read -r -a runAreas <<< "${planAreas:-}"; areaWhy="not in --backlog-run-quick ${planAreas:-}"
 		}
 		shift 2
 		local kv=""; for kv in "$@"; do printf -v "${kv%%=*}" '%s' "${kv#*=}"; done
 		local fn=""
-		for fn in fSteps fSteps_Checks fSteps_Scrub fSteps_FuzzWhy fSteps_Packages fSteps_Plan fStep_Off fArea; do
+		for fn in fSteps fSteps_Checks fSteps_Scrub fSteps_FuzzWhy fSteps_Packages fSteps_Box fSteps_Plan fStep_Off fArea; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
+		## planUname stands in for the host's kernel name. Linux unless a case
+		## names another, so the plan is the same on a Mac as here.
+		# shellcheck disable=2329  ## Called by the lifted fSteps.
+		uname(){ if [[ "${1:-}" == -s ]]; then printf '%s\n' "${planUname:-Linux}"; else command uname "$@"; fi; }
 		## Marks the ones the image runs.
 		# shellcheck disable=2329  ## Called by the lifted fSteps.
 		fStep(){ if ((_stepPlanning)); then _stepTitles+=("$( ((_stepElsewhere)) && echo '*')$1"); fi; }
@@ -1083,9 +1088,16 @@ grep -qE '^[0-9]+\. Go: build, vet, format, test$' <<< "${out}" || listBad+=" no
 grep -qx '      daq6x TestVectors' <<< "${out}" || listBad+=" no TestVectors under it;"
 grep -qE '^[0-9]+\. Zig' <<< "${out}" && listBad+=" a Zig step with only go named;"
 grep -qE ' steps, [0-9]+ tests\. Nothing was run\.$' <<< "${out}" || listBad+=" no closing line;"
-## As this machine plans it, since the run in the image never plans the
-## steps only the outside runs, such as the macOS workflow's.
-out="$(env -u ZUID_IN_CONTAINER bash "${cicd}" --list --no-container --package --leakcheck < /dev/null 2>&1)" && rc=0 || rc=$?
+## As the outside plans it, since the run in the image never plans the steps
+## only the outside runs, such as the macOS workflow's. And as Linux x86_64
+## plans it, since a Mac leaves out the Mac box step and its tests.
+listHost="${work}/list-host"
+mkdir -p "${listHost}"
+# shellcheck disable=2016  ## The stand-in's own text.
+printf '#!/bin/sh\ncase "$1" in -s) echo Linux ;; -m) echo x86_64 ;; *) exec %q "$@" ;; esac\n' "$(command -v uname)" > "${listHost}/uname"
+chmod +x "${listHost}/uname"
+# shellcheck disable=2031  ## Only this run sees it.
+out="$(PATH="${listHost}:${PATH}" env -u ZUID_IN_CONTAINER bash "${cicd}" --list --no-container --package --leakcheck < /dev/null 2>&1)" && rc=0 || rc=$?
 ((rc == 0)) || listBad+=" the full list exited ${rc};"
 listed="$(sed -n 's/^      \([0-9a-hjkmnp-tv-z]\{5\}\) .*/\1/p' <<< "${out}" | sort -u)"
 known="$(python3 -I -B -c 'import importlib.util as u, sys; s = u.spec_from_file_location("t", sys.argv[1]); t = u.module_from_spec(s); s.loader.exec_module(t); print("\n".join(sorted({i for i, *_ in t.fScan() if i})))' "${cicd%/cicd.bash}/utility/test-ids.py")"
@@ -1221,6 +1233,76 @@ if [[ -z "${boxBad}" ]]
 	else fFail "${boxBad}"
 fi
 
+## The same for the Linux arm64 box, which comes after the FreeBSD one.
+fId dee7n "which runs test on the Linux arm64 box"
+boxBad=""
+for boxCase in "doPackage=1|yes" "doPackage=1 doFullGate=1 gateFlag=--merge-gate doSync=0|yes" "doPackage=1 doRemote=0|--no-remote" "doPackage=1 linuxArm64Box=|ZUID_BOX_LINUX_ARM64 is empty" "doQuick=1|nothing packaged" "onlyToolchain=go doZig=0|nothing packaged"; do
+	boxWant="${boxCase#*|}"
+	# shellcheck disable=2086  ## Settings, split on purpose.
+	outside="$(planAreas="" planOffs=1 fPlanIn 0 1 ${boxCase%%|*})" || { boxBad+=" '${boxCase}': ${outside};"; continue; }
+	if [[ "${boxWant}" == "yes" ]]; then
+		grep -v '^off:' <<< "${outside}" | sed -n '/^FreeBSD box: vmFreeBSD$/,$p' | grep -qx 'Linux arm64 box: vmDebARM64' || boxBad+=" '${boxCase}': it isn't after the FreeBSD box, in '${outside//$'\n'/, }';"
+	else
+		grep -q '^Linux arm64 box' <<< "${outside}" && boxBad+=" '${boxCase}' runs it;"
+		grep -qxF "off:Linux arm64 box (${boxWant})" <<< "${outside}" || boxBad+=" '${boxCase}' doesn't say it's off for ${boxWant};"
+	fi
+done
+## Emptying one box's destination leaves the other running.
+outside="$(planAreas="" planOffs=1 fPlanIn 0 1 doPackage=1 freebsdBox=)" || true
+grep -qx 'Linux arm64 box: vmDebARM64' <<< "${outside}" || boxBad+=" no FreeBSD box took the arm64 one too;"
+inside="$(planAreas="" fPlanIn 1 0 doSync=0 doDogfood=0 doBackup=0 doPackage=1)" || true
+grep -q 'Linux arm64 box' <<< "${inside}" && boxBad+=" the image runs it;"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## The Mac box comes after the arm64 one, outside the image, and never on a Mac.
+fId dee8m "which runs build on the Mac box"
+boxBad=""
+for boxCase in "doPackage=1|yes" "doPackage=1 doFullGate=1 gateFlag=--merge-gate doSync=0|yes" "doPackage=1 doRemote=0|--no-remote" "doPackage=1 macBox=|ZUID_BOX_MAC is empty" "doQuick=1|nothing packaged" "onlyToolchain=go doZig=0|nothing packaged" "doPackage=1 planUname=Darwin|this Mac makes its own universal release"; do
+	boxWant="${boxCase#*|}"
+	# shellcheck disable=2086  ## Settings, split on purpose.
+	outside="$(planAreas="" planOffs=1 fPlanIn 0 1 ${boxCase%%|*})" || { boxBad+=" '${boxCase}': ${outside};"; continue; }
+	if [[ "${boxWant}" == "yes" ]]; then
+		grep -v '^off:' <<< "${outside}" | sed -n '/^Linux arm64 box: vmDebARM64$/,$p' | grep -qx 'Mac box: b26' || boxBad+=" '${boxCase}': it isn't after the arm64 box, in '${outside//$'\n'/, }';"
+	else
+		grep -q '^Mac box' <<< "${outside}" && boxBad+=" '${boxCase}' runs it;"
+		grep -qxF "off:Mac box (${boxWant})" <<< "${outside}" || boxBad+=" '${boxCase}' doesn't say it's off for ${boxWant};"
+	fi
+done
+outside="$(planAreas="" planOffs=1 fPlanIn 0 1 doPackage=1 freebsdBox= linuxArm64Box=)" || true
+grep -qx 'Mac box: b26' <<< "${outside}" || boxBad+=" no other boxes took the Mac one too;"
+inside="$(planAreas="" fPlanIn 1 0 doSync=0 doDogfood=0 doBackup=0 doPackage=1)" || true
+grep -q 'Mac box' <<< "${inside}" && boxBad+=" the image runs it;"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## The Windows box comes after the Mac one, outside the image.
+fId deea6 "which runs test on the Windows box"
+boxBad=""
+for boxCase in "doPackage=1|yes" "doPackage=1 doFullGate=1 gateFlag=--merge-gate doSync=0|yes" "doPackage=1 doRemote=0|--no-remote" "doPackage=1 windowsBox=|ZUID_BOX_WINDOWS is empty" "doQuick=1|nothing packaged" "onlyToolchain=go doZig=0|nothing packaged"; do
+	boxWant="${boxCase#*|}"
+	# shellcheck disable=2086  ## Settings, split on purpose.
+	outside="$(planAreas="" planOffs=1 fPlanIn 0 1 ${boxCase%%|*})" || { boxBad+=" '${boxCase}': ${outside};"; continue; }
+	if [[ "${boxWant}" == "yes" ]]; then
+		grep -v '^off:' <<< "${outside}" | sed -n '/^Mac box: b26$/,$p' | grep -qx 'Windows box: b29w' || boxBad+=" '${boxCase}': it isn't after the Mac box, in '${outside//$'\n'/, }';"
+	else
+		grep -q '^Windows box' <<< "${outside}" && boxBad+=" '${boxCase}' runs it;"
+		grep -qxF "off:Windows box (${boxWant})" <<< "${outside}" || boxBad+=" '${boxCase}' doesn't say it's off for ${boxWant};"
+	fi
+done
+outside="$(planAreas="" planOffs=1 fPlanIn 0 1 doPackage=1 freebsdBox= linuxArm64Box= macBox=)" || true
+grep -qx 'Windows box: b29w' <<< "${outside}" || boxBad+=" no other boxes took the Windows one too;"
+inside="$(planAreas="" fPlanIn 1 0 doSync=0 doDogfood=0 doBackup=0 doPackage=1)" || true
+grep -q 'Windows box' <<< "${inside}" && boxBad+=" the image runs it;"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
 ## The box step end to end, with ssh and the host lock stood in for. ssh runs
 ## its command here, so the box's temp root is a folder of the test's own.
 fId dee35 "a box step passes, fails, or skips when the box is down or taken"
@@ -1232,8 +1314,10 @@ cat > "${boxDir}/bin/ssh" <<'EOF_bssh'
 while [[ "${1:-}" == -o ]]; do shift 2; done
 shift
 [[ "${BOX_DOWN:-0}" != 1 ]] || exit 255
-HOST_TEMP="${BOX_ROOT:?}" exec bash -c "$*"
+## The powershell beside it, for the Windows box.
+PATH="$(dirname "$0"):${PATH}" HOST_TEMP="${BOX_ROOT:?}" exec bash -c "$*"
 EOF_bssh
+printf '#!/usr/bin/env bash\nexec pwsh "$@"\n' > "${boxDir}/bin/powershell"
 cat > "${boxDir}/bin/lock" <<'EOF_block'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${BOX_LOCK_LOG:?}"
@@ -1242,28 +1326,34 @@ while [[ "${1:-}" != -- ]]; do shift; done
 shift
 exec "$@"
 EOF_block
-chmod +x "${boxDir}/bin/ssh" "${boxDir}/bin/lock"
+chmod +x "${boxDir}/bin/ssh" "${boxDir}/bin/lock" "${boxDir}/bin/powershell"
 export BOX_ROOT="${boxDir}/root" BOX_LOCK_LOG="${boxDir}/lock.log"
 ## Always called in $(...), so a brace group is subshell enough.
 fBoxIn(){  ## job.bash's text, in BOX_JOB
 	{
 		# shellcheck disable=2034  ## Read by the lifted functions.
 		{ repoRoot="${boxDir}"; utilityDir="$(cd "$(dirname "${cicd}")" && pwd -P)/utility"
-		  zigDir="${boxDir}/zig"; distPrefix="zuid-1.0.0-"; freebsdBox="bsdtest@vmFreeBSD"; boxWaitSecs=60; keepTemp=0
+		  zigDir="${boxDir}/zig"; distPrefix="zuid-1.0.0-"; freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"; boxWaitSecs=60; keepTemp=0
+		  macBox="collierjr@b26"; windowsBox="collierjr@b29w"; incomingDir="${boxDir}/dist-incoming"
 		  projectName="zuid"; runName="test"; _stepSkipWhy=""; }
 		_runDir="${boxDir}/run"
 		local fn=""
-		for fn in fBox_Lock fBox_Skip fBox_Run fStage_Box_FreeBSD fStep_Skip fId fTestPass fTestSkip fTestFail; do
+		for fn in fBox_Lock fBox_Skip fBox_Run fBox_Release fBox_MacHome fStage_Box_FreeBSD fStage_Box_LinuxArm64 fStage_Box_Mac fStage_Box_Windows fStep_Skip fId fTestPass fTestSkip fTestFail; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		# shellcheck disable=2329  ## Called by the lifted functions.
 		{ fEcho_Clean(){ printf '%s\n' "$*"; }; fThrowError(){ printf 'error: %s\n' "$1"; exit 1; }; }
 		## The job is a stand-in, not the real one.
 		# shellcheck disable=2329
-		cp(){ if [[ "${1##*/}" == box-release-test.bash ]]; then printf '%s\n' "${BOX_JOB:?}" > "$2"; else command cp "$@"; fi; }
-		if [[ -d "${_runDir}/box-freebsd" ]]; then fSafeRm "${_runDir}/box-freebsd"; fi
+		cp(){ if [[ "${1##*/}" == box-release-test.bash || "${1##*/}" == box-mac-build.bash || "${1##*/}" == box-windows-test.ps1 ]]; then printf '%s\n' "${BOX_JOB:?}" > "$2"; else command cp "$@"; fi; }
+		local jobName="box-freebsd-x86_64"; [[ "${BOX_STAGE:-}" != fStage_Box_LinuxArm64 ]] || jobName="box-linux-arm64"
+		[[ "${BOX_STAGE:-}" != fStage_Box_Windows ]] || jobName="box-windows-x86_64"
+		## The Mac bundles a repo of its own.
+		if [[ "${BOX_STAGE:-}" == fStage_Box_Mac ]]; then jobName="box-darwin-universal"; repoRoot="${boxDir}/src"; fi
+		if [[ -d "${_runDir}/${jobName}" ]]; then fSafeRm "${_runDir}/${jobName}"; fi
+		if [[ -d "${_runDir}/${jobName}.back" ]]; then fSafeRm "${_runDir}/${jobName}.back"; fi
 		: > "${BOX_LOCK_LOG}"
-		fStage_Box_FreeBSD
+		"${BOX_STAGE:-fStage_Box_FreeBSD}"
 		printf 'skipwhy:%s\n' "${_stepSkipWhy}"
 	} 2>&1
 }
@@ -1294,6 +1384,131 @@ out="$(ZUID_BOX_LOCK="" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" &
 if [[ -z "${boxBad}" ]]
 	then fPass
 	else fFail "${boxBad}"
+fi
+
+## The Linux arm64 box step sends its own release to its own box, under the
+## lock by that box's name, and skips without one.
+fId dee7p "the Linux arm64 box step sends its release to vmDebARM64"
+boxBad=""
+out="$(BOX_STAGE=fStage_Box_LinuxArm64 ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dee7m .*(no zuid-1.0.0-linux-arm64.tgz in dist/)$' <<< "${out}"; } || boxBad+=" no release: exited ${rc}, said '${out//$'\n'/ | }';"
+printf 'x\n' > "${boxDir}/dist/zuid-1.0.0-linux-arm64.tgz"
+out="$(BOX_STAGE=fStage_Box_LinuxArm64 ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='[[ -f zuid-1.0.0-linux-arm64.tgz && ! -e zuid-1.0.0-freebsd-x86_64.tgz && -f cicd/utility/cli-test.bash && -f capi_smoke.c ]]' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -qx '  PASS dee7m Linux arm64 release on its box: command surface and C module' <<< "${out}"; } || boxBad+=" pass: exited ${rc}, said '${out//$'\n'/ | }';"
+grep -q '^wrap vmDebARM64 --wait 60 --why zuid: cicd test -- bash .*/box-run.bash tester@vmDebARM64 ' "${BOX_LOCK_LOG}" || boxBad+=" pass: not held through the lock by its own name;"
+grep -q "^Box \.*: tester@vmDebARM64:${boxDir}/root/zuid/[0-9]\{8\}-[0-9]\{6\}_[0-9]\{3\}$" <<< "${out}" || boxBad+=" pass: no work folder of its own;"
+[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" pass: the box's folder is still there;"
+out="$(BOX_STAGE=fStage_Box_LinuxArm64 ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dee7m .*(no answer from tester@vmDebARM64)$' <<< "${out}"; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## The emulated arm64 box gets cli-test.bash's short run, and FreeBSD the whole.
+## The job hands what the step asked for to cli-test.bash.
+fId dee9h "the Linux arm64 box runs cli-test.bash --short, FreeBSD all of it"
+boxBad=""
+# shellcheck disable=2016  ## Run by the box stand-in.
+out="$(BOX_STAGE=fStage_Box_LinuxArm64 ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='[[ "$(cat cli-test.args)" == --short ]]' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  PASS dee7m ' <<< "${out}"; } || boxBad+=" arm64: exited ${rc}, said '${out//$'\n'/ | }';"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='[[ ! -e cli-test.args ]]' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  PASS dee33 ' <<< "${out}"; } || boxBad+=" FreeBSD: exited ${rc}, said '${out//$'\n'/ | }';"
+## The real job, with a stand-in release and cli-test.bash, stopped at the C
+## compiler.
+fBoxJobArgs(){  ## cli-test.args text, or - for none
+	local -r jobDir="${work}/box-job"
+	if [[ -d "${jobDir}" ]]; then fSafeRm "${jobDir}"; fi
+	mkdir -p "${jobDir}/pack/zuid-v1/bin" "${jobDir}/cicd/utility"
+	printf '#!/usr/bin/env bash\necho zuid v1\n' > "${jobDir}/pack/zuid-v1/bin/zuid"
+	chmod +x "${jobDir}/pack/zuid-v1/bin/zuid"
+	tar -czf "${jobDir}/zuid-1-test.tgz" -C "${jobDir}/pack" zuid-v1
+	printf 'printf "%%s|" "$@" > cli.args\n' > "${jobDir}/cicd/utility/cli-test.bash"
+	cp "${cicd%/*}/utility/box-release-test.bash" "${jobDir}/job.bash"
+	[[ "$1" == - ]] || printf '%s\n' "$1" > "${jobDir}/cli-test.args"
+	(cd "${jobDir}" && CC="${jobDir}/no-cc" bash ./job.bash > /dev/null 2>&1) || true
+	cat "${jobDir}/cli.args" 2>/dev/null || printf 'none'
+}
+out="$(fBoxJobArgs --short)"; [[ "${out}" == "--bin|${work}/box-job/zuid-v1/bin/zuid|--short|" ]] || boxBad+=" job with --short ran '${out}';"
+out="$(fBoxJobArgs -)";       [[ "${out}" == "--bin|${work}/box-job/zuid-v1/bin/zuid|" ]]         || boxBad+=" job with no args ran '${out}';"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## The Mac builds from a bundle of HEAD, and what it sends home goes in
+## dist-incoming/, replacing an earlier run's.
+fId dee8n "the Mac box step builds from HEAD and brings its release home"
+boxBad=""
+mkdir -p "${boxDir}/src"
+git -C "${boxDir}/src" init -q
+printf 'mac\n' > "${boxDir}/src/f"
+git -C "${boxDir}/src" add f
+git -C "${boxDir}/src" -c user.name=t -c user.email=t@t.invalid commit -q -m t
+macRel="zuid-1.0.0-darwin-universal"
+## The stand-in job, which writes <n> into what it sends home.
+fMacJob(){ printf 'git clone -q src.bundle r && [[ -f r/f ]] && mkdir -p back/debug/%s && echo %s > back/%s.tgz && echo b > back/%s && echo %s > back/debug/%s/zuid.dSYM\n' \
+	"${macRel}" "$1" "${macRel}" "${macRel}" "$1" "${macRel}" ;}
+out="$(BOX_STAGE=fStage_Box_Mac ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB="$(fMacJob 1)" fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -qx '  PASS dee8k macOS universal release built on its box, back in dist-incoming/' <<< "${out}"; } || boxBad+=" pass: exited ${rc}, said '${out//$'\n'/ | }';"
+grep -q '^wrap b26 --wait 60 --why zuid: cicd test -- bash .*/box-run.bash collierjr@b26 ' "${BOX_LOCK_LOG}" || boxBad+=" pass: not held through the lock as b26;"
+[[ -f "${boxDir}/dist-incoming/${macRel}.tgz" && -f "${boxDir}/dist-incoming/${macRel}" && -f "${boxDir}/dist-incoming/debug/${macRel}/zuid.dSYM" ]] || boxBad+=" pass: not all of it reached dist-incoming/;"
+[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" pass: the box's folder is still there;"
+## A second run replaces the first one's files.
+out="$(BOX_STAGE=fStage_Box_Mac ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB="$(fMacJob 2)" fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && [[ "$(cat "${boxDir}/dist-incoming/${macRel}.tgz" "${boxDir}/dist-incoming/debug/${macRel}/zuid.dSYM" 2>&1)" == $'2\n2' ]]; } || boxBad+=" again: exited ${rc}, said '${out//$'\n'/ | }';"
+## A job that passes but sends no tarball home fails, and so does one that fails.
+out="$(BOX_STAGE=fStage_Box_Mac ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='mkdir -p back && printf x > back/zuid-0.9.0-darwin-universal.tgz' fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -qx '  FAIL dee8k macOS universal release built on its box, back in dist-incoming/' <<< "${out}" && grep -q "no ${macRel}.tgz home, only: zuid-0.9.0-darwin-universal.tgz" <<< "${out}"; } || boxBad+=" nothing home: exited ${rc}, said '${out//$'\n'/ | }';"
+[[ ! -e "${boxDir}/dist-incoming/zuid-0.9.0-darwin-universal.tgz" ]] || boxBad+=" nothing home: another version reached dist-incoming/;"
+out="$(BOX_STAGE=fStage_Box_Mac ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='mkdir -p back && printf x > back/zuid-1.0.0-darwin-universal.tgz && exit 4' fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -q 'exited 4' <<< "${out}"; } || boxBad+=" fail: exited ${rc}, said '${out//$'\n'/ | }';"
+[[ "$(cat "${boxDir}/dist-incoming/${macRel}.tgz")" == 2 ]] || boxBad+=" fail: a failed job's tarball reached dist-incoming/;"
+[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" fail: the box's folder is still there;"
+out="$(BOX_STAGE=fStage_Box_Mac ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dee8k .*(no answer from collierjr@b26)$' <<< "${out}"; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## The Windows box has no bash, so box-run.bash makes, runs and removes its
+## folder through PowerShell. The stand-in ssh runs it here under pwsh.
+fId deea7 "the Windows box step runs a PowerShell job on b29w"
+boxBad=""
+if ! command -v pwsh > /dev/null; then fFail "pwsh not installed, which the Windows box half needs here"
+else
+	out="$(BOX_STAGE=fStage_Box_Windows ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+	{ ((rc == 0)) && grep -q '^  SKIP deea5 .*(no zuid-1.0.0-windows-x86_64.zip in dist/)$' <<< "${out}"; } || boxBad+=" no release: exited ${rc}, said '${out//$'\n'/ | }';"
+	printf 'x\n' > "${boxDir}/dist/zuid-1.0.0-windows-x86_64.zip"; printf 'y\n' > "${boxDir}/dist/checksums.txt"; printf 'z\n' > "${boxDir}/install.ps1"
+	## The job sees what was sent and runs in its own folder, with TEMP there too.
+	# shellcheck disable=2016  ## PowerShell, for the box.
+	winJob='foreach ($f in @("zuid-1.0.0-windows-x86_64.zip", "checksums.txt", "install.ps1", "box-run.ps1")) { if (-not (Test-Path -LiteralPath $f)) { Write-Host "missing $f"; exit 5 } }
+if ($env:TEMP -ne (Get-Location).Path) { Write-Host "TEMP is $env:TEMP"; exit 6 }'
+	out="$(BOX_STAGE=fStage_Box_Windows ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB="${winJob}" fBoxIn)" && rc=0 || rc=$?
+	{ ((rc == 0)) && grep -qx '  PASS deea5 Windows release on its box: command, and install.ps1 under 5.1 and 7' <<< "${out}"; } || boxBad+=" pass: exited ${rc}, said '${out//$'\n'/ | }';"
+	grep -q '^wrap b29w --wait 60 --why zuid: cicd test -- bash .*/box-run.bash collierjr@b29w ' "${BOX_LOCK_LOG}" || boxBad+=" pass: not held through the lock as b29w;"
+	grep -q "^Box \.*: collierjr@b29w:${boxDir}/root/zuid/[0-9]\{8\}-[0-9]\{6\}_[0-9]\{3\}$" <<< "${out}" || boxBad+=" pass: no work folder of its own;"
+	[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" pass: the box's folder is still there;"
+	out="$(BOX_STAGE=fStage_Box_Windows ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 3' fBoxIn)" && rc=0 || rc=$?
+	{ ((rc != 0)) && grep -qx '  FAIL deea5 Windows release on its box: command, and install.ps1 under 5.1 and 7' <<< "${out}" && grep -q 'exited 3' <<< "${out}"; } || boxBad+=" fail: exited ${rc}, said '${out//$'\n'/ | }';"
+	[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" fail: the box's folder is still there;"
+	## box-run.ps1 removes only a run folder under the project's temp root.
+	mkdir -p "${boxDir}/root/zuid/not-a-run" "${boxDir}/root/zuid/20260101-000000_001" "${boxDir}/elsewhere/20260101-000000_001"
+	for winBad in "${boxDir}/root/zuid/not-a-run" "${boxDir}/elsewhere/20260101-000000_001" "${boxDir}/root/zuid"; do
+		HOST_TEMP="${boxDir}/root" pwsh -NoProfile -NonInteractive -File "${cicd%/*}/utility/box-run.ps1" -Remove "${winBad}" > /dev/null 2>&1 && boxBad+=" removed ${winBad};"
+		[[ -d "${winBad}" ]] || boxBad+=" ${winBad} is gone;"
+	done
+	HOST_TEMP="${boxDir}/root" pwsh -NoProfile -NonInteractive -File "${cicd%/*}/utility/box-run.ps1" -Remove "${boxDir}/root/zuid/20260101-000000_001" > /dev/null 2>&1 || boxBad+=" wouldn't remove a run folder;"
+	[[ ! -e "${boxDir}/root/zuid/20260101-000000_001" ]] || boxBad+=" a run folder is still there;"
+	## Whatever a broken guard left.
+	for winBad in "${boxDir}/root/zuid/not-a-run" "${boxDir}/elsewhere/20260101-000000_001" "${boxDir}/elsewhere"; do [[ ! -d "${winBad}" ]] || rmdir "${winBad}"; done
+	out="$(BOX_STAGE=fStage_Box_Windows ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+	{ ((rc == 0)) && grep -q '^  SKIP deea5 .*(no answer from collierjr@b29w)$' <<< "${out}"; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
+	if [[ -z "${boxBad}" ]]
+		then fPass
+		else fFail "${boxBad}"
+	fi
 fi
 
 ## A step that skipped ends on SKIP, not PASS, and is kept for the end.
@@ -1966,6 +2181,54 @@ if ((rc == 0 && rcSame == 0)) && grep -qxF "  ${scWant}" <<< "${scOld}" \
 	&& grep -qxF "  PASS de5h0 host shellcheck matches the pin" <<< "${scSame}"
 	then fPass
 	else fFail "exited ${rc} and ${rcSame}, said: ${scOld//$'\n'/ | } and: ${scSame//$'\n'/ | }"
+fi
+
+## The pinned Go, through a stand-in go. The first run that fetches it says
+## so on stderr, and that went into the version de572 compares
+## (2026102517583389).
+goTree="${work}/go-tree"
+mkdir -p "${goTree}/cicd/container" "${goTree}/bin" "${goTree}/run"
+printf 'FROM scratch\nARG GO_VER=1.26.9\n' > "${goTree}/cicd/container/Dockerfile"
+cat > "${goTree}/bin/go" <<- 'EOF_go'
+	#!/usr/bin/env bash
+	if [[ "${FAKE_GO:-}" == down ]]; then printf 'go: downloading %s (linux/amd64)\ngo: download failed: no network\n' "${GOTOOLCHAIN}" >&2; exit 1; fi
+	[[ "${FAKE_GO:-}" != fetch ]] || printf 'go: downloading %s (linux/amd64)\n' "${GOTOOLCHAIN}" >&2
+	printf '%s\n' "${GOTOOLCHAIN}"
+EOF_go
+chmod +x "${goTree}/bin/go"
+## Always called in $(...), so a brace group is subshell enough.
+fGoPinIn(){  ## FAKE_GO mode, doPackage
+	{
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2329
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{ repoRoot="${goTree}"; _runDir="${goTree}/run"; doPackage="$2"; goToolchain="" ;}
+		local fn=""
+		for fn in fId fTestPass fTestSkip fTestFail fReactor_Toolchain; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		# shellcheck disable=2031  ## The run is in $(...), so only it sees this.
+		export PATH="${goTree}/bin:${PATH}" FAKE_GO="$1"
+		unset GOTOOLCHAIN
+		fReactor_Toolchain
+	} 2>&1
+}
+fId dee9f "de572 passes on the run that fetches the pinned Go"
+goBad=""
+out="$(fGoPinIn fetch 1)" && rc=0 || rc=$?
+{ ((rc == 0)) && [[ "${out}" == "  PASS de572 reactor wasm built with the pinned Go" ]]; } || goBad+=" fetching: exited ${rc}, said '${out//$'\n'/ | }';"
+out="$(fGoPinIn "" 1)" && rc=0 || rc=$?
+{ ((rc == 0)) && [[ "${out}" == "  PASS de572 reactor wasm built with the pinned Go" ]]; } || goBad+=" fetched: exited ${rc}, said '${out//$'\n'/ | }';"
+## A fetch that fails still says why.
+out="$(fGoPinIn down 0)" && rc=0 || rc=$?
+{ ((rc == 0)) && [[ "${out}" == "  SKIP de572 reactor wasm built with the pinned Go (could not get go1.26.9: go: download failed: no network)" ]]; } || goBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
+out="$(fGoPinIn down 1)" && rc=0 || rc=$?
+{ ((rc != 0)) && [[ "${out}" == *"FAIL de572 "*"Could not get go1.26.9 for a release: go: downloading go1.26.9 (linux/amd64)"$'\n'"go: download failed: no network" ]]; } || goBad+=" down, packaging: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${goBad}" ]]
+	then fPass
+	else fFail "${goBad}"
 fi
 
 ## The PowerShell lint, against this repo's own file list, with the stand-in
@@ -3138,7 +3401,8 @@ guardBad=""
 # shellcheck disable=2031  ## Only a subshell much earlier changes it.
 for guardFile in cicd/utility/cli-test.bash cicd/utility/pipeline-test.bash cicd/utility/installer-test.bash \
 	cicd/utility/git-hooks/pre-push cicd/utility/package.bash cicd/utility/include/safe-rm.bash cicd/cicd.bash install.bash install.ps1 \
-	cicd/utility/box-run.bash cicd/utility/box-release-test.bash cicd/utility/gomod-prune.bash; do
+	cicd/utility/box-run.bash cicd/utility/box-release-test.bash cicd/utility/box-mac-build.bash cicd/utility/gomod-prune.bash \
+	cicd/utility/box-run.ps1 cicd/utility/box-windows-test.ps1; do
 	# shellcheck disable=2031  ## Likewise.
 	[[ -f "${repoRoot}/${guardFile}" ]] || { guardBad+=" no ${guardFile};"; continue; }
 	# shellcheck disable=2031  ## Likewise.
@@ -3303,6 +3567,19 @@ else
 	fi
 fi
 
+## --short runs --version, a default identifier and each component, and
+## nothing else. Which cases ran is what's read, not whether they passed.
+fId dee9g "cli-test.bash --short runs only its short cases"
+mkdir -p "${work}/shortbin"
+printf '#!/usr/bin/env bash\necho abcdef\n' > "${work}/shortbin/zuid"
+chmod +x "${work}/shortbin/zuid"
+out="$(bash "${utilityDir}/cli-test.bash" --short --bin "${work}/shortbin/zuid" 2>&1 || true)"
+shortRan="$(awk '$1 == "PASS" || $1 == "FAIL" { printf "%s ", $2 }' <<< "${out}")"
+if [[ "${shortRan}" == "dcrfc dcrfd dcrfe dcrff dcrfg dcrfh dee9c dee9d dee9e deec4 ddb04 " ]]
+	then fPass
+	else fFail "ran: ${shortRan:-nothing}, said '$(tail -n 3 <<< "${out}" | tr '\n' ' ')'"
+fi
+
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The pre-push hook, in a scratch repo with a bare remote. The committed
@@ -3361,6 +3638,138 @@ if [[ -z "${hookBad}" ]]
 	else fFail "${hookBad}"
 fi
 
+## The FreeBSD vendor step, against a stand-in repo with its own key. The
+## files are checked against the signed catalog, not pinned by hash, since the
+## real repo rebuilds a package under the same version (2026102519140200).
+bsdRepo="${work}/bsd-repo"
+fBsdPkg(){  ## name-version, then dir:file pairs under usr/local
+	local -r pin="$1" tree="${bsdRepo}/build/$1"; shift
+	local pair=""
+	for pair in "$@"; do mkdir -p "${tree}/usr/local/${pair%:*}"; printf '%s\n' "${pin} ${pair}" > "${tree}/usr/local/${pair%:*}/${pair#*:}"; done
+	printf 'name: %s\n' "${pin%-*}" > "${tree}/+MANIFEST"
+	tar -cf "${bsdRepo}/build/${pin}.pkg" -C "${tree}" +MANIFEST usr
+}
+## Writes and signs the catalog, with the entries given, one JSON line each.
+fBsdCatalog(){  ## key, then lines
+	local -r key="$1"; shift
+	printf '%s\n' "$@" > "${bsdRepo}/packagesite.yaml"
+	openssl pkey -in "${key}" -pubout -out "${bsdRepo}/packagesite.yaml.pub" 2>/dev/null
+	printf '%s' "$(shasum -a 256 "${bsdRepo}/packagesite.yaml" | awk '{print $1}')" \
+		| openssl dgst -sha256 -sign "${key}" -out "${bsdRepo}/packagesite.yaml.sig"
+	tar -cf "${bsdRepo}/packagesite.pkg" -C "${bsdRepo}" packagesite.yaml packagesite.yaml.sig packagesite.yaml.pub
+}
+fBsdEntry(){ printf '{"name":"%s","origin":"x/%s","version":"%s","sum":"%s","repopath":"%s","pkgsize":1}' "${1%-*}" "${1%-*}" "${1##*-}" "$2" "$3" ;}
+fBsdVendorIn(){  ## key fingerprint, then pins
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fEcho_Clean(){ :; }
+		# shellcheck disable=2329
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2329
+		_fMustBeInPath(){ command -v "$1" >/dev/null || fThrowError "no $1"; }
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{ vendorDir="${bsdRepo}/vendor"; freebsdRepo="file://${bsdRepo}"; freebsdKey="$1"; shift; freebsdPkgs=("$@") ;}
+		local fn=""
+		for fn in fVendor_FreeBSD fVendor_PkgSum; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		mkdir -p "${vendorDir}"
+		fVendor_FreeBSD "${vendorDir}/wasmtime-x86_64-freebsd"
+	) 2>&1
+}
+bsdTools=""
+for tool in openssl b2sum shasum; do command -v "${tool}" >/dev/null || bsdTools+=" ${tool}"; done
+
+fId deebc "FreeBSD vendor takes packages its signed catalog vouches for"
+if [[ -n "${bsdTools}" ]]; then
+	printf '  SKIP %s %s (%s)\n' "${curId}" "${curName}" "no${bsdTools}, which only a Linux release run needs"; curId=""
+else
+	bsdBad=""
+	mkdir -p "${bsdRepo}/build" "${bsdRepo}/All/Hashed"
+	## pkg's own sums, from its zbase32 of blake2b-512, which matched the real
+	## catalog's entries for libwasmtime-49.0.1 and zstd-1.5.7_2.
+	if ! fLoad fVendor_PkgSum; then
+		bsdBad+=" no fVendor_PkgSum in cicd.bash;"
+	else
+		printf 'zuid\n' > "${bsdRepo}/v.txt"; : > "${bsdRepo}/e.txt"
+		[[ "$(fVendor_PkgSum "${bsdRepo}/v.txt" '2$')" == "2\$utz65pc85h3f55upjrjxd6yphu8ukaioxk8f7eet13q35miirep3zj3k4ucsg14g4nb1opw4dpe3tbs6c3jby933x3u6xi5wmpgdjfn" ]] || bsdBad+=" wrong pkg sum for a short file;"
+		[[ "$(fVendor_PkgSum "${bsdRepo}/e.txt" '2$')" == "2\$au4ro5mebesgyd5a7xbmnjj41mr91dbeb8sqwojtgwaxt59dwkgrpxbnt3m7qcpkuenjgnp1qnczrek8e5sebr7siki9gajd69gfq8d" ]] || bsdBad+=" wrong pkg sum for an empty file;"
+		openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "${bsdRepo}/key.pem" 2>/dev/null
+		openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "${bsdRepo}/other.pem" 2>/dev/null
+		fBsdPkg libwasmtime-49.0.1 include:wasmtime.h lib:libwasmtime.a share/licenses/libwasmtime-49.0.1:APACHE20
+		fBsdPkg zstd-1.5.7_2 lib:libzstd.a share/licenses/zstd-1.5.7_2:BSD3CLAUSE
+		## The catalog's newer sum form and path for one, the older for the other.
+		wtSum="$(fVendor_PkgSum "${bsdRepo}/build/libwasmtime-49.0.1.pkg" '2$')"
+		wtPath="All/Hashed/libwasmtime-49.0.1~${wtSum:0:10}.pkg"
+		cp "${bsdRepo}/build/libwasmtime-49.0.1.pkg" "${bsdRepo}/${wtPath}"
+		cp "${bsdRepo}/build/zstd-1.5.7_2.pkg" "${bsdRepo}/All/zstd-1.5.7_2.pkg"
+		zsSum="$(shasum -a 256 "${bsdRepo}/All/zstd-1.5.7_2.pkg" | awk '{print $1}')"
+		bsdEntries=("$(fBsdEntry libwasmtime-49.0.1 "${wtSum}" "${wtPath}")" "$(fBsdEntry zstd-1.5.7_2 "${zsSum}" All/zstd-1.5.7_2.pkg)")
+		fBsdCatalog "${bsdRepo}/key.pem" '{"name":"other","origin":"x/other","version":"1"}' "${bsdEntries[@]}"
+		bsdKey="$(shasum -a 256 "${bsdRepo}/packagesite.yaml.pub" | awk '{print $1}')"
+		out="$(fBsdVendorIn "${bsdKey}" libwasmtime-49.0.1 zstd-1.5.7_2)" && rc=0 || rc=$?
+		bsdTree="${bsdRepo}/vendor/wasmtime-x86_64-freebsd"
+		{ ((rc == 0)) && [[ -f "${bsdTree}/include/wasmtime.h" && -f "${bsdTree}/lib/libwasmtime.a" && -f "${bsdTree}/lib/libzstd.a" && -f "${bsdTree}/LICENSE" && -f "${bsdTree}/LICENSE-zstd" ]] \
+			&& [[ "$(cat "${bsdTree}/.version")" == "libwasmtime-49.0.1 zstd-1.5.7_2" && ! -e "${bsdRepo}/vendor/.freebsd-unpack" ]]; } \
+			|| bsdBad+=" first fetch: exited ${rc}, said '${out//$'\n'/ | }';"
+		## A rebuild: same version, new bytes, new sum and path in a newly signed catalog.
+		fRmIfThere "${bsdTree}"
+		printf 'rebuilt\n' >> "${bsdRepo}/build/libwasmtime-49.0.1/usr/local/lib/libwasmtime.a"
+		tar -cf "${bsdRepo}/build/libwasmtime-49.0.1.pkg" -C "${bsdRepo}/build/libwasmtime-49.0.1" +MANIFEST usr
+		wtSum="$(fVendor_PkgSum "${bsdRepo}/build/libwasmtime-49.0.1.pkg" '2$')"
+		wtPath="All/Hashed/libwasmtime-49.0.1~${wtSum:0:10}.pkg"
+		cp "${bsdRepo}/build/libwasmtime-49.0.1.pkg" "${bsdRepo}/${wtPath}"
+		bsdEntries[0]="$(fBsdEntry libwasmtime-49.0.1 "${wtSum}" "${wtPath}")"
+		fBsdCatalog "${bsdRepo}/key.pem" "${bsdEntries[@]}"
+		out="$(fBsdVendorIn "${bsdKey}" libwasmtime-49.0.1 zstd-1.5.7_2)" && rc=0 || rc=$?
+		{ ((rc == 0)) && grep -q '^rebuilt$' "${bsdTree}/lib/libwasmtime.a"; } || bsdBad+=" rebuild: exited ${rc}, said '${out//$'\n'/ | }';"
+	fi
+	if [[ -z "${bsdBad}" ]]
+		then fPass
+		else fFail "${bsdBad}"
+	fi
+fi
+
+fId deebd "FreeBSD vendor refuses what its signed catalog doesn't vouch for"
+if [[ -n "${bsdTools}" ]]; then
+	printf '  SKIP %s %s (%s)\n' "${curId}" "${curName}" "no${bsdTools}, which only a Linux release run needs"; curId=""
+elif [[ ! -f "${bsdRepo}/packagesite.pkg" ]]; then
+	fFail "deebc made no stand-in repo"
+else
+	bsdBad=""
+	## Each case runs from an empty vendor dir and must leave no tree behind.
+	fWantBsdRefusal(){  ## label, text the refusal must contain, pins...
+		local -r label="$1" want="$2"; shift 2
+		fRmIfThere "${bsdTree}"
+		out="$(fBsdVendorIn "${bsdKey}" "$@")" && rc=0 || rc=$?
+		{ ((rc != 0)) && [[ "${out}" == *"${want}"* && ! -e "${bsdTree}" ]]; } || bsdBad+=" ${label}: exited ${rc}, said '${out//$'\n'/ | }';"
+	}
+	fWantBsdRefusal "version moved" "FreeBSD's catalog has no libwasmtime-50.0.0, only version 49.0.1" libwasmtime-50.0.0 zstd-1.5.7_2
+	fWantBsdRefusal "not in catalog" "FreeBSD's catalog has no nothere-1, only version none" nothere-1
+	## A dep's version later on the line is not the package's.
+	fBsdCatalog "${bsdRepo}/key.pem" "${bsdEntries[0]%\}}"',"deps":{"zstd":{"origin":"x/zstd","version":"9.9"}}}' "${bsdEntries[1]}"
+	fWantBsdRefusal "dep's version" "FreeBSD's catalog has no libwasmtime-9.9, only version 49.0.1" libwasmtime-9.9 zstd-1.5.7_2
+	fBsdCatalog "${bsdRepo}/key.pem" "${bsdEntries[@]}"
+	cp "${bsdRepo}/${wtPath}" "${bsdRepo}/wt.keep"
+	printf 'x' >> "${bsdRepo}/${wtPath}"
+	fWantBsdRefusal "changed package" "FreeBSD libwasmtime-49.0.1 does not match its signed catalog" libwasmtime-49.0.1 zstd-1.5.7_2
+	cp "${bsdRepo}/wt.keep" "${bsdRepo}/${wtPath}"
+	printf 'x' >> "${bsdRepo}/All/zstd-1.5.7_2.pkg"
+	fWantBsdRefusal "changed package, sha256 form" "FreeBSD zstd-1.5.7_2 does not match its signed catalog" libwasmtime-49.0.1 zstd-1.5.7_2
+	## A catalog edited after signing.
+	cp "${bsdRepo}/packagesite.yaml.sig" "${bsdRepo}/packagesite.yaml.pub" "${bsdRepo}/build/"
+	printf '\n' >> "${bsdRepo}/packagesite.yaml"
+	tar -cf "${bsdRepo}/packagesite.pkg" -C "${bsdRepo}" packagesite.yaml packagesite.yaml.sig packagesite.yaml.pub
+	fWantBsdRefusal "edited catalog" "The FreeBSD catalog's signature does not check out" libwasmtime-49.0.1
+	## Signed and good, but not with the key that was pinned.
+	fBsdCatalog "${bsdRepo}/other.pem" "${bsdEntries[@]}"
+	fWantBsdRefusal "other key" "The FreeBSD catalog is signed with a key that isn't FreeBSD's" libwasmtime-49.0.1
+	if [[ -z "${bsdBad}" ]]
+		then fPass
+		else fFail "${bsdBad}"
+	fi
+fi
+
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
 fLine ""
@@ -3368,6 +3777,9 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: The box plans and the full --list as Linux, so they hold on a Mac.
+##		- 20261025 JC: The FreeBSD vendor step against a stand-in signed catalog.
+##		- 20261025 JC: The pinned Go on its first fetch. cli-test.bash --short, and the arm64 box's short run.
 ##		- 20261025 JC: The cleanup line, the Go module prune, and 2 runs with one killed leaving nothing.
 ##		- 20261025 JC: The release stand-in prints the new --version lines, and only the first tops the notes.
 ##		- 20261025 JC: Its folder is a run folder. The harness run folder, the guard scan, and the hook's run folder.

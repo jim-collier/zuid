@@ -2,9 +2,10 @@
 
 ##	Purpose:
 ##		Runs on a test box as job.bash, in the folder box-run.bash sent. Unpacks
-##		the one release tarball there, runs cli-test.bash on its command, then
-##		builds capi_smoke.c against its libraries, shared and static, with the
-##		link line zuid.h gives for the platform, and runs both.
+##		the one release tarball there, runs cli-test.bash on its command, with
+##		the arguments in cli-test.args if there is one, then builds capi_smoke.c
+##		against its libraries, shared and static, with the link line zuid.h
+##		gives for the platform, and runs both.
 ##	Syntax:
 ##		bash ./job.bash
 ##	History: At bottom.
@@ -33,7 +34,10 @@ tree="${trees[0]%/}"
 fSay "Box" "$(uname -srm)"
 fSay "Release" "${tarballs[0]}, $("${tree}/bin/zuid" --version | head -n 1)"
 
-bash ./cicd/utility/cli-test.bash --bin "${tree}/bin/zuid"
+## One per line, such as --short for an emulated box.
+cliArgs=()
+if [[ -f cli-test.args ]]; then mapfile -t cliArgs < cli-test.args; fi
+bash ./cicd/utility/cli-test.bash --bin "${tree}/bin/zuid" "${cliArgs[@]}"
 
 ## zuid.h's link lines, per platform.
 cc="${CC:-cc}"
@@ -54,3 +58,4 @@ fSay "Smoke" "static library passed"
 
 ##	History:
 ##		- 20261025 JC: Created, for the FreeBSD box.
+##		- 20261025 JC: cli-test.args, for the short run on vmDebARM64.

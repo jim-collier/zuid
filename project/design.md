@@ -103,7 +103,7 @@ The identifier core stays native Zig. Only base conversion crosses the WebAssemb
 
 Of the runtimes considered, the Wasmtime C API was chosen: it is the reference implementation, has the best-documented C interface, and is the fastest of the options. It is also the heaviest, and it is not present on a stock system, so it is vendored rather than assumed present. The build pins a release, verifies its checksum, and links the static archive, so the binary and the shared library are self-contained; the module bytes are embedded at build time for the same reason.
 
-Wasmtime publishes no FreeBSD build, but FreeBSD packages one. The FreeBSD release links that package's archive, pinned by checksum like the rest, with the zstd archive that build calls. It runs behind Wasmtime's own releases and its port has no maintainer, so it is the first place to look if that build breaks. Switching to an interpreter for one platform was not worth it.
+Wasmtime publishes no FreeBSD build, but FreeBSD packages one. The FreeBSD release links that package's archive, with the zstd archive that build calls. Both are pinned by version, not checksum, since the repo rebuilds a package under the same version. Each file is checked against the repo's catalog instead, which is signed with the key FreeBSD itself trusts. It runs behind Wasmtime's own releases and its port has no maintainer, so it is the first place to look if that build breaks. Switching to an interpreter for one platform was not worth it.
 
 For arm64 Windows, Wasmtime publishes only an MSVC build. Its static archive asks for MSVC's own C runtime, which a mingw link does not have, but its DLL needs nothing past Windows itself. So that release links `wasmtime.dll` and puts it beside the command and the C module, and it is the one release whose command is not a single file.
 
@@ -243,6 +243,7 @@ The format string keeps the predecessor's syntax, since it reads well and is the
 | `%m`  | Hardware address of the lowest-numbered non-loopback interface       | 9
 | `%g`  | A UUID v4                                                            | 22
 | `%r`  | Random data from a cryptographic source                              | 6
+| `%c`  | A counter of the identifiers made in the same tick                   | 4
 | `%%`  | A literal `%`. Any character outside a `%` token goes out as itself. | -
 
 Every component is rendered as a number in the output base, and every one of them is a fixed number of symbols wide. Fixed width is what makes the leading timestamp sort, and it also means an identifier can be split back into its parts by offset. The single exception is an unhashed name, which is emitted as text.
@@ -261,13 +262,15 @@ The byte-valued components all take the same path - hex in, converted from base 
 
 - `%r` draws enough bytes to fill the symbols it emits. Below base 256 that is one byte each, which is more entropy than a symbol can spend; above it a symbol holds more than eight bits, so the draw scales with the radix. Details under [Component widths](#component-widths).
 
+- `%c` is the identifier's place among those made in the same tick, from 0, so identifiers from one tick sort in the order they were made. It counts per run of the command, per Go `Generator` and per C context. Nothing is shared between processes, since that would need a state file, so 2 processes in one tick still need `%h`, `%u` or `%r` to differ. A new tick or a new precision starts it at 0 again. A run of the command reads the clock once, so there it is the line number from 0. Its width holds 2^20 counts, which is 4 symbols in base 62, and one more identifier in that tick is an error, the way a clock past the horizon is. An identifier gets one number however many times `%c` appears in it, and one that fails gives its number back, so a C caller retrying with a bigger buffer gets the same one.
+
 Padding and truncation both come from the conversion library, through one call that right-aligns a converted value to an exact symbol count. That is deliberate: the two halves of the policy - left-fill with the base's zero digit when short, keep the rightmost symbols when long - are exactly the kind of thing two implementations drift on if each writes its own. Neither does.
 
 It also removes an earlier limit. Truncation used to need single-byte digits, because nothing could slice a converted string at a symbol boundary, so `%h`, `%u`, `%f`, and `%r` were refused in a base with multi-byte digits. The library slices by symbol now, so every component works in every base, which is what made the wide families usable as curated choices at all.
 
 ### What a caller cannot ask for
 
-Both implementations reject the same six things before rendering anything, so neither can produce output the other would refuse:
+Both implementations reject the same seven things before rendering anything, so neither can produce output the other would refuse:
 
 - A component width outside 1 to 64.
 
@@ -281,6 +284,8 @@ Both implementations reject the same six things before rendering anything, so ne
 
 - A clock before the Unix epoch or past the padding horizon. Past the horizon is an error rather than a truncation, because quietly dropping the high symbols would break the sort instead of reporting it.
 
+- A `%c` past 2^20 identifiers in one tick, for the same reason.
+
 The two width rules read only the widths the format spends. A hash width that fits base 16 is past the ceiling in 2048tz, so checking one the format never reaches would fail a bare `%d` over a number it does not read. `--no-hash` puts the hashed width out of reach the same way.
 
 Each refusal has one name on every surface. The C module returns a code from `zuid.h`, and the Go module returns an error that `errors.Is` matches against the `Err` value of the same name, such as `ZUID_ERR_OPTION` and `ErrOption`. The text says the rest.
@@ -289,7 +294,7 @@ Each refusal has one name on every surface. The C module returns a code from `zu
 
 ### Component widths
 
-Every width is derived rather than tabulated, by one rule: the smallest number of symbols that holds the largest value the component can take. `%d` takes that value from the horizon; `%m` and `%g` take it from a bit count, 48 and 128.
+Every width is derived rather than tabulated, by one rule: the smallest number of symbols that holds the largest value the component can take. `%d` takes that value from the horizon; `%m`, `%g` and `%c` take it from a bit count, 48, 128 and 20. `%c` is 5 symbols in base 16, 4 from base 32 to 64, 3 from 128 to 512, and 2 in 1024 and 2048.
 
 `%h`, `%u`, `%f`, and `%r` have no largest value - a hash is as wide as you cut it - so what gets derived instead is a target *strength*, and the width is whatever reaches it in that base. The targets are 47 bits for a hashed name and 35 for `%r`, which is what 8 and 6 base-62 symbols have always held.
 
@@ -322,7 +327,7 @@ Three choices were left open until the vectors froze; all three are now settled:
 
 - **Same-tick repeats stay literal, with a warning.** A time-only format is fully determined by the clock, so several identifiers generated within one tick come out identical - verified, not hypothetical. The format means what it says: nothing is appended silently. `--count` prints the repeats as they are and writes one line to stderr saying how many of them there were, suggesting `%r`. Callers wanting uniqueness say so in the format.
 
-Five more were settled with the remaining components:
+Five more were settled with the remaining components, and one later:
 
 - **All three hashed components are one width, not three.** The predecessor used 5 for host and user and 8 for the FQDN. One number is easier to remember than three, and 5 symbols in base 62 is only about 30 bits, which is thin across a large fleet. That width was itself fixed at 8 to begin with, and is now derived per base from the strength of 8 base-62 symbols.
 
@@ -331,6 +336,8 @@ Five more were settled with the remaining components:
 - **`%r` has about 36 bits**, where the predecessor's 4 symbols had around 24. Enough that appending `%r` to a same-tick timestamp resolves the collision it exists to resolve. In base 62 that is the same 6 symbols it always was.
 
 - **`%m` takes the lowest-numbered non-loopback interface**, for the reasons under [Format and components](#format-and-components).
+
+- **`%c` is how a format asks for same-tick order.** The repeats above stay literal, and a format that wants them in order says so with `%c`, which cannot repeat within one run. Its scope, its reset and its width are under [Format and components](#format-and-components). It is a component like the others rather than a flag, so the format still says everything about an identifier.
 
 - **The salt is supplied, not built in.** A salt compiled into the program would have made hashed names unguessable by default, and it was rejected: the binary is public, so the constant in it is public too, and it would only have defeated a plain SHA-256 table rather than anyone holding a copy of the program. It would also have changed every identifier ever generated. An empty default keeps the existing output, and anyone who wants names that cannot be confirmed supplies a secret of their own.
 
@@ -407,7 +414,9 @@ Command line only. The interface is a deliberate improvement on the predecessor 
 
 The C module takes an identifier's choices with each call, in a struct that has the same fields as the Go module's `Request`. Its context keeps only the runtime and the machine's own values, so two parts of a program sharing one cannot change each other's output.
 
-Batching is the command's job, not the modules'. `--count` prints as many identifiers as asked for, one per line, and the Go and C modules still hand back one at a time - a caller there already has a loop, and a count in the module API would only be a second way to write it. One run reads the clock once, the same way it reads the machine's own values once, so a time-only format batches one value repeated rather than racing the tick.
+The one exception is `%c`. A count cannot come in per call, so the context keeps the last tick and how many identifiers it made in it, and code sharing a context shares one count. That is the point of it: one context numbers everything it makes in a tick.
+
+Batching is the command's job, not the modules'. `--count` prints as many identifiers as asked for, one per line, and the Go and C modules still hand back one at a time - a caller there already has a loop, and a count in the module API would only be a second way to write it. One run reads the clock once, the same way it reads the machine's own values once, so a time-only format batches one value repeated rather than racing the tick, and `%c` numbers the lines.
 
 ### Testing
 
@@ -423,7 +432,7 @@ Two things follow from acquisition being outside the vectors:
 
 The expected column comes from a third independent derivation, working from this document rather than from either implementation, so that "both sides agree" cannot mean "both sides are wrong the same way".
 
-The vectors say nothing about what happens to a format string nobody sane would write, so both sides fuzz that separately. The Go module's `FuzzGenerate` drives the format and the base name, and asks for two things: a failed call returns no identifier, and the same request twice returns the same one. A full pipeline run gives it twenty seconds, and a quick one five. The Zig side has the matching pair - one over the core parser, one over the C `zuid_generate` - and they also check that a call which failed part way through handed every wasm region back. The Zig test pass only replays their corpus. A full pipeline run then fuzzes them for 50K iterations, and a quick one for 5K, in Debug, since the leaked-context test counts contexts only in Debug. Zig reports a failing input without a failing exit code, so the pipeline reads the output for it and keeps the input under `cicd/artifacts/fuzz/` for the corpus.
+The vectors say nothing about what happens to a format string nobody sane would write, so both sides fuzz that separately. The Go module's `FuzzGenerate` drives the format and the base name, and asks for two things: a failed call returns no identifier, and the same request twice returns the same one, with `%c` started over between them. A full pipeline run gives it twenty seconds, and a quick one five. The Zig side has the matching pair - one over the core parser, one over the C `zuid_generate` - and they also check that a call which failed part way through handed every wasm region back. The Zig test pass only replays their corpus. A full pipeline run then fuzzes them for 50K iterations, and a quick one for 5K, in Debug, since the leaked-context test counts contexts only in Debug. Zig reports a failing input without a failing exit code, so the pipeline reads the output for it and keeps the input under `cicd/artifacts/fuzz/` for the corpus.
 
 ## Relationship to x9muid1
 

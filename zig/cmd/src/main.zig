@@ -127,7 +127,7 @@ const help_tail =
     \\                              1 millisecond.
     \\    -n, --count <n>           How many to print, one per line (default 1,
     \\                              most 1000000). One run reads the clock once,
-    \\                              so a format without %r repeats itself.
+    \\                              so a format without %c or %r repeats itself.
     \\        --no-hash             Emit the host, user, and FQDN names literally
     \\                              instead of hashing them.
     \\        --rand-chars <count>  How many random symbols %r emits. The default
@@ -154,6 +154,9 @@ const help_tail =
     \\    %m  Hardware address of the lowest-numbered non-loopback interface.
     \\    %g  A random UUID v4, as a plain number in the output base. No dashes.
     \\    %r  Random symbols from a cryptographic source.
+    \\    %c  A counter, from 0 in each run, so identifiers from one run sort in
+    \\        the order they were printed. Another run in the same tick starts
+    \\        at 0 again, so add %h, %u, or %r where runs can overlap.
     \\    %%  A literal '%'. Anything else in the format goes out as itself.
     \\
     \\Every component but an unhashed %h, %u, or %f is a fixed number of symbols
@@ -281,6 +284,10 @@ pub fn main(init: std.process.Init) !void {
     }
 
     opts.clock_ms = zuid.clock.nowMs() orelse return die(stderr, "The system clock could not be read.", .{});
+    // The run reads the clock once, so every line is one tick and %c is the
+    // line number from 0.
+    var counter: zuid.core.Counter = .{};
+    opts.counter = &counter;
 
     const module_cache = ModuleCache.find(arena, init.environ_map);
     const cached = if (module_cache) |mc| mc.load(io, arena) else null;

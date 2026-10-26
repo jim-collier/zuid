@@ -36,6 +36,10 @@
 ##		- 20261025 JC: A run folder of its own in HOST_TEMP, removed at the end. Removals go through the safe removal guard.
 ##		- 20261025 JC: The FreeBSD release tested on vmFreeBSD, under the host lock. A step can end in SKIP.
 ##		- 20261025 JC: One cleanup line ends every run. Go's module cache in the volume pruned to go.sum. The run log keeps its last lines after Ctrl+C.
+##		- 20261025 JC: The Linux arm64 release tested on vmDebARM64.
+##		- 20261025 JC: The Mac builds the universal release from HEAD, and it comes back into dist-incoming/.
+##		- 20261025 JC: The Windows release and install.ps1 tested on b29w.
+##		- 20261025 JC: FreeBSD's packages pinned by version and checked against the repo's signed catalog, not by hash.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Global, since the exit trap reads it after fMain has gone.
@@ -89,9 +93,14 @@ fConfig(){ :;
 	default_releaseAssets=("linux-x86_64.tgz" "linux-arm64.tgz" "freebsd-x86_64.tgz" "darwin-universal.tgz" "windows-x86_64.zip" "windows-arm64.zip")
 
 	## Test boxes, as ssh destinations. The host part is the box's name in the
-	## shared host lock. ZUID_BOX_FREEBSD replaces it, and set empty leaves the
-	## box out.
+	## shared host lock. ZUID_BOX_FREEBSD, ZUID_BOX_LINUX_ARM64, ZUID_BOX_MAC and
+	## ZUID_BOX_WINDOWS replace them, and set empty leave the box out. The Mac
+	## builds its own release, so its user needs Zig and Go. The Windows user
+	## needs admin, for the system install.
 	default_boxFreeBSD="bsdtest@vmFreeBSD"
+	default_boxLinuxArm64="tester@vmDebARM64"
+	default_boxMac="collierjr@b26"
+	default_boxWindows="collierjr@b29w"
 	## How long a box step waits for a box another session holds, then skips.
 	default_boxWaitSecs=600
 
@@ -113,17 +122,16 @@ fConfig(){ :;
 
 	## Wasmtime releases nothing for FreeBSD, so its C API comes from FreeBSD's
 	## own package, plus the zstd package that build calls. The FreeBSD 14 repo,
-	## so the release runs on 14 and later. A repo drops a package's file when it
-	## moves on to a new build, and the fetch then 404s: repin from the repo's
-	## packagesite. A rebuild of the same version is a new file too, with a new
-	## hash. The packagesite's sum is pkg's own checksum, not the file's sha256,
-	## so take the hash from the download. Linux vendors these under --package,
-	## which releases FreeBSD.
+	## so the release runs on 14 and later. The repo rebuilds a package under the
+	## same version now and then, which broke a pin on the file's hash, so the
+	## pins are versions. Each file is checked against the repo's catalog, signed
+	## with the key FreeBSD itself trusts (share/keys/pkg/trusted in its source).
+	## When the repo moves on to a new version, the old one drops out of the
+	## catalog: repin the version. Linux vendors these under --package, which
+	## releases FreeBSD.
 	default_freebsdRepo="https://pkg.freebsd.org/FreeBSD:14:amd64/quarterly"
-	default_freebsdPkgs=(
-		"libwasmtime-49.0.1=95ee2302088ccbb697428bf03e90e79d2636e3da2869be1ceebafa2534f40d74"
-		"zstd-1.5.7_2=ff165cf61fcbe6a225636f51b083898a06ce2ca8bb9fcb2e956acced617c4c26"
-	)
+	default_freebsdKey="b0170035af3acc5f3f3ae1859dc717101b4e6c1d0a794ad554928ca0cbb2f438"
+	default_freebsdPkgs=("libwasmtime-49.0.1" "zstd-1.5.7_2")
 
 	## The reactor wasm module is built from this package, which go.mod pins to
 	## a release, so the Go side and the Zig side cannot end up on two versions
@@ -319,10 +327,18 @@ fPrint_Help(){
 		leave it out, and so does --no-remote.
 
 		A run that packages then tests the releases this machine can't run on the
-		test boxes, over ssh: FreeBSD on ${freebsdBox:-nothing, since ZUID_BOX_FREEBSD is empty}. Each box is held
-		through the shared host lock for its step, and a VM is put back the way it
-		was found, by the lock's VM state helper: ZUID_BOX_LOCK if set, else the
-		first *_vm-state.bash on PATH. Without one the box isn't held. A box another
+		test boxes, over ssh: FreeBSD on ${freebsdBox:-nothing, since ZUID_BOX_FREEBSD is empty}, and Linux arm64
+		on ${linuxArm64Box:-nothing, since ZUID_BOX_LINUX_ARM64 is empty}. The Mac on ${macBox:-nothing, since ZUID_BOX_MAC is empty} builds its own
+		release from HEAD, as committed, with a quick run and --package, and the
+		universal tarball and bare command come back into dist-incoming/ for
+		--publish. Windows on ${windowsBox:-nothing, since ZUID_BOX_WINDOWS is empty} runs the x86_64 zip's command, and
+		install.ps1 installs that zip under Windows PowerShell 5.1 and 7, user
+		and system, with both PATHs checked back as they were. That box has no
+		bash, so its job is PowerShell, run with -File.
+		Each box is held through the shared host lock for its step,
+		and a VM is put back the way it was found, by the lock's VM state
+		helper: ZUID_BOX_LOCK if set, else the first *_vm-state.bash on PATH.
+		Without one the box isn't held. A box another
 		session holds is waited for up to $((boxWaitSecs / 60)) minutes. A box that's taken or
 		doesn't answer is a SKIP, in its step and at the end, and the run goes on.
 		The job runs in a folder of its own under the box's temp root, removed
@@ -337,8 +353,9 @@ fPrint_Help(){
 
 		--publish runs only on ${releaseBranch}, with a clean tree, HEAD pushed, and no tag
 		yet for the version. It uploads dist/ plus whatever is in dist-incoming/.
-		That is where the Mac files go, copied from the dist/ of a --package run
-		of the same commit on a Mac. Only the top level counts, and
+		That is where the Mac box step puts the Mac files. By hand, copy them from
+		the dist/ of a --package run of the same commit on a Mac. Only the top
+		level counts, and
 		checksums.txt and dot files there are ignored.
 		It checks that every platform has an asset, writes one checksums.txt over
 		all of them, shows the plan and asks. Then it tags HEAD v<version> and
@@ -444,10 +461,14 @@ fMain(){
 	local    default_releaseBranch=""
 	local -a default_releaseAssets=()
 	local    default_boxFreeBSD=""
+	local    default_boxLinuxArm64=""
+	local    default_boxMac=""
+	local    default_boxWindows=""
 	local -i default_boxWaitSecs=0
 	local    default_wasmtimeVer=""
 	local -a default_wasmtimeSha256s=()
 	local    default_freebsdRepo=""
+	local    default_freebsdKey=""
 	local -a default_freebsdPkgs=()
 	local    default_reactorPackage=""
 	local -a default_dogfoodSynced=()
@@ -473,10 +494,14 @@ fMain(){
 	local -r  releaseBranch="${default_releaseBranch}"
 	local -ra releaseAssets=("${default_releaseAssets[@]}")
 	local -r  freebsdBox="${ZUID_BOX_FREEBSD-${default_boxFreeBSD}}"
+	local -r  linuxArm64Box="${ZUID_BOX_LINUX_ARM64-${default_boxLinuxArm64}}"
+	local -r  macBox="${ZUID_BOX_MAC-${default_boxMac}}"
+	local -r  windowsBox="${ZUID_BOX_WINDOWS-${default_boxWindows}}"
 	local -ri boxWaitSecs="${default_boxWaitSecs}"
 	local -r wasmtimeVer="${default_wasmtimeVer}"
 	local -ra wasmtimeSha256s=("${default_wasmtimeSha256s[@]}")
 	local -r  freebsdRepo="${default_freebsdRepo}"
+	local -r  freebsdKey="${default_freebsdKey}"
 	local -ra freebsdPkgs=("${default_freebsdPkgs[@]}")
 	local -r reactorPackage="${default_reactorPackage}"
 	local -ra dogfoodSynced=("${default_dogfoodSynced[@]}")
@@ -700,10 +725,11 @@ fSteps(){
 	fi
 	## The boxes test what Package made, so they go where it does.
 	if ((! inContainer)); then
-		if   ((! doRemote)); then fStep_Off "FreeBSD box" "--no-remote"
-		elif [[ -z "${freebsdBox}" ]]; then fStep_Off "FreeBSD box" "ZUID_BOX_FREEBSD is empty"
-		elif ! fSteps_Packages; then fStep_Off "FreeBSD box" "nothing packaged"
-		else fStep "FreeBSD box: ${freebsdBox##*@}" fStage_Box_FreeBSD; fi
+		fSteps_Box "FreeBSD box"     "${freebsdBox}"    ZUID_BOX_FREEBSD     fStage_Box_FreeBSD
+		fSteps_Box "Linux arm64 box" "${linuxArm64Box}" ZUID_BOX_LINUX_ARM64 fStage_Box_LinuxArm64
+		if ((doRemote)) && [[ "$(uname -s)" == "Darwin" ]]; then fStep_Off "Mac box" "this Mac makes its own universal release"
+		else fSteps_Box "Mac box" "${macBox}" ZUID_BOX_MAC fStage_Box_Mac; fi
+		fSteps_Box "Windows box" "${windowsBox}" ZUID_BOX_WINDOWS fStage_Box_Windows
 	fi
 
 	if ((! _stepPlanning)); then
@@ -788,6 +814,14 @@ fSteps_Scrub(){
 }
 
 fSteps_FuzzWhy(){ if ((doGate)); then printf '%s\n' "${gateFlag}"; else printf '%s\n' "--no-fuzz"; fi ;}
+
+## One box step, or why it's off.
+fSteps_Box(){  ## title, ssh destination, its variable, stage function
+	if   ((! doRemote)); then fStep_Off "$1" "--no-remote"
+	elif [[ -z "$2" ]]; then fStep_Off "$1" "$3 is empty"
+	elif ! fSteps_Packages; then fStep_Off "$1" "nothing packaged"
+	else fStep "$1: ${2##*@}" "$4"; fi
+}
 
 ## The image has every tool packaging needs, so a run there packages where
 ## this machine couldn't.
@@ -1563,7 +1597,8 @@ fStage_Shell(){
 			"${utilityDir}/pipeline-test.bash" "${utilityDir}/package.bash" \
 			"${utilityDir}/c-checks.bash" "${utilityDir}/git-hooks/pre-push" \
 			"${utilityDir}/include/safe-rm.bash" "${utilityDir}/box-run.bash" \
-			"${utilityDir}/box-release-test.bash" "${utilityDir}/gomod-prune.bash"
+			"${utilityDir}/box-release-test.bash" "${utilityDir}/box-mac-build.bash" \
+			"${utilityDir}/gomod-prune.bash"
 		fEcho_Clean "Clean."
 	fi
 
@@ -2110,10 +2145,14 @@ fReactor_Toolchain(){
 	[[ "${handSet}" != "auto" ]] || handSet=""
 	goToolchain="${handSet:-go${pin}}"
 	fId de572 "reactor wasm built with the pinned Go"
-	local used=""
-	if ! used="$(GOTOOLCHAIN="${goToolchain}" go env GOVERSION 2>&1)"; then
-		((! doPackage)) || fTestFail "Could not get ${goToolchain} for a release: ${used}"
-		fTestSkip "could not get ${goToolchain}: ${used##*$'\n'}"
+	## Go says "go: downloading ..." on stderr the first time it fetches the
+	## pin, so only stdout is the version. stderr is kept for a failure's why.
+	local used="" why=""
+	local -r errFile="${_runDir}/go-version.err"
+	if ! used="$(GOTOOLCHAIN="${goToolchain}" go env GOVERSION 2>"${errFile}")"; then
+		why="$(<"${errFile}")"
+		((! doPackage)) || fTestFail "Could not get ${goToolchain} for a release: ${why}"
+		fTestSkip "could not get ${goToolchain}: ${why##*$'\n'}"
 	elif [[ "${used}" == "go${pin}" ]]; then
 		fTestPass
 	elif [[ -n "${handSet}" ]] && ((! doPackage)); then
@@ -2262,7 +2301,7 @@ fVendor_FreeBSD(){  ## destination
 	local -r dest="$1"
 	local -r parentDir="$(dirname "${dest}")"
 	local -r stamp="${dest}/.version"
-	local -r want="${freebsdPkgs[*]%%=*}"
+	local -r want="${freebsdPkgs[*]}"
 	## A tree vendored before the license was copied has none, so it is fetched again.
 	if [[ -f "${dest}/include/wasmtime.h" && -f "${dest}/LICENSE" ]] && [[ "$(cat "${stamp}" 2>/dev/null || true)" == "${want}" ]]; then
 		fEcho_Clean "Wasmtime ...: ${want} x86_64-freebsd present"
@@ -2271,22 +2310,51 @@ fVendor_FreeBSD(){  ## destination
 
 	_fMustBeInPath curl
 	_fMustBeInPath shasum
+	_fMustBeInPath b2sum
+	_fMustBeInPath openssl
 	_fMustBeInPath tar
 	local -r unpackDir="${parentDir}/.freebsd-unpack"
 	if [[ -e "${unpackDir}" ]]; then fSafeRm_Under "${vendorDir:?}" "${unpackDir}"; fi
 	mkdir -p "${unpackDir}"
-	local pin="" pkgName="" pkgSum="" pkgFile="" gotSum=""
+
+	## The catalog, the way pkg checks it: the key is FreeBSD's by its
+	## fingerprint, and the signature is over the hex sha256 of the yaml.
+	local -r catalog="${unpackDir}/packagesite.yaml"
+	fEcho_Clean "Wasmtime ...: fetching FreeBSD's signed catalog"
+	curl -sSL --fail -o "${unpackDir}/packagesite.pkg" "${freebsdRepo}/packagesite.pkg" \
+		|| fThrowError "Could not download the catalog from ${freebsdRepo}."  "${FUNCNAME[0]}"
+	tar --no-same-owner --no-same-permissions -xf "${unpackDir}/packagesite.pkg" -C "${unpackDir}" \
+		packagesite.yaml packagesite.yaml.sig packagesite.yaml.pub 2>/dev/null \
+		|| fThrowError "Could not unpack the catalog from ${freebsdRepo}."  "${FUNCNAME[0]}"
+	local gotSum="$(shasum -a 256 "${catalog}.pub" | awk '{print $1}')"
+	[[ "${gotSum}" == "${freebsdKey}" ]] || fThrowError "The FreeBSD catalog is signed with a key that isn't FreeBSD's: ${gotSum}."  "${FUNCNAME[0]}"
+	gotSum="$(shasum -a 256 "${catalog}" | awk '{print $1}')"
+	printf '%s' "${gotSum}" | openssl dgst -sha256 -verify "${catalog}.pub" -signature "${catalog}.sig" >/dev/null 2>&1 \
+		|| fThrowError "The FreeBSD catalog's signature does not check out."  "${FUNCNAME[0]}"
+
+	local pin="" pkgName="" pkgVer="" gotVer="" entry="" pkgSum="" repoPath="" pkgFile=""
 	for pin in "${freebsdPkgs[@]}"; do
-		pkgName="${pin%%=*}"; pkgSum="${pin#*=}"
-		pkgFile="${unpackDir}/${pkgName}.pkg"
-		fEcho_Clean "Wasmtime ...: fetching FreeBSD ${pkgName}"
-		curl -sSL --fail -o "${pkgFile}" "${freebsdRepo}/All/${pkgName}.pkg" \
-			|| fThrowError "Could not download ${pkgName} from ${freebsdRepo}. The repo may have moved on to a newer build; repin default_freebsdPkgs from its packagesite."  "${FUNCNAME[0]}"
-		gotSum="$(shasum -a 256 "${pkgFile}" | awk '{print $1}')"
-		[[ "${gotSum}" == "${pkgSum}" ]] || fThrowError "FreeBSD ${pkgName} checksum mismatch: got ${gotSum}."  "${FUNCNAME[0]}"
+		pkgName="${pin%-*}"; pkgVer="${pin##*-}"
+		## One JSON object per line, name first. Its own version comes before
+		## any of its deps' versions, so the first match is the one.
+		entry="$(grep -F -m 1 "{\"name\":\"${pkgName}\"," "${catalog}" || true)"
+		gotVer="none"
+		if [[ "${entry}" =~ \"version\":\"([^\"]*)\" ]]; then gotVer="${BASH_REMATCH[1]}"; fi
+		[[ "${gotVer}" == "${pkgVer}" ]] || fThrowError "FreeBSD's catalog has no ${pin}, only version ${gotVer}. The repo moved on; repin default_freebsdPkgs."  "${FUNCNAME[0]}"
+		[[ "${entry}" =~ \"sum\":\"([^\"]+)\" ]] || fThrowError "FreeBSD's catalog has no sum for ${pin}."  "${FUNCNAME[0]}"
+		pkgSum="${BASH_REMATCH[1]}"
+		[[ "${entry}" =~ \"repopath\":\"([^\"]+)\" ]] || fThrowError "FreeBSD's catalog has no path for ${pin}."  "${FUNCNAME[0]}"
+		repoPath="${BASH_REMATCH[1]}"
+		pkgFile="${unpackDir}/${pin}.pkg"
+		fEcho_Clean "Wasmtime ...: fetching FreeBSD ${pin}"
+		curl -sSL --fail -o "${pkgFile}" "${freebsdRepo}/${repoPath}" \
+			|| fThrowError "Could not download ${pin} from ${freebsdRepo}/${repoPath}."  "${FUNCNAME[0]}"
+		gotSum="$(fVendor_PkgSum "${pkgFile}" "${pkgSum}")"
+		[[ "${gotSum}" == "${pkgSum}" ]] || fThrowError "FreeBSD ${pin} does not match its signed catalog: got ${gotSum}, want ${pkgSum}."  "${FUNCNAME[0]}"
+		fEcho_Clean "Wasmtime ...: ${pin} matches FreeBSD's catalog, sha256 $(shasum -a 256 "${pkgFile}" | awk '{print $1}')"
 		## A package is a tarball of absolute paths under /usr/local.
 		tar --no-same-owner --no-same-permissions -xf "${pkgFile}" -C "${unpackDir}" 2>/dev/null \
-			|| fThrowError "Could not unpack ${pkgName}."  "${FUNCNAME[0]}"
+			|| fThrowError "Could not unpack ${pin}."  "${FUNCNAME[0]}"
 	done
 
 	local -r usrLocal="${unpackDir}/usr/local"
@@ -2305,6 +2373,31 @@ fVendor_FreeBSD(){  ## destination
 	fSafeRm_Under "${vendorDir:?}" "${unpackDir}"
 	printf '%s\n' "${want}" > "${stamp}"
 	fEcho_Clean "Wasmtime ...: vendored ${want} x86_64-freebsd"
+
+}
+
+## A package file's sum in the form its catalog entry has. pkg's own is "2$",
+## then the file's blake2b-512 in pkg's zbase32, least significant bits first.
+## Older catalogs have the file's bare sha256.
+fVendor_PkgSum(){  ## file, the catalog's sum
+
+	local -r pkgFile="$1" like="$2"
+	local -r zb32="ybndrfg8ejkmcpqxot1uwisza345h769"
+	local hex="" out="" i=0 acc=0 bits=0
+	if [[ "${like}" =~ ^[0-9a-f]{64}$ ]]; then
+		shasum -a 256 "${pkgFile}" | awk '{print $1}'
+	elif [[ "${like}" == '2$'* ]]; then
+		hex="$(b2sum "${pkgFile}")"; hex="${hex%% *}"
+		[[ "${hex}" =~ ^[0-9a-f]{128}$ ]] || return 1
+		for ((i = 0; i < 128; i += 2)); do
+			acc=$(( acc | 16#${hex:i:2} << bits )); bits=$((bits + 8))
+			while ((bits >= 5)); do out+="${zb32:acc & 31:1}"; acc=$((acc >> 5)); bits=$((bits - 5)); done
+		done
+		if ((bits > 0)); then out+="${zb32:acc:1}"; fi
+		printf '2$%s\n' "${out}"
+	else
+		printf 'unknown sum form\n'
+	fi
 
 }
 
@@ -3508,8 +3601,8 @@ fX86FloorScan_Pe(){  ## readobj, pdbutil, x86_64 program, its .pdb
 ## archive. arm64 links wasmtime.dll, since Wasmtime has only an MSVC build
 ## there, and puts it in bin/. Nothing here can run either, so this checks
 ## what each file is, what it needs and exports, and that capi_smoke.c links
-## against both libraries. A Windows machine runs the x86_64 one by hand, and nothing runs
-## the arm64 one yet.
+## against both libraries. The Windows box step runs the x86_64 one and its
+## installer, and nothing runs the arm64 one yet.
 fStage_Package_Windows(){  ## scratch dir
 
 	local -r scratchDir="$1"
@@ -3771,7 +3864,7 @@ Translation 0409 04b0"
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The FreeBSD x86_64 release, cross-built on Linux from FreeBSD's own Wasmtime
-## package. As with arm64, nothing here can run it; a FreeBSD machine does that by hand.
+## package. As with arm64, nothing here can run it; the FreeBSD box step does.
 fStage_Package_FreeBSD(){  ## scratch dir
 
 	local -r scratchDir="$1"
@@ -4223,7 +4316,7 @@ fStage_Package_Licenses(){  ## scratch dir
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The Linux arm64 release, cross-built beside the x86_64 one. Nothing here can
 ## run it, so these check what it is, what it asks of the machine, and that the
-## C module in its tarball links. Running it is left to an arm64 machine.
+## C module in its tarball links. The Linux arm64 box step runs it.
 fStage_Package_Arm64(){  ## scratch dir, glibc floor
 
 	local -r scratchDir="$1" glibcFloor="$2"
@@ -4472,8 +4565,9 @@ fBox_Lock(){
 fBox_Skip(){ fTestSkip "$*"; fStep_Skip "$*" ;}
 
 ## Runs <job dir>'s job.bash on the box, held for as long as that takes, and
-## ends the step's check from box-run.bash's verdict.
-fBox_Run(){  ## ssh destination, job dir
+## ends the step's check from box-run.bash's verdict. A job that passed has the
+## optional function look at what it sent home first, which fails with fTestFail.
+fBox_Run(){  ## ssh destination, job dir, [function]
 	local -r dest="$1" jobDir="$2"
 	local -r box="${dest##*@}" verdictFile="${2%/}.verdict"
 	local lock="" verdict=""
@@ -4491,6 +4585,7 @@ fBox_Run(){  ## ssh destination, job dir
 	case "${verdict}" in
 		pass)
 			if ((rc)); then fEcho_Clean "Note .......: ${box} may not be back the way it was found, exit ${rc}, as said above"; fi
+			if [[ -n "${3:-}" ]]; then "$3"; fi
 			fTestPass ;;
 		fail\ *) fTestFail "${verdict#fail }" ;;
 		skip\ *) fBox_Skip "${verdict#skip }" ;;
@@ -4502,11 +4597,11 @@ fBox_Run(){  ## ssh destination, job dir
 	esac
 }
 
-## The FreeBSD release from this run, its command through cli-test.bash and
-## its libraries through capi_smoke.c, on FreeBSD itself.
-fStage_Box_FreeBSD(){
-	fId dee33 "FreeBSD release on its box: command surface and C module"
-	local -r tarball="${repoRoot}/dist/${distPrefix}freebsd-x86_64.tgz" jobDir="${_runDir}/box-freebsd"
+## A release from this run, its command through cli-test.bash and its
+## libraries through capi_smoke.c, on a box that runs it. Any more arguments go
+## to cli-test.bash there. The caller has opened the check.
+fBox_Release(){  ## release name after the version, ssh destination, [cli-test.bash args...]
+	local -r tarball="${repoRoot}/dist/${distPrefix}$1.tgz" jobDir="${_runDir}/box-$1"
 	if [[ ! -f "${tarball}" ]]; then fBox_Skip "no ${tarball##*/} in dist/"; return 0; fi
 	mkdir -p "${jobDir}/cicd/utility/include" "${jobDir}/testdata"
 	cp "${tarball}"                                  "${jobDir}/"
@@ -4515,7 +4610,68 @@ fStage_Box_FreeBSD(){
 	cp "${utilityDir}/include/safe-rm.bash"          "${jobDir}/cicd/utility/include/"
 	cp "${repoRoot}/testdata/errors.tsv"             "${jobDir}/testdata/"
 	cp "${zigDir}/lib/test/capi_smoke.c"             "${jobDir}/"
-	fBox_Run "${freebsdBox}" "${jobDir}"
+	if (($# > 2)); then printf '%s\n' "${@:3}" > "${jobDir}/cli-test.args"; fi
+	fBox_Run "$2" "${jobDir}"
+}
+
+fStage_Box_FreeBSD(){
+	fId dee33 "FreeBSD release on its box: command surface and C module"
+	fBox_Release freebsd-x86_64 "${freebsdBox}"
+}
+
+## The box is emulated, and each run of the command takes about 12 s there, so
+## the whole of cli-test.bash took about 20 minutes. It gets the short run.
+fStage_Box_LinuxArm64(){
+	fId dee7m "Linux arm64 release on its box: command surface and C module"
+	fBox_Release linux-arm64 "${linuxArm64Box}" --short
+}
+
+## The universal release needs Apple's lipo, so the Mac builds it, from HEAD
+## as committed, the same commit and build number as the rest of the release.
+fStage_Box_Mac(){
+	fId dee8k "macOS universal release built on its box, back in dist-incoming/"
+	local -r jobDir="${_runDir}/box-darwin-universal"
+	mkdir -p "${jobDir}"
+	git -C "${repoRoot}" bundle create -q "${jobDir}/src.bundle" HEAD || fTestFail "couldn't bundle HEAD for the Mac"
+	cp "${utilityDir}/box-mac-build.bash" "${jobDir}/job.bash"
+	ZUID_BOX_BACK="${jobDir}.back" fBox_Run "${macBox}" "${jobDir}" fBox_MacHome
+}
+
+## The x86_64 zip's command, then install.ps1 installing that zip under both
+## PowerShells, user and system, fed this run's checksums.txt in place of a
+## GitHub release. No C smoke test, since the box has no C compiler.
+fStage_Box_Windows(){
+	fId deea5 "Windows release on its box: command, and install.ps1 under 5.1 and 7"
+	local -r zip="${repoRoot}/dist/${distPrefix}windows-x86_64.zip" jobDir="${_runDir}/box-windows-x86_64"
+	if [[ ! -f "${zip}" ]]; then fBox_Skip "no ${zip##*/} in dist/"; return 0; fi
+	if [[ ! -f "${repoRoot}/dist/checksums.txt" ]]; then fBox_Skip "no checksums.txt in dist/"; return 0; fi
+	mkdir -p "${jobDir}"
+	cp "${zip}" "${repoRoot}/dist/checksums.txt" "${repoRoot}/install.ps1" "${jobDir}/"
+	cp "${utilityDir}/box-windows-test.ps1" "${jobDir}/job.ps1"
+	fBox_Run "${windowsBox}" "${jobDir}"
+}
+
+## What the Mac sent home goes in dist-incoming/, replacing its own files from
+## an earlier run. Its debug info goes in dist-incoming/debug/, which --publish
+## never reads.
+fBox_MacHome(){
+	local -r back="${_runDir}/box-darwin-universal.back" release="${distPrefix}darwin-universal"
+	local file=""
+	local -a sent=()
+	if [[ ! -f "${back}/${release}.tgz" ]]; then
+		shopt -s nullglob; sent=("${back}"/*); shopt -u nullglob
+		fTestFail "the Mac sent no ${release}.tgz home, only: ${sent[*]##*/}"
+	fi
+	mkdir -p "${incomingDir}"
+	for file in "${back}/${release}.tgz" "${back}/${release}"; do
+		if [[ -f "${file}" ]]; then mv -f "${file}" "${incomingDir}/"; fi
+	done
+	if [[ -d "${back}/debug/${release}" ]]; then
+		mkdir -p "${incomingDir}/debug"
+		if [[ -e "${incomingDir}/debug/${release}" ]]; then fSafeRm_Under "${incomingDir}/debug" "${incomingDir}/debug/${release}" > /dev/null; fi
+		mv "${back}/debug/${release}" "${incomingDir}/debug/"
+	fi
+	fEcho_Clean "Incoming ...: ${incomingDir}/${release}.tgz"
 }
 
 

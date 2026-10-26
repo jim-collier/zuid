@@ -108,6 +108,8 @@ Every component except an unhashed name is a fixed width, so identifiers line up
 
 - Batches in one run. `--count` prints as many as asked for, and says on stderr when the format made repeats.
 
+- A counter, `%c`, for identifiers made in the same tick. They sort in the order they were made, in a batch or from one module context.
+
 - Private by default. Host and user are hashed unless asked otherwise, and `--salt` or `--salt-file` puts a secret of your own in front of the hash so candidate names cannot be tried against the output.
 
 - Base 62 by default. The help lists 16, 32w, 36, 62, 64tt, 128tt, 256tt, 512tt, 1024tz, and 2048tz, which all sort. `--base` takes any of the library's seventy-odd.

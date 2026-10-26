@@ -19,7 +19,7 @@ set -Eeuo pipefail
 
 REPO="jim-collier/zuid"
 PROG="zuid"
-installerVersion="1.3.1"
+installerVersion="1.3.2"
 
 release="stable"
 target="user"
@@ -132,9 +132,10 @@ fSafeRm_Under(){  ## parent, path
 fEmptyInstallDir(){
 	local dir="" entry=""
 	[[ -e "${installDir}" || -L "${installDir}" ]] || return 0
-	if [[ -L "${installDir}" ]]; then printf '  Refused to empty %s: a link\n' "${installDir}" >&2; return 1; fi
+	## fDie, not a return, so the caller's write error can't bury it.
+	if [[ -L "${installDir}" ]]; then fDie "refused to empty ${installDir}: it's a link, so it was left alone."; fi
 	dir="$(cd -P -- "${installDir}" && pwd -P)" || return 1
-	if [[ "${dir##*/}" != "${PROG}" ]]; then printf '  Refused to empty %s: not a %s install dir\n' "${installDir}" "${PROG}" >&2; return 1; fi
+	if [[ "${dir##*/}" != "${PROG}" ]]; then fDie "refused to empty ${installDir}: not a ${PROG} install dir, so it was left alone."; fi
 	for entry in "${dir}"/* "${dir}"/.[!.]* "${dir}"/..?*; do
 		if [[ -L "${entry}" ]]; then fRun rm -f -- "${entry}" || return 1
 		elif [[ -e "${entry}" ]]; then fSafeRm_Under "${dir}" "${entry}" || return 1
@@ -419,6 +420,7 @@ printf '\n'
 
 
 ##	History:
+##		- 20261025 JC: A refused install dir is said once, without the write advice.
 ##		- 20261025 JC: Reads the installed version from either --version line.
 ##		- 20261025 JC: Recursive removals go through its own guard. The install dir is emptied, not removed by path.
 ##		- 20261014 JC: Release names have the version.

@@ -6,9 +6,9 @@
 // Package zuid generates identifiers that sort chronologically as plain text.
 //
 // The identifier is a format string of components - time, host, user, FQDN,
-// MAC, UUID, random - rendered into one output base. Every component is a
-// fixed number of symbols wide, which is what makes byte-order sort match time
-// order and what lets an identifier be split by offset.
+// MAC, UUID, random, counter - rendered into one output base. Every component
+// is a fixed number of symbols wide, which is what makes byte-order sort match
+// time order and what lets an identifier be split by offset.
 //
 // Base conversion is not done here. It comes from convertbase, which already
 // has the alphabets and the arbitrary-precision conversion. This package
@@ -68,6 +68,12 @@ const (
 	HashBits = 47
 	// RandomBits is the same idea for %r.
 	RandomBits = 35
+	// CounterBits is how many identifiers one tick can count with %c: 2^20,
+	// which is 4 symbols in base 62. The limit is the same in every base, the
+	// way the horizon is.
+	CounterBits = 20
+	// MaxCount is the highest %c renders before ErrCounter.
+	MaxCount = 1<<CounterBits - 1
 	// MaxComponentChars bounds the width of any one component. It does not
 	// bound the whole identifier, since a format string may repeat a component
 	// and may include literal text of any length.
@@ -91,6 +97,7 @@ var (
 	ErrEnv         = errors.New("machine could not supply a component") // ZUID_ERR_ENV
 	ErrHorizon     = errors.New("clock is past the padding horizon")    // ZUID_ERR_HORIZON
 	ErrBaseNotText = errors.New("base does not render text")            // ZUID_ERR_BASE_NOT_TEXT
+	ErrCounter     = errors.New("counter is full for this tick")        // ZUID_ERR_COUNTER
 )
 
 // kinded adds a kind to what errors.Is finds without changing the text.
@@ -121,6 +128,12 @@ func DefaultHashChars(radix int) int {
 // DefaultRandomChars is the same for %r.
 func DefaultRandomChars(radix int) int {
 	return widthForValueBits(radix, RandomBits)
+}
+
+// CounterChars is the width of %c in a base of this radix, which holds any
+// count up to MaxCount.
+func CounterChars(radix int) int {
+	return widthForValueBits(radix, CounterBits)
 }
 
 // MaxHashChars is how many symbols of a SHA-256 a base of this radix can
@@ -193,6 +206,10 @@ type Request struct {
 // Generate is safe to call from several goroutines at once. Options are not:
 // they write the fields Generate reads, so apply them when constructing the
 // Generator and not afterwards.
+//
+// %c counts the identifiers a Generator makes in each tick, so one Generator
+// shared by the whole program numbers them all. Nothing is shared between
+// processes or between Generators.
 type Generator struct {
 	registry *convertbase.Registry
 	decimal  *convertbase.Base // input side of the time conversion
@@ -207,6 +224,44 @@ type Generator struct {
 	// One verdict per base, from checkRenderable. Keyed by the registry's own
 	// pointer, which Lookup hands back the same for every spelling of a base.
 	textVerdicts sync.Map // *convertbase.Base -> error
+
+	count counter
+}
+
+// counter is where %c keeps its place between identifiers: the tick it is
+// counting in, and the number the next identifier from that tick gets.
+type counter struct {
+	mu        sync.Mutex
+	started   bool
+	tick      int64
+	precision Precision
+	next      uint32
+}
+
+// take is the number for one identifier at this tick. A new tick, or a new
+// precision, starts again at 0.
+func (c *counter) take(tick int64, precision Precision) (uint32, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.started || c.tick != tick || c.precision != precision {
+		c.started, c.tick, c.precision, c.next = true, tick, precision, 0
+	}
+	if c.next > MaxCount {
+		return 0, kind(ErrCounter, fmt.Errorf("more than %d identifiers in one tick: %%c counts at most that many", MaxCount+1))
+	}
+	c.next++
+	return c.next - 1, nil
+}
+
+// giveBack returns the number of an identifier that failed. Only the latest
+// can come back; one taken since by another goroutine leaves a gap, which
+// costs nothing but the number.
+func (c *counter) giveBack(taken uint32) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.next == taken+1 {
+		c.next = taken
+	}
 }
 
 // Option configures a Generator.
@@ -290,7 +345,7 @@ func New(opts ...Option) (*Generator, error) {
 
 // Generate renders one identifier. A failure matches one of the Err values
 // above.
-func (g *Generator) Generate(req Request) (string, error) {
+func (g *Generator) Generate(req Request) (id string, err error) {
 	if req.Format == "" {
 		req.Format = "%d"
 	}
@@ -307,7 +362,8 @@ func (g *Generator) Generate(req Request) (string, error) {
 	if err := g.renderable(base); err != nil {
 		return "", err
 	}
-	if _, err := req.Precision.msPerUnit(); err != nil {
+	divisor, err := req.Precision.msPerUnit()
+	if err != nil {
 		return "", err
 	}
 	// Widths are settled here rather than at the top, because the defaults
@@ -322,8 +378,8 @@ func (g *Generator) Generate(req Request) (string, error) {
 	// Only the widths this format uses get checked. A hash width
 	// that fits base 16 is past the ceiling in 2048tz, and a bare %d has no
 	// business failing over a number it never reads.
-	spendsHash, spendsRandom := spentWidths(req.Format)
-	if spendsHash && !req.NoHash {
+	spends := spentBy(req.Format)
+	if spends.hash && !req.NoHash {
 		if err := checkChars("hash", req.HashChars); err != nil {
 			return "", err
 		}
@@ -332,11 +388,26 @@ func (g *Generator) Generate(req Request) (string, error) {
 				req.HashChars, base.Name(), ceiling, digestBits))
 		}
 	}
-	if spendsRandom {
+	if spends.random {
 		if err := checkChars("random", req.RandomChars); err != nil {
 			return "", err
 		}
 	}
+	// One clock reading per identifier, so every %d in it and its %c agree on
+	// the tick.
+	var at time.Time
+	if spends.clock {
+		at = g.now()
+	}
+	// One number per identifier however many times %c appears, taken at the
+	// first and handed back if the identifier fails.
+	var count uint32
+	counted := false
+	defer func() {
+		if err != nil && counted {
+			g.count.giveBack(count)
+		}
+	}()
 
 	var out strings.Builder
 	out.Grow(len(req.Format) * MaxComponentChars / 8)
@@ -357,7 +428,7 @@ func (g *Generator) Generate(req Request) (string, error) {
 			out.WriteByte('%')
 			continue
 		case 'd':
-			rendered, err = g.timeComponent(base, req.Precision)
+			rendered, err = g.timeComponent(base, req.Precision, at)
 		case 'h':
 			rendered, err = g.namedComponent(g.hostname, base, req)
 		case 'u':
@@ -370,6 +441,14 @@ func (g *Generator) Generate(req Request) (string, error) {
 			rendered, err = g.uuidComponent(base)
 		case 'r':
 			rendered, err = g.randomComponent(base, req.RandomChars)
+		case 'c':
+			if !counted {
+				count, err = g.count.take(at.UnixMilli()/divisor, req.Precision)
+				counted = err == nil
+			}
+			if err == nil {
+				rendered, err = g.counterComponent(base, count)
+			}
 		default:
 			// Decode rather than cast: a multi-byte verb would otherwise be
 			// reported as the Latin-1 reading of its first byte.
@@ -384,10 +463,14 @@ func (g *Generator) Generate(req Request) (string, error) {
 	return out.String(), nil
 }
 
-// spentWidths reports which of the two width options a format reaches. Unknown
-// verbs and a trailing bare '%' are left alone here; the render loop reports
-// those, and it stays the one place that knows what a verb means.
-func spentWidths(format string) (hash, random bool) {
+// spent is what a format reaches: the two width options, and the clock.
+type spent struct{ hash, random, clock bool }
+
+// spentBy reports what a format reaches. Unknown verbs and a trailing bare '%'
+// are left alone here; the render loop reports those, and it stays the one
+// place that knows what a verb means.
+func spentBy(format string) spent {
+	var spends spent
 	for i := 0; i+1 < len(format); i++ {
 		if format[i] != '%' {
 			continue
@@ -395,12 +478,14 @@ func spentWidths(format string) (hash, random bool) {
 		i++
 		switch format[i] {
 		case 'h', 'u', 'f':
-			hash = true
+			spends.hash = true
 		case 'r':
-			random = true
+			spends.random = true
+		case 'd', 'c':
+			spends.clock = true
 		}
 	}
-	return hash, random
+	return spends
 }
 
 func checkChars(what string, count int) error {
@@ -455,12 +540,12 @@ func checkRenderable(base *convertbase.Base) error {
 
 // timeComponent renders the clock as the precision's unit count since the
 // Unix epoch UTC, padded to the fixed width for this base and precision.
-func (g *Generator) timeComponent(base *convertbase.Base, precision Precision) (string, error) {
+func (g *Generator) timeComponent(base *convertbase.Base, precision Precision, at time.Time) (string, error) {
 	// Seconds first. UnixMilli is undefined once the millisecond count leaves
 	// int64, and it wraps to a small positive number - which would sail past
 	// both the sign check below and the width check in pad, and emit an
 	// identifier that collides with one from near the epoch.
-	at := g.now().UTC()
+	at = at.UTC()
 	if seconds := at.Unix(); seconds < 0 || seconds > horizonMs/1000 {
 		past := ErrClock
 		if seconds > 0 {
@@ -494,6 +579,16 @@ func (g *Generator) timeComponent(base *convertbase.Base, precision Precision) (
 		return "", err
 	}
 	return fit(base, converted, width)
+}
+
+// counterComponent renders the identifier's place among those from the same
+// tick, padded to the width that holds MaxCount.
+func (g *Generator) counterComponent(base *convertbase.Base, count uint32) (string, error) {
+	converted, err := g.convert(strconv.FormatUint(uint64(count), 10), g.decimal, base)
+	if err != nil {
+		return "", err
+	}
+	return fit(base, converted, CounterChars(len(base.Symbols)))
 }
 
 // fit is Fit with the kind added, since every caller hands it the output of a

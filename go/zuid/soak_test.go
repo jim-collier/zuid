@@ -72,8 +72,7 @@ func soakRound(t *testing.T, vectors []vector) {
 		t.Fatalf("new generator: %v", err)
 	}
 	for _, v := range vectors {
-		applyEnv(t, generator, v.clockMs, v.env)
-		got, err := generator.Generate(v.request)
+		got, err := replayVector(t, generator, v)
 		if err != nil || got != v.expected {
 			t.Fatalf("line %d (%s): got %q, %v; want %q", v.line, v.name, got, err, v.expected)
 		}
