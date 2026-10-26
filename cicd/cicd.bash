@@ -38,6 +38,7 @@
 ##		- 20261025 JC: One cleanup line ends every run. Go's module cache in the volume pruned to go.sum. The run log keeps its last lines after Ctrl+C.
 ##		- 20261025 JC: The Linux arm64 release tested on vmDebARM64.
 ##		- 20261025 JC: The Mac builds the universal release from HEAD, and it comes back into dist-incoming/.
+##		- 20261025 JC: The Windows release and install.ps1 tested on b29w.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Global, since the exit trap reads it after fMain has gone.
@@ -91,12 +92,14 @@ fConfig(){ :;
 	default_releaseAssets=("linux-x86_64.tgz" "linux-arm64.tgz" "freebsd-x86_64.tgz" "darwin-universal.tgz" "windows-x86_64.zip" "windows-arm64.zip")
 
 	## Test boxes, as ssh destinations. The host part is the box's name in the
-	## shared host lock. ZUID_BOX_FREEBSD, ZUID_BOX_LINUX_ARM64 and ZUID_BOX_MAC
-	## replace them, and set empty leave the box out. The Mac builds its own
-	## release, so its user needs Zig and Go.
+	## shared host lock. ZUID_BOX_FREEBSD, ZUID_BOX_LINUX_ARM64, ZUID_BOX_MAC and
+	## ZUID_BOX_WINDOWS replace them, and set empty leave the box out. The Mac
+	## builds its own release, so its user needs Zig and Go. The Windows user
+	## needs admin, for the system install.
 	default_boxFreeBSD="bsdtest@vmFreeBSD"
 	default_boxLinuxArm64="tester@vmDebARM64"
 	default_boxMac="collierjr@b26"
+	default_boxWindows="collierjr@b29w"
 	## How long a box step waits for a box another session holds, then skips.
 	default_boxWaitSecs=600
 
@@ -328,7 +331,11 @@ fPrint_Help(){
 		on ${linuxArm64Box:-nothing, since ZUID_BOX_LINUX_ARM64 is empty}. The Mac on ${macBox:-nothing, since ZUID_BOX_MAC is empty} builds its own
 		release from HEAD, as committed, with a quick run and --package, and the
 		universal tarball and bare command come back into dist-incoming/ for
-		--publish. Each box is held through the shared host lock for its step,
+		--publish. Windows on ${windowsBox:-nothing, since ZUID_BOX_WINDOWS is empty} runs the x86_64 zip's command, and
+		install.ps1 installs that zip under Windows PowerShell 5.1 and 7, user
+		and system, with both PATHs checked back as they were. That box has no
+		bash, so its job is PowerShell, run with -File.
+		Each box is held through the shared host lock for its step,
 		and a VM is put back the way it was found, by the lock's VM state
 		helper: ZUID_BOX_LOCK if set, else the first *_vm-state.bash on PATH.
 		Without one the box isn't held. A box another
@@ -456,6 +463,7 @@ fMain(){
 	local    default_boxFreeBSD=""
 	local    default_boxLinuxArm64=""
 	local    default_boxMac=""
+	local    default_boxWindows=""
 	local -i default_boxWaitSecs=0
 	local    default_wasmtimeVer=""
 	local -a default_wasmtimeSha256s=()
@@ -487,6 +495,7 @@ fMain(){
 	local -r  freebsdBox="${ZUID_BOX_FREEBSD-${default_boxFreeBSD}}"
 	local -r  linuxArm64Box="${ZUID_BOX_LINUX_ARM64-${default_boxLinuxArm64}}"
 	local -r  macBox="${ZUID_BOX_MAC-${default_boxMac}}"
+	local -r  windowsBox="${ZUID_BOX_WINDOWS-${default_boxWindows}}"
 	local -ri boxWaitSecs="${default_boxWaitSecs}"
 	local -r wasmtimeVer="${default_wasmtimeVer}"
 	local -ra wasmtimeSha256s=("${default_wasmtimeSha256s[@]}")
@@ -718,6 +727,7 @@ fSteps(){
 		fSteps_Box "Linux arm64 box" "${linuxArm64Box}" ZUID_BOX_LINUX_ARM64 fStage_Box_LinuxArm64
 		if ((doRemote)) && [[ "$(uname -s)" == "Darwin" ]]; then fStep_Off "Mac box" "this Mac makes its own universal release"
 		else fSteps_Box "Mac box" "${macBox}" ZUID_BOX_MAC fStage_Box_Mac; fi
+		fSteps_Box "Windows box" "${windowsBox}" ZUID_BOX_WINDOWS fStage_Box_Windows
 	fi
 
 	if ((! _stepPlanning)); then
@@ -3535,8 +3545,8 @@ fX86FloorScan_Pe(){  ## readobj, pdbutil, x86_64 program, its .pdb
 ## archive. arm64 links wasmtime.dll, since Wasmtime has only an MSVC build
 ## there, and puts it in bin/. Nothing here can run either, so this checks
 ## what each file is, what it needs and exports, and that capi_smoke.c links
-## against both libraries. A Windows machine runs the x86_64 one by hand, and nothing runs
-## the arm64 one yet.
+## against both libraries. The Windows box step runs the x86_64 one and its
+## installer, and nothing runs the arm64 one yet.
 fStage_Package_Windows(){  ## scratch dir
 
 	local -r scratchDir="$1"
@@ -4569,6 +4579,20 @@ fStage_Box_Mac(){
 	git -C "${repoRoot}" bundle create -q "${jobDir}/src.bundle" HEAD || fTestFail "couldn't bundle HEAD for the Mac"
 	cp "${utilityDir}/box-mac-build.bash" "${jobDir}/job.bash"
 	ZUID_BOX_BACK="${jobDir}.back" fBox_Run "${macBox}" "${jobDir}" fBox_MacHome
+}
+
+## The x86_64 zip's command, then install.ps1 installing that zip under both
+## PowerShells, user and system, fed this run's checksums.txt in place of a
+## GitHub release. No C smoke test, since the box has no C compiler.
+fStage_Box_Windows(){
+	fId deea5 "Windows release on its box: command, and install.ps1 under 5.1 and 7"
+	local -r zip="${repoRoot}/dist/${distPrefix}windows-x86_64.zip" jobDir="${_runDir}/box-windows-x86_64"
+	if [[ ! -f "${zip}" ]]; then fBox_Skip "no ${zip##*/} in dist/"; return 0; fi
+	if [[ ! -f "${repoRoot}/dist/checksums.txt" ]]; then fBox_Skip "no checksums.txt in dist/"; return 0; fi
+	mkdir -p "${jobDir}"
+	cp "${zip}" "${repoRoot}/dist/checksums.txt" "${repoRoot}/install.ps1" "${jobDir}/"
+	cp "${utilityDir}/box-windows-test.ps1" "${jobDir}/job.ps1"
+	fBox_Run "${windowsBox}" "${jobDir}"
 }
 
 ## What the Mac sent home goes in dist-incoming/, replacing its own files from

@@ -214,7 +214,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - CICD reset: other hosts, Windows on b29w
 	- ID: 2026102514523207
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, for deea5 in its "Windows box" step.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261025-145232
 	- Opened by: JC
@@ -226,6 +227,24 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
 		- On b29w, never `b29w-wif`, the x86_64 zip from the run's `--package` runs its command, and `install.ps1` installs it under 5.1 and 7, user and system, with both `PATH`s back as they were. The installer part is run by hand today, with `win-installer-test.bash` from the private notes.
 		- The box has no bash on PATH, so the job is PowerShell, sent and run with `-File`.
+	- Progress log:
+		- 20261025: A run that packages has a "Windows box" step after the Mac one, outside the image. It sends the x86_64 zip, the run's `checksums.txt` and `install.ps1` to `collierjr@b29w`, under the same lock and `box-run.bash` as the other boxes.
+		- 20261025: A job dir with a `job.ps1` is a Windows job. `box-run.bash` makes its folder under the box's `%TEMP%\zuid` through `-EncodedCommand`. `box-run.ps1`, sent with the job, sweeps stale folders, runs the job with `-File` at below normal priority, and removes the folder through its own guard.
+		- 20261025: The job, `box-windows-test.ps1`, runs the zip's command, then installs, reinstalls and uninstalls under 5.1 and 7, user and system, with both `PATH`s checked byte for byte. It also checks the junction refusal from 2026102516500000. `install.ps1` runs from a scriptblock, as the one-liner does.
+		- 20261025: `ZUID_BOX_WINDOWS` names another destination, and set empty turns the step off. `--no-remote` turns it off too.
+		- 20261025: The answer probe in `box-run.bash` is `exit 0` for every box now, since cmd has no `true`.
+	- Decisions:
+		- 20261025: The installer gets the run's zip from functions in the job that stand in for `Invoke-RestMethod` and `Invoke-WebRequest`. No new installer option and no web server, so the installer's surface is unchanged and the box needs nothing extra.
+		- 20261025: The user install and the command's module cache go under the job folder, through `LOCALAPPDATA`, so a real user install on the box is never touched. A `Program Files\zuid` that was there before the run fails the step rather than be touched.
+		- 20261025: `collierjr`, since the system install needs admin. No C smoke test, since the box has no C compiler.
+		- 20261025: `win-installer-test.bash` stays in the private tools, for the one-liner from `main` against GitHub, which this step doesn't cover.
+	- Branch: round1026
+	- Test case: deea5 (the box step itself), deea6 (which runs have it), deea7 (it runs a PowerShell job under b29w's lock, removes the box's folder after a pass or a fail, skips with no release or no answer, and `box-run.ps1` removes nothing but a run folder). deea6 failed with the step left out of the plan. deea7 failed with `box-run.bash`'s Windows branch off, and with `box-run.ps1`'s name check gone. Both pass after.
+	- Verified:
+		- 20261025: deea5 on the real b29w, against `dist/` from 16:42 and this branch's `install.ps1`: 33 of 33 checks under Windows PowerShell 5.1.26100 and pwsh 7, user and system, and the box's folder was gone after. Against the old `install.ps1` only the 4 junction checks failed.
+		- 20261025: `pipeline-test.bash` 163 of 163, `test-ids.py check` (533, all unique), shellcheck, PSScriptAnalyzer, and `cicd.bash --backlog-run-quick shell installers docs`, 10 of 10 steps. Load about 21 to 30 on 32 CPUs.
+		- Not verified: the step inside a full run.
+	- Swept: every `macBox` read in `cicd.bash`, the help text, `development.md`, `fPlanIn`'s and `fBoxIn`'s defaults, dee2c's list, and the Package comment that said the Windows x86_64 release is run by hand. PSScriptAnalyzer and the ASCII check find the new `.ps1` files by themselves.
 
 - CICD reset: other hosts, macOS on b26 or vmKt6m
 	- ID: 2026102514523209
@@ -299,18 +318,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Decisions:
 		- 20261024: The proposal above, as asked. Its C context change goes in design.md beside the old rule.
 
-- `install.ps1` wraps its link refusal in the generic write error.
-	- ID: 2026102516500000
-	- Type: Bug
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261025-165000
-	- Opened by: JC
-	- Related IDs: 2026102514072150
-	- Steps to reproduce [Bug]: Make the install dir a junction, then run `install.ps1 -Target system`.
-	- Expected [Bug]: One line saying the install dir is a link and was left alone.
-	- Actual [Bug]: "couldn't write C:\Program Files\zuid: zuid-install: refused to empty C:\Program Files\zuid: it's a link Close any running zuid, check the permissions, or try -Target user." The prefix shows twice, and the advice is for a different problem.
-
 - The FreeBSD release has no `.pkg`.
 	- ID: 2026101410500001
 	- Type: Enhancement
@@ -339,6 +346,28 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- A system install leaves other users' caches alone and says where they are.
 	- Progress log:
 		- 20261024: Seen on b26, after an install, one run and an uninstall.
+
+- `install.ps1` wraps its link refusal in the generic write error.
+	- ID: 2026102516500000
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261025-165000
+	- Opened by: JC
+	- Related IDs: 2026102514072150
+	- Steps to reproduce [Bug]: Make the install dir a junction, then run `install.ps1 -Target system`.
+	- Expected [Bug]: One line saying the install dir is a link and was left alone.
+	- Actual [Bug]: "couldn't write C:\Program Files\zuid: zuid-install: refused to empty C:\Program Files\zuid: it's a link Close any running zuid, check the permissions, or try -Target user." The prefix shows twice, and the advice is for a different problem.
+	- Reproduced [Bug]: 20261025, with `installer-test.bash` on Linux, and on b29w under 5.1 and 7, user and system. `install.bash` had the same fault: its refusal came out ahead of "couldn't write ... Check its permissions".
+	- Actual cause [Bug]: `Clear-InstallDirectory` throws the refusal inside the `try` around the install's writes, and that `catch` wraps any error in the write message. `install.bash` printed its refusal and returned 1, and its caller then died with the write message.
+	- Actual fix [Bug]: `install.ps1` rethrows its own messages from that `catch` as they are. `install.bash` dies with the refusal itself. Both say "refused to empty <dir>: it's a link, so it was left alone." Both installers are 1.3.2.
+	- Branch: round1026
+	- Test case: deea3 and deea4 in `installer-test.bash`, for bash and ps1, plus the junction checks in deea5 on b29w. Against the old scripts deea3 failed on the write advice and deea4 on the doubled prefix, and the b29w junction checks failed too. All pass after.
+	- Verified: 20261025, `installer-test.bash` 99 of 99, and deea5 on b29w, 33 of 33.
+	- Swept: both refusals in `Clear-InstallDirectory` and `fEmptyInstallDir`, and both of `fEmptyInstallDir`'s callers, install and uninstall. `install.ps1`'s uninstall calls `Clear-InstallDirectory` with no wrap. `Remove-Under`'s refusals now come through unwrapped too.
+	- Acceptance signoff: Self-closed 20261025. Checked on Linux and on b29w.
+	- Closed: 20261025-190430
 
 - de572 fails the first time a box fetches the pinned Go.
 	- ID: 2026102517583389

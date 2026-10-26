@@ -56,7 +56,7 @@ $ErrorActionPreference = 'Stop'
 
 $repository = 'jim-collier/zuid'
 $program = 'zuid'
-$installerVersion = '1.3.1'
+$installerVersion = '1.3.2'
 
 ## Here and not through Get-Help, which needs the script as a file. Under irm |
 ## scriptblock there isn't one.
@@ -342,9 +342,9 @@ function Remove-Under {
 function Clear-InstallDirectory {
 	$dir = Get-Item -LiteralPath $installDirectory -Force -ErrorAction SilentlyContinue
 	if (-not $dir) { return }
-	if (Test-IsLink $dir) { Stop-WithMessage "refused to empty ${installDirectory}: it's a link" }
+	if (Test-IsLink $dir) { Stop-WithMessage "refused to empty ${installDirectory}: it's a link, so it was left alone." }
 	if (-not ($dir -is [System.IO.DirectoryInfo]) -or $dir.Name -ne $program) {
-		Stop-WithMessage "refused to empty ${installDirectory}: not a $program install directory"
+		Stop-WithMessage "refused to empty ${installDirectory}: not a $program install directory, so it was left alone."
 	}
 	foreach ($entry in @($dir.GetFileSystemInfos())) { Remove-Under $dir.FullName $entry.FullName }
 }
@@ -643,7 +643,9 @@ try {
 		Copy-Item -Path (Join-Path $payload.FullName '*') -Destination $installDirectory -Recurse -Force
 	}
 	catch {
-		## A running zuid.exe can't be deleted on Windows.
+		## A refusal of its own already says why, and the advice below is for
+		## something else. A running zuid.exe can't be deleted on Windows.
+		if ($_.Exception.Message -like "$program-install: *") { throw }
 		Stop-WithMessage "couldn't write ${installDirectory}: $($_.Exception.Message) Close any running $program, check the permissions, or try -Target $otherTarget."
 	}
 

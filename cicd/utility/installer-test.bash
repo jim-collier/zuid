@@ -611,6 +611,16 @@ fCase_GuardedRemoval(){  ## label, runner
 	elif ((rc == 0)) || [[ "${out}" != *"efused to empty"* ]]; then fFail "exited ${rc} without saying why. Output: ${out}"
 	else fPass
 	fi
+	## It used to come wrapped in the write error, prefix twice, with advice
+	## about permissions and running copies.
+	local -r flat="${out//[$'\n\r|']/ }" prefix="${PROG}-install:"
+	local -r afterFirst="${flat#*"${prefix}"}"
+	fId "${label}" bash=deea3 ps1=deea4 "${label}: the link refusal is said once, without the write advice"
+	if   [[ "${afterFirst}" == *"${prefix}"* ]]; then fFail "the prefix shows twice. Output: ${out}"
+	elif [[ "${flat}" == *"couldn't write"* || "${flat}" == *"ermissions"* ]]; then fFail "has the write error's advice. Output: ${out}"
+	elif [[ "${flat}" != *"it's a link, so it was left alone"* ]]; then fFail "no plain refusal. Output: ${out}"
+	else fPass
+	fi
 
 	home="$(fNewHome "${label}-guard-inside")"
 	mkdir -p "${home}/elsewhere/sub"

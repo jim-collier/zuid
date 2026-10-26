@@ -1003,7 +1003,7 @@ fPlanIn(){  ## inContainer, planContainer, then name=value settings
 			doSync=1; doGate=0; doFullGate=0; gateFlag=""; doQuick=0; doDemo=1; doPackage=0; noPackage=0; packageSkipWhy=""
 			onlyToolchain=""; doGo=1; doZig=1; doFuzz=1; doCross=1; doLeakcheck=1; leakAsked=0; doProfile=1
 			doPublish=0; doDogfood=1; doBackup=1; backupInWorktree=0; commitAsked=0; doCommit=0; doPush=0; doRemote=1
-			freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"; macBox="collierjr@b26"
+			freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"; macBox="collierjr@b26"; windowsBox="collierjr@b29w"
 			_stepTitles=(); _stepOffs=(); _stepPlanning=0; _stepElsewhere=0; _stepAt=0; _stepTotal=0
 			read -r -a runAreas <<< "${planAreas:-}"; areaWhy="not in --backlog-run-quick ${planAreas:-}"
 		}
@@ -1271,6 +1271,29 @@ if [[ -z "${boxBad}" ]]
 	else fFail "${boxBad}"
 fi
 
+## The Windows box comes after the Mac one, outside the image.
+fId deea6 "which runs test on the Windows box"
+boxBad=""
+for boxCase in "doPackage=1|yes" "doPackage=1 doFullGate=1 gateFlag=--merge-gate doSync=0|yes" "doPackage=1 doRemote=0|--no-remote" "doPackage=1 windowsBox=|ZUID_BOX_WINDOWS is empty" "doQuick=1|nothing packaged" "onlyToolchain=go doZig=0|nothing packaged"; do
+	boxWant="${boxCase#*|}"
+	# shellcheck disable=2086  ## Settings, split on purpose.
+	outside="$(planAreas="" planOffs=1 fPlanIn 0 1 ${boxCase%%|*})" || { boxBad+=" '${boxCase}': ${outside};"; continue; }
+	if [[ "${boxWant}" == "yes" ]]; then
+		grep -v '^off:' <<< "${outside}" | sed -n '/^Mac box: b26$/,$p' | grep -qx 'Windows box: b29w' || boxBad+=" '${boxCase}': it isn't after the Mac box, in '${outside//$'\n'/, }';"
+	else
+		grep -q '^Windows box' <<< "${outside}" && boxBad+=" '${boxCase}' runs it;"
+		grep -qxF "off:Windows box (${boxWant})" <<< "${outside}" || boxBad+=" '${boxCase}' doesn't say it's off for ${boxWant};"
+	fi
+done
+outside="$(planAreas="" planOffs=1 fPlanIn 0 1 doPackage=1 freebsdBox= linuxArm64Box= macBox=)" || true
+grep -qx 'Windows box: b29w' <<< "${outside}" || boxBad+=" no other boxes took the Windows one too;"
+inside="$(planAreas="" fPlanIn 1 0 doSync=0 doDogfood=0 doBackup=0 doPackage=1)" || true
+grep -q 'Windows box' <<< "${inside}" && boxBad+=" the image runs it;"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
 ## The box step end to end, with ssh and the host lock stood in for. ssh runs
 ## its command here, so the box's temp root is a folder of the test's own.
 fId dee35 "a box step passes, fails, or skips when the box is down or taken"
@@ -1282,8 +1305,10 @@ cat > "${boxDir}/bin/ssh" <<'EOF_bssh'
 while [[ "${1:-}" == -o ]]; do shift 2; done
 shift
 [[ "${BOX_DOWN:-0}" != 1 ]] || exit 255
-HOST_TEMP="${BOX_ROOT:?}" exec bash -c "$*"
+## The powershell beside it, for the Windows box.
+PATH="$(dirname "$0"):${PATH}" HOST_TEMP="${BOX_ROOT:?}" exec bash -c "$*"
 EOF_bssh
+printf '#!/usr/bin/env bash\nexec pwsh "$@"\n' > "${boxDir}/bin/powershell"
 cat > "${boxDir}/bin/lock" <<'EOF_block'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${BOX_LOCK_LOG:?}"
@@ -1292,7 +1317,7 @@ while [[ "${1:-}" != -- ]]; do shift; done
 shift
 exec "$@"
 EOF_block
-chmod +x "${boxDir}/bin/ssh" "${boxDir}/bin/lock"
+chmod +x "${boxDir}/bin/ssh" "${boxDir}/bin/lock" "${boxDir}/bin/powershell"
 export BOX_ROOT="${boxDir}/root" BOX_LOCK_LOG="${boxDir}/lock.log"
 ## Always called in $(...), so a brace group is subshell enough.
 fBoxIn(){  ## job.bash's text, in BOX_JOB
@@ -1300,19 +1325,20 @@ fBoxIn(){  ## job.bash's text, in BOX_JOB
 		# shellcheck disable=2034  ## Read by the lifted functions.
 		{ repoRoot="${boxDir}"; utilityDir="$(cd "$(dirname "${cicd}")" && pwd -P)/utility"
 		  zigDir="${boxDir}/zig"; distPrefix="zuid-1.0.0-"; freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"; boxWaitSecs=60; keepTemp=0
-		  macBox="collierjr@b26"; incomingDir="${boxDir}/dist-incoming"
+		  macBox="collierjr@b26"; windowsBox="collierjr@b29w"; incomingDir="${boxDir}/dist-incoming"
 		  projectName="zuid"; runName="test"; _stepSkipWhy=""; }
 		_runDir="${boxDir}/run"
 		local fn=""
-		for fn in fBox_Lock fBox_Skip fBox_Run fBox_Release fBox_MacHome fStage_Box_FreeBSD fStage_Box_LinuxArm64 fStage_Box_Mac fStep_Skip fId fTestPass fTestSkip fTestFail; do
+		for fn in fBox_Lock fBox_Skip fBox_Run fBox_Release fBox_MacHome fStage_Box_FreeBSD fStage_Box_LinuxArm64 fStage_Box_Mac fStage_Box_Windows fStep_Skip fId fTestPass fTestSkip fTestFail; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		# shellcheck disable=2329  ## Called by the lifted functions.
 		{ fEcho_Clean(){ printf '%s\n' "$*"; }; fThrowError(){ printf 'error: %s\n' "$1"; exit 1; }; }
 		## The job is a stand-in, not the real one.
 		# shellcheck disable=2329
-		cp(){ if [[ "${1##*/}" == box-release-test.bash || "${1##*/}" == box-mac-build.bash ]]; then printf '%s\n' "${BOX_JOB:?}" > "$2"; else command cp "$@"; fi; }
+		cp(){ if [[ "${1##*/}" == box-release-test.bash || "${1##*/}" == box-mac-build.bash || "${1##*/}" == box-windows-test.ps1 ]]; then printf '%s\n' "${BOX_JOB:?}" > "$2"; else command cp "$@"; fi; }
 		local jobName="box-freebsd-x86_64"; [[ "${BOX_STAGE:-}" != fStage_Box_LinuxArm64 ]] || jobName="box-linux-arm64"
+		[[ "${BOX_STAGE:-}" != fStage_Box_Windows ]] || jobName="box-windows-x86_64"
 		## The Mac bundles a repo of its own.
 		if [[ "${BOX_STAGE:-}" == fStage_Box_Mac ]]; then jobName="box-darwin-universal"; repoRoot="${boxDir}/src"; fi
 		if [[ -d "${_runDir}/${jobName}" ]]; then fSafeRm "${_runDir}/${jobName}"; fi
@@ -1435,6 +1461,45 @@ out="$(BOX_STAGE=fStage_Box_Mac ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${b
 if [[ -z "${boxBad}" ]]
 	then fPass
 	else fFail "${boxBad}"
+fi
+
+## The Windows box has no bash, so box-run.bash makes, runs and removes its
+## folder through PowerShell. The stand-in ssh runs it here under pwsh.
+fId deea7 "the Windows box step runs a PowerShell job on b29w"
+boxBad=""
+if ! command -v pwsh > /dev/null; then fFail "pwsh not installed, which the Windows box half needs here"
+else
+	out="$(BOX_STAGE=fStage_Box_Windows ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+	{ ((rc == 0)) && grep -q '^  SKIP deea5 .*(no zuid-1.0.0-windows-x86_64.zip in dist/)$' <<< "${out}"; } || boxBad+=" no release: exited ${rc}, said '${out//$'\n'/ | }';"
+	printf 'x\n' > "${boxDir}/dist/zuid-1.0.0-windows-x86_64.zip"; printf 'y\n' > "${boxDir}/dist/checksums.txt"; printf 'z\n' > "${boxDir}/install.ps1"
+	## The job sees what was sent and runs in its own folder, with TEMP there too.
+	# shellcheck disable=2016  ## PowerShell, for the box.
+	winJob='foreach ($f in @("zuid-1.0.0-windows-x86_64.zip", "checksums.txt", "install.ps1", "box-run.ps1")) { if (-not (Test-Path -LiteralPath $f)) { Write-Host "missing $f"; exit 5 } }
+if ($env:TEMP -ne (Get-Location).Path) { Write-Host "TEMP is $env:TEMP"; exit 6 }'
+	out="$(BOX_STAGE=fStage_Box_Windows ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB="${winJob}" fBoxIn)" && rc=0 || rc=$?
+	{ ((rc == 0)) && grep -qx '  PASS deea5 Windows release on its box: command, and install.ps1 under 5.1 and 7' <<< "${out}"; } || boxBad+=" pass: exited ${rc}, said '${out//$'\n'/ | }';"
+	grep -q '^wrap b29w --wait 60 --why zuid: cicd test -- bash .*/box-run.bash collierjr@b29w ' "${BOX_LOCK_LOG}" || boxBad+=" pass: not held through the lock as b29w;"
+	grep -q "^Box \.*: collierjr@b29w:${boxDir}/root/zuid/[0-9]\{8\}-[0-9]\{6\}_[0-9]\{3\}$" <<< "${out}" || boxBad+=" pass: no work folder of its own;"
+	[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" pass: the box's folder is still there;"
+	out="$(BOX_STAGE=fStage_Box_Windows ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 3' fBoxIn)" && rc=0 || rc=$?
+	{ ((rc != 0)) && grep -qx '  FAIL deea5 Windows release on its box: command, and install.ps1 under 5.1 and 7' <<< "${out}" && grep -q 'exited 3' <<< "${out}"; } || boxBad+=" fail: exited ${rc}, said '${out//$'\n'/ | }';"
+	[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" fail: the box's folder is still there;"
+	## box-run.ps1 removes only a run folder under the project's temp root.
+	mkdir -p "${boxDir}/root/zuid/not-a-run" "${boxDir}/root/zuid/20260101-000000_001" "${boxDir}/elsewhere/20260101-000000_001"
+	for winBad in "${boxDir}/root/zuid/not-a-run" "${boxDir}/elsewhere/20260101-000000_001" "${boxDir}/root/zuid"; do
+		HOST_TEMP="${boxDir}/root" pwsh -NoProfile -NonInteractive -File "${cicd%/*}/utility/box-run.ps1" -Remove "${winBad}" > /dev/null 2>&1 && boxBad+=" removed ${winBad};"
+		[[ -d "${winBad}" ]] || boxBad+=" ${winBad} is gone;"
+	done
+	HOST_TEMP="${boxDir}/root" pwsh -NoProfile -NonInteractive -File "${cicd%/*}/utility/box-run.ps1" -Remove "${boxDir}/root/zuid/20260101-000000_001" > /dev/null 2>&1 || boxBad+=" wouldn't remove a run folder;"
+	[[ ! -e "${boxDir}/root/zuid/20260101-000000_001" ]] || boxBad+=" a run folder is still there;"
+	## Whatever a broken guard left.
+	for winBad in "${boxDir}/root/zuid/not-a-run" "${boxDir}/elsewhere/20260101-000000_001" "${boxDir}/elsewhere"; do [[ ! -d "${winBad}" ]] || rmdir "${winBad}"; done
+	out="$(BOX_STAGE=fStage_Box_Windows ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+	{ ((rc == 0)) && grep -q '^  SKIP deea5 .*(no answer from collierjr@b29w)$' <<< "${out}"; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
+	if [[ -z "${boxBad}" ]]
+		then fPass
+		else fFail "${boxBad}"
+	fi
 fi
 
 ## A step that skipped ends on SKIP, not PASS, and is kept for the end.
@@ -3327,7 +3392,8 @@ guardBad=""
 # shellcheck disable=2031  ## Only a subshell much earlier changes it.
 for guardFile in cicd/utility/cli-test.bash cicd/utility/pipeline-test.bash cicd/utility/installer-test.bash \
 	cicd/utility/git-hooks/pre-push cicd/utility/package.bash cicd/utility/include/safe-rm.bash cicd/cicd.bash install.bash install.ps1 \
-	cicd/utility/box-run.bash cicd/utility/box-release-test.bash cicd/utility/box-mac-build.bash cicd/utility/gomod-prune.bash; do
+	cicd/utility/box-run.bash cicd/utility/box-release-test.bash cicd/utility/box-mac-build.bash cicd/utility/gomod-prune.bash \
+	cicd/utility/box-run.ps1 cicd/utility/box-windows-test.ps1; do
 	# shellcheck disable=2031  ## Likewise.
 	[[ -f "${repoRoot}/${guardFile}" ]] || { guardBad+=" no ${guardFile};"; continue; }
 	# shellcheck disable=2031  ## Likewise.
