@@ -159,6 +159,20 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261024: Split from 2026101410495999. Waits on a logo, and `private/logo/` is empty.
 
+- A fresh full run fails: the FreeBSD `libwasmtime-49.0.1` package no longer matches its pinned checksum.
+	- ID: 2026102519140200
+	- Type: Bug
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-191402
+	- Opened by: JC
+	- Related IDs: 2026101410500001
+	- Target OS: FreeBSD
+	- Bug details:
+		- Step 14, Zig: vendor, stops with "FreeBSD libwasmtime-49.0.1 checksum mismatch: got b2a632b8e9652060197d63bd8dcd6052a1c821b0253e6b6049768adf9ccd494e". The pin in `cicd.bash` is 95ee2302...
+		- Seen 20261025 in a full run from a fresh worktree at 897fa59. A checkout with the package already vendored doesn't fetch it, so it passes there.
+		- Same version, new bytes, so the package server rebuilt it. Every fresh packaging run fails until the pin is checked and moved, or checked some other way that survives a rebuild.
+
 - CICD reset: other hosts and VMs
 	- ID: 2026102416233100
 	- Type: Enhancement
