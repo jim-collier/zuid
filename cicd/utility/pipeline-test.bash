@@ -1014,9 +1014,10 @@ fPlanIn(){  ## inContainer, planContainer, then name=value settings
 		for fn in fSteps fSteps_Checks fSteps_Scrub fSteps_FuzzWhy fSteps_Packages fSteps_Box fSteps_Plan fStep_Off fArea; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
-		## planUname stands in for the host's kernel name.
+		## planUname stands in for the host's kernel name. Linux unless a case
+		## names another, so the plan is the same on a Mac as here.
 		# shellcheck disable=2329  ## Called by the lifted fSteps.
-		uname(){ if [[ -n "${planUname:-}" && "${1:-}" == -s ]]; then printf '%s\n' "${planUname}"; else command uname "$@"; fi; }
+		uname(){ if [[ "${1:-}" == -s ]]; then printf '%s\n' "${planUname:-Linux}"; else command uname "$@"; fi; }
 		## Marks the ones the image runs.
 		# shellcheck disable=2329  ## Called by the lifted fSteps.
 		fStep(){ if ((_stepPlanning)); then _stepTitles+=("$( ((_stepElsewhere)) && echo '*')$1"); fi; }
@@ -1087,9 +1088,16 @@ grep -qE '^[0-9]+\. Go: build, vet, format, test$' <<< "${out}" || listBad+=" no
 grep -qx '      daq6x TestVectors' <<< "${out}" || listBad+=" no TestVectors under it;"
 grep -qE '^[0-9]+\. Zig' <<< "${out}" && listBad+=" a Zig step with only go named;"
 grep -qE ' steps, [0-9]+ tests\. Nothing was run\.$' <<< "${out}" || listBad+=" no closing line;"
-## As this machine plans it, since the run in the image never plans the
-## steps only the outside runs, such as the macOS workflow's.
-out="$(env -u ZUID_IN_CONTAINER bash "${cicd}" --list --no-container --package --leakcheck < /dev/null 2>&1)" && rc=0 || rc=$?
+## As the outside plans it, since the run in the image never plans the steps
+## only the outside runs, such as the macOS workflow's. And as Linux x86_64
+## plans it, since a Mac leaves out the Mac box step and its tests.
+listHost="${work}/list-host"
+mkdir -p "${listHost}"
+# shellcheck disable=2016  ## The stand-in's own text.
+printf '#!/bin/sh\ncase "$1" in -s) echo Linux ;; -m) echo x86_64 ;; *) exec %q "$@" ;; esac\n' "$(command -v uname)" > "${listHost}/uname"
+chmod +x "${listHost}/uname"
+# shellcheck disable=2031  ## Only this run sees it.
+out="$(PATH="${listHost}:${PATH}" env -u ZUID_IN_CONTAINER bash "${cicd}" --list --no-container --package --leakcheck < /dev/null 2>&1)" && rc=0 || rc=$?
 ((rc == 0)) || listBad+=" the full list exited ${rc};"
 listed="$(sed -n 's/^      \([0-9a-hjkmnp-tv-z]\{5\}\) .*/\1/p' <<< "${out}" | sort -u)"
 known="$(python3 -I -B -c 'import importlib.util as u, sys; s = u.spec_from_file_location("t", sys.argv[1]); t = u.module_from_spec(s); s.loader.exec_module(t); print("\n".join(sorted({i for i, *_ in t.fScan() if i})))' "${cicd%/cicd.bash}/utility/test-ids.py")"
@@ -3769,6 +3777,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: The box plans and the full --list as Linux, so they hold on a Mac.
 ##		- 20261025 JC: The FreeBSD vendor step against a stand-in signed catalog.
 ##		- 20261025 JC: The pinned Go on its first fetch. cli-test.bash --short, and the arm64 box's short run.
 ##		- 20261025 JC: The cleanup line, the Go module prune, and 2 runs with one killed leaving nothing.

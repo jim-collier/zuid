@@ -113,6 +113,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: The job, `box-windows-test.ps1`, runs the zip's command, then installs, reinstalls and uninstalls under 5.1 and 7, user and system, with both `PATH`s checked byte for byte. It also checks the junction refusal from 2026102516500000. `install.ps1` runs from a scriptblock, as the one-liner does.
 		- 20261025: `ZUID_BOX_WINDOWS` names another destination, and set empty turns the step off. `--no-remote` turns it off too.
 		- 20261025: The answer probe in `box-run.bash` is `exit 0` for every box now, since cmd has no `true`.
+		- 20261025: On GitHub's Mac runner, deea6 failed, since it looks for the Windows box after the Mac box, which a Mac leaves out of its plan. Fixed with dee8m, in `fPlanIn`, which now plans as Linux unless a case names another host.
 	- Decisions:
 		- 20261025: The installer gets the run's zip from functions in the job that stand in for `Invoke-RestMethod` and `Invoke-WebRequest`. No new installer option and no web server, so the installer's surface is unchanged and the box needs nothing extra.
 		- 20261025: The user install and the command's module cache go under the job folder, through `LOCALAPPDATA`, so a real user install on the box is never touched. A `Program Files\zuid` that was there before the run fails the step rather than be touched.
@@ -123,6 +124,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Verified:
 		- 20261025: deea5 on the real b29w, against `dist/` from 16:42 and this branch's `install.ps1`: 33 of 33 checks under Windows PowerShell 5.1.26100 and pwsh 7, user and system, and the box's folder was gone after. Against the old `install.ps1` only the 4 junction checks failed.
 		- 20261025: `pipeline-test.bash` 163 of 163, `test-ids.py check` (533, all unique), shellcheck, PSScriptAnalyzer, and `cicd.bash --backlog-run-quick shell installers docs`, 10 of 10 steps. Load about 21 to 30 on 32 CPUs.
+		- 20261025: `pipeline-test.bash` on b26, macOS 15: before the fix, dedty, dee8m and deea6 failed as on GitHub's runner; after, it passed with no FAIL. 165 of 165 here, and shellcheck.
 		- Not verified: the step inside a full run.
 	- Swept: every `macBox` read in `cicd.bash`, the help text, `development.md`, `fPlanIn`'s and `fBoxIn`'s defaults, dee2c's list, and the Package comment that said the Windows x86_64 release is run by hand. PSScriptAnalyzer and the ASCII check find the new `.ps1` files by themselves.
 
@@ -150,6 +152,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: `box-run.bash` brings a job's `back/` folder home when `ZUID_BOX_BACK` names a place for it.
 		- 20261025: The Mac keeps Wasmtime's macOS archives between runs, in its cache dir.
 		- 20261025: Found along the way: de572 fails the first time a box fetches the pinned Go. Filed as 2026102517583389. The next run passes.
+		- 20261025: On GitHub's Mac runner, dedty and dee8m failed: a Mac leaves the Mac box step out of its own plan. `fPlanIn` now plans as Linux unless a case names another host, and dedty's full `--list` runs with `uname` stood in for as Linux x86_64. What they check on Linux is unchanged.
 	- Decisions:
 		- 20261025: The calls that may need a look are under `Check:` in the questions file: the `collierjr` user, the flags the Mac runs, which runs have the step, what comes home, and the Wasmtime cache.
 	- Branch: round1026
@@ -157,8 +160,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Verified:
 		- 20261025: dee8k on the real b26, from HEAD at 0028c4b: the Mac's quick run with `--package` passed all 18 steps, ddf2d, dde03, dde05, ddwj4 and ddwj5 included, in about 8 minutes. The tarball, the bare command and the debug info came home, b26's work folder was gone after, and the lock was released.
 		- 20261025: `pipeline-test.bash` 158 of 158, `test-ids.py check` (522, all unique), shellcheck on the stage's list.
+		- 20261025: `pipeline-test.bash` on b26, macOS 15: before the fix, dedty, dee8m and deea6 failed as on GitHub's runner; after, it passed with no FAIL. 165 of 165 here, and shellcheck.
 		- Not verified: the step inside a full run.
 	- Swept: every `linuxArm64Box` and `freebsdBox` read in `cicd.bash`, the help text and its `--publish` part, `development.md`, `fPlanIn`'s and `fBoxIn`'s defaults, the shellcheck list in `fStage_Shell`, and dee2c's list. The macOS workflow passes `--no-remote`, so it never starts the step.
+		- 20261025: the `uname` reads in the functions `fPlanIn` lifts, only the Mac box's, and the other `--list` cases, which passed on the Mac.
 	- 20261025: The calls under Check: in the questions file stand as picked.
 
 - Identifiers from one tick have no counter.
