@@ -183,6 +183,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 			- The C context keeps the last tick and the count. That changes "the context keeps only the runtime and the clock pin", since a count can't come in per call.
 			- A format with `%c` can't repeat within a run, so the repeat warning never fires for it.
 		- 20261025: Done in Go, the Zig core, the C context, the command, the vectors, errors.tsv, zuid.h, design.md and the README. 11 vectors, from count 0 to a carry, in 4 bases and at millisecond precision. The `count=` env key replays that many identifiers from one counter first.
+		- 20261025: dee9g in `pipeline-test.bash` failed every run, since its list of `--short` cases still had 10 without deec4. deec4 is in the list now, so the short run stays at 11.
 	- Decisions:
 		- 20261024: The proposal above, as asked. Its C context change goes in design.md beside the old rule.
 		- 20261025: A full tick is its own error on every surface: C code 15 `ZUID_ERR_COUNTER`, Go `ErrCounter`, Zig `CounterFull`. Code 12 says the clock is past the horizon, which isn't what went wrong.
@@ -197,6 +198,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: deebw and deebx (core width and counter), deeby, deebz and deec0 (Go), deec1 (C context), deec2, deec3 and deec4 (command), the 11 `counter-*` rows in daq6x and daqq6, and the `counter-full` row in ddj77, ddj8d, ddj8e, ddj8f and ddj8g. deeby, deebx and deec1 failed with the give-back taken out, and deeby with the tick reset taken out.
 	- Verified:
 		- 20261025: `go test ./...`, `-race` over the counter, vector and error tests, `zig build test`, `cli-test.bash` 97 of 97 and `--short` 11 of 11, `test-ids.py check`, shellcheck, gofmt, zig fmt, the scrub and the markdown checks.
+		- 20261025: dee9g failed before its fix and passed after. `pipeline-test.bash` 165 of 165, `cli-test.bash --short` 11 of 11, shellcheck on the stage's list, `test-ids.py check` and the scrub.
 		- Not verified: the full run.
 	- Swept: every verb switch and verb list (`spentBy` in Go, the core loop, `unknownVerb`, both unknown-component messages), the help, zuid.h's component list and context note, design.md's component table, width rule, refusals and C context rule, and the Go fuzz property.
 

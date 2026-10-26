@@ -3567,7 +3567,7 @@ printf '#!/usr/bin/env bash\necho abcdef\n' > "${work}/shortbin/zuid"
 chmod +x "${work}/shortbin/zuid"
 out="$(bash "${utilityDir}/cli-test.bash" --short --bin "${work}/shortbin/zuid" 2>&1 || true)"
 shortRan="$(awk '$1 == "PASS" || $1 == "FAIL" { printf "%s ", $2 }' <<< "${out}")"
-if [[ "${shortRan}" == "dcrfc dcrfd dcrfe dcrff dcrfg dcrfh dee9c dee9d dee9e ddb04 " ]]
+if [[ "${shortRan}" == "dcrfc dcrfd dcrfe dcrff dcrfg dcrfh dee9c dee9d dee9e deec4 ddb04 " ]]
 	then fPass
 	else fFail "ran: ${shortRan:-nothing}, said '$(tail -n 3 <<< "${out}" | tr '\n' ' ')'"
 fi
