@@ -27,6 +27,9 @@
 #   hashchars=                    symbols kept from a hashed component; unset
 #                                 means the derived default for the base
 #   randchars=                    symbols %r emits; unset likewise
+#   count=0                       identifiers made before this one in the same
+#                                 tick, from one counter, each drawing the
+#                                 same random stream
 #
 # A value in this column cannot carry a comma, an '=' or a tab, which is what
 # separates the pairs. No salt here needs one.
@@ -49,11 +52,15 @@
 #       more than eight bits, so the draw is ceil(randchars * bits / 8) instead
 #       and the leading symbol still varies.
 #
+#   %c  the identifier's place among those from the same tick, from 0,
+#       converted from base 10. One number per identifier, however many times
+#       %c appears. A new tick or precision starts it over.
+#
 # %g and %r draw from the stream in the order they appear in the format.
 #
 # Output is zero-padded to a fixed width per component, chosen to hold that
 # component's largest value: the horizon year 3000 for %d, 48 bits for %m, 128
-# bits for %g. Padding uses each alphabet's zero digit, which for 32w is '2'
+# bits for %g, 20 bits for %c. Padding uses each alphabet's zero digit, which for 32w is '2'
 # rather than '0'.
 #
 # A hashed or random component is sized the same way, from a target strength
@@ -309,3 +316,17 @@ composite-all	%d%h%u%f%m%g%r	2048tz	1	1785585600000	rand=0F1E2D3C4B5A69788796A5B
 hash-host-digest-ceiling	%h	512tt	0	0	hashchars=29	4ꓘvᴚ𐇝ᛶᴝE𐇻𐂘𐂊ጾᛶϣᚻ𐂇ᛯϧห⦠𐊁mʞዞʎϱｹɔ𐃢
 hash-host-digest-ceiling	%h	1024tz	0	0	hashchars=26	J8偓亡予倊7亝偒俒ϥ傟⊳偱倅°佼侬傳七俬ዛøɞᛝ乶
 hash-host-digest-ceiling	%h	2048tz	0	0	hashchars=24	2侴乩亡傉刽x𐂦俬ﾄ厛儚傖倅ϧ修𐇰ﾁv匙偃亿佃務
+
+# The counter. Its width holds 2^20 counts in every base, so 4 symbols in base
+# 62, and the count= rows are the last of that many from one tick.
+counter-first	%d%c	62	0	1785703406000	-	1wqd1q0000
+counter-second	%d%c	62	0	1785703406000	count=1	1wqd1q0001
+counter-last-digit	%d%c	62	0	1785703406000	count=61	1wqd1q000z
+counter-carry	%d%c	62	0	1785703406000	count=62	1wqd1q0010
+counter-milli	%d%c	62	1	1785703406123	count=3	0VRArVgh0003
+counter-alone	%c	62	0	1785703406000	count=5	0005
+counter-twice	%c-%c	62	0	1785703406000	count=1	0001-0001
+counter-base16	%c	16	0	1785703406000	count=255	000FF
+counter-32w	%c	32w	0	1785703406000	count=33	2233
+counter-2048tz	%c	2048tz	0	1785703406000	count=2047	0𐒔
+counter-random	%d%c%r	62	0	1785703406000	count=2,rand=A1B2C3D4E5F6	1wqd1q00024pQFxG

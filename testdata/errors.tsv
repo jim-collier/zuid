@@ -52,3 +52,4 @@ past-horizon	12	ZUID_ERR_HORIZON	ErrHorizon	WidthOverflow	go,c,cli	clock ... hor
 raw-byte-base	13	ZUID_ERR_BASE_NOT_TEXT	ErrBaseNotText	BaseNotText	go,c,cli	raw bytes
 control-char-base	13	ZUID_ERR_BASE_NOT_TEXT	ErrBaseNotText	BaseNotText	go,c,cli	control character
 context	14	ZUID_ERR_CONTEXT	-	-	-	-
+counter-full	15	ZUID_ERR_COUNTER	ErrCounter	CounterFull	go,c,cli	in one tick

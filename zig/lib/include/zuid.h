@@ -13,9 +13,10 @@
 	thread, or serialize access.
 
 	What an identifier looks like comes with each call, in a zuid_request,
-	the same as the Go module's Request. The context keeps only the runtime
-	and the machine's own values, so code sharing one cannot change what
-	another part of the program gets.
+	the same as the Go module's Request. The context keeps only the runtime,
+	the machine's own values and %c's count, so code sharing one cannot
+	change what another part of the program gets, except that %c counts
+	every identifier the context makes in a tick.
 
 	A freed context must not be used again, and must not be freed again -
 	the same contract C's own free() has. Every entry point rejects a
@@ -76,7 +77,8 @@ enum {
 	ZUID_ERR_BASE_DIGITS = 11,  /* no longer produced; every base can take every component */
 	ZUID_ERR_HORIZON = 12,      /* the clock is past the padding horizon, so %d no longer fits its width */
 	ZUID_ERR_BASE_NOT_TEXT = 13, /* the base renders raw bytes or control characters, not text */
-	ZUID_ERR_CONTEXT = 14        /* z is NULL or already freed */
+	ZUID_ERR_CONTEXT = 14,       /* z is NULL or already freed */
+	ZUID_ERR_COUNTER = 15        /* more identifiers in one tick than %c counts */
 };
 
 /* Upper bound on hash_chars and random_chars. */
@@ -169,6 +171,11 @@ void zuid_free(zuid *z);
 		%m  hardware address of the lowest-numbered non-loopback interface
 		%g  a UUID v4, rendered as the 128-bit number it is
 		%r  random symbols from a cryptographic source
+		%c  a counter: 0 for the context's first identifier in a tick, then
+		    1, 2 and on, so identifiers from one tick sort in the order they
+		    were made. It starts over when the tick changes. A tick holds
+		    1048576 (2^20), and past that is ZUID_ERR_COUNTER. A call that
+		    fails gives its number back.
 		%%  a literal '%'
 
 	Every component but an unhashed %h %u %f is a fixed number of symbols

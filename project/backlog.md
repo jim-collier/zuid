@@ -312,25 +312,12 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every `linuxArm64Box` and `freebsdBox` read in `cicd.bash`, the help text and its `--publish` part, `development.md`, `fPlanIn`'s and `fBoxIn`'s defaults, the shellcheck list in `fStage_Shell`, and dee2c's list. The macOS workflow passes `--no-remote`, so it never starts the step.
 	- 20261025: The calls under Check: in the questions file stand as picked.
 
-- CICD reset: other hosts, macOS falls back to vmKt6m
-	- ID: 2026102517494666
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261025-174946
-	- Opened by: JC
-	- Parent ID: 2026102514523209
-	- Prereq IDs: 2026102514523209
-	- Target OS: macOS
-	- Requirements  [Feature]:
-		- When b26 doesn't answer, the Mac box step runs the same job on vmKt6m, through the VM state helper.
-		- vmKt6m needs Zig 0.17.0 and Go for the build. Its Homebrew builds from source, so set it up detached.
-
 - Identifiers from one tick have no counter.
 	- ID: 2026102409130649
 	- Type: Feature
-	- Status: Queued
+	- Status: Waiting on automated testing
 		- Proposals are accepted.
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, for the fuzzers with `%c` in reach (dcrh6, dcrh7, dcrh8), `-race` over deebz, and the C checks and smoke test against the new header.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261024-091306
 	- Opened by: JC
@@ -346,8 +333,37 @@ Going forward, new issues in the new template at the bottom of this file, will g
 			- Width: fixed and derived from a target, like the other components, so identifiers still split by offset. 20 bits, which is 4 symbols in base 62. Past it is an error, as `%d` is past the horizon.
 			- The C context keeps the last tick and the count. That changes "the context keeps only the runtime and the clock pin", since a count can't come in per call.
 			- A format with `%c` can't repeat within a run, so the repeat warning never fires for it.
+		- 20261025: Done in Go, the Zig core, the C context, the command, the vectors, errors.tsv, zuid.h, design.md and the README. 11 vectors, from count 0 to a carry, in 4 bases and at millisecond precision. The `count=` env key replays that many identifiers from one counter first.
 	- Decisions:
 		- 20261024: The proposal above, as asked. Its C context change goes in design.md beside the old rule.
+		- 20261025: A full tick is its own error on every surface: C code 15 `ZUID_ERR_COUNTER`, Go `ErrCounter`, Zig `CounterFull`. Code 12 says the clock is past the horizon, which isn't what went wrong.
+		- 20261025: The limit is 2^20 counts in every base, the way the horizon is the same in every base, even where the width holds more.
+		- 20261025: A new precision starts the count over, the same as a new tick. So does a clock that steps back.
+		- 20261025: One number per identifier, however many times `%c` appears in it. A format without `%c` spends none.
+		- 20261025: An identifier that fails gives its number back, so a C caller retrying with a bigger buffer, or the command growing its own, gets the same one. In Go only the latest number can come back, so a failure among goroutines can leave a gap. Gaps cost nothing.
+		- 20261025: Go reads the clock once per identifier now, so `%d` and `%c` agree on the tick. It read it once per `%d` before.
+		- 20261025: A core call with no counter, such as a lone identifier, renders `%c` as 0.
+		- 20261025: The repeat warning still suggests `%r` only, since dcrp0 pins its text and the issue didn't ask to change it.
+	- Branch: round1026
+	- Test case: deebw and deebx (core width and counter), deeby, deebz and deec0 (Go), deec1 (C context), deec2, deec3 and deec4 (command), the 11 `counter-*` rows in daq6x and daqq6, and the `counter-full` row in ddj77, ddj8d, ddj8e, ddj8f and ddj8g. deeby, deebx and deec1 failed with the give-back taken out, and deeby with the tick reset taken out.
+	- Verified:
+		- 20261025: `go test ./...`, `-race` over the counter, vector and error tests, `zig build test`, `cli-test.bash` 97 of 97 and `--short` 11 of 11, `test-ids.py check`, shellcheck, gofmt, zig fmt, the scrub and the markdown checks.
+		- Not verified: the full run.
+	- Swept: every verb switch and verb list (`spentBy` in Go, the core loop, `unknownVerb`, both unknown-component messages), the help, zuid.h's component list and context note, design.md's component table, width rule, refusals and C context rule, and the Go fuzz property.
+
+- CICD reset: other hosts, macOS falls back to vmKt6m
+	- ID: 2026102517494666
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261025-174946
+	- Opened by: JC
+	- Parent ID: 2026102514523209
+	- Prereq IDs: 2026102514523209
+	- Target OS: macOS
+	- Requirements  [Feature]:
+		- When b26 doesn't answer, the Mac box step runs the same job on vmKt6m, through the VM state helper.
+		- vmKt6m needs Zig 0.17.0 and Go for the build. Its Homebrew builds from source, so set it up detached.
 
 - The FreeBSD release has no `.pkg`.
 	- ID: 2026101410500001

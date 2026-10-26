@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -18,6 +19,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jim-collier/convert-base-v2/lib/convertbase"
 	"github.com/jim-collier/zuid/go/zuid"
@@ -27,7 +29,7 @@ const vectorPath = "../../testdata/vectors.tsv"
 
 // expectedVectorRows guards against a parsing bug that skips most of the file
 // and then passes. Bump it when rows are added.
-const expectedVectorRows = 201
+const expectedVectorRows = 212
 
 // Injected state for one row. The defaults match the vectors file's header, so
 // a row only lists what it cares about.
@@ -37,6 +39,7 @@ type env struct {
 	fqdn   string
 	mac    string
 	random []byte
+	count  int // identifiers made before this one in the same tick
 }
 
 func defaultEnv() env {
@@ -84,6 +87,8 @@ func parseEnv(t *testing.T, spec string, req *zuid.Request) env {
 			req.HashChars, err = strconv.Atoi(value)
 		case "randchars":
 			req.RandomChars, err = strconv.Atoi(value)
+		case "count":
+			result.count, err = strconv.Atoi(value)
 		default:
 			t.Fatalf("env %q: unknown key", key)
 		}
@@ -194,7 +199,15 @@ func TestVectors(t *testing.T) {
 	}
 	for _, v := range vectors {
 		applyEnv(t, generator, v.clockMs, v.env)
-		got, err := generator.Generate(v.request)
+		// count= rows are the last of that many identifiers from one tick, each
+		// drawing the same random stream.
+		zuid.ResetCounter(generator)
+		var got string
+		var err error
+		for made := 0; made <= v.env.count && err == nil; made++ {
+			zuid.WithRandom(bytes.NewReader(v.env.random))(generator)
+			got, err = generator.Generate(v.request)
+		}
 		if err != nil {
 			t.Errorf("line %d (%s): generate: %v", v.line, v.name, err)
 			continue
@@ -451,6 +464,7 @@ var errorCases = []errorCase{
 	{"random runs dry", "env", []zuid.Option{zuid.WithRandom(strings.NewReader(""))}, zuid.Request{Format: "%r"}, zuid.ErrEnv},
 	{"short MAC", "env", []zuid.Option{zuid.WithMAC([]byte{1, 2, 3})}, zuid.Request{Format: "%m"}, zuid.ErrEnv},
 	{"empty host name", "env", []zuid.Option{zuid.WithHostname("")}, zuid.Request{Format: "%h"}, zuid.ErrEnv},
+	{"counter full", "counter-full", []zuid.Option{zuid.WithCountAt(1785703406000, zuid.PrecisionSecond, zuid.MaxCount+1)}, zuid.Request{Format: "%d%c"}, zuid.ErrCounter},
 }
 
 func (tc errorCase) run(t *testing.T) error {
@@ -470,7 +484,7 @@ func (tc errorCase) run(t *testing.T) error {
 // test-id: ddj77
 func TestErrorKinds(t *testing.T) {
 	kinds := []error{zuid.ErrUnknownBase, zuid.ErrBadFormat, zuid.ErrConvert, zuid.ErrClock,
-		zuid.ErrPrecision, zuid.ErrOption, zuid.ErrEnv, zuid.ErrHorizon, zuid.ErrBaseNotText}
+		zuid.ErrPrecision, zuid.ErrOption, zuid.ErrEnv, zuid.ErrHorizon, zuid.ErrBaseNotText, zuid.ErrCounter}
 	for _, tc := range errorCases {
 		err := tc.run(t)
 		if !errors.Is(err, tc.want) {
@@ -574,6 +588,7 @@ func TestErrorTable(t *testing.T) {
 		"ErrUnknownBase": zuid.ErrUnknownBase, "ErrBadFormat": zuid.ErrBadFormat, "ErrConvert": zuid.ErrConvert,
 		"ErrClock": zuid.ErrClock, "ErrPrecision": zuid.ErrPrecision, "ErrOption": zuid.ErrOption,
 		"ErrEnv": zuid.ErrEnv, "ErrHorizon": zuid.ErrHorizon, "ErrBaseNotText": zuid.ErrBaseNotText,
+		"ErrCounter": zuid.ErrCounter,
 	}
 	declared := declaredErrs(t)
 	for name := range declared {
@@ -1022,4 +1037,92 @@ func TestConcurrentGenerate(t *testing.T) {
 		}()
 	}
 	waiting.Wait()
+}
+
+// %c counts the identifiers one Generator makes in a tick, starts over when the
+// tick changes, and gives a failed identifier's number back.
+// test-id: deeby
+func TestCounter(t *testing.T) {
+	at := time.UnixMilli(1785703406000).UTC()
+	generator, err := zuid.New(zuid.WithClock(func() time.Time { return at }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := func(req zuid.Request, expected string) {
+		t.Helper()
+		got, err := generator.Generate(req)
+		if err != nil || got != expected {
+			t.Errorf("%q: got %q, %v; want %q", req.Format, got, err, expected)
+		}
+	}
+	want(zuid.Request{Format: "%c"}, "0000")
+	want(zuid.Request{Format: "%c-%c"}, "0001-0001")
+	// No %c, no number spent.
+	want(zuid.Request{Format: "x"}, "x")
+	want(zuid.Request{Format: "%c", Base: "16"}, "00002")
+	if _, err := generator.Generate(zuid.Request{Format: "%c%z"}); err == nil {
+		t.Error("a failing format: want an error")
+	}
+	want(zuid.Request{Format: "%c"}, "0003")
+	// A finer precision is its own tick.
+	want(zuid.Request{Format: "%c", Precision: zuid.PrecisionMilli}, "0000")
+	at = at.Add(time.Second)
+	want(zuid.Request{Format: "%c"}, "0000")
+	want(zuid.Request{Format: "%c"}, "0001")
+}
+
+// Goroutines sharing a Generator never get one number twice, and the numbers
+// they get are every one from 0 up.
+// test-id: deebz
+func TestCounterShared(t *testing.T) {
+	generator, err := zuid.New(zuid.WithFixedTime(time.UnixMilli(1785703406000).UTC()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const workers, each = 8, 500
+	var mu sync.Mutex
+	seen := map[string]bool{}
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range each {
+				id, err := generator.Generate(zuid.Request{Format: "%c", Base: "16"})
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				mu.Lock()
+				seen[id] = true
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if len(seen) != workers*each {
+		t.Fatalf("%d distinct counts from %d identifiers", len(seen), workers*each)
+	}
+	if !seen[fmt.Sprintf("%05X", workers*each-1)] {
+		t.Errorf("no %05X among the counts", workers*each-1)
+	}
+}
+
+// %c is wide enough for MaxCount in every curated base, and no wider.
+// test-id: deec0
+func TestCounterWidth(t *testing.T) {
+	want := map[string]int{"16": 5, "32w": 4, "36": 4, "62": 4, "64tt": 4, "128tt": 3, "256tt": 3, "512tt": 3, "1024tz": 2, "2048tz": 2}
+	for _, base := range zuid.CuratedBases() {
+		generator, err := zuid.New(zuid.WithFixedTime(time.UnixMilli(1785703406000).UTC()), zuid.WithCountAt(1785703406000, zuid.PrecisionSecond, zuid.MaxCount))
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := generator.Generate(zuid.Request{Format: "%c", Base: base})
+		if err != nil {
+			t.Fatalf("base %s: %v", base, err)
+		}
+		if got := utf8.RuneCountInString(id); got != want[base] {
+			t.Errorf("base %s: %q is %d symbols, want %d", base, id, got, want[base])
+		}
+	}
 }

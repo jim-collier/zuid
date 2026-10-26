@@ -59,6 +59,7 @@ pub fn codeFor(err: core.Error) c_int {
         core.Error.EnvUnavailable => 10,
         core.Error.WidthOverflow => 12,
         core.Error.BaseNotText => 13,
+        core.Error.CounterFull => 15,
     };
 }
 
@@ -69,7 +70,7 @@ pub fn textFor(err: core.Error) []const u8 {
         core.Error.WidthOverflow => "the clock is past the padding horizon, so the timestamp no longer fits its fixed width",
         core.Error.ClockBeforeEpoch => "the clock predates the Unix epoch",
         core.Error.BareFormatPercent => "the format string ends on a bare '%'",
-        core.Error.UnknownComponent => "unknown format component; known: %d %h %u %f %m %g %r, and %% for a literal",
+        core.Error.UnknownComponent => "unknown format component; known: %d %h %u %f %m %g %r %c, and %% for a literal",
         core.Error.OptionRange => std.fmt.comptimePrint("a symbol count is out of range: want 1 to {d}", .{core.max_component_chars}),
         core.Error.HashTooWide => "a hashed component cannot be wider than a SHA-256 fills in that base",
         core.Error.SaltTooLong => "the salt is longer than ZUID_MAX_SALT_BYTES",
@@ -77,6 +78,7 @@ pub fn textFor(err: core.Error) []const u8 {
         core.Error.BaseNotText => "that base renders raw bytes or control characters rather than text, so it cannot be used for an identifier",
         core.Error.BufferTooSmall => "out_cap is too small for the identifier plus its terminating NUL",
         core.Error.RuntimeFailed => "the embedded wasm runtime or its module failed",
+        core.Error.CounterFull => std.fmt.comptimePrint("more identifiers in one tick than %c counts, which is {d}", .{core.max_count + 1}),
         else => "",
     };
 }
@@ -103,12 +105,14 @@ pub const Request = extern struct {
 /// Public only so the fuzz test can name the handle type. C sees it as opaque.
 /// It holds the runtime and the machine's own values, never a caller's
 /// choices: those come with each call, so two callers sharing a context
-/// cannot change each other's output.
+/// cannot change each other's output. The one exception is %c's place in
+/// the current tick, which cannot come in per call.
 pub const Zuid = struct {
     magic: u32,
     wasm_host: host.Host,
     live_env: env.Live,
     fixed_clock_ms: ?i64,
+    counter: core.Counter,
     // The host's error text plus a NUL, so zuid_last_error can hand out a C string.
     err_buf: [host.Host.err_buf_len + 1]u8,
 
@@ -151,6 +155,7 @@ pub export fn zuid_new() ?*Zuid {
     self.magic = live_magic;
     self.live_env = .{};
     self.fixed_clock_ms = null;
+    self.counter = .{};
     self.err_buf[0] = 0;
     if (counts_contexts) live_contexts += 1;
     return self;
@@ -205,6 +210,7 @@ pub export fn zuid_generate(z: ?*Zuid, request: ?*const Request, out: ?[*]u8, ou
         .hash_chars = chars(req.hash_chars),
         .random_chars = chars(req.random_chars),
         .salt = if (req.salt) |salt_z| std.mem.span(salt_z) else "",
+        .counter = &self.counter,
     };
 
     // Straight into the caller's buffer, minus the byte the NUL needs. This

@@ -224,7 +224,7 @@ fWantMatch(){  ## id, label, regex the whole output must match, args...
 fEcho "Command: ${bin}"
 fLine ""
 
-## Derived widths in base 62: time 6, hash 8, uuid 22, random 6.
+## Derived widths in base 62: time 6, hash 8, uuid 22, random 6, counter 4.
 fWantLen dcrfc "the default is a 6-symbol timestamp" 6
 fWantLen dcrfd "hashed host is 8 symbols"            8  --format '%h'
 fWantLen dcrfe "a uuid is 22 symbols"                22 --format '%g'
@@ -235,6 +235,7 @@ fWantExact dcrfh "a doubled percent is one percent"  "%" --format '%%'
 fWantLen dee9c "hashed user is 8 symbols"            8  --format '%u'
 fWantLen dee9d "hashed FQDN is 8 symbols"            8  --format '%f'
 fWantLen dee9e "a MAC is 9 symbols"                  9  --format '%m'
+fWantLen deec4 "a counter is 4 symbols"              4  --format '%c'
 ## A build that isn't for a release adds the date.
 fWantMatch ddb04 "--version is the version and build"     '^zuid v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)? build [0-9a-z]+( \([0-9]{4}-[0-9]{2}-[0-9]{2}\))?'$'\n' --version
 
@@ -332,6 +333,10 @@ fWantWarning dcrnz "repeats are reported"      "2 of 3 identifiers repeat" -n 3 
 fWantWarning dcrp0 "suggests %r"   "add %r to the format" -n 3 --format '%d'
 fWantQuiet dcrp1 "random output does not warn" -n 20 --format '%d%r'
 fWantQuiet dcrp2 "one identifier cannot repeat" -n 1 --format '%d'
+
+## %c numbers a run's lines from 0, so a format with it never repeats.
+fWantExact deec2 "%c numbers the lines"  $'0000\n0001\n0002' -n 3 --format '%c'
+fWantQuiet deec3 "%c does not warn"      -n 20 --format '%d%c'
 
 ## Narrow enough random draws collide on their own, which is the case the
 ## warning is for - it counts what repeated, not whether %r was typed.

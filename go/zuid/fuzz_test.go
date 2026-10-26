@@ -31,7 +31,7 @@ func (s steadyBytes) Read(p []byte) (int, error) {
 //
 // test-id: dcrh6
 func FuzzGenerate(f *testing.F) {
-	for _, format := range []string{"%d", "%", "%%", "%z", "%d-%h-%u-%f-%m-%g-%r", "%%%%%d", "\x00%d", "%\xff"} {
+	for _, format := range []string{"%d", "%", "%%", "%z", "%d-%h-%u-%f-%m-%g-%r", "%d%c", "%%%%%d", "\x00%d", "%\xff"} {
 		f.Add(format, "62")
 	}
 	f.Add("%d", "2048tz")
@@ -53,6 +53,8 @@ func FuzzGenerate(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, format, base string) {
 		request := zuid.Request{Format: format, Base: base}
+		// %c moves on with every identifier, so each call starts it over.
+		zuid.ResetCounter(generator)
 		id, err := generator.Generate(request)
 		if err != nil {
 			if id != "" {
@@ -60,6 +62,7 @@ func FuzzGenerate(f *testing.F) {
 			}
 			return
 		}
+		zuid.ResetCounter(generator)
 		again, err := generator.Generate(request)
 		if err != nil {
 			t.Errorf("format %q base %q: worked once, then failed: %v", format, base, err)

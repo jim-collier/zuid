@@ -35,6 +35,8 @@ const FixedEnv = struct {
     random: [core.max_component_chars * 2]u8 = undefined,
     random_len: usize = 0,
     drawn: usize = 0,
+    /// Identifiers made before this one in the same tick.
+    count: u32 = 0,
 
     fn interface(self: *FixedEnv) core.Env {
         return .{ .ctx = self, .vtable = &vtable };
@@ -133,6 +135,8 @@ fn applyEnv(spec: []const u8, fixed: *FixedEnv, opts: *core.Options) !void {
             opts.hash_chars = try std.fmt.parseInt(u32, value, 10);
         } else if (std.mem.eql(u8, key, "randchars")) {
             opts.random_chars = try std.fmt.parseInt(u32, value, 10);
+        } else if (std.mem.eql(u8, key, "count")) {
+            fixed.count = try std.fmt.parseInt(u32, value, 10);
         } else {
             return error.BadVectorRow;
         }
@@ -209,11 +213,20 @@ fn runVectors(h: *host.Host) !void {
         };
         var fixed = FixedEnv{};
         try applyEnv(env_field, &fixed, &opts);
+        var counter = core.Counter{};
+        opts.counter = &counter;
 
+        // count= rows are the last of that many identifiers from one tick,
+        // each drawing the same random stream.
         var out_buf: [core.out_buf_len]u8 = undefined;
-        const got = core.generate(h.converter(), fixed.interface(), opts, &out_buf) catch |err| {
-            std.debug.print("vector {s} ({s}, base {s}): {t}: {s}\n", .{ name, format, base, err, h.lastError() });
-            return err;
+        var made: u32 = 0;
+        const got = while (true) : (made += 1) {
+            fixed.drawn = 0;
+            const id = core.generate(h.converter(), fixed.interface(), opts, &out_buf) catch |err| {
+                std.debug.print("vector {s} ({s}, base {s}): {t}: {s}\n", .{ name, format, base, err, h.lastError() });
+                return err;
+            };
+            if (made == fixed.count) break id;
         };
         std.testing.expectEqualStrings(expected, got) catch |err| {
             std.debug.print("vector {s} (base {s}, precision {s}, clock {s})\n", .{ name, base, precision_field, clock_field });
@@ -222,7 +235,7 @@ fn runVectors(h: *host.Host) !void {
         rows += 1;
     }
     // A parsing bug that skips every row would otherwise pass silently.
-    try std.testing.expect(rows >= 201);
+    try std.testing.expect(rows >= 212);
 }
 
 // test-id: daqq7
@@ -1093,6 +1106,19 @@ test "C messages match errors.tsv" {
     }
     try std.testing.expectEqual((try findRefusal(rows, "context")).code, capi.zuid_generate(null, null, &out, out.len));
 
+    // A full tick, without making a million identifiers to reach it.
+    {
+        const row = try findRefusal(rows, "counter-full");
+        capi.zuid_set_clock_ms(z, now_ms);
+        z.counter = .{ .tick = @divTrunc(now_ms, 1000), .next = core.max_count + 1 };
+        const req: capi.Request = .{ .format = "%c" };
+        try std.testing.expectEqual(row.code, capi.zuid_generate(z, &req, &out, out.len));
+        try std.testing.expect(row.heldBy(std.mem.span(capi.zuid_last_error(z))));
+        for (rows, 0..) |r, i| {
+            if (std.mem.eql(u8, r.label, row.label)) covered[i] = true;
+        }
+    }
+
     // The fixed sentences, including the ones no call here can reach, such as
     // a machine with no host name.
     inline for (core_error_names) |name| {
@@ -1140,4 +1166,29 @@ test "command messages match errors.tsv" {
             }
         }
     }
+}
+
+// A C context counts every identifier it makes in a tick, starts over on a new
+// one, and a call that fails - a short buffer included - gives its number back.
+// test-id: deec1
+test "C context counts with %c" {
+    const z = capi.zuid_new() orelse return error.InitFailed;
+    defer capi.zuid_free(z);
+    capi.zuid_set_clock_ms(z, 1785703406000);
+    var out: [64]u8 = undefined;
+
+    try std.testing.expectEqual(@as(c_int, 0), gen(z, "%d%c", null, &out, out.len));
+    try std.testing.expectEqualStrings("1wqd1q0000", std.mem.sliceTo(&out, 0));
+    try std.testing.expectEqual(@as(c_int, 0), gen(z, "%c", null, &out, out.len));
+    try std.testing.expectEqualStrings("0001", std.mem.sliceTo(&out, 0));
+    // Too short for the identifier, then again with room: the same number.
+    try std.testing.expectEqual(@as(c_int, 5), gen(z, "%c", null, &out, 3));
+    try std.testing.expectEqual(@as(c_int, 0), gen(z, "%c", null, &out, out.len));
+    try std.testing.expectEqualStrings("0002", std.mem.sliceTo(&out, 0));
+    try std.testing.expectEqual(@as(c_int, 0), gen(z, "%c", "16", &out, out.len));
+    try std.testing.expectEqualStrings("00003", std.mem.sliceTo(&out, 0));
+
+    capi.zuid_set_clock_ms(z, 1785703407000);
+    try std.testing.expectEqual(@as(c_int, 0), gen(z, "%c", null, &out, out.len));
+    try std.testing.expectEqualStrings("0000", std.mem.sliceTo(&out, 0));
 }

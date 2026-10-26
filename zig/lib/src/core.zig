@@ -37,6 +37,11 @@ pub const curated_bases = [_][]const u8{
 pub const hash_bits: u16 = 47;
 pub const random_bits: u16 = 35;
 
+/// How many identifiers one tick can count with %c: 2^20, which is 4 symbols
+/// in base 62. The limit is the same in every base, the way the horizon is.
+pub const counter_bits: u16 = 20;
+pub const max_count: u32 = (1 << counter_bits) - 1;
+
 /// Upper bound on the width of any one component. The whole identifier is
 /// bounded separately, by the output buffer the caller supplies.
 pub const max_component_chars: u32 = 64;
@@ -138,6 +143,8 @@ pub const Error = error{
     HashTooWide,
     /// salt is longer than max_salt_bytes.
     SaltTooLong,
+    /// More identifiers in one tick than %c can count.
+    CounterFull,
 };
 
 /// What the core needs from base conversion, and nothing more: one-shot
@@ -228,6 +235,34 @@ pub const Env = struct {
     }
 };
 
+/// Where %c keeps its place between identifiers: the tick it is counting in,
+/// and the number the next identifier from that tick gets. Whoever makes a
+/// series of identifiers holds one - the command for a run, the C module per
+/// context. Nothing is shared between processes, since that needs a state file.
+pub const Counter = struct {
+    tick: ?i64 = null,
+    precision: Precision = Precision.default,
+    next: u32 = 0,
+
+    /// The number for one identifier at this clock. A new tick, or a new
+    /// precision, starts again at 0.
+    pub fn take(self: *Counter, precision: Precision, clock_ms: i64) Error!u32 {
+        const tick = @divTrunc(clock_ms, precision.msPerUnit());
+        if (self.tick != tick or self.precision != precision) {
+            self.* = .{ .tick = tick, .precision = precision };
+        }
+        if (self.next > max_count) return Error.CounterFull;
+        self.next += 1;
+        return self.next - 1;
+    }
+
+    /// Hands back a number whose identifier failed, so a caller that retries
+    /// with a bigger buffer gets the same one. Only the latest can come back.
+    pub fn giveBack(self: *Counter, taken: u32) void {
+        if (self.next == taken + 1) self.next = taken;
+    }
+};
+
 /// One identifier's worth of choices. clock_ms has no default on purpose -
 /// nothing downstream reads the wall clock, so every caller states the instant.
 pub const Options = struct {
@@ -246,6 +281,9 @@ pub const Options = struct {
     /// rather than fixed - see hash_bits.
     hash_chars: u32 = 0,
     random_chars: u32 = 0,
+    /// %c's place in the current tick. Null makes a lone identifier, which
+    /// is the first of its tick, so %c renders as 0.
+    counter: ?*Counter = null,
 };
 
 /// Smallest symbol count that holds every value up to largest. Lexicographic
@@ -292,6 +330,11 @@ pub fn defaultRandomChars(radix: u64) u32 {
     return widthForBits(radix, random_bits);
 }
 
+/// Width of %c, which holds any count up to max_count in every base.
+pub fn counterChars(radix: u64) u32 {
+    return widthForBits(radix, counter_bits);
+}
+
 /// How many symbols of a SHA-256 this base can hold: 64 in base 16,
 /// down to 24 in 2048tz. Past it the extra symbols are all left-fill, so the
 /// identifier grows without the fingerprint getting any stronger - worth
@@ -324,6 +367,11 @@ pub fn generate(conv: Converter, env: Env, opts: Options, out: []u8) Error![]con
     }
     if (spends.random and widths.random > max_component_chars) return Error.OptionRange;
 
+    // One number per identifier however many times %c appears, taken at the
+    // first and handed back if the identifier fails.
+    var count: ?u32 = null;
+    errdefer if (count) |taken| if (opts.counter) |counter| counter.giveBack(taken);
+
     var used: usize = 0;
     var i: usize = 0;
     while (i < opts.format.len) : (i += 1) {
@@ -351,6 +399,12 @@ pub fn generate(conv: Converter, env: Env, opts: Options, out: []u8) Error![]con
             'm' => try macComponent(conv, env, base, radix, out[used..]),
             'g' => try uuidComponent(conv, env, base, radix, out[used..]),
             'r' => try randomComponent(conv, env, base, radix, widths.random, out[used..]),
+            'c' => blk: {
+                if (count == null) {
+                    count = if (opts.counter) |counter| try counter.take(opts.precision, opts.clock_ms) else 0;
+                }
+                break :blk try counterComponent(conv, base, radix, count.?, out[used..]);
+            },
             else => return Error.UnknownComponent,
         };
         used += rendered.len;
@@ -450,6 +504,14 @@ fn timeComponent(conv: Converter, base: []const u8, radix: u64, precision: Preci
     const dec = std.fmt.bufPrint(&dec_buf, "{d}", .{units}) catch unreachable;
 
     return conv.convertFit(dec, "10", base, widthFor(radix, precision), out);
+}
+
+/// The identifier's place among those from the same tick, padded to the width
+/// that holds max_count.
+fn counterComponent(conv: Converter, base: []const u8, radix: u64, count: u32, out: []u8) Error![]const u8 {
+    var dec_buf: [10]u8 = undefined;
+    const dec = std.fmt.bufPrint(&dec_buf, "{d}", .{count}) catch unreachable;
+    return conv.convertFit(dec, "10", base, counterChars(radix), out);
 }
 
 const NameKind = enum { host, user, fqdn };
@@ -615,4 +677,42 @@ test "precision round-trip" {
 test "hex is upper case" {
     var buf: [8]u8 = undefined;
     try std.testing.expectEqualStrings("00AB5EFF", hexUpper(&[_]u8{ 0x00, 0xab, 0x5e, 0xff }, &buf));
+}
+
+// test-id: deebw
+test "counter width holds 2^20 in every base" {
+    const cases = [_]struct { radix: u64, chars: u32 }{
+        .{ .radix = 16, .chars = 5 },   .{ .radix = 32, .chars = 4 },
+        .{ .radix = 36, .chars = 4 },   .{ .radix = 62, .chars = 4 },
+        .{ .radix = 64, .chars = 4 },   .{ .radix = 128, .chars = 3 },
+        .{ .radix = 256, .chars = 3 },  .{ .radix = 512, .chars = 3 },
+        .{ .radix = 1024, .chars = 2 }, .{ .radix = 2048, .chars = 2 },
+    };
+    for (cases) |case| try std.testing.expectEqual(case.chars, counterChars(case.radix));
+}
+
+// test-id: deebx
+test "counter resets on a new tick and stops at its width" {
+    var counter = Counter{};
+    try std.testing.expectEqual(@as(u32, 0), try counter.take(.second, 1000));
+    try std.testing.expectEqual(@as(u32, 1), try counter.take(.second, 1999));
+    // Same instant, finer tick: a new count.
+    try std.testing.expectEqual(@as(u32, 0), try counter.take(.milli, 1999));
+    try std.testing.expectEqual(@as(u32, 0), try counter.take(.second, 2000));
+    // A clock that steps back is a new tick too.
+    try std.testing.expectEqual(@as(u32, 0), try counter.take(.second, 1000));
+
+    // Only the latest number comes back.
+    const one = try counter.take(.second, 1000);
+    const two = try counter.take(.second, 1000);
+    counter.giveBack(one);
+    try std.testing.expectEqual(@as(u32, 3), counter.next);
+    counter.giveBack(two);
+    try std.testing.expectEqual(two, try counter.take(.second, 1000));
+
+    counter.next = max_count;
+    try std.testing.expectEqual(max_count, try counter.take(.second, 1000));
+    try std.testing.expectError(Error.CounterFull, counter.take(.second, 1000));
+    try std.testing.expectError(Error.CounterFull, counter.take(.second, 1000));
+    try std.testing.expectEqual(@as(u32, 0), try counter.take(.second, 2000));
 }
