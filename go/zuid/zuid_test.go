@@ -189,6 +189,23 @@ func applyEnv(t *testing.T, generator *zuid.Generator, at int64, e env) {
 	}
 }
 
+// One row on a generator that may have made others before it. Every replayer
+// goes through here, so none can miss count= or carry %c in from the last row.
+func replayVector(t *testing.T, generator *zuid.Generator, v vector) (string, error) {
+	t.Helper()
+	applyEnv(t, generator, v.clockMs, v.env)
+	// count= rows are the last of that many identifiers from one tick, each
+	// drawing the same random stream.
+	zuid.ResetCounter(generator)
+	var got string
+	var err error
+	for made := 0; made <= v.env.count && err == nil; made++ {
+		zuid.WithRandom(bytes.NewReader(v.env.random))(generator)
+		got, err = generator.Generate(v.request)
+	}
+	return got, err
+}
+
 // The vectors are the spec. Both implementations reproduce every row.
 // test-id: daq6x
 func TestVectors(t *testing.T) {
@@ -198,16 +215,7 @@ func TestVectors(t *testing.T) {
 		t.Fatalf("loaded %d vectors, want at least %d", len(vectors), expectedVectorRows)
 	}
 	for _, v := range vectors {
-		applyEnv(t, generator, v.clockMs, v.env)
-		// count= rows are the last of that many identifiers from one tick, each
-		// drawing the same random stream.
-		zuid.ResetCounter(generator)
-		var got string
-		var err error
-		for made := 0; made <= v.env.count && err == nil; made++ {
-			zuid.WithRandom(bytes.NewReader(v.env.random))(generator)
-			got, err = generator.Generate(v.request)
-		}
+		got, err := replayVector(t, generator, v)
 		if err != nil {
 			t.Errorf("line %d (%s): generate: %v", v.line, v.name, err)
 			continue
