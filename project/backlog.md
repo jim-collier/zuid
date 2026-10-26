@@ -30,135 +30,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## Issues
 
-- FreeBSD kernel panics while zuid runs.
-	- ID: 2026100413383471
-	- Type: Bug
-	- Status: Can't reproduce
-	- Needs external testing: No. Reopen if it comes back.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261004-133835
-	- Opened by: JC
-	- Parent ID: 2026100413383571
-	- Target OS: FreeBSD 15.1, x86_64
-	- Test environment: `vmFreeBSD`, 8 CPUs, 8 GB.
-	- Version and build: 1.0.0-alpha.1 (build ddg8r), from the `freebsd` branch.
-	- Steps to reproduce [Bug]:
-		- Run `cli-test.bash --bin <tarball>/bin/zuid` on the VM.
-	- Incorrect behavior [Bug]: The kernel panicked about two minutes in: "Fatal trap 12: page fault while in kernel mode", current process zuid. The backtrace runs from a user page fault through `vm_fault` and `vm_page_activate` into `vm_page_pqstate_commit`.
-	- Expected behavior [Bug]: No program can panic the kernel. At worst zuid crashes.
-	- Reproduced [Bug]: No. It happened once, 20261004, and the test log was lost in the reboot. 40 more runs of `cli-test.bash` did not bring it back: 16 one after another, and 24 four at a time with the Zig tests between them, with every zuid call logged to disk.
-	- Possible cause [Bug]: A FreeBSD kernel bug in its page-queue code, reached by Wasmtime's large memory reservations and guard pages. A program cannot cause a kernel page fault by itself. FreeBSD has a page-queue race of the same kind open on powerpc64le under heavy load, bug 296767; not shown to be the same one.
-	- Progress log:
-		- 20261004: The crash dump is `/var/crash/vmcore.0` on the VM.
-		- 20261004: Before it, the tarball's command, the 30 Zig tests and the C smoke test, static and shared, all passed there.
-		- 20261004: The 40 runs above passed, 69 of 69 each, and the 24 Zig test runs passed.
-		- 20261004: The VM was already current at 15.1-RELEASE-p4, the level it panicked on, so the update found nothing. 40 more runs the same way, against the release from 7dbdc21, passed 69 of 69 each, with 24 Zig test runs passing. No panic. See 2026100415162238.
-	- Decisions:
-		- Not a reason to hold the FreeBSD release, since zuid cannot cause or fix a kernel fault. Reopen if it comes back.
-	- Branch: freebsd
-	- Test case: none. The fault is in the kernel, and 80 runs did not bring it back.
-	- Acceptance signoff: Closed as asked, 20261005.
-	- Closed: 20261005-102900
-
-- A run with a missing docker leaves an empty `tmp.*` file in TMPDIR.
-	- ID: 2026101912130117
-	- Type: Bug
-	- Status: Can't reproduce
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261019-121301
-	- Opened by: JC
-	- Related IDs: 2026101816474402
-	- Steps to reproduce [Bug]:
-		- Run `cicd.bash --quick --leakcheck` with `ZUID_DOCKER` naming a program that doesn't exist.
-	- Incorrect behavior [Bug]: An empty `tmp.*` file is left behind in TMPDIR.
-	- Expected behavior [Bug]: Every temp file the run makes is gone when it ends.
-	- Reproduced [Bug]: Seen once, 20261019. Not traced.
-	- Progress log:
-		- 20261019: The filed command, `ZUID_DOCKER=no-such-docker cicd.bash --only zig --quick --leakcheck`, left nothing in a TMPDIR of its own. Neither did a run of both sides with a missing docker named by path, or a run that failed partway. A watch on the folder saw no plain `tmp.*` file made at its top level in any of them, even for a moment. Every `tmp.*` folder was gone at the end.
-		- 20261019: Every `mktemp` in the tree is a `mktemp -d` that goes on the cleanup list. Nothing calls a plain `mktemp`. The file seen was in the temp root every session on this box shares, and was tied to the run only by its time, about 34 s after the run started.
-	- Branch: cicdtidy
-	- Test case: none. Nothing reproduced it, so there's no failure for a test to pin. ddx66 and ddx67 already pin the cleanup of scratch folders.
-
-- Move `convertbase` to `lib/v0.2.0` once it is tagged.
-	- ID: 2026100519164742
-	- Type: Task
-	- Status: Stalled
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261005-191647
-	- Opened by: JC
-	- Related IDs: 2026100519164741
-	- Target OS: Any
-	- Requirements  [Feature]:
-		- convert-base-v2's `dev` now builds each built-in base the first time it is looked up. `NewRegistry` went from about 38 ms to 0.17 ms there. It is not in a release yet.
-		- When `lib/v0.2.0` is tagged, move `go.mod` to it. The reactor is built from the same pin, so both sides get it.
-		- Check the reactor's exports are unchanged, rerun the vectors, and measure again.
-	- Progress log:
-		- 20261005: A command built with a reactor from `dev` started in 0.25 s, or 0.02 s with the module cached, against 0.55 s and 0.34 s on `v0.1.0`. Go's `New` should drop from 57 ms the same way.
-		- 20261006: Stalled. convert-base-v2 is in the middle of an upgrade, so no tag until that settles.
-
-- The Windows exe and dll differ between machines building one commit.
-	- ID: 2026101305595483
-	- Type: Bug
-	- Status: Stalled
-	- Priority|Severity [Bug]: Avg
-	- Opened: 20261013-055954
-	- Opened by: JC
-	- Parent ID: 2026101304122319
-	- Target OS: Windows
-	- Steps to reproduce [Bug]:
-		- Run `cicd.bash --package`, keep `dist/`, run `cicd.bash --container --package`, and compare `zuid.exe` and `zuid.dll` in the Windows zips.
-	- Incorrect behavior [Bug]: They differ in 20 bytes, the time stamp and the PDB's ID.
-	- Expected behavior [Bug]: The same bytes from any machine that builds the same commit.
-	- Reproduced [Bug]: Yes, 20261013. A one-line Zig program built for x86_64-windows-gnu in 2 folders with different names gave 2 exes 20 bytes apart. With `-fstrip` they matched.
-	- Possible cause [Bug]: Zig links with `-BREPRO`, so lld makes the PDB's ID from a hash of the PDB, and the time stamp from that. The PDB has the absolute paths of the checkout, the Zig install and its cache. Zig has no way to map those paths yet. Upstream: ziglang/zig#31001 on Codeberg, debug-prefix-map support, open.
-	- Progress log:
-		- 20261013: Stalled on ziglang/zig#31001, a path map for debug info.
-		- 20261013: Ruled out: lld's `/pdbsourcepath` rewrites relative paths only. A build with no PDB matches, but 2026101008194330 keeps the PDB in `dist/debug/` so a crash can be looked up. Patching the ID after the link is a hack.
-		- 20261013: Paths aren't the only cause. 2 cold builds at one path still gave 2 PDBs. Zig builds its mingw C runtime from temp files with random names, such as `tmp/679bb39054fc1352-crt2.obj`, and clang puts each command line in the PDB. 88 such names per PDB. No upstream issue found for that.
-
-- Run the arm64 Windows release and the arm64 macOS slice on real arm64 machines.
-	- ID: 2026101312344407
-	- Type: Task
-	- Status: Stalled
-	- Needs external testing: Yes. `zuid.exe`, `zuid.dll`, `capi_smoke.c` and `install.ps1` on arm64 Windows, and the universal tarball's command and C module on an Apple Silicon Mac.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261013-123444
-	- Opened by: JC
-	- Related IDs: 2026100416052036
-	- Target OS: Windows on arm64, macOS on Apple Silicon
-	- Progress log:
-		- 20261013: Split from 2026100416052036 and the old packaging and C module items. Both builds pass their static checks, and the Windows one passed under Wine on vmDebARM64.
-		- 20261013: Stalled. There is no arm64 Windows machine or Apple Silicon Mac here. A Windows ARM64 guest under emulation on b23 is too slow for more than a launch check.
-
-- convertbase's config parser turns a 32-bit number into an `int`, which can wrap on a 32-bit build.
-	- ID: 2026101911183280
-	- Type: Bug
-	- Status: Stalled
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261019-111832
-	- Opened by: JC
-	- Related IDs: 2026101816474402, 2026100519164742
-	- Incorrect behavior [Bug]: `parseU32` in convert-base-v2's `lib/shcl/shcl.go`, at the pinned `lib/v0.1.0`, parses up to 4294967295 and returns it as an `int`. On a 32-bit build anything over 2147483647 wraps negative. CodeQL's `go/incorrect-integer-conversion` found it.
-	- Expected behavior [Bug]: Nothing past the `int` range comes back as an `int`.
-	- Reproduced [Bug]: No. Read only. Its one caller reads a day of the month and refuses anything outside 1 to 31, which a wrapped value is, so no wrong result was found. zuid never loads a config.
-	- Progress log:
-		- 20261019: The code is upstream, so it's fixed in convert-base-v2 and comes in with a later pin. Until then `cicd/utility/codeql-suppressions.txt` suppresses it by this ID.
-		- 20261019: Stalled with the pin move, 2026100519164742.
-
-- The Windows exe has no icon.
-	- ID: 2026102407250000
-	- Type: Enhancement
-	- Status: Stalled
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261024-072500
-	- Opened by: JC
-	- Related IDs: 2026101410495999
-	- Target OS: Windows
-	- Requirements  [Feature]:
-		- An icon in `zuid.exe`'s resources, from the project logo.
-	- Progress log:
-		- 20261024: Split from 2026101410495999. Waits on a logo, and `private/logo/` is empty.
-
 - A fresh full run fails: the FreeBSD `libwasmtime-49.0.1` package no longer matches its pinned checksum.
 	- ID: 2026102519140200
 	- Type: Bug
@@ -189,28 +60,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: `pipeline-test.bash` 165 of 165, `test-ids.py check`, and shellcheck on both scripts.
 		- Not verified: the step inside a full run.
 	- Swept: every `freebsdPkgs` and `freebsdRepo` read in `cicd.bash`, and design.md's line on the FreeBSD pin. `fVendor_Wasmtime` pins Wasmtime's own release archives by sha256, which GitHub serves unchanged, so it stays as it is.
-
-- CICD reset: other hosts and VMs
-	- ID: 2026102416233100
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261024-162331
-	- Opened by: JC
-	- Prereq IDs: 2026102416233103
-		- Its `--no-remote` comes from the standard flags item, so that goes first.
-	- Related IDs: 2026101410500001, 2026101312344407
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per `Other hosts and VMs` in the shared CICD rules. Nothing in the pipeline uses a test box yet. The Mac build, the Windows installer runs and the FreeBSD runs are done by hand.
-		- The default run builds and tests on the boxes the project needs: Windows on b29w, macOS on b26 or vmKt6m, FreeBSD on vmFreeBSD, and Linux arm64 on vmDebARM64. `--no-remote` skips them.
-		- The Mac's universal build comes back into `dist-incoming/` from that run, not by hand.
-		- Each box is held through the shared host lock for as long as it's used. A VM is put back the way it was found, through the VM state helper.
-		- A box that doesn't answer is a `SKIP` in its step and in the summary, and never stops the run, `--merge-gate` included.
-		- Each box gets a work folder of its own for the project, under its temp root.
-		- Windows tests use `b29w`, never `b29w-wif`. Nothing in the repo names `b29w-wif` today.
-	- Progress log:
-		- 20261025: Split in 4, one per box. The shared part comes with vmFreeBSD in 2026102514523202, then vmDebARM64 in 2026102514523204, b29w in 2026102514523207, and the Mac in 2026102514523209.
 
 - CICD reset: other hosts, Linux arm64 on vmDebARM64
 	- ID: 2026102514523204
@@ -351,6 +200,157 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Not verified: the full run.
 	- Swept: every verb switch and verb list (`spentBy` in Go, the core loop, `unknownVerb`, both unknown-component messages), the help, zuid.h's component list and context note, design.md's component table, width rule, refusals and C context rule, and the Go fuzz property.
 
+- FreeBSD kernel panics while zuid runs.
+	- ID: 2026100413383471
+	- Type: Bug
+	- Status: Can't reproduce
+	- Needs external testing: No. Reopen if it comes back.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261004-133835
+	- Opened by: JC
+	- Parent ID: 2026100413383571
+	- Target OS: FreeBSD 15.1, x86_64
+	- Test environment: `vmFreeBSD`, 8 CPUs, 8 GB.
+	- Version and build: 1.0.0-alpha.1 (build ddg8r), from the `freebsd` branch.
+	- Steps to reproduce [Bug]:
+		- Run `cli-test.bash --bin <tarball>/bin/zuid` on the VM.
+	- Incorrect behavior [Bug]: The kernel panicked about two minutes in: "Fatal trap 12: page fault while in kernel mode", current process zuid. The backtrace runs from a user page fault through `vm_fault` and `vm_page_activate` into `vm_page_pqstate_commit`.
+	- Expected behavior [Bug]: No program can panic the kernel. At worst zuid crashes.
+	- Reproduced [Bug]: No. It happened once, 20261004, and the test log was lost in the reboot. 40 more runs of `cli-test.bash` did not bring it back: 16 one after another, and 24 four at a time with the Zig tests between them, with every zuid call logged to disk.
+	- Possible cause [Bug]: A FreeBSD kernel bug in its page-queue code, reached by Wasmtime's large memory reservations and guard pages. A program cannot cause a kernel page fault by itself. FreeBSD has a page-queue race of the same kind open on powerpc64le under heavy load, bug 296767; not shown to be the same one.
+	- Progress log:
+		- 20261004: The crash dump is `/var/crash/vmcore.0` on the VM.
+		- 20261004: Before it, the tarball's command, the 30 Zig tests and the C smoke test, static and shared, all passed there.
+		- 20261004: The 40 runs above passed, 69 of 69 each, and the 24 Zig test runs passed.
+		- 20261004: The VM was already current at 15.1-RELEASE-p4, the level it panicked on, so the update found nothing. 40 more runs the same way, against the release from 7dbdc21, passed 69 of 69 each, with 24 Zig test runs passing. No panic. See 2026100415162238.
+	- Decisions:
+		- Not a reason to hold the FreeBSD release, since zuid cannot cause or fix a kernel fault. Reopen if it comes back.
+	- Branch: freebsd
+	- Test case: none. The fault is in the kernel, and 80 runs did not bring it back.
+	- Acceptance signoff: Closed as asked, 20261005.
+	- Closed: 20261005-102900
+
+- A run with a missing docker leaves an empty `tmp.*` file in TMPDIR.
+	- ID: 2026101912130117
+	- Type: Bug
+	- Status: Can't reproduce
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261019-121301
+	- Opened by: JC
+	- Related IDs: 2026101816474402
+	- Steps to reproduce [Bug]:
+		- Run `cicd.bash --quick --leakcheck` with `ZUID_DOCKER` naming a program that doesn't exist.
+	- Incorrect behavior [Bug]: An empty `tmp.*` file is left behind in TMPDIR.
+	- Expected behavior [Bug]: Every temp file the run makes is gone when it ends.
+	- Reproduced [Bug]: Seen once, 20261019. Not traced.
+	- Progress log:
+		- 20261019: The filed command, `ZUID_DOCKER=no-such-docker cicd.bash --only zig --quick --leakcheck`, left nothing in a TMPDIR of its own. Neither did a run of both sides with a missing docker named by path, or a run that failed partway. A watch on the folder saw no plain `tmp.*` file made at its top level in any of them, even for a moment. Every `tmp.*` folder was gone at the end.
+		- 20261019: Every `mktemp` in the tree is a `mktemp -d` that goes on the cleanup list. Nothing calls a plain `mktemp`. The file seen was in the temp root every session on this box shares, and was tied to the run only by its time, about 34 s after the run started.
+	- Branch: cicdtidy
+	- Test case: none. Nothing reproduced it, so there's no failure for a test to pin. ddx66 and ddx67 already pin the cleanup of scratch folders.
+
+- Move `convertbase` to `lib/v0.2.0` once it is tagged.
+	- ID: 2026100519164742
+	- Type: Task
+	- Status: Stalled
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261005-191647
+	- Opened by: JC
+	- Related IDs: 2026100519164741
+	- Target OS: Any
+	- Requirements  [Feature]:
+		- convert-base-v2's `dev` now builds each built-in base the first time it is looked up. `NewRegistry` went from about 38 ms to 0.17 ms there. It is not in a release yet.
+		- When `lib/v0.2.0` is tagged, move `go.mod` to it. The reactor is built from the same pin, so both sides get it.
+		- Check the reactor's exports are unchanged, rerun the vectors, and measure again.
+	- Progress log:
+		- 20261005: A command built with a reactor from `dev` started in 0.25 s, or 0.02 s with the module cached, against 0.55 s and 0.34 s on `v0.1.0`. Go's `New` should drop from 57 ms the same way.
+		- 20261006: Stalled. convert-base-v2 is in the middle of an upgrade, so no tag until that settles.
+
+- The Windows exe and dll differ between machines building one commit.
+	- ID: 2026101305595483
+	- Type: Bug
+	- Status: Stalled
+	- Priority|Severity [Bug]: Avg
+	- Opened: 20261013-055954
+	- Opened by: JC
+	- Parent ID: 2026101304122319
+	- Target OS: Windows
+	- Steps to reproduce [Bug]:
+		- Run `cicd.bash --package`, keep `dist/`, run `cicd.bash --container --package`, and compare `zuid.exe` and `zuid.dll` in the Windows zips.
+	- Incorrect behavior [Bug]: They differ in 20 bytes, the time stamp and the PDB's ID.
+	- Expected behavior [Bug]: The same bytes from any machine that builds the same commit.
+	- Reproduced [Bug]: Yes, 20261013. A one-line Zig program built for x86_64-windows-gnu in 2 folders with different names gave 2 exes 20 bytes apart. With `-fstrip` they matched.
+	- Possible cause [Bug]: Zig links with `-BREPRO`, so lld makes the PDB's ID from a hash of the PDB, and the time stamp from that. The PDB has the absolute paths of the checkout, the Zig install and its cache. Zig has no way to map those paths yet. Upstream: ziglang/zig#31001 on Codeberg, debug-prefix-map support, open.
+	- Progress log:
+		- 20261013: Stalled on ziglang/zig#31001, a path map for debug info.
+		- 20261013: Ruled out: lld's `/pdbsourcepath` rewrites relative paths only. A build with no PDB matches, but 2026101008194330 keeps the PDB in `dist/debug/` so a crash can be looked up. Patching the ID after the link is a hack.
+		- 20261013: Paths aren't the only cause. 2 cold builds at one path still gave 2 PDBs. Zig builds its mingw C runtime from temp files with random names, such as `tmp/679bb39054fc1352-crt2.obj`, and clang puts each command line in the PDB. 88 such names per PDB. No upstream issue found for that.
+
+- Run the arm64 Windows release and the arm64 macOS slice on real arm64 machines.
+	- ID: 2026101312344407
+	- Type: Task
+	- Status: Stalled
+	- Needs external testing: Yes. `zuid.exe`, `zuid.dll`, `capi_smoke.c` and `install.ps1` on arm64 Windows, and the universal tarball's command and C module on an Apple Silicon Mac.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261013-123444
+	- Opened by: JC
+	- Related IDs: 2026100416052036
+	- Target OS: Windows on arm64, macOS on Apple Silicon
+	- Progress log:
+		- 20261013: Split from 2026100416052036 and the old packaging and C module items. Both builds pass their static checks, and the Windows one passed under Wine on vmDebARM64.
+		- 20261013: Stalled. There is no arm64 Windows machine or Apple Silicon Mac here. A Windows ARM64 guest under emulation on b23 is too slow for more than a launch check.
+
+- convertbase's config parser turns a 32-bit number into an `int`, which can wrap on a 32-bit build.
+	- ID: 2026101911183280
+	- Type: Bug
+	- Status: Stalled
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261019-111832
+	- Opened by: JC
+	- Related IDs: 2026101816474402, 2026100519164742
+	- Incorrect behavior [Bug]: `parseU32` in convert-base-v2's `lib/shcl/shcl.go`, at the pinned `lib/v0.1.0`, parses up to 4294967295 and returns it as an `int`. On a 32-bit build anything over 2147483647 wraps negative. CodeQL's `go/incorrect-integer-conversion` found it.
+	- Expected behavior [Bug]: Nothing past the `int` range comes back as an `int`.
+	- Reproduced [Bug]: No. Read only. Its one caller reads a day of the month and refuses anything outside 1 to 31, which a wrapped value is, so no wrong result was found. zuid never loads a config.
+	- Progress log:
+		- 20261019: The code is upstream, so it's fixed in convert-base-v2 and comes in with a later pin. Until then `cicd/utility/codeql-suppressions.txt` suppresses it by this ID.
+		- 20261019: Stalled with the pin move, 2026100519164742.
+
+- The Windows exe has no icon.
+	- ID: 2026102407250000
+	- Type: Enhancement
+	- Status: Stalled
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261024-072500
+	- Opened by: JC
+	- Related IDs: 2026101410495999
+	- Target OS: Windows
+	- Requirements  [Feature]:
+		- An icon in `zuid.exe`'s resources, from the project logo.
+	- Progress log:
+		- 20261024: Split from 2026101410495999. Waits on a logo, and `private/logo/` is empty.
+
+- CICD reset: other hosts and VMs
+	- ID: 2026102416233100
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Prereq IDs: 2026102416233103
+		- Its `--no-remote` comes from the standard flags item, so that goes first.
+	- Related IDs: 2026101410500001, 2026101312344407
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per `Other hosts and VMs` in the shared CICD rules. Nothing in the pipeline uses a test box yet. The Mac build, the Windows installer runs and the FreeBSD runs are done by hand.
+		- The default run builds and tests on the boxes the project needs: Windows on b29w, macOS on b26 or vmKt6m, FreeBSD on vmFreeBSD, and Linux arm64 on vmDebARM64. `--no-remote` skips them.
+		- The Mac's universal build comes back into `dist-incoming/` from that run, not by hand.
+		- Each box is held through the shared host lock for as long as it's used. A VM is put back the way it was found, through the VM state helper.
+		- A box that doesn't answer is a `SKIP` in its step and in the summary, and never stops the run, `--merge-gate` included.
+		- Each box gets a work folder of its own for the project, under its temp root.
+		- Windows tests use `b29w`, never `b29w-wif`. Nothing in the repo names `b29w-wif` today.
+	- Progress log:
+		- 20261025: Split in 4, one per box. The shared part comes with vmFreeBSD in 2026102514523202, then vmDebARM64 in 2026102514523204, b29w in 2026102514523207, and the Mac in 2026102514523209.
+
 - CICD reset: other hosts, macOS falls back to vmKt6m
 	- ID: 2026102517494666
 	- Type: Enhancement
@@ -393,84 +393,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- A system install leaves other users' caches alone and says where they are.
 	- Progress log:
 		- 20261024: Seen on b26, after an install, one run and an uninstall.
-
-- `install.ps1` wraps its link refusal in the generic write error.
-	- ID: 2026102516500000
-	- Type: Bug
-	- Status: Done
-	- Needs local test suite run?: none.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261025-165000
-	- Opened by: JC
-	- Related IDs: 2026102514072150
-	- Steps to reproduce [Bug]: Make the install dir a junction, then run `install.ps1 -Target system`.
-	- Expected [Bug]: One line saying the install dir is a link and was left alone.
-	- Actual [Bug]: "couldn't write C:\Program Files\zuid: zuid-install: refused to empty C:\Program Files\zuid: it's a link Close any running zuid, check the permissions, or try -Target user." The prefix shows twice, and the advice is for a different problem.
-	- Reproduced [Bug]: 20261025, with `installer-test.bash` on Linux, and on b29w under 5.1 and 7, user and system. `install.bash` had the same fault: its refusal came out ahead of "couldn't write ... Check its permissions".
-	- Actual cause [Bug]: `Clear-InstallDirectory` throws the refusal inside the `try` around the install's writes, and that `catch` wraps any error in the write message. `install.bash` printed its refusal and returned 1, and its caller then died with the write message.
-	- Actual fix [Bug]: `install.ps1` rethrows its own messages from that `catch` as they are. `install.bash` dies with the refusal itself. Both say "refused to empty <dir>: it's a link, so it was left alone." Both installers are 1.3.2.
-	- Branch: round1026
-	- Test case: deea3 and deea4 in `installer-test.bash`, for bash and ps1, plus the junction checks in deea5 on b29w. Against the old scripts deea3 failed on the write advice and deea4 on the doubled prefix, and the b29w junction checks failed too. All pass after.
-	- Verified: 20261025, `installer-test.bash` 99 of 99, and deea5 on b29w, 33 of 33.
-	- Swept: both refusals in `Clear-InstallDirectory` and `fEmptyInstallDir`, and both of `fEmptyInstallDir`'s callers, install and uninstall. `install.ps1`'s uninstall calls `Clear-InstallDirectory` with no wrap. `Remove-Under`'s refusals now come through unwrapped too.
-	- Acceptance signoff: Self-closed 20261025. Checked on Linux and on b29w.
-	- Closed: 20261025-190430
-
-- de572 fails the first time a box fetches the pinned Go.
-	- ID: 2026102517583389
-	- Type: Bug
-	- Status: Done
-	- Needs local test suite run?: none.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261025-175833
-	- Opened by: JC
-	- Related IDs: 2026102514523209
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- On a box whose Go hasn't fetched `GO_VER` yet, run `cicd.bash --quick --package`.
-	- Incorrect behavior [Bug]: de572 fails with "GOTOOLCHAIN=go1.26.9 gives go: downloading go1.26.9 (darwin/amd64) go1.26.9, not go1.26.9." The next run passes.
-	- Expected behavior [Bug]: It passes on the first run too.
-	- Reproduced [Bug]: 20261025, on b26, in the Mac box step's first run. Again with a stand-in `go` that says it's downloading.
-	- Possible cause [Bug]: `fReactor_Toolchain` reads `go env GOVERSION` with `2>&1`, so Go's download note on stderr lands in the version it compares.
-	- Actual cause [Bug]: As above.
-	- Actual fix [Bug]: The version is stdout only. stderr goes to a file in the run folder, read only for a failure's reason.
-	- Branch: round1026
-	- Test case: dee9f in `pipeline-test.bash`: a fetching run and a fetched one pass, and a failed fetch still says why. It failed with the old `2>&1`, with the same message as on b26, and passes after.
-	- Verified: 20261025, `pipeline-test.bash` 161 of 161, shellcheck on the stage's list, `test-ids.py check`, and the content scrub.
-	- Swept: the other `go version`, `go env` and `zig version` reads in `cicd.bash`. None takes stderr into a value.
-	- Acceptance signoff: Self-closed 20261025. Pipeline-only.
-	- Closed: 20261025-183000
-
-- CICD reset: the vmDebARM64 box step runs a short part of `cli-test.bash`
-	- ID: 2026102518133200
-	- Type: Enhancement
-	- Status: Done
-	- Needs local test suite run?: none.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261025-181332
-	- Opened by: JC
-	- Parent ID: 2026102416233100
-	- Related IDs: 2026102514523204
-	- Target OS: Linux arm64
-	- Requirements  [Feature]:
-		- The vmDebARM64 step runs a short subset of `cli-test.bash` plus both smoke tests, in a few minutes. Each run of the command costs about 12 s there under emulation, so the whole harness added about 22 minutes to every full run.
-		- The subset covers `--version`, a default ID, and each component once. Other boxes keep the whole harness.
-	- Progress log:
-		- 20261025: `cli-test.bash --short` runs 10 cases: the default, each of `%h %u %f %m %g %r %%`, a literal, and `--version`'s version line. Those cases now sit at the top of the harness, and the full run goes on past them.
-		- 20261025: `%u`, `%f` and `%m` had no case before. They're new, in the full run too.
-		- 20261025: `fBox_Release` hands any more arguments to `cli-test.bash` on the box, through a `cli-test.args` file. The arm64 step passes `--short`. FreeBSD passes none and runs the whole harness.
-	- Decisions:
-		- 20261025: The literal and `%%` stay in the short run. They're one case each and sit with the component cases. `--version` is only its version line, ddb04, since that's what scripts read.
-		- 20261025: An arguments file rather than a flag file, so another box can pass something else later with no new code.
-	- Branch: round1026
-	- Test case: dee9g (`--short` runs only its 10 cases), dee9h (the arm64 job gets `--short`, FreeBSD's gets nothing, and the job hands them to `cli-test.bash`), dee9c, dee9d and dee9e (the new component widths). dee9g failed with the short exit removed, and dee9h with `--short` left off the step and with the job ignoring the file. Both pass after.
-	- Verified:
-		- 20261025: dee7m on the real vmDebARM64, through the VM state helper's wrap, from off, against `dist/` from 16:42: 10 of 10 short cases on Debian arm64, both smoke tests, then the VM shut down and put back to off. About 6 minutes from start to back off, boot included, against about 22 before.
-		- 20261025: `cli-test.bash` 95 of 95 and `--short` 10 of 10 on b23, `pipeline-test.bash` 161 of 161, shellcheck on the stage's list, `test-ids.py check`, and the content scrub.
-		- Not verified: the step inside a full run. 2026102514523204's full run covers it.
-	- Swept: every `fBox_Release` call, every `cli-test.bash` call in `cicd.bash`, `pipeline-test.bash` and the macOS workflow (none passes `--short`), the step's comment, and `development.md`.
-	- Acceptance signoff: Self-closed 20261025. Pipeline-only.
-	- Closed: 20261025-183500
 
 - dedpa fails in the image, which has no `ps`.
 	- ID: 2026102508540624
@@ -664,6 +586,37 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 91411c1
 	- Test case: `ddc8r`, `ddc8s`. Both watched to fail without the skip.
 	- Closed: 20261001-135500
+
+- CICD reset: the vmDebARM64 box step runs a short part of `cli-test.bash`
+	- ID: 2026102518133200
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-181332
+	- Opened by: JC
+	- Parent ID: 2026102416233100
+	- Related IDs: 2026102514523204
+	- Target OS: Linux arm64
+	- Requirements  [Feature]:
+		- The vmDebARM64 step runs a short subset of `cli-test.bash` plus both smoke tests, in a few minutes. Each run of the command costs about 12 s there under emulation, so the whole harness added about 22 minutes to every full run.
+		- The subset covers `--version`, a default ID, and each component once. Other boxes keep the whole harness.
+	- Progress log:
+		- 20261025: `cli-test.bash --short` runs 10 cases: the default, each of `%h %u %f %m %g %r %%`, a literal, and `--version`'s version line. Those cases now sit at the top of the harness, and the full run goes on past them.
+		- 20261025: `%u`, `%f` and `%m` had no case before. They're new, in the full run too.
+		- 20261025: `fBox_Release` hands any more arguments to `cli-test.bash` on the box, through a `cli-test.args` file. The arm64 step passes `--short`. FreeBSD passes none and runs the whole harness.
+	- Decisions:
+		- 20261025: The literal and `%%` stay in the short run. They're one case each and sit with the component cases. `--version` is only its version line, ddb04, since that's what scripts read.
+		- 20261025: An arguments file rather than a flag file, so another box can pass something else later with no new code.
+	- Branch: round1026
+	- Test case: dee9g (`--short` runs only its 10 cases), dee9h (the arm64 job gets `--short`, FreeBSD's gets nothing, and the job hands them to `cli-test.bash`), dee9c, dee9d and dee9e (the new component widths). dee9g failed with the short exit removed, and dee9h with `--short` left off the step and with the job ignoring the file. Both pass after.
+	- Verified:
+		- 20261025: dee7m on the real vmDebARM64, through the VM state helper's wrap, from off, against `dist/` from 16:42: 10 of 10 short cases on Debian arm64, both smoke tests, then the VM shut down and put back to off. About 6 minutes from start to back off, boot included, against about 22 before.
+		- 20261025: `cli-test.bash` 95 of 95 and `--short` 10 of 10 on b23, `pipeline-test.bash` 161 of 161, shellcheck on the stage's list, `test-ids.py check`, and the content scrub.
+		- Not verified: the step inside a full run. 2026102514523204's full run covers it.
+	- Swept: every `fBox_Release` call, every `cli-test.bash` call in `cicd.bash`, `pipeline-test.bash` and the macOS workflow (none passes `--short`), the step's comment, and `development.md`.
+	- Acceptance signoff: Self-closed 20261025. Pipeline-only.
+	- Closed: 20261025-183500
 
 - CICD reset: test IDs
 	- ID: 2026102416233106
@@ -1148,6 +1101,31 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: ddj72, ddj73, ddj74 and ddj75 in `cli-test.bash`, and ddj76 in `tests.zig`. Each failed with its part of the cache broken.
 	- Acceptance signoff: Self-closed: tested on 3 OSes, uses each one's usual cache dir, and a bad file only costs one slower run.
 	- Closed: 20261013-033301
+
+- de572 fails the first time a box fetches the pinned Go.
+	- ID: 2026102517583389
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261025-175833
+	- Opened by: JC
+	- Related IDs: 2026102514523209
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- On a box whose Go hasn't fetched `GO_VER` yet, run `cicd.bash --quick --package`.
+	- Incorrect behavior [Bug]: de572 fails with "GOTOOLCHAIN=go1.26.9 gives go: downloading go1.26.9 (darwin/amd64) go1.26.9, not go1.26.9." The next run passes.
+	- Expected behavior [Bug]: It passes on the first run too.
+	- Reproduced [Bug]: 20261025, on b26, in the Mac box step's first run. Again with a stand-in `go` that says it's downloading.
+	- Possible cause [Bug]: `fReactor_Toolchain` reads `go env GOVERSION` with `2>&1`, so Go's download note on stderr lands in the version it compares.
+	- Actual cause [Bug]: As above.
+	- Actual fix [Bug]: The version is stdout only. stderr goes to a file in the run folder, read only for a failure's reason.
+	- Branch: round1026
+	- Test case: dee9f in `pipeline-test.bash`: a fetching run and a fetched one pass, and a failed fetch still says why. It failed with the old `2>&1`, with the same message as on b26, and passes after.
+	- Verified: 20261025, `pipeline-test.bash` 161 of 161, shellcheck on the stage's list, `test-ids.py check`, and the content scrub.
+	- Swept: the other `go version`, `go env` and `zig version` reads in `cicd.bash`. None takes stderr into a value.
+	- Acceptance signoff: Self-closed 20261025. Pipeline-only.
+	- Closed: 20261025-183000
 
 - `install.bash --help` prints nothing from the README one-liner, and `install.ps1` has no `-Help`.
 	- ID: 2026101410500005
@@ -2314,6 +2292,28 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: none. A check of the test machine, not of zuid; the runs above are the result.
 	- Acceptance signoff: Self-closed: the update check and the retest ran.
 	- Closed: 20261004-183600
+
+- `install.ps1` wraps its link refusal in the generic write error.
+	- ID: 2026102516500000
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261025-165000
+	- Opened by: JC
+	- Related IDs: 2026102514072150
+	- Steps to reproduce [Bug]: Make the install dir a junction, then run `install.ps1 -Target system`.
+	- Expected [Bug]: One line saying the install dir is a link and was left alone.
+	- Actual [Bug]: "couldn't write C:\Program Files\zuid: zuid-install: refused to empty C:\Program Files\zuid: it's a link Close any running zuid, check the permissions, or try -Target user." The prefix shows twice, and the advice is for a different problem.
+	- Reproduced [Bug]: 20261025, with `installer-test.bash` on Linux, and on b29w under 5.1 and 7, user and system. `install.bash` had the same fault: its refusal came out ahead of "couldn't write ... Check its permissions".
+	- Actual cause [Bug]: `Clear-InstallDirectory` throws the refusal inside the `try` around the install's writes, and that `catch` wraps any error in the write message. `install.bash` printed its refusal and returned 1, and its caller then died with the write message.
+	- Actual fix [Bug]: `install.ps1` rethrows its own messages from that `catch` as they are. `install.bash` dies with the refusal itself. Both say "refused to empty <dir>: it's a link, so it was left alone." Both installers are 1.3.2.
+	- Branch: round1026
+	- Test case: deea3 and deea4 in `installer-test.bash`, for bash and ps1, plus the junction checks in deea5 on b29w. Against the old scripts deea3 failed on the write advice and deea4 on the doubled prefix, and the b29w junction checks failed too. All pass after.
+	- Verified: 20261025, `installer-test.bash` 99 of 99, and deea5 on b29w, 33 of 33.
+	- Swept: both refusals in `Clear-InstallDirectory` and `fEmptyInstallDir`, and both of `fEmptyInstallDir`'s callers, install and uninstall. `install.ps1`'s uninstall calls `Clear-InstallDirectory` with no wrap. `Remove-Under`'s refusals now come through unwrapped too.
+	- Acceptance signoff: Self-closed 20261025. Checked on Linux and on b29w.
+	- Closed: 20261025-190430
 
 - Comments and notes say the image has no `ionice`, but it does.
 	- ID: 2026102509054739
