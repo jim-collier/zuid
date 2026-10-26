@@ -369,6 +369,18 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- When b26 doesn't answer, the Mac box step runs the same job on vmKt6m, through the VM state helper.
 		- vmKt6m needs Zig 0.17.0 and Go for the build. Its Homebrew builds from source, so set it up detached.
 
+- The C soak never runs `%c`.
+	- ID: 2026102520060700
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261025-200607
+	- Opened by: JC
+	- Related IDs: 2026102409130649
+	- Requirements  [Feature]:
+		- `capi_soak.c` adds `%c` to its formats, so the counter the C context now keeps runs under heaptrack.
+		- Its loop must stay under the 2^20 limit per tick, or pin the clock forward between rounds.
+
 - The FreeBSD release has no `.pkg`.
 	- ID: 2026101410500001
 	- Type: Enhancement
