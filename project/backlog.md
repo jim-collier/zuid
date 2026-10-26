@@ -30,185 +30,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## Issues
 
-- A fresh full run fails: the FreeBSD `libwasmtime-49.0.1` package no longer matches its pinned checksum.
-	- ID: 2026102519140200
-	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: A run that packages, from a fresh worktree so the vendor step fetches: `cicd/cicd.bash --backlog-run-full`, for ddgey to ddgf2 and dee33.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261025-191402
-	- Opened by: JC
-	- Related IDs: 2026101410500001, 2026101218572197
-	- Target OS: FreeBSD
-	- Bug details:
-		- Step 14, Zig: vendor, stops with "FreeBSD libwasmtime-49.0.1 checksum mismatch: got b2a632b8e9652060197d63bd8dcd6052a1c821b0253e6b6049768adf9ccd494e". The pin in `cicd.bash` is 95ee2302...
-		- Seen 20261025 in a full run from a fresh worktree at 897fa59. A checkout with the package already vendored doesn't fetch it, so it passes there.
-		- Same version, new bytes, so the package server rebuilt it. Every fresh packaging run fails until the pin is checked and moved, or checked some other way that survives a rebuild.
-	- Reproduced [Bug]: Yes, 20261025. zstd-1.5.7_2 was rebuilt too, to `baa629f0...`. The run stopped at libwasmtime first.
-	- Actual cause [Bug]:
-		- The FreeBSD 14 quarterly repo rebuilt both packages under the same versions, on 2026-10-15 and 10-17. The new files are FreeBSD's own: the repo's catalog is signed with the key in FreeBSD's `share/keys/pkg/trusted`, and its sums match both files.
-		- The libraries inside are byte for byte the ones vendored on 20261013. Only the package wrapping changed.
-		- The catalog's `sum` is pkg's `2$` form: the file's blake2b-512 in pkg's own base32. The 20261012 note that it wasn't a file hash was wrong.
-	- Actual fix [Bug]: The pins are versions now, not file hashes. The vendor step fetches the catalog, checks its key and signature, then checks each package against its entry there. A version the repo has moved past says to repin. A tree already vendored at the same versions is kept.
-	- Decisions:
-		- 20261025: Checked against the signed catalog rather than repinned. A repin breaks again at the next rebuild, and this is the second break in two weeks. The cost is that the bytes can change without a commit. The release stays pinned to a Wasmtime version, and to FreeBSD's key.
-		- 20261025: openssl and b2sum are needed on the Linux box that packages. The image already has both, so the Dockerfile is unchanged.
-	- Branch: round1026
-	- Test case: deebc (packages the catalog vouches for are taken, a rebuild included, and pkg's sum form against known vectors) and deebd (a moved version, a dep's version taken for the package's, a changed package in either sum form, an edited catalog and another key are refused). Both failed against the old `cicd.bash`, and deebd failed with the signature check or the version read taken out.
-	- Verified:
-		- 20261025: The vendor step from a fresh folder against the real repo: both packages matched the signed catalog, and the vendored tree matched the cached one byte for byte.
-		- 20261025: `pipeline-test.bash` 165 of 165, `test-ids.py check`, and shellcheck on both scripts.
-		- Not verified: the step inside a full run.
-	- Swept: every `freebsdPkgs` and `freebsdRepo` read in `cicd.bash`, and design.md's line on the FreeBSD pin. `fVendor_Wasmtime` pins Wasmtime's own release archives by sha256, which GitHub serves unchanged, so it stays as it is.
-
-- CICD reset: other hosts, Linux arm64 on vmDebARM64
-	- ID: 2026102514523204
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, for dee7m in its "Linux arm64 box" step.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261025-145232
-	- Opened by: JC
-	- Parent ID: 2026102416233100
-	- Prereq IDs: 2026102514523202
-	- Target OS: Linux arm64
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- On vmDebARM64, through the shared part, the Linux arm64 release passes `cli-test.bash` and the C smoke test, shared and static. The VM is emulated, so keep the job small.
-	- Progress log:
-		- 20261025: A run that packages has a "Linux arm64 box" step after the FreeBSD one, outside the image. It sends the arm64 tarball, `cli-test.bash` and `capi_smoke.c` to `tester@vmDebARM64`, through the same lock, VM helper and `box-run.bash` as FreeBSD. The job is the FreeBSD one, unchanged.
-		- 20261025: `ZUID_BOX_LINUX_ARM64` names another destination, and set empty turns the step off. `--no-remote` turns it off too.
-		- 20261025: The two box steps share `fSteps_Box` for when they run and `fBox_Release` for what they send.
-		- 20261025: The step took about 22 minutes from a VM that was off, nearly all of it `cli-test.bash`, since each run of the command takes about 12 s of CPU under emulation even with its module cached. That adds that much to every full run.
-	- Decisions:
-		- 20261025: The calls that may need a look are under `Check:` in the questions file: the step's length, and the `tester` user.
-	- Branch: round1026
-	- Test case: dee7m (the box step itself), dee7n (which runs have it), dee7p (it sends the arm64 release to vmDebARM64 under that box's lock, and skips with no release or no answer). dee7n and dee7p each failed with the step left out of the plan and pointed at the FreeBSD box, and pass after.
-	- Verified:
-		- 20261025: dee7m on the real vmDebARM64, from off, against `dist/` from 16:42: 92 of 92 `cli-test.bash` cases on Debian arm64, both smoke tests, then the VM shut down and put back to off.
-		- 20261025: `pipeline-test.bash` 156 of 156, `test-ids.py check` (519, all unique), shellcheck on the stage's list, the content scrub, and `cicd.bash --backlog-run-quick shell docs`, 8 of 8 steps. Load about 16 to 45 on 32 CPUs.
-		- Not verified: the step inside a full run.
-	- Swept: every `freebsdBox` read in `cicd.bash`, the help text, `development.md`, `fPlanIn`'s and `fBoxIn`'s defaults in `pipeline-test.bash`, and the two Package comments that said the FreeBSD and arm64 releases are run by hand. No new files, so the shellcheck list and dee2c's list are unchanged.
-	- 20261025: The tester user stands. The emulated box gets a short subset of cli-test.bash instead of the whole harness, in 2026102518133200.
-
-- CICD reset: other hosts, Windows on b29w
-	- ID: 2026102514523207
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, for deea5 in its "Windows box" step.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261025-145232
-	- Opened by: JC
-	- Parent ID: 2026102416233100
-	- Prereq IDs: 2026102514523202
-	- Related IDs: 2026101312344407
-	- Target OS: Windows x86_64
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- On b29w, never `b29w-wif`, the x86_64 zip from the run's `--package` runs its command, and `install.ps1` installs it under 5.1 and 7, user and system, with both `PATH`s back as they were. The installer part is run by hand today, with `win-installer-test.bash` from the private notes.
-		- The box has no bash on PATH, so the job is PowerShell, sent and run with `-File`.
-	- Progress log:
-		- 20261025: A run that packages has a "Windows box" step after the Mac one, outside the image. It sends the x86_64 zip, the run's `checksums.txt` and `install.ps1` to `collierjr@b29w`, under the same lock and `box-run.bash` as the other boxes.
-		- 20261025: A job dir with a `job.ps1` is a Windows job. `box-run.bash` makes its folder under the box's `%TEMP%\zuid` through `-EncodedCommand`. `box-run.ps1`, sent with the job, sweeps stale folders, runs the job with `-File` at below normal priority, and removes the folder through its own guard.
-		- 20261025: The job, `box-windows-test.ps1`, runs the zip's command, then installs, reinstalls and uninstalls under 5.1 and 7, user and system, with both `PATH`s checked byte for byte. It also checks the junction refusal from 2026102516500000. `install.ps1` runs from a scriptblock, as the one-liner does.
-		- 20261025: `ZUID_BOX_WINDOWS` names another destination, and set empty turns the step off. `--no-remote` turns it off too.
-		- 20261025: The answer probe in `box-run.bash` is `exit 0` for every box now, since cmd has no `true`.
-		- 20261025: On GitHub's Mac runner, deea6 failed, since it looks for the Windows box after the Mac box, which a Mac leaves out of its plan. Fixed with dee8m, in `fPlanIn`, which now plans as Linux unless a case names another host.
-	- Decisions:
-		- 20261025: The installer gets the run's zip from functions in the job that stand in for `Invoke-RestMethod` and `Invoke-WebRequest`. No new installer option and no web server, so the installer's surface is unchanged and the box needs nothing extra.
-		- 20261025: The user install and the command's module cache go under the job folder, through `LOCALAPPDATA`, so a real user install on the box is never touched. A `Program Files\zuid` that was there before the run fails the step rather than be touched.
-		- 20261025: `collierjr`, since the system install needs admin. No C smoke test, since the box has no C compiler.
-		- 20261025: `win-installer-test.bash` stays in the private tools, for the one-liner from `main` against GitHub, which this step doesn't cover.
-	- Branch: round1026
-	- Test case: deea5 (the box step itself), deea6 (which runs have it), deea7 (it runs a PowerShell job under b29w's lock, removes the box's folder after a pass or a fail, skips with no release or no answer, and `box-run.ps1` removes nothing but a run folder). deea6 failed with the step left out of the plan. deea7 failed with `box-run.bash`'s Windows branch off, and with `box-run.ps1`'s name check gone. Both pass after.
-	- Verified:
-		- 20261025: deea5 on the real b29w, against `dist/` from 16:42 and this branch's `install.ps1`: 33 of 33 checks under Windows PowerShell 5.1.26100 and pwsh 7, user and system, and the box's folder was gone after. Against the old `install.ps1` only the 4 junction checks failed.
-		- 20261025: `pipeline-test.bash` 163 of 163, `test-ids.py check` (533, all unique), shellcheck, PSScriptAnalyzer, and `cicd.bash --backlog-run-quick shell installers docs`, 10 of 10 steps. Load about 21 to 30 on 32 CPUs.
-		- 20261025: `pipeline-test.bash` on b26, macOS 15: before the fix, dedty, dee8m and deea6 failed as on GitHub's runner; after, it passed with no FAIL. 165 of 165 here, and shellcheck.
-		- Not verified: the step inside a full run.
-	- Swept: every `macBox` read in `cicd.bash`, the help text, `development.md`, `fPlanIn`'s and `fBoxIn`'s defaults, dee2c's list, and the Package comment that said the Windows x86_64 release is run by hand. PSScriptAnalyzer and the ASCII check find the new `.ps1` files by themselves.
-
-- CICD reset: other hosts, macOS on b26 or vmKt6m
-	- ID: 2026102514523209
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, for dee8k in its "Mac box" step.
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261025-145232
-	- Opened by: JC
-	- Parent ID: 2026102416233100
-	- Prereq IDs: 2026102514523202
-	- Related IDs: 2026102318361185
-	- Target OS: macOS
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- On b26, or vmKt6m when b26 doesn't answer, the run builds and tests with `--package` from the commit being tested, and the universal tarball comes back into `dist-incoming/`, not by hand.
-		- The box needs Zig 0.17.0. b26 had 0.16.0 when last noted.
-	- Progress log:
-		- 20261025: Split. This item does b26. The vmKt6m fallback is 2026102517494666.
-		- 20261025: b26 already had Zig 0.17.0 in `collierjr`'s home, beside 0.16.0, and Go 1.27.
-		- 20261025: A run that packages has a "Mac box" step after the arm64 one, outside the image. It sends a git bundle of HEAD to `collierjr@b26`, which clones it and runs a quick `cicd.bash --package` there. The universal tarball and the bare command come back into `dist-incoming/`, replacing an earlier run's, and the debug info into `dist-incoming/debug/`.
-		- 20261025: Held through the same lock as the other boxes. `ZUID_BOX_MAC` names another destination, and set empty turns the step off. `--no-remote` turns it off too, and so does running on a Mac.
-		- 20261025: `box-run.bash` brings a job's `back/` folder home when `ZUID_BOX_BACK` names a place for it.
-		- 20261025: The Mac keeps Wasmtime's macOS archives between runs, in its cache dir.
-		- 20261025: Found along the way: de572 fails the first time a box fetches the pinned Go. Filed as 2026102517583389. The next run passes.
-		- 20261025: On GitHub's Mac runner, dedty and dee8m failed: a Mac leaves the Mac box step out of its own plan. `fPlanIn` now plans as Linux unless a case names another host, and dedty's full `--list` runs with `uname` stood in for as Linux x86_64. What they check on Linux is unchanged.
-	- Decisions:
-		- 20261025: The calls that may need a look are under `Check:` in the questions file: the `collierjr` user, the flags the Mac runs, which runs have the step, what comes home, and the Wasmtime cache.
-	- Branch: round1026
-	- Test case: dee8k (the box step itself), dee8m (which runs have it), dee8n (it bundles HEAD, brings the release home into `dist-incoming/`, replaces an earlier one, fails when the job fails or sends no tarball, and skips with no answer). dee8m failed with the step left out of the plan and with the Mac check gone. dee8n failed with the files left where they came home, and with `box-run.bash` ignoring `ZUID_BOX_BACK`. Both pass after.
-	- Verified:
-		- 20261025: dee8k on the real b26, from HEAD at 0028c4b: the Mac's quick run with `--package` passed all 18 steps, ddf2d, dde03, dde05, ddwj4 and ddwj5 included, in about 8 minutes. The tarball, the bare command and the debug info came home, b26's work folder was gone after, and the lock was released.
-		- 20261025: `pipeline-test.bash` 158 of 158, `test-ids.py check` (522, all unique), shellcheck on the stage's list.
-		- 20261025: `pipeline-test.bash` on b26, macOS 15: before the fix, dedty, dee8m and deea6 failed as on GitHub's runner; after, it passed with no FAIL. 165 of 165 here, and shellcheck.
-		- Not verified: the step inside a full run.
-	- Swept: every `linuxArm64Box` and `freebsdBox` read in `cicd.bash`, the help text and its `--publish` part, `development.md`, `fPlanIn`'s and `fBoxIn`'s defaults, the shellcheck list in `fStage_Shell`, and dee2c's list. The macOS workflow passes `--no-remote`, so it never starts the step.
-		- 20261025: the `uname` reads in the functions `fPlanIn` lifts, only the Mac box's, and the other `--list` cases, which passed on the Mac.
-	- 20261025: The calls under Check: in the questions file stand as picked.
-
-- Identifiers from one tick have no counter.
-	- ID: 2026102409130649
-	- Type: Feature
-	- Status: Waiting on automated testing
-		- Proposals are accepted.
-	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, for the fuzzers with `%c` in reach (dcrh6, dcrh7, dcrh8), `-race` over deebz, and the C checks and smoke test against the new header.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261024-091306
-	- Opened by: JC
-	- Related IDs: 2026101410495988
-	- Requirements  [Feature]:
-		- A counter component, so identifiers from one tick sort in the order they were made.
-	- Progress log:
-		- 20261024: From the README review. Today 2 identifiers from one tick sort in random order with `%r`, and repeat without it. design.md keeps same-tick repeats literal with a warning, and a counter is a way to ask for something else in the format.
-		- 20261024: Question, with a proposal for each:
-			- Name: `%c`.
-			- Scope: one run of the command, or one Go `Generator` or C context. Nothing is shared between processes, since that needs a state file, and there's no config file for the same reason. 2 processes in one tick still need `%h`, `%u` or `%r` to differ.
-			- Reset: back to 0 when the tick changes. A run reads the clock once, so in a batch it's the line number from 0.
-			- Width: fixed and derived from a target, like the other components, so identifiers still split by offset. 20 bits, which is 4 symbols in base 62. Past it is an error, as `%d` is past the horizon.
-			- The C context keeps the last tick and the count. That changes "the context keeps only the runtime and the clock pin", since a count can't come in per call.
-			- A format with `%c` can't repeat within a run, so the repeat warning never fires for it.
-		- 20261025: Done in Go, the Zig core, the C context, the command, the vectors, errors.tsv, zuid.h, design.md and the README. 11 vectors, from count 0 to a carry, in 4 bases and at millisecond precision. The `count=` env key replays that many identifiers from one counter first.
-		- 20261025: dee9g in `pipeline-test.bash` failed every run, since its list of `--short` cases still had 10 without deec4. deec4 is in the list now, so the short run stays at 11.
-		- 20261025: The Go soak, de5cg, failed on `counter-last-digit`, since it replayed the vectors without `count=` and kept the count from the row before. It and daq6x now replay each row through one shared helper. The Zig replayer already read `count=`, and the C soak and the fuzzers don't replay the vectors.
-	- Decisions:
-		- 20261024: The proposal above, as asked. Its C context change goes in design.md beside the old rule.
-		- 20261025: A full tick is its own error on every surface: C code 15 `ZUID_ERR_COUNTER`, Go `ErrCounter`, Zig `CounterFull`. Code 12 says the clock is past the horizon, which isn't what went wrong.
-		- 20261025: The limit is 2^20 counts in every base, the way the horizon is the same in every base, even where the width holds more.
-		- 20261025: A new precision starts the count over, the same as a new tick. So does a clock that steps back.
-		- 20261025: One number per identifier, however many times `%c` appears in it. A format without `%c` spends none.
-		- 20261025: An identifier that fails gives its number back, so a C caller retrying with a bigger buffer, or the command growing its own, gets the same one. In Go only the latest number can come back, so a failure among goroutines can leave a gap. Gaps cost nothing.
-		- 20261025: Go reads the clock once per identifier now, so `%d` and `%c` agree on the tick. It read it once per `%d` before.
-		- 20261025: A core call with no counter, such as a lone identifier, renders `%c` as 0.
-		- 20261025: The repeat warning still suggests `%r` only, since dcrp0 pins its text and the issue didn't ask to change it.
-	- Branch: round1026
-	- Test case: deebw and deebx (core width and counter), deeby, deebz and deec0 (Go), deec1 (C context), deec2, deec3 and deec4 (command), the 11 `counter-*` rows in daq6x and daqq6, and the `counter-full` row in ddj77, ddj8d, ddj8e, ddj8f and ddj8g. deeby, deebx and deec1 failed with the give-back taken out, and deeby with the tick reset taken out.
-	- Verified:
-		- 20261025: `go test ./...`, `-race` over the counter, vector and error tests, `zig build test`, `cli-test.bash` 97 of 97 and `--short` 11 of 11, `test-ids.py check`, shellcheck, gofmt, zig fmt, the scrub and the markdown checks.
-		- 20261025: dee9g failed before its fix and passed after. `pipeline-test.bash` 165 of 165, `cli-test.bash --short` 11 of 11, shellcheck on the stage's list, `test-ids.py check` and the scrub.
-		- 20261025: de5cg failed before its fix and passed after, run alone with `ZUID_SOAK_DIR` set, as the leak check runs it. `go test ./...`, `go vet`, gofmt, `test-ids.py check` and the scrub.
-		- Not verified: the full run.
-	- Swept: every verb switch and verb list (`spentBy` in Go, the core loop, `unknownVerb`, both unknown-component messages), the help, zuid.h's component list and context note, design.md's component table, width rule, refusals and C context rule, and the Go fuzz property.
-
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -338,28 +159,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261024: Split from 2026101410495999. Waits on a logo, and `private/logo/` is empty.
 
-- CICD reset: other hosts and VMs
-	- ID: 2026102416233100
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261024-162331
-	- Opened by: JC
-	- Prereq IDs: 2026102416233103
-		- Its `--no-remote` comes from the standard flags item, so that goes first.
-	- Related IDs: 2026101410500001, 2026101312344407
-	- Requirements  [Feature]:
-		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
-		- Per `Other hosts and VMs` in the shared CICD rules. Nothing in the pipeline uses a test box yet. The Mac build, the Windows installer runs and the FreeBSD runs are done by hand.
-		- The default run builds and tests on the boxes the project needs: Windows on b29w, macOS on b26 or vmKt6m, FreeBSD on vmFreeBSD, and Linux arm64 on vmDebARM64. `--no-remote` skips them.
-		- The Mac's universal build comes back into `dist-incoming/` from that run, not by hand.
-		- Each box is held through the shared host lock for as long as it's used. A VM is put back the way it was found, through the VM state helper.
-		- A box that doesn't answer is a `SKIP` in its step and in the summary, and never stops the run, `--merge-gate` included.
-		- Each box gets a work folder of its own for the project, under its temp root.
-		- Windows tests use `b29w`, never `b29w-wif`. Nothing in the repo names `b29w-wif` today.
-	- Progress log:
-		- 20261025: Split in 4, one per box. The shared part comes with vmFreeBSD in 2026102514523202, then vmDebARM64 in 2026102514523204, b29w in 2026102514523207, and the Mac in 2026102514523209.
-
 - CICD reset: other hosts, macOS falls back to vmKt6m
 	- ID: 2026102517494666
 	- Type: Enhancement
@@ -414,6 +213,39 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- A system install leaves other users' caches alone and says where they are.
 	- Progress log:
 		- 20261024: Seen on b26, after an install, one run and an uninstall.
+
+- A fresh full run fails: the FreeBSD `libwasmtime-49.0.1` package no longer matches its pinned checksum.
+	- ID: 2026102519140200
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-191402
+	- Opened by: JC
+	- Related IDs: 2026101410500001, 2026101218572197
+	- Target OS: FreeBSD
+	- Bug details:
+		- Step 14, Zig: vendor, stops with "FreeBSD libwasmtime-49.0.1 checksum mismatch: got b2a632b8e9652060197d63bd8dcd6052a1c821b0253e6b6049768adf9ccd494e". The pin in `cicd.bash` is 95ee2302...
+		- Seen 20261025 in a full run from a fresh worktree at 897fa59. A checkout with the package already vendored doesn't fetch it, so it passes there.
+		- Same version, new bytes, so the package server rebuilt it. Every fresh packaging run fails until the pin is checked and moved, or checked some other way that survives a rebuild.
+	- Reproduced [Bug]: Yes, 20261025. zstd-1.5.7_2 was rebuilt too, to `baa629f0...`. The run stopped at libwasmtime first.
+	- Actual cause [Bug]:
+		- The FreeBSD 14 quarterly repo rebuilt both packages under the same versions, on 2026-10-15 and 10-17. The new files are FreeBSD's own: the repo's catalog is signed with the key in FreeBSD's `share/keys/pkg/trusted`, and its sums match both files.
+		- The libraries inside are byte for byte the ones vendored on 20261013. Only the package wrapping changed.
+		- The catalog's `sum` is pkg's `2$` form: the file's blake2b-512 in pkg's own base32. The 20261012 note that it wasn't a file hash was wrong.
+	- Actual fix [Bug]: The pins are versions now, not file hashes. The vendor step fetches the catalog, checks its key and signature, then checks each package against its entry there. A version the repo has moved past says to repin. A tree already vendored at the same versions is kept.
+	- Decisions:
+		- 20261025: Checked against the signed catalog rather than repinned. A repin breaks again at the next rebuild, and this is the second break in two weeks. The cost is that the bytes can change without a commit. The release stays pinned to a Wasmtime version, and to FreeBSD's key.
+		- 20261025: openssl and b2sum are needed on the Linux box that packages. The image already has both, so the Dockerfile is unchanged.
+	- Branch: round1026
+	- Test case: deebc (packages the catalog vouches for are taken, a rebuild included, and pkg's sum form against known vectors) and deebd (a moved version, a dep's version taken for the package's, a changed package in either sum form, an edited catalog and another key are refused). Both failed against the old `cicd.bash`, and deebd failed with the signature check or the version read taken out.
+	- Verified:
+		- 20261025: The vendor step from a fresh folder against the real repo: both packages matched the signed catalog, and the vendored tree matched the cached one byte for byte.
+		- 20261025: `pipeline-test.bash` 165 of 165, `test-ids.py check`, and shellcheck on both scripts.
+		- Not verified: the step inside a full run.
+	- Swept: every `freebsdPkgs` and `freebsdRepo` read in `cicd.bash`, and design.md's line on the FreeBSD pin. `fVendor_Wasmtime` pins Wasmtime's own release archives by sha256, which GitHub serves unchanged, so it stays as it is.
+	- Closed: 20261025-203628
+	- 20261025: Verified in the full run log of 20261025-200553_004 at da19f12, from a fresh worktree so the vendor step fetched: ddgey to ddgf2 and dee33 PASS.
 
 - dedpa fails in the image, which has no `ps`.
 	- ID: 2026102508540624
@@ -607,6 +439,141 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 91411c1
 	- Test case: `ddc8r`, `ddc8s`. Both watched to fail without the skip.
 	- Closed: 20261001-135500
+
+- CICD reset: other hosts, Linux arm64 on vmDebARM64
+	- ID: 2026102514523204
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-145232
+	- Opened by: JC
+	- Parent ID: 2026102416233100
+	- Prereq IDs: 2026102514523202
+	- Target OS: Linux arm64
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- On vmDebARM64, through the shared part, the Linux arm64 release passes `cli-test.bash` and the C smoke test, shared and static. The VM is emulated, so keep the job small.
+	- Progress log:
+		- 20261025: A run that packages has a "Linux arm64 box" step after the FreeBSD one, outside the image. It sends the arm64 tarball, `cli-test.bash` and `capi_smoke.c` to `tester@vmDebARM64`, through the same lock, VM helper and `box-run.bash` as FreeBSD. The job is the FreeBSD one, unchanged.
+		- 20261025: `ZUID_BOX_LINUX_ARM64` names another destination, and set empty turns the step off. `--no-remote` turns it off too.
+		- 20261025: The two box steps share `fSteps_Box` for when they run and `fBox_Release` for what they send.
+		- 20261025: The step took about 22 minutes from a VM that was off, nearly all of it `cli-test.bash`, since each run of the command takes about 12 s of CPU under emulation even with its module cached. That adds that much to every full run.
+	- Decisions:
+		- 20261025: The calls that may need a look are under `Check:` in the questions file: the step's length, and the `tester` user.
+	- Branch: round1026
+	- Test case: dee7m (the box step itself), dee7n (which runs have it), dee7p (it sends the arm64 release to vmDebARM64 under that box's lock, and skips with no release or no answer). dee7n and dee7p each failed with the step left out of the plan and pointed at the FreeBSD box, and pass after.
+	- Verified:
+		- 20261025: dee7m on the real vmDebARM64, from off, against `dist/` from 16:42: 92 of 92 `cli-test.bash` cases on Debian arm64, both smoke tests, then the VM shut down and put back to off.
+		- 20261025: `pipeline-test.bash` 156 of 156, `test-ids.py check` (519, all unique), shellcheck on the stage's list, the content scrub, and `cicd.bash --backlog-run-quick shell docs`, 8 of 8 steps. Load about 16 to 45 on 32 CPUs.
+		- Not verified: the step inside a full run.
+	- Swept: every `freebsdBox` read in `cicd.bash`, the help text, `development.md`, `fPlanIn`'s and `fBoxIn`'s defaults in `pipeline-test.bash`, and the two Package comments that said the FreeBSD and arm64 releases are run by hand. No new files, so the shellcheck list and dee2c's list are unchanged.
+	- Closed: 20261025-203628
+	- 20261025: The tester user stands. The emulated box gets a short subset of cli-test.bash instead of the whole harness, in 2026102518133200.
+	- 20261025: Verified in the full run log of 20261025-200553_004 at da19f12: dee7m PASS in its Linux arm64 box step, with the short cli-test.bash set.
+
+- CICD reset: other hosts, Windows on b29w
+	- ID: 2026102514523207
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-145232
+	- Opened by: JC
+	- Parent ID: 2026102416233100
+	- Prereq IDs: 2026102514523202
+	- Related IDs: 2026101312344407
+	- Target OS: Windows x86_64
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- On b29w, never `b29w-wif`, the x86_64 zip from the run's `--package` runs its command, and `install.ps1` installs it under 5.1 and 7, user and system, with both `PATH`s back as they were. The installer part is run by hand today, with `win-installer-test.bash` from the private notes.
+		- The box has no bash on PATH, so the job is PowerShell, sent and run with `-File`.
+	- Progress log:
+		- 20261025: A run that packages has a "Windows box" step after the Mac one, outside the image. It sends the x86_64 zip, the run's `checksums.txt` and `install.ps1` to `collierjr@b29w`, under the same lock and `box-run.bash` as the other boxes.
+		- 20261025: A job dir with a `job.ps1` is a Windows job. `box-run.bash` makes its folder under the box's `%TEMP%\zuid` through `-EncodedCommand`. `box-run.ps1`, sent with the job, sweeps stale folders, runs the job with `-File` at below normal priority, and removes the folder through its own guard.
+		- 20261025: The job, `box-windows-test.ps1`, runs the zip's command, then installs, reinstalls and uninstalls under 5.1 and 7, user and system, with both `PATH`s checked byte for byte. It also checks the junction refusal from 2026102516500000. `install.ps1` runs from a scriptblock, as the one-liner does.
+		- 20261025: `ZUID_BOX_WINDOWS` names another destination, and set empty turns the step off. `--no-remote` turns it off too.
+		- 20261025: The answer probe in `box-run.bash` is `exit 0` for every box now, since cmd has no `true`.
+		- 20261025: On GitHub's Mac runner, deea6 failed, since it looks for the Windows box after the Mac box, which a Mac leaves out of its plan. Fixed with dee8m, in `fPlanIn`, which now plans as Linux unless a case names another host.
+	- Decisions:
+		- 20261025: The installer gets the run's zip from functions in the job that stand in for `Invoke-RestMethod` and `Invoke-WebRequest`. No new installer option and no web server, so the installer's surface is unchanged and the box needs nothing extra.
+		- 20261025: The user install and the command's module cache go under the job folder, through `LOCALAPPDATA`, so a real user install on the box is never touched. A `Program Files\zuid` that was there before the run fails the step rather than be touched.
+		- 20261025: `collierjr`, since the system install needs admin. No C smoke test, since the box has no C compiler.
+		- 20261025: `win-installer-test.bash` stays in the private tools, for the one-liner from `main` against GitHub, which this step doesn't cover.
+	- Branch: round1026
+	- Test case: deea5 (the box step itself), deea6 (which runs have it), deea7 (it runs a PowerShell job under b29w's lock, removes the box's folder after a pass or a fail, skips with no release or no answer, and `box-run.ps1` removes nothing but a run folder). deea6 failed with the step left out of the plan. deea7 failed with `box-run.bash`'s Windows branch off, and with `box-run.ps1`'s name check gone. Both pass after.
+	- Verified:
+		- 20261025: deea5 on the real b29w, against `dist/` from 16:42 and this branch's `install.ps1`: 33 of 33 checks under Windows PowerShell 5.1.26100 and pwsh 7, user and system, and the box's folder was gone after. Against the old `install.ps1` only the 4 junction checks failed.
+		- 20261025: `pipeline-test.bash` 163 of 163, `test-ids.py check` (533, all unique), shellcheck, PSScriptAnalyzer, and `cicd.bash --backlog-run-quick shell installers docs`, 10 of 10 steps. Load about 21 to 30 on 32 CPUs.
+		- 20261025: `pipeline-test.bash` on b26, macOS 15: before the fix, dedty, dee8m and deea6 failed as on GitHub's runner; after, it passed with no FAIL. 165 of 165 here, and shellcheck.
+		- Not verified: the step inside a full run.
+	- Swept: every `macBox` read in `cicd.bash`, the help text, `development.md`, `fPlanIn`'s and `fBoxIn`'s defaults, dee2c's list, and the Package comment that said the Windows x86_64 release is run by hand. PSScriptAnalyzer and the ASCII check find the new `.ps1` files by themselves.
+	- Closed: 20261025-203628
+	- 20261025: Verified: the full run at da19f12 stopped at the Mac box step before this one, on tests fixed in 2e82a94. The Windows box step then ran alone at 2e82a94 against that run's dist: deea5 PASS on b29w.
+
+- CICD reset: other hosts, macOS on b26 or vmKt6m
+	- ID: 2026102514523209
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-145232
+	- Opened by: JC
+	- Parent ID: 2026102416233100
+	- Prereq IDs: 2026102514523202
+	- Related IDs: 2026102318361185
+	- Target OS: macOS
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- On b26, or vmKt6m when b26 doesn't answer, the run builds and tests with `--package` from the commit being tested, and the universal tarball comes back into `dist-incoming/`, not by hand.
+		- The box needs Zig 0.17.0. b26 had 0.16.0 when last noted.
+	- Progress log:
+		- 20261025: Split. This item does b26. The vmKt6m fallback is 2026102517494666.
+		- 20261025: b26 already had Zig 0.17.0 in `collierjr`'s home, beside 0.16.0, and Go 1.27.
+		- 20261025: A run that packages has a "Mac box" step after the arm64 one, outside the image. It sends a git bundle of HEAD to `collierjr@b26`, which clones it and runs a quick `cicd.bash --package` there. The universal tarball and the bare command come back into `dist-incoming/`, replacing an earlier run's, and the debug info into `dist-incoming/debug/`.
+		- 20261025: Held through the same lock as the other boxes. `ZUID_BOX_MAC` names another destination, and set empty turns the step off. `--no-remote` turns it off too, and so does running on a Mac.
+		- 20261025: `box-run.bash` brings a job's `back/` folder home when `ZUID_BOX_BACK` names a place for it.
+		- 20261025: The Mac keeps Wasmtime's macOS archives between runs, in its cache dir.
+		- 20261025: Found along the way: de572 fails the first time a box fetches the pinned Go. Filed as 2026102517583389. The next run passes.
+		- 20261025: On GitHub's Mac runner, dedty and dee8m failed: a Mac leaves the Mac box step out of its own plan. `fPlanIn` now plans as Linux unless a case names another host, and dedty's full `--list` runs with `uname` stood in for as Linux x86_64. What they check on Linux is unchanged.
+	- Decisions:
+		- 20261025: The calls that may need a look are under `Check:` in the questions file: the `collierjr` user, the flags the Mac runs, which runs have the step, what comes home, and the Wasmtime cache.
+	- Branch: round1026
+	- Test case: dee8k (the box step itself), dee8m (which runs have it), dee8n (it bundles HEAD, brings the release home into `dist-incoming/`, replaces an earlier one, fails when the job fails or sends no tarball, and skips with no answer). dee8m failed with the step left out of the plan and with the Mac check gone. dee8n failed with the files left where they came home, and with `box-run.bash` ignoring `ZUID_BOX_BACK`. Both pass after.
+	- Verified:
+		- 20261025: dee8k on the real b26, from HEAD at 0028c4b: the Mac's quick run with `--package` passed all 18 steps, ddf2d, dde03, dde05, ddwj4 and ddwj5 included, in about 8 minutes. The tarball, the bare command and the debug info came home, b26's work folder was gone after, and the lock was released.
+		- 20261025: `pipeline-test.bash` 158 of 158, `test-ids.py check` (522, all unique), shellcheck on the stage's list.
+		- 20261025: `pipeline-test.bash` on b26, macOS 15: before the fix, dedty, dee8m and deea6 failed as on GitHub's runner; after, it passed with no FAIL. 165 of 165 here, and shellcheck.
+		- Not verified: the step inside a full run.
+	- Swept: every `linuxArm64Box` and `freebsdBox` read in `cicd.bash`, the help text and its `--publish` part, `development.md`, `fPlanIn`'s and `fBoxIn`'s defaults, the shellcheck list in `fStage_Shell`, and dee2c's list. The macOS workflow passes `--no-remote`, so it never starts the step.
+	- Closed: 20261025-203628
+		- 20261025: the `uname` reads in the functions `fPlanIn` lifts, only the Mac box's, and the other `--list` cases, which passed on the Mac.
+	- 20261025: The calls under Check: in the questions file stand as picked.
+	- 20261025: Verified: the Mac box step ran alone at 2e82a94 against the dist of the full run at da19f12: dee8k PASS on b26, the Mac's own run passing all 18 steps. The hosted macOS run 40263468868 at 2e82a94 passed too.
+
+- CICD reset: other hosts and VMs
+	- ID: 2026102416233100
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261024-162331
+	- Opened by: JC
+	- Prereq IDs: 2026102416233103
+		- Its `--no-remote` comes from the standard flags item, so that goes first.
+	- Related IDs: 2026101410500001, 2026101312344407
+	- Requirements  [Feature]:
+		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
+		- Per `Other hosts and VMs` in the shared CICD rules. Nothing in the pipeline uses a test box yet. The Mac build, the Windows installer runs and the FreeBSD runs are done by hand.
+		- The default run builds and tests on the boxes the project needs: Windows on b29w, macOS on b26 or vmKt6m, FreeBSD on vmFreeBSD, and Linux arm64 on vmDebARM64. `--no-remote` skips them.
+		- The Mac's universal build comes back into `dist-incoming/` from that run, not by hand.
+		- Each box is held through the shared host lock for as long as it's used. A VM is put back the way it was found, through the VM state helper.
+		- A box that doesn't answer is a `SKIP` in its step and in the summary, and never stops the run, `--merge-gate` included.
+		- Each box gets a work folder of its own for the project, under its temp root.
+		- Windows tests use `b29w`, never `b29w-wif`. Nothing in the repo names `b29w-wif` today.
+	- Progress log:
+	- Closed: 20261025-203650
+		- 20261025: Split in 4, one per box. The shared part comes with vmFreeBSD in 2026102514523202, then vmDebARM64 in 2026102514523204, b29w in 2026102514523207, and the Mac in 2026102514523209.
+	- 20261025: Closed with its children. A run that packages tests on vmFreeBSD, vmDebARM64, b26 and b29w, each held through the host lock, with VMs put back. Falling back to vmKt6m is 2026102517494666.
 
 - CICD reset: the vmDebARM64 box step runs a short part of `cli-test.bash`
 	- ID: 2026102518133200
@@ -1501,6 +1468,51 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: f4c69e3
 	- Test case: `ddb12`, `ddb14`.
 	- Closed: 20260930-155553
+
+- Identifiers from one tick have no counter.
+	- ID: 2026102409130649
+	- Type: Feature
+	- Status: Done
+		- Proposals are accepted.
+	- Needs local test suite run?: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261024-091306
+	- Opened by: JC
+	- Related IDs: 2026101410495988
+	- Requirements  [Feature]:
+		- A counter component, so identifiers from one tick sort in the order they were made.
+	- Progress log:
+		- 20261024: From the README review. Today 2 identifiers from one tick sort in random order with `%r`, and repeat without it. design.md keeps same-tick repeats literal with a warning, and a counter is a way to ask for something else in the format.
+		- 20261024: Question, with a proposal for each:
+			- Name: `%c`.
+			- Scope: one run of the command, or one Go `Generator` or C context. Nothing is shared between processes, since that needs a state file, and there's no config file for the same reason. 2 processes in one tick still need `%h`, `%u` or `%r` to differ.
+			- Reset: back to 0 when the tick changes. A run reads the clock once, so in a batch it's the line number from 0.
+			- Width: fixed and derived from a target, like the other components, so identifiers still split by offset. 20 bits, which is 4 symbols in base 62. Past it is an error, as `%d` is past the horizon.
+			- The C context keeps the last tick and the count. That changes "the context keeps only the runtime and the clock pin", since a count can't come in per call.
+			- A format with `%c` can't repeat within a run, so the repeat warning never fires for it.
+		- 20261025: Done in Go, the Zig core, the C context, the command, the vectors, errors.tsv, zuid.h, design.md and the README. 11 vectors, from count 0 to a carry, in 4 bases and at millisecond precision. The `count=` env key replays that many identifiers from one counter first.
+		- 20261025: dee9g in `pipeline-test.bash` failed every run, since its list of `--short` cases still had 10 without deec4. deec4 is in the list now, so the short run stays at 11.
+		- 20261025: The Go soak, de5cg, failed on `counter-last-digit`, since it replayed the vectors without `count=` and kept the count from the row before. It and daq6x now replay each row through one shared helper. The Zig replayer already read `count=`, and the C soak and the fuzzers don't replay the vectors.
+	- Decisions:
+		- 20261024: The proposal above, as asked. Its C context change goes in design.md beside the old rule.
+		- 20261025: A full tick is its own error on every surface: C code 15 `ZUID_ERR_COUNTER`, Go `ErrCounter`, Zig `CounterFull`. Code 12 says the clock is past the horizon, which isn't what went wrong.
+		- 20261025: The limit is 2^20 counts in every base, the way the horizon is the same in every base, even where the width holds more.
+		- 20261025: A new precision starts the count over, the same as a new tick. So does a clock that steps back.
+		- 20261025: One number per identifier, however many times `%c` appears in it. A format without `%c` spends none.
+		- 20261025: An identifier that fails gives its number back, so a C caller retrying with a bigger buffer, or the command growing its own, gets the same one. In Go only the latest number can come back, so a failure among goroutines can leave a gap. Gaps cost nothing.
+		- 20261025: Go reads the clock once per identifier now, so `%d` and `%c` agree on the tick. It read it once per `%d` before.
+		- 20261025: A core call with no counter, such as a lone identifier, renders `%c` as 0.
+		- 20261025: The repeat warning still suggests `%r` only, since dcrp0 pins its text and the issue didn't ask to change it.
+	- Branch: round1026
+	- Test case: deebw and deebx (core width and counter), deeby, deebz and deec0 (Go), deec1 (C context), deec2, deec3 and deec4 (command), the 11 `counter-*` rows in daq6x and daqq6, and the `counter-full` row in ddj77, ddj8d, ddj8e, ddj8f and ddj8g. deeby, deebx and deec1 failed with the give-back taken out, and deeby with the tick reset taken out.
+	- Verified:
+		- 20261025: `go test ./...`, `-race` over the counter, vector and error tests, `zig build test`, `cli-test.bash` 97 of 97 and `--short` 11 of 11, `test-ids.py check`, shellcheck, gofmt, zig fmt, the scrub and the markdown checks.
+		- 20261025: dee9g failed before its fix and passed after. `pipeline-test.bash` 165 of 165, `cli-test.bash --short` 11 of 11, shellcheck on the stage's list, `test-ids.py check` and the scrub.
+		- 20261025: de5cg failed before its fix and passed after, run alone with `ZUID_SOAK_DIR` set, as the leak check runs it. `go test ./...`, `go vet`, gofmt, `test-ids.py check` and the scrub.
+		- Not verified: the full run.
+	- Swept: every verb switch and verb list (`spentBy` in Go, the core loop, `unknownVerb`, both unknown-component messages), the help, zuid.h's component list and context note, design.md's component table, width rule, refusals and C context rule, and the Go fuzz property.
+	- Closed: 20261025-203628
+	- 20261025: Verified in the full run log of 20261025-200553_004 at da19f12: dcrh6, dcrh7 and dcrh8 in the fuzz stage, deebz and de54e under -race, the C checks and smoke tests against the new header, and de5cg (the Go soak) all PASS.
 
 - Run CICD on GitHub's free arm64 macOS runners.
 	- ID: 2026102318361185
