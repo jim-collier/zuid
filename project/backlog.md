@@ -209,6 +209,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: `pipeline-test.bash` 156 of 156, `test-ids.py check` (519, all unique), shellcheck on the stage's list, the content scrub, and `cicd.bash --backlog-run-quick shell docs`, 8 of 8 steps. Load about 16 to 45 on 32 CPUs.
 		- Not verified: the step inside a full run.
 	- Swept: every `freebsdBox` read in `cicd.bash`, the help text, `development.md`, `fPlanIn`'s and `fBoxIn`'s defaults in `pipeline-test.bash`, and the two Package comments that said the FreeBSD and arm64 releases are run by hand. No new files, so the shellcheck list and dee2c's list are unchanged.
+	- 20261025: The tester user stands. The emulated box gets a short subset of cli-test.bash instead of the whole harness, in 2026102518133200.
 
 - CICD reset: other hosts, Windows on b29w
 	- ID: 2026102514523207
@@ -259,6 +260,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: `pipeline-test.bash` 158 of 158, `test-ids.py check` (522, all unique), shellcheck on the stage's list.
 		- Not verified: the step inside a full run.
 	- Swept: every `linuxArm64Box` and `freebsdBox` read in `cicd.bash`, the help text and its `--publish` part, `development.md`, `fPlanIn`'s and `fBoxIn`'s defaults, the shellcheck list in `fStage_Shell`, and dee2c's list. The macOS workflow passes `--no-remote`, so it never starts the step.
+	- 20261025: The calls under Check: in the questions file stand as picked.
 
 - de572 fails the first time a box fetches the pinned Go.
 	- ID: 2026102517583389
@@ -628,6 +630,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Closed: 20261025-235000
 	- Verified: 20261025, `cicd.bash --backlog-run-full` at 80461a2 passed all 27 steps, 600 PASS and 0 FAIL, dee33 included, on the real vmFreeBSD.
 	- Acceptance signoff: Self-closed 20261025. Pipeline-only.
+	- 20261025: The calls under Check: in the questions file stand as picked.
 
 - CICD reset: standard flags, areas and `--list`
 	- ID: 2026102508153578
@@ -1469,6 +1472,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261025: Split in 3. The run folder, its cleanup and the guard in `cicd.bash` are 2026102514072140. The harnesses and the hook are 2026102514072145. The packager and the installers are 2026102514072150.
 		- 20261025: All 3 children are in, and wait on the round's full run and the `macos` workflow. 2026102514072150 also waits on a Windows run of `install.ps1`.
 	- 20261025: closed with its 3 children.
+	- 20261025: The calls under Check: in the questions file stand as picked.
 
 - CICD reset: run folder and guard in cicd.bash
 	- ID: 2026102514072140
@@ -1509,6 +1513,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Closed: 20261025-235000
 	- Verified: 20261025, `cicd.bash --backlog-run-full` at 80461a2 passed all 27 steps, 600 PASS and 0 FAIL. the `macos` workflow it started, run 40245348504 at 80461a2, passed, dee1p to dee1s and dee5h, dee5j included.
 	- Acceptance signoff: Self-closed 20261025. Pipeline-only.
+	- 20261025: The calls under Check: in the questions file stand as picked.
 
 - CICD reset: guard in the harnesses and the hook
 	- ID: 2026102514072145
@@ -1543,6 +1548,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Closed: 20261025-235000
 	- Verified: 20261025, `cicd.bash --backlog-run-full` at 80461a2 passed all 27 steps, 600 PASS and 0 FAIL. the `macos` workflow it started, run 40245348504 at 80461a2, passed, dee2b to dee2d included.
 	- Acceptance signoff: Self-closed 20261025. Pipeline-only.
+	- 20261025: The calls under Check: in the questions file stand as picked.
 
 - CICD reset: guard in the packager and the installers
 	- ID: 2026102514072150
@@ -1578,6 +1584,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Verified: 20261025, `cicd.bash --backlog-run-full` at 80461a2 passed all 27 steps, 600 PASS and 0 FAIL, its package step included. the `macos` workflow it started, run 40245348504 at 80461a2, passed, dee2e to dee2j included.
 	- Verified: 20261025, `install.ps1` on b29w at 80461a2, 44 of 44 under Windows PowerShell 5.1 and 7, user and system: install over an old tree with read-only entries and links, uninstall, and refusal of an install dir that's a junction. Against the old script only the refusal failed.
 	- Acceptance signoff: Self-closed 20261025. Checked on Linux, the Mac and Windows.
+	- 20261025: The calls under Check: in the questions file stand as picked.
 
 - CICD reset: version line
 	- ID: 2026102416233108
@@ -1610,6 +1617,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Closed: 20261025-235000
 	- Verified: 20261025, `cicd.bash --backlog-run-full` at 80461a2 passed all 27 steps, 600 PASS and 0 FAIL, debmx, de5hy and de5hz included. the `macos` workflow it started, run 40245348504 at 80461a2, passed, debke and debkf included.
 	- Acceptance signoff: Self-closed 20261025. The new line matches the shared CICD rules, and both installers read the old and new forms.
+	- 20261025: The calls under Check: in the questions file stand as picked.
 
 - CICD reset: CICD process gaps
 	- ID: 2026102416233109
@@ -1647,6 +1655,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Closed: 20261025-235000
 	- Verified: 20261025, `cicd.bash --backlog-run-full` at 80461a2 passed all 27 steps, 600 PASS and 0 FAIL, ending on the cleanup line, with dee45 and dee46. the `macos` workflow it started, run 40245348504 at 80461a2, passed, dee45 and dee46 included. `dependabot.yml` parses as version 2, with gomod, github-actions and docker updates against dev, grouped.
 	- Acceptance signoff: Self-closed 20261025. The Dependabot page check waits for the next merge to main, and the config is the standard form.
+	- 20261025: The calls under Check: in the questions file stand as picked.
 
 - Builds leave stale artifacts and side-effects behind.
 	- ID: 2026101916041200
