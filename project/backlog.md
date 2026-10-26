@@ -290,6 +290,20 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- When b26 doesn't answer, the Mac box step runs the same job on vmKt6m, through the VM state helper.
 		- vmKt6m needs Zig 0.17.0 and Go for the build. Its Homebrew builds from source, so set it up detached.
 
+- CICD reset: the vmDebARM64 box step runs a short part of `cli-test.bash`
+	- ID: 2026102518133200
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-181332
+	- Opened by: JC
+	- Parent ID: 2026102416233100
+	- Related IDs: 2026102514523204
+	- Target OS: Linux arm64
+	- Requirements  [Feature]:
+		- The vmDebARM64 step runs a short subset of `cli-test.bash` plus both smoke tests, in a few minutes. Each run of the command costs about 12 s there under emulation, so the whole harness added about 22 minutes to every full run.
+		- The subset covers `--version`, a default ID, and each component once. Other boxes keep the whole harness.
+
 - Identifiers from one tick have no counter.
 	- ID: 2026102409130649
 	- Type: Feature
