@@ -2133,10 +2133,14 @@ fReactor_Toolchain(){
 	[[ "${handSet}" != "auto" ]] || handSet=""
 	goToolchain="${handSet:-go${pin}}"
 	fId de572 "reactor wasm built with the pinned Go"
-	local used=""
-	if ! used="$(GOTOOLCHAIN="${goToolchain}" go env GOVERSION 2>&1)"; then
-		((! doPackage)) || fTestFail "Could not get ${goToolchain} for a release: ${used}"
-		fTestSkip "could not get ${goToolchain}: ${used##*$'\n'}"
+	## Go says "go: downloading ..." on stderr the first time it fetches the
+	## pin, so only stdout is the version. stderr is kept for a failure's why.
+	local used="" why=""
+	local -r errFile="${_runDir}/go-version.err"
+	if ! used="$(GOTOOLCHAIN="${goToolchain}" go env GOVERSION 2>"${errFile}")"; then
+		why="$(<"${errFile}")"
+		((! doPackage)) || fTestFail "Could not get ${goToolchain} for a release: ${why}"
+		fTestSkip "could not get ${goToolchain}: ${why##*$'\n'}"
 	elif [[ "${used}" == "go${pin}" ]]; then
 		fTestPass
 	elif [[ -n "${handSet}" ]] && ((! doPackage)); then
@@ -4528,9 +4532,9 @@ fBox_Run(){  ## ssh destination, job dir, [function]
 }
 
 ## A release from this run, its command through cli-test.bash and its
-## libraries through capi_smoke.c, on a box that runs it. The caller has
-## opened the check.
-fBox_Release(){  ## release name after the version, ssh destination
+## libraries through capi_smoke.c, on a box that runs it. Any more arguments go
+## to cli-test.bash there. The caller has opened the check.
+fBox_Release(){  ## release name after the version, ssh destination, [cli-test.bash args...]
 	local -r tarball="${repoRoot}/dist/${distPrefix}$1.tgz" jobDir="${_runDir}/box-$1"
 	if [[ ! -f "${tarball}" ]]; then fBox_Skip "no ${tarball##*/} in dist/"; return 0; fi
 	mkdir -p "${jobDir}/cicd/utility/include" "${jobDir}/testdata"
@@ -4540,6 +4544,7 @@ fBox_Release(){  ## release name after the version, ssh destination
 	cp "${utilityDir}/include/safe-rm.bash"          "${jobDir}/cicd/utility/include/"
 	cp "${repoRoot}/testdata/errors.tsv"             "${jobDir}/testdata/"
 	cp "${zigDir}/lib/test/capi_smoke.c"             "${jobDir}/"
+	if (($# > 2)); then printf '%s\n' "${@:3}" > "${jobDir}/cli-test.args"; fi
 	fBox_Run "$2" "${jobDir}"
 }
 
@@ -4548,10 +4553,11 @@ fStage_Box_FreeBSD(){
 	fBox_Release freebsd-x86_64 "${freebsdBox}"
 }
 
-## The box is emulated, so this takes about 20 minutes, nearly all cli-test.bash.
+## The box is emulated, and each run of the command takes about 12 s there, so
+## the whole of cli-test.bash took about 20 minutes. It gets the short run.
 fStage_Box_LinuxArm64(){
 	fId dee7m "Linux arm64 release on its box: command surface and C module"
-	fBox_Release linux-arm64 "${linuxArm64Box}"
+	fBox_Release linux-arm64 "${linuxArm64Box}" --short
 }
 
 ## The universal release needs Apple's lipo, so the Mac builds it, from HEAD

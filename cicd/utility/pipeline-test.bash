@@ -1370,6 +1370,37 @@ if [[ -z "${boxBad}" ]]
 	else fFail "${boxBad}"
 fi
 
+## The emulated arm64 box gets cli-test.bash's short run, and FreeBSD the whole.
+## The job hands what the step asked for to cli-test.bash.
+fId dee9h "the Linux arm64 box runs cli-test.bash --short, FreeBSD all of it"
+boxBad=""
+# shellcheck disable=2016  ## Run by the box stand-in.
+out="$(BOX_STAGE=fStage_Box_LinuxArm64 ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='[[ "$(cat cli-test.args)" == --short ]]' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  PASS dee7m ' <<< "${out}"; } || boxBad+=" arm64: exited ${rc}, said '${out//$'\n'/ | }';"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='[[ ! -e cli-test.args ]]' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  PASS dee33 ' <<< "${out}"; } || boxBad+=" FreeBSD: exited ${rc}, said '${out//$'\n'/ | }';"
+## The real job, with a stand-in release and cli-test.bash, stopped at the C
+## compiler.
+fBoxJobArgs(){  ## cli-test.args text, or - for none
+	local -r jobDir="${work}/box-job"
+	if [[ -d "${jobDir}" ]]; then fSafeRm "${jobDir}"; fi
+	mkdir -p "${jobDir}/pack/zuid-v1/bin" "${jobDir}/cicd/utility"
+	printf '#!/usr/bin/env bash\necho zuid v1\n' > "${jobDir}/pack/zuid-v1/bin/zuid"
+	chmod +x "${jobDir}/pack/zuid-v1/bin/zuid"
+	tar -czf "${jobDir}/zuid-1-test.tgz" -C "${jobDir}/pack" zuid-v1
+	printf 'printf "%%s|" "$@" > cli.args\n' > "${jobDir}/cicd/utility/cli-test.bash"
+	cp "${cicd%/*}/utility/box-release-test.bash" "${jobDir}/job.bash"
+	[[ "$1" == - ]] || printf '%s\n' "$1" > "${jobDir}/cli-test.args"
+	(cd "${jobDir}" && CC="${jobDir}/no-cc" bash ./job.bash > /dev/null 2>&1) || true
+	cat "${jobDir}/cli.args" 2>/dev/null || printf 'none'
+}
+out="$(fBoxJobArgs --short)"; [[ "${out}" == "--bin|${work}/box-job/zuid-v1/bin/zuid|--short|" ]] || boxBad+=" job with --short ran '${out}';"
+out="$(fBoxJobArgs -)";       [[ "${out}" == "--bin|${work}/box-job/zuid-v1/bin/zuid|" ]]         || boxBad+=" job with no args ran '${out}';"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
 ## The Mac builds from a bundle of HEAD, and what it sends home goes in
 ## dist-incoming/, replacing an earlier run's.
 fId dee8n "the Mac box step builds from HEAD and brings its release home"
@@ -2076,6 +2107,54 @@ if ((rc == 0 && rcSame == 0)) && grep -qxF "  ${scWant}" <<< "${scOld}" \
 	&& grep -qxF "  PASS de5h0 host shellcheck matches the pin" <<< "${scSame}"
 	then fPass
 	else fFail "exited ${rc} and ${rcSame}, said: ${scOld//$'\n'/ | } and: ${scSame//$'\n'/ | }"
+fi
+
+## The pinned Go, through a stand-in go. The first run that fetches it says
+## so on stderr, and that went into the version de572 compares
+## (2026102517583389).
+goTree="${work}/go-tree"
+mkdir -p "${goTree}/cicd/container" "${goTree}/bin" "${goTree}/run"
+printf 'FROM scratch\nARG GO_VER=1.26.9\n' > "${goTree}/cicd/container/Dockerfile"
+cat > "${goTree}/bin/go" <<- 'EOF_go'
+	#!/usr/bin/env bash
+	if [[ "${FAKE_GO:-}" == down ]]; then printf 'go: downloading %s (linux/amd64)\ngo: download failed: no network\n' "${GOTOOLCHAIN}" >&2; exit 1; fi
+	[[ "${FAKE_GO:-}" != fetch ]] || printf 'go: downloading %s (linux/amd64)\n' "${GOTOOLCHAIN}" >&2
+	printf '%s\n' "${GOTOOLCHAIN}"
+EOF_go
+chmod +x "${goTree}/bin/go"
+## Always called in $(...), so a brace group is subshell enough.
+fGoPinIn(){  ## FAKE_GO mode, doPackage
+	{
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fEcho_Clean(){ printf '%s\n' "$*"; }
+		# shellcheck disable=2329
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{ repoRoot="${goTree}"; _runDir="${goTree}/run"; doPackage="$2"; goToolchain="" ;}
+		local fn=""
+		for fn in fId fTestPass fTestSkip fTestFail fReactor_Toolchain; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		# shellcheck disable=2031  ## The run is in $(...), so only it sees this.
+		export PATH="${goTree}/bin:${PATH}" FAKE_GO="$1"
+		unset GOTOOLCHAIN
+		fReactor_Toolchain
+	} 2>&1
+}
+fId dee9f "de572 passes on the run that fetches the pinned Go"
+goBad=""
+out="$(fGoPinIn fetch 1)" && rc=0 || rc=$?
+{ ((rc == 0)) && [[ "${out}" == "  PASS de572 reactor wasm built with the pinned Go" ]]; } || goBad+=" fetching: exited ${rc}, said '${out//$'\n'/ | }';"
+out="$(fGoPinIn "" 1)" && rc=0 || rc=$?
+{ ((rc == 0)) && [[ "${out}" == "  PASS de572 reactor wasm built with the pinned Go" ]]; } || goBad+=" fetched: exited ${rc}, said '${out//$'\n'/ | }';"
+## A fetch that fails still says why.
+out="$(fGoPinIn down 0)" && rc=0 || rc=$?
+{ ((rc == 0)) && [[ "${out}" == "  SKIP de572 reactor wasm built with the pinned Go (could not get go1.26.9: go: download failed: no network)" ]]; } || goBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
+out="$(fGoPinIn down 1)" && rc=0 || rc=$?
+{ ((rc != 0)) && [[ "${out}" == *"FAIL de572 "*"Could not get go1.26.9 for a release: go: downloading go1.26.9 (linux/amd64)"$'\n'"go: download failed: no network" ]]; } || goBad+=" down, packaging: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${goBad}" ]]
+	then fPass
+	else fFail "${goBad}"
 fi
 
 ## The PowerShell lint, against this repo's own file list, with the stand-in
@@ -3413,6 +3492,19 @@ else
 	fi
 fi
 
+## --short runs --version, a default identifier and each component, and
+## nothing else. Which cases ran is what's read, not whether they passed.
+fId dee9g "cli-test.bash --short runs only its short cases"
+mkdir -p "${work}/shortbin"
+printf '#!/usr/bin/env bash\necho abcdef\n' > "${work}/shortbin/zuid"
+chmod +x "${work}/shortbin/zuid"
+out="$(bash "${utilityDir}/cli-test.bash" --short --bin "${work}/shortbin/zuid" 2>&1 || true)"
+shortRan="$(awk '$1 == "PASS" || $1 == "FAIL" { printf "%s ", $2 }' <<< "${out}")"
+if [[ "${shortRan}" == "dcrfc dcrfd dcrfe dcrff dcrfg dcrfh dee9c dee9d dee9e ddb04 " ]]
+	then fPass
+	else fFail "ran: ${shortRan:-nothing}, said '$(tail -n 3 <<< "${out}" | tr '\n' ' ')'"
+fi
+
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The pre-push hook, in a scratch repo with a bare remote. The committed
@@ -3478,6 +3570,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: The pinned Go on its first fetch. cli-test.bash --short, and the arm64 box's short run.
 ##		- 20261025 JC: The cleanup line, the Go module prune, and 2 runs with one killed leaving nothing.
 ##		- 20261025 JC: The release stand-in prints the new --version lines, and only the first tops the notes.
 ##		- 20261025 JC: Its folder is a run folder. The harness run folder, the guard scan, and the hook's run folder.

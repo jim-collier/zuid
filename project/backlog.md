@@ -262,22 +262,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: every `linuxArm64Box` and `freebsdBox` read in `cicd.bash`, the help text and its `--publish` part, `development.md`, `fPlanIn`'s and `fBoxIn`'s defaults, the shellcheck list in `fStage_Shell`, and dee2c's list. The macOS workflow passes `--no-remote`, so it never starts the step.
 	- 20261025: The calls under Check: in the questions file stand as picked.
 
-- de572 fails the first time a box fetches the pinned Go.
-	- ID: 2026102517583389
-	- Type: Bug
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261025-175833
-	- Opened by: JC
-	- Related IDs: 2026102514523209
-	- Target OS: Any
-	- Steps to reproduce [Bug]:
-		- On a box whose Go hasn't fetched `GO_VER` yet, run `cicd.bash --quick --package`.
-	- Incorrect behavior [Bug]: de572 fails with "GOTOOLCHAIN=go1.26.9 gives go: downloading go1.26.9 (darwin/amd64) go1.26.9, not go1.26.9." The next run passes.
-	- Expected behavior [Bug]: It passes on the first run too.
-	- Reproduced [Bug]: 20261025, on b26, in the Mac box step's first run.
-	- Possible cause [Bug]: `fReactor_Toolchain` reads `go env GOVERSION` with `2>&1`, so Go's download note on stderr lands in the version it compares.
-
 - CICD reset: other hosts, macOS falls back to vmKt6m
 	- ID: 2026102517494666
 	- Type: Enhancement
@@ -291,20 +275,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Requirements  [Feature]:
 		- When b26 doesn't answer, the Mac box step runs the same job on vmKt6m, through the VM state helper.
 		- vmKt6m needs Zig 0.17.0 and Go for the build. Its Homebrew builds from source, so set it up detached.
-
-- CICD reset: the vmDebARM64 box step runs a short part of `cli-test.bash`
-	- ID: 2026102518133200
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: High
-	- Opened: 20261025-181332
-	- Opened by: JC
-	- Parent ID: 2026102416233100
-	- Related IDs: 2026102514523204
-	- Target OS: Linux arm64
-	- Requirements  [Feature]:
-		- The vmDebARM64 step runs a short subset of `cli-test.bash` plus both smoke tests, in a few minutes. Each run of the command costs about 12 s there under emulation, so the whole harness added about 22 minutes to every full run.
-		- The subset covers `--version`, a default ID, and each component once. Other boxes keep the whole harness.
 
 - Identifiers from one tick have no counter.
 	- ID: 2026102409130649
@@ -369,6 +339,62 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- A system install leaves other users' caches alone and says where they are.
 	- Progress log:
 		- 20261024: Seen on b26, after an install, one run and an uninstall.
+
+- de572 fails the first time a box fetches the pinned Go.
+	- ID: 2026102517583389
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261025-175833
+	- Opened by: JC
+	- Related IDs: 2026102514523209
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- On a box whose Go hasn't fetched `GO_VER` yet, run `cicd.bash --quick --package`.
+	- Incorrect behavior [Bug]: de572 fails with "GOTOOLCHAIN=go1.26.9 gives go: downloading go1.26.9 (darwin/amd64) go1.26.9, not go1.26.9." The next run passes.
+	- Expected behavior [Bug]: It passes on the first run too.
+	- Reproduced [Bug]: 20261025, on b26, in the Mac box step's first run. Again with a stand-in `go` that says it's downloading.
+	- Possible cause [Bug]: `fReactor_Toolchain` reads `go env GOVERSION` with `2>&1`, so Go's download note on stderr lands in the version it compares.
+	- Actual cause [Bug]: As above.
+	- Actual fix [Bug]: The version is stdout only. stderr goes to a file in the run folder, read only for a failure's reason.
+	- Branch: round1026
+	- Test case: dee9f in `pipeline-test.bash`: a fetching run and a fetched one pass, and a failed fetch still says why. It failed with the old `2>&1`, with the same message as on b26, and passes after.
+	- Verified: 20261025, `pipeline-test.bash` 161 of 161, shellcheck on the stage's list, `test-ids.py check`, and the content scrub.
+	- Swept: the other `go version`, `go env` and `zig version` reads in `cicd.bash`. None takes stderr into a value.
+	- Acceptance signoff: Self-closed 20261025. Pipeline-only.
+	- Closed: 20261025-183000
+
+- CICD reset: the vmDebARM64 box step runs a short part of `cli-test.bash`
+	- ID: 2026102518133200
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: none.
+	- Priority [Feature|Enhancement] | Severity [Bug]: High
+	- Opened: 20261025-181332
+	- Opened by: JC
+	- Parent ID: 2026102416233100
+	- Related IDs: 2026102514523204
+	- Target OS: Linux arm64
+	- Requirements  [Feature]:
+		- The vmDebARM64 step runs a short subset of `cli-test.bash` plus both smoke tests, in a few minutes. Each run of the command costs about 12 s there under emulation, so the whole harness added about 22 minutes to every full run.
+		- The subset covers `--version`, a default ID, and each component once. Other boxes keep the whole harness.
+	- Progress log:
+		- 20261025: `cli-test.bash --short` runs 10 cases: the default, each of `%h %u %f %m %g %r %%`, a literal, and `--version`'s version line. Those cases now sit at the top of the harness, and the full run goes on past them.
+		- 20261025: `%u`, `%f` and `%m` had no case before. They're new, in the full run too.
+		- 20261025: `fBox_Release` hands any more arguments to `cli-test.bash` on the box, through a `cli-test.args` file. The arm64 step passes `--short`. FreeBSD passes none and runs the whole harness.
+	- Decisions:
+		- 20261025: The literal and `%%` stay in the short run. They're one case each and sit with the component cases. `--version` is only its version line, ddb04, since that's what scripts read.
+		- 20261025: An arguments file rather than a flag file, so another box can pass something else later with no new code.
+	- Branch: round1026
+	- Test case: dee9g (`--short` runs only its 10 cases), dee9h (the arm64 job gets `--short`, FreeBSD's gets nothing, and the job hands them to `cli-test.bash`), dee9c, dee9d and dee9e (the new component widths). dee9g failed with the short exit removed, and dee9h with `--short` left off the step and with the job ignoring the file. Both pass after.
+	- Verified:
+		- 20261025: dee7m on the real vmDebARM64, through the VM state helper's wrap, from off, against `dist/` from 16:42: 10 of 10 short cases on Debian arm64, both smoke tests, then the VM shut down and put back to off. About 6 minutes from start to back off, boot included, against about 22 before.
+		- 20261025: `cli-test.bash` 95 of 95 and `--short` 10 of 10 on b23, `pipeline-test.bash` 161 of 161, shellcheck on the stage's list, `test-ids.py check`, and the content scrub.
+		- Not verified: the step inside a full run. 2026102514523204's full run covers it.
+	- Swept: every `fBox_Release` call, every `cli-test.bash` call in `cicd.bash`, `pipeline-test.bash` and the macOS workflow (none passes `--short`), the step's comment, and `development.md`.
+	- Acceptance signoff: Self-closed 20261025. Pipeline-only.
+	- Closed: 20261025-183500
 
 - dedpa fails in the image, which has no `ps`.
 	- ID: 2026102508540624

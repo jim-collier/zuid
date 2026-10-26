@@ -6,9 +6,10 @@
 ##		Runs the built command and checks what it prints and what it exits with.
 ##		The vectors cover the two modules; this covers the surface around them -
 ##		argument handling, the defaults, and the refusals - which nothing else
-##		looks at.
+##		looks at. --short runs only --version, a default identifier and each
+##		component once, for a box where each run of the command takes seconds.
 ##	Syntax:
-##		cli-test.bash [--bin <path>]
+##		cli-test.bash [--bin <path>] [--short]
 ##	History: At bottom.
 
 ##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
@@ -38,12 +39,21 @@ fFail(){  ## detail
 	failed=$((failed + 1)); printf '  FAIL %s %s: %s\n' "${curId:-?????}" "${curName}" "$*"
 	curId=""
 }
+## The totals, and a failed run's exit.
+fSummary(){
+	fLine ""
+	fEcho "Passed: ${passed}, failed: ${failed}"
+	fLine ""
+	((failed == 0)) || exit 1
+}
 
 repoRoot="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 bin="${repoRoot}/zig/zig-out/bin/zuid"
+short=0
 
 while (($#)); do case "$1" in
 	--bin)     bin="${2:?}"; shift 2 ;;
+	--short)   short=1; shift ;;
 	-h|--help) sed -n '/^##	Purpose:/,/^##	History:/p' "${BASH_SOURCE[0]}" | sed '$d; s/^##	\{0,1\}//'; exit 0 ;;
 	*) fDie "unknown option: $1 (try --help)" ;;
 esac; done
@@ -221,6 +231,15 @@ fWantLen dcrfe "a uuid is 22 symbols"                22 --format '%g'
 fWantLen dcrff "random is 6 symbols"                 6  --format '%r'
 fWantLen dcrfg "and a literal passes through"        3  --format 'abc'
 fWantExact dcrfh "a doubled percent is one percent"  "%" --format '%%'
+## Hashed names are 8 wide like the host, and a MAC's 48 bits are 9.
+fWantLen dee9c "hashed user is 8 symbols"            8  --format '%u'
+fWantLen dee9d "hashed FQDN is 8 symbols"            8  --format '%f'
+fWantLen dee9e "a MAC is 9 symbols"                  9  --format '%m'
+## A build that isn't for a release adds the date.
+fWantMatch ddb04 "--version is the version and build"     '^zuid v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)? build [0-9a-z]+( \([0-9]{4}-[0-9]{2}-[0-9]{2}\))?'$'\n' --version
+
+## The cases above are the short run.
+if ((short)); then fSummary; exit 0; fi
 
 ## An empty value means the default on both flags, which is what the Go module's
 ## zero Request.Format and the C module's empty format already did. The command
@@ -375,8 +394,7 @@ fWantFailure ddb02 "zero --rand-chars" "out of range for --rand-chars" --rand-ch
 ## --version is the version line, then the copyright line. Scripts and the
 ## installers read the first one.
 fWantLines ddb03 "--version is two lines"                 2 --version
-## A build that isn't for a release adds the date.
-fWantMatch ddb04 "--version is the version and build"     '^zuid v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)? build [0-9a-z]+( \([0-9]{4}-[0-9]{2}-[0-9]{2}\))?'$'\n' --version
+## ddb04, its version and build, is with the short run's cases at the top.
 ## Retired 20261025: --version ends with the copyright now, per 2026102416233108. dee3h.
 # fWantAbsent ddb05 "--version has no copyright"            "Copyright" --version
 fWantContains ddb06 "--about has the copyright"           "Copyright ©" --about
@@ -495,10 +513,7 @@ if [[ -z "${badBases}" ]]
 	else fFail "nothing from:${badBases}"
 fi
 
-fLine ""
-fEcho "Passed: ${passed}, failed: ${failed}"
-fLine ""
-((failed == 0)) || exit 1
+fSummary
 
 
 ##	History:
@@ -511,3 +526,4 @@ fLine ""
 ##		- 20261025 JC: Test IDs in minutes. PASS, FAIL and SKIP lines.
 ##		- 20261025 JC: Its folder is a run folder, removed through the guard.
 ##		- 20261025 JC: --version adds the copyright line, and --about and --help open with its first.
+##		- 20261025 JC: --short, and %u, %f and %m.
