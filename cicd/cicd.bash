@@ -39,6 +39,7 @@
 ##		- 20261025 JC: The Linux arm64 release tested on vmDebARM64.
 ##		- 20261025 JC: The Mac builds the universal release from HEAD, and it comes back into dist-incoming/.
 ##		- 20261025 JC: The Windows release and install.ps1 tested on b29w.
+##		- 20261025 JC: FreeBSD's packages pinned by version and checked against the repo's signed catalog, not by hash.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Global, since the exit trap reads it after fMain has gone.
@@ -121,17 +122,16 @@ fConfig(){ :;
 
 	## Wasmtime releases nothing for FreeBSD, so its C API comes from FreeBSD's
 	## own package, plus the zstd package that build calls. The FreeBSD 14 repo,
-	## so the release runs on 14 and later. A repo drops a package's file when it
-	## moves on to a new build, and the fetch then 404s: repin from the repo's
-	## packagesite. A rebuild of the same version is a new file too, with a new
-	## hash. The packagesite's sum is pkg's own checksum, not the file's sha256,
-	## so take the hash from the download. Linux vendors these under --package,
-	## which releases FreeBSD.
+	## so the release runs on 14 and later. The repo rebuilds a package under the
+	## same version now and then, which broke a pin on the file's hash, so the
+	## pins are versions. Each file is checked against the repo's catalog, signed
+	## with the key FreeBSD itself trusts (share/keys/pkg/trusted in its source).
+	## When the repo moves on to a new version, the old one drops out of the
+	## catalog: repin the version. Linux vendors these under --package, which
+	## releases FreeBSD.
 	default_freebsdRepo="https://pkg.freebsd.org/FreeBSD:14:amd64/quarterly"
-	default_freebsdPkgs=(
-		"libwasmtime-49.0.1=95ee2302088ccbb697428bf03e90e79d2636e3da2869be1ceebafa2534f40d74"
-		"zstd-1.5.7_2=ff165cf61fcbe6a225636f51b083898a06ce2ca8bb9fcb2e956acced617c4c26"
-	)
+	default_freebsdKey="b0170035af3acc5f3f3ae1859dc717101b4e6c1d0a794ad554928ca0cbb2f438"
+	default_freebsdPkgs=("libwasmtime-49.0.1" "zstd-1.5.7_2")
 
 	## The reactor wasm module is built from this package, which go.mod pins to
 	## a release, so the Go side and the Zig side cannot end up on two versions
@@ -468,6 +468,7 @@ fMain(){
 	local    default_wasmtimeVer=""
 	local -a default_wasmtimeSha256s=()
 	local    default_freebsdRepo=""
+	local    default_freebsdKey=""
 	local -a default_freebsdPkgs=()
 	local    default_reactorPackage=""
 	local -a default_dogfoodSynced=()
@@ -500,6 +501,7 @@ fMain(){
 	local -r wasmtimeVer="${default_wasmtimeVer}"
 	local -ra wasmtimeSha256s=("${default_wasmtimeSha256s[@]}")
 	local -r  freebsdRepo="${default_freebsdRepo}"
+	local -r  freebsdKey="${default_freebsdKey}"
 	local -ra freebsdPkgs=("${default_freebsdPkgs[@]}")
 	local -r reactorPackage="${default_reactorPackage}"
 	local -ra dogfoodSynced=("${default_dogfoodSynced[@]}")
@@ -2299,7 +2301,7 @@ fVendor_FreeBSD(){  ## destination
 	local -r dest="$1"
 	local -r parentDir="$(dirname "${dest}")"
 	local -r stamp="${dest}/.version"
-	local -r want="${freebsdPkgs[*]%%=*}"
+	local -r want="${freebsdPkgs[*]}"
 	## A tree vendored before the license was copied has none, so it is fetched again.
 	if [[ -f "${dest}/include/wasmtime.h" && -f "${dest}/LICENSE" ]] && [[ "$(cat "${stamp}" 2>/dev/null || true)" == "${want}" ]]; then
 		fEcho_Clean "Wasmtime ...: ${want} x86_64-freebsd present"
@@ -2308,22 +2310,51 @@ fVendor_FreeBSD(){  ## destination
 
 	_fMustBeInPath curl
 	_fMustBeInPath shasum
+	_fMustBeInPath b2sum
+	_fMustBeInPath openssl
 	_fMustBeInPath tar
 	local -r unpackDir="${parentDir}/.freebsd-unpack"
 	if [[ -e "${unpackDir}" ]]; then fSafeRm_Under "${vendorDir:?}" "${unpackDir}"; fi
 	mkdir -p "${unpackDir}"
-	local pin="" pkgName="" pkgSum="" pkgFile="" gotSum=""
+
+	## The catalog, the way pkg checks it: the key is FreeBSD's by its
+	## fingerprint, and the signature is over the hex sha256 of the yaml.
+	local -r catalog="${unpackDir}/packagesite.yaml"
+	fEcho_Clean "Wasmtime ...: fetching FreeBSD's signed catalog"
+	curl -sSL --fail -o "${unpackDir}/packagesite.pkg" "${freebsdRepo}/packagesite.pkg" \
+		|| fThrowError "Could not download the catalog from ${freebsdRepo}."  "${FUNCNAME[0]}"
+	tar --no-same-owner --no-same-permissions -xf "${unpackDir}/packagesite.pkg" -C "${unpackDir}" \
+		packagesite.yaml packagesite.yaml.sig packagesite.yaml.pub 2>/dev/null \
+		|| fThrowError "Could not unpack the catalog from ${freebsdRepo}."  "${FUNCNAME[0]}"
+	local gotSum="$(shasum -a 256 "${catalog}.pub" | awk '{print $1}')"
+	[[ "${gotSum}" == "${freebsdKey}" ]] || fThrowError "The FreeBSD catalog is signed with a key that isn't FreeBSD's: ${gotSum}."  "${FUNCNAME[0]}"
+	gotSum="$(shasum -a 256 "${catalog}" | awk '{print $1}')"
+	printf '%s' "${gotSum}" | openssl dgst -sha256 -verify "${catalog}.pub" -signature "${catalog}.sig" >/dev/null 2>&1 \
+		|| fThrowError "The FreeBSD catalog's signature does not check out."  "${FUNCNAME[0]}"
+
+	local pin="" pkgName="" pkgVer="" gotVer="" entry="" pkgSum="" repoPath="" pkgFile=""
 	for pin in "${freebsdPkgs[@]}"; do
-		pkgName="${pin%%=*}"; pkgSum="${pin#*=}"
-		pkgFile="${unpackDir}/${pkgName}.pkg"
-		fEcho_Clean "Wasmtime ...: fetching FreeBSD ${pkgName}"
-		curl -sSL --fail -o "${pkgFile}" "${freebsdRepo}/All/${pkgName}.pkg" \
-			|| fThrowError "Could not download ${pkgName} from ${freebsdRepo}. The repo may have moved on to a newer build; repin default_freebsdPkgs from its packagesite."  "${FUNCNAME[0]}"
-		gotSum="$(shasum -a 256 "${pkgFile}" | awk '{print $1}')"
-		[[ "${gotSum}" == "${pkgSum}" ]] || fThrowError "FreeBSD ${pkgName} checksum mismatch: got ${gotSum}."  "${FUNCNAME[0]}"
+		pkgName="${pin%-*}"; pkgVer="${pin##*-}"
+		## One JSON object per line, name first. Its own version comes before
+		## any of its deps' versions, so the first match is the one.
+		entry="$(grep -F -m 1 "{\"name\":\"${pkgName}\"," "${catalog}" || true)"
+		gotVer="none"
+		if [[ "${entry}" =~ \"version\":\"([^\"]*)\" ]]; then gotVer="${BASH_REMATCH[1]}"; fi
+		[[ "${gotVer}" == "${pkgVer}" ]] || fThrowError "FreeBSD's catalog has no ${pin}, only version ${gotVer}. The repo moved on; repin default_freebsdPkgs."  "${FUNCNAME[0]}"
+		[[ "${entry}" =~ \"sum\":\"([^\"]+)\" ]] || fThrowError "FreeBSD's catalog has no sum for ${pin}."  "${FUNCNAME[0]}"
+		pkgSum="${BASH_REMATCH[1]}"
+		[[ "${entry}" =~ \"repopath\":\"([^\"]+)\" ]] || fThrowError "FreeBSD's catalog has no path for ${pin}."  "${FUNCNAME[0]}"
+		repoPath="${BASH_REMATCH[1]}"
+		pkgFile="${unpackDir}/${pin}.pkg"
+		fEcho_Clean "Wasmtime ...: fetching FreeBSD ${pin}"
+		curl -sSL --fail -o "${pkgFile}" "${freebsdRepo}/${repoPath}" \
+			|| fThrowError "Could not download ${pin} from ${freebsdRepo}/${repoPath}."  "${FUNCNAME[0]}"
+		gotSum="$(fVendor_PkgSum "${pkgFile}" "${pkgSum}")"
+		[[ "${gotSum}" == "${pkgSum}" ]] || fThrowError "FreeBSD ${pin} does not match its signed catalog: got ${gotSum}, want ${pkgSum}."  "${FUNCNAME[0]}"
+		fEcho_Clean "Wasmtime ...: ${pin} matches FreeBSD's catalog, sha256 $(shasum -a 256 "${pkgFile}" | awk '{print $1}')"
 		## A package is a tarball of absolute paths under /usr/local.
 		tar --no-same-owner --no-same-permissions -xf "${pkgFile}" -C "${unpackDir}" 2>/dev/null \
-			|| fThrowError "Could not unpack ${pkgName}."  "${FUNCNAME[0]}"
+			|| fThrowError "Could not unpack ${pin}."  "${FUNCNAME[0]}"
 	done
 
 	local -r usrLocal="${unpackDir}/usr/local"
@@ -2342,6 +2373,31 @@ fVendor_FreeBSD(){  ## destination
 	fSafeRm_Under "${vendorDir:?}" "${unpackDir}"
 	printf '%s\n' "${want}" > "${stamp}"
 	fEcho_Clean "Wasmtime ...: vendored ${want} x86_64-freebsd"
+
+}
+
+## A package file's sum in the form its catalog entry has. pkg's own is "2$",
+## then the file's blake2b-512 in pkg's zbase32, least significant bits first.
+## Older catalogs have the file's bare sha256.
+fVendor_PkgSum(){  ## file, the catalog's sum
+
+	local -r pkgFile="$1" like="$2"
+	local -r zb32="ybndrfg8ejkmcpqxot1uwisza345h769"
+	local hex="" out="" i=0 acc=0 bits=0
+	if [[ "${like}" =~ ^[0-9a-f]{64}$ ]]; then
+		shasum -a 256 "${pkgFile}" | awk '{print $1}'
+	elif [[ "${like}" == '2$'* ]]; then
+		hex="$(b2sum "${pkgFile}")"; hex="${hex%% *}"
+		[[ "${hex}" =~ ^[0-9a-f]{128}$ ]] || return 1
+		for ((i = 0; i < 128; i += 2)); do
+			acc=$(( acc | 16#${hex:i:2} << bits )); bits=$((bits + 8))
+			while ((bits >= 5)); do out+="${zb32:acc & 31:1}"; acc=$((acc >> 5)); bits=$((bits - 5)); done
+		done
+		if ((bits > 0)); then out+="${zb32:acc:1}"; fi
+		printf '2$%s\n' "${out}"
+	else
+		printf 'unknown sum form\n'
+	fi
 
 }
 

@@ -13,7 +13,8 @@
 ##		report against a stand-in zig. So does package.bash, to see what
 ##		SOURCE_DATE_EPOCH it hands on. The profile report reads a made-up
 ##		flamegraph, the vuln report made-up govulncheck output, and the CodeQL
-##		report made-up SARIF.
+##		report made-up SARIF. The FreeBSD vendor step reads a stand-in repo
+##		with its own signed catalog.
 ##	Syntax:
 ##		pipeline-test.bash
 ##	History: At bottom.
@@ -3629,6 +3630,138 @@ if [[ -z "${hookBad}" ]]
 	else fFail "${hookBad}"
 fi
 
+## The FreeBSD vendor step, against a stand-in repo with its own key. The
+## files are checked against the signed catalog, not pinned by hash, since the
+## real repo rebuilds a package under the same version (2026102519140200).
+bsdRepo="${work}/bsd-repo"
+fBsdPkg(){  ## name-version, then dir:file pairs under usr/local
+	local -r pin="$1" tree="${bsdRepo}/build/$1"; shift
+	local pair=""
+	for pair in "$@"; do mkdir -p "${tree}/usr/local/${pair%:*}"; printf '%s\n' "${pin} ${pair}" > "${tree}/usr/local/${pair%:*}/${pair#*:}"; done
+	printf 'name: %s\n' "${pin%-*}" > "${tree}/+MANIFEST"
+	tar -cf "${bsdRepo}/build/${pin}.pkg" -C "${tree}" +MANIFEST usr
+}
+## Writes and signs the catalog, with the entries given, one JSON line each.
+fBsdCatalog(){  ## key, then lines
+	local -r key="$1"; shift
+	printf '%s\n' "$@" > "${bsdRepo}/packagesite.yaml"
+	openssl pkey -in "${key}" -pubout -out "${bsdRepo}/packagesite.yaml.pub" 2>/dev/null
+	printf '%s' "$(shasum -a 256 "${bsdRepo}/packagesite.yaml" | awk '{print $1}')" \
+		| openssl dgst -sha256 -sign "${key}" -out "${bsdRepo}/packagesite.yaml.sig"
+	tar -cf "${bsdRepo}/packagesite.pkg" -C "${bsdRepo}" packagesite.yaml packagesite.yaml.sig packagesite.yaml.pub
+}
+fBsdEntry(){ printf '{"name":"%s","origin":"x/%s","version":"%s","sum":"%s","repopath":"%s","pkgsize":1}' "${1%-*}" "${1%-*}" "${1##*-}" "$2" "$3" ;}
+fBsdVendorIn(){  ## key fingerprint, then pins
+	(
+		# shellcheck disable=2329  ## Called by the lifted functions, not here.
+		fEcho_Clean(){ :; }
+		# shellcheck disable=2329
+		fThrowError(){ printf '%s\n' "$1"; exit 1; }
+		# shellcheck disable=2329
+		_fMustBeInPath(){ command -v "$1" >/dev/null || fThrowError "no $1"; }
+		# shellcheck disable=2034  ## Read by the lifted functions.
+		{ vendorDir="${bsdRepo}/vendor"; freebsdRepo="file://${bsdRepo}"; freebsdKey="$1"; shift; freebsdPkgs=("$@") ;}
+		local fn=""
+		for fn in fVendor_FreeBSD fVendor_PkgSum; do
+			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
+		done
+		mkdir -p "${vendorDir}"
+		fVendor_FreeBSD "${vendorDir}/wasmtime-x86_64-freebsd"
+	) 2>&1
+}
+bsdTools=""
+for tool in openssl b2sum shasum; do command -v "${tool}" >/dev/null || bsdTools+=" ${tool}"; done
+
+fId deebc "FreeBSD vendor takes packages its signed catalog vouches for"
+if [[ -n "${bsdTools}" ]]; then
+	printf '  SKIP %s %s (%s)\n' "${curId}" "${curName}" "no${bsdTools}, which only a Linux release run needs"; curId=""
+else
+	bsdBad=""
+	mkdir -p "${bsdRepo}/build" "${bsdRepo}/All/Hashed"
+	## pkg's own sums, from its zbase32 of blake2b-512, which matched the real
+	## catalog's entries for libwasmtime-49.0.1 and zstd-1.5.7_2.
+	if ! fLoad fVendor_PkgSum; then
+		bsdBad+=" no fVendor_PkgSum in cicd.bash;"
+	else
+		printf 'zuid\n' > "${bsdRepo}/v.txt"; : > "${bsdRepo}/e.txt"
+		[[ "$(fVendor_PkgSum "${bsdRepo}/v.txt" '2$')" == "2\$utz65pc85h3f55upjrjxd6yphu8ukaioxk8f7eet13q35miirep3zj3k4ucsg14g4nb1opw4dpe3tbs6c3jby933x3u6xi5wmpgdjfn" ]] || bsdBad+=" wrong pkg sum for a short file;"
+		[[ "$(fVendor_PkgSum "${bsdRepo}/e.txt" '2$')" == "2\$au4ro5mebesgyd5a7xbmnjj41mr91dbeb8sqwojtgwaxt59dwkgrpxbnt3m7qcpkuenjgnp1qnczrek8e5sebr7siki9gajd69gfq8d" ]] || bsdBad+=" wrong pkg sum for an empty file;"
+		openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "${bsdRepo}/key.pem" 2>/dev/null
+		openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "${bsdRepo}/other.pem" 2>/dev/null
+		fBsdPkg libwasmtime-49.0.1 include:wasmtime.h lib:libwasmtime.a share/licenses/libwasmtime-49.0.1:APACHE20
+		fBsdPkg zstd-1.5.7_2 lib:libzstd.a share/licenses/zstd-1.5.7_2:BSD3CLAUSE
+		## The catalog's newer sum form and path for one, the older for the other.
+		wtSum="$(fVendor_PkgSum "${bsdRepo}/build/libwasmtime-49.0.1.pkg" '2$')"
+		wtPath="All/Hashed/libwasmtime-49.0.1~${wtSum:0:10}.pkg"
+		cp "${bsdRepo}/build/libwasmtime-49.0.1.pkg" "${bsdRepo}/${wtPath}"
+		cp "${bsdRepo}/build/zstd-1.5.7_2.pkg" "${bsdRepo}/All/zstd-1.5.7_2.pkg"
+		zsSum="$(shasum -a 256 "${bsdRepo}/All/zstd-1.5.7_2.pkg" | awk '{print $1}')"
+		bsdEntries=("$(fBsdEntry libwasmtime-49.0.1 "${wtSum}" "${wtPath}")" "$(fBsdEntry zstd-1.5.7_2 "${zsSum}" All/zstd-1.5.7_2.pkg)")
+		fBsdCatalog "${bsdRepo}/key.pem" '{"name":"other","origin":"x/other","version":"1"}' "${bsdEntries[@]}"
+		bsdKey="$(shasum -a 256 "${bsdRepo}/packagesite.yaml.pub" | awk '{print $1}')"
+		out="$(fBsdVendorIn "${bsdKey}" libwasmtime-49.0.1 zstd-1.5.7_2)" && rc=0 || rc=$?
+		bsdTree="${bsdRepo}/vendor/wasmtime-x86_64-freebsd"
+		{ ((rc == 0)) && [[ -f "${bsdTree}/include/wasmtime.h" && -f "${bsdTree}/lib/libwasmtime.a" && -f "${bsdTree}/lib/libzstd.a" && -f "${bsdTree}/LICENSE" && -f "${bsdTree}/LICENSE-zstd" ]] \
+			&& [[ "$(cat "${bsdTree}/.version")" == "libwasmtime-49.0.1 zstd-1.5.7_2" && ! -e "${bsdRepo}/vendor/.freebsd-unpack" ]]; } \
+			|| bsdBad+=" first fetch: exited ${rc}, said '${out//$'\n'/ | }';"
+		## A rebuild: same version, new bytes, new sum and path in a newly signed catalog.
+		fRmIfThere "${bsdTree}"
+		printf 'rebuilt\n' >> "${bsdRepo}/build/libwasmtime-49.0.1/usr/local/lib/libwasmtime.a"
+		tar -cf "${bsdRepo}/build/libwasmtime-49.0.1.pkg" -C "${bsdRepo}/build/libwasmtime-49.0.1" +MANIFEST usr
+		wtSum="$(fVendor_PkgSum "${bsdRepo}/build/libwasmtime-49.0.1.pkg" '2$')"
+		wtPath="All/Hashed/libwasmtime-49.0.1~${wtSum:0:10}.pkg"
+		cp "${bsdRepo}/build/libwasmtime-49.0.1.pkg" "${bsdRepo}/${wtPath}"
+		bsdEntries[0]="$(fBsdEntry libwasmtime-49.0.1 "${wtSum}" "${wtPath}")"
+		fBsdCatalog "${bsdRepo}/key.pem" "${bsdEntries[@]}"
+		out="$(fBsdVendorIn "${bsdKey}" libwasmtime-49.0.1 zstd-1.5.7_2)" && rc=0 || rc=$?
+		{ ((rc == 0)) && grep -q '^rebuilt$' "${bsdTree}/lib/libwasmtime.a"; } || bsdBad+=" rebuild: exited ${rc}, said '${out//$'\n'/ | }';"
+	fi
+	if [[ -z "${bsdBad}" ]]
+		then fPass
+		else fFail "${bsdBad}"
+	fi
+fi
+
+fId deebd "FreeBSD vendor refuses what its signed catalog doesn't vouch for"
+if [[ -n "${bsdTools}" ]]; then
+	printf '  SKIP %s %s (%s)\n' "${curId}" "${curName}" "no${bsdTools}, which only a Linux release run needs"; curId=""
+elif [[ ! -f "${bsdRepo}/packagesite.pkg" ]]; then
+	fFail "deebc made no stand-in repo"
+else
+	bsdBad=""
+	## Each case runs from an empty vendor dir and must leave no tree behind.
+	fWantBsdRefusal(){  ## label, text the refusal must contain, pins...
+		local -r label="$1" want="$2"; shift 2
+		fRmIfThere "${bsdTree}"
+		out="$(fBsdVendorIn "${bsdKey}" "$@")" && rc=0 || rc=$?
+		{ ((rc != 0)) && [[ "${out}" == *"${want}"* && ! -e "${bsdTree}" ]]; } || bsdBad+=" ${label}: exited ${rc}, said '${out//$'\n'/ | }';"
+	}
+	fWantBsdRefusal "version moved" "FreeBSD's catalog has no libwasmtime-50.0.0, only version 49.0.1" libwasmtime-50.0.0 zstd-1.5.7_2
+	fWantBsdRefusal "not in catalog" "FreeBSD's catalog has no nothere-1, only version none" nothere-1
+	## A dep's version later on the line is not the package's.
+	fBsdCatalog "${bsdRepo}/key.pem" "${bsdEntries[0]%\}}"',"deps":{"zstd":{"origin":"x/zstd","version":"9.9"}}}' "${bsdEntries[1]}"
+	fWantBsdRefusal "dep's version" "FreeBSD's catalog has no libwasmtime-9.9, only version 49.0.1" libwasmtime-9.9 zstd-1.5.7_2
+	fBsdCatalog "${bsdRepo}/key.pem" "${bsdEntries[@]}"
+	cp "${bsdRepo}/${wtPath}" "${bsdRepo}/wt.keep"
+	printf 'x' >> "${bsdRepo}/${wtPath}"
+	fWantBsdRefusal "changed package" "FreeBSD libwasmtime-49.0.1 does not match its signed catalog" libwasmtime-49.0.1 zstd-1.5.7_2
+	cp "${bsdRepo}/wt.keep" "${bsdRepo}/${wtPath}"
+	printf 'x' >> "${bsdRepo}/All/zstd-1.5.7_2.pkg"
+	fWantBsdRefusal "changed package, sha256 form" "FreeBSD zstd-1.5.7_2 does not match its signed catalog" libwasmtime-49.0.1 zstd-1.5.7_2
+	## A catalog edited after signing.
+	cp "${bsdRepo}/packagesite.yaml.sig" "${bsdRepo}/packagesite.yaml.pub" "${bsdRepo}/build/"
+	printf '\n' >> "${bsdRepo}/packagesite.yaml"
+	tar -cf "${bsdRepo}/packagesite.pkg" -C "${bsdRepo}" packagesite.yaml packagesite.yaml.sig packagesite.yaml.pub
+	fWantBsdRefusal "edited catalog" "The FreeBSD catalog's signature does not check out" libwasmtime-49.0.1
+	## Signed and good, but not with the key that was pinned.
+	fBsdCatalog "${bsdRepo}/other.pem" "${bsdEntries[@]}"
+	fWantBsdRefusal "other key" "The FreeBSD catalog is signed with a key that isn't FreeBSD's" libwasmtime-49.0.1
+	if [[ -z "${bsdBad}" ]]
+		then fPass
+		else fFail "${bsdBad}"
+	fi
+fi
+
 fLine ""
 fEcho "Passed: ${passed}, failed: ${failed}"
 fLine ""
@@ -3636,6 +3769,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261025 JC: The FreeBSD vendor step against a stand-in signed catalog.
 ##		- 20261025 JC: The pinned Go on its first fetch. cli-test.bash --short, and the arm64 box's short run.
 ##		- 20261025 JC: The cleanup line, the Go module prune, and 2 runs with one killed leaving nothing.
 ##		- 20261025 JC: The release stand-in prints the new --version lines, and only the first tops the notes.

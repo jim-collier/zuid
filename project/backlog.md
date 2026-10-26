@@ -162,16 +162,33 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - A fresh full run fails: the FreeBSD `libwasmtime-49.0.1` package no longer matches its pinned checksum.
 	- ID: 2026102519140200
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: A run that packages, from a fresh worktree so the vendor step fetches: `cicd/cicd.bash --backlog-run-full`, for ddgey to ddgf2 and dee33.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261025-191402
 	- Opened by: JC
-	- Related IDs: 2026101410500001
+	- Related IDs: 2026101410500001, 2026101218572197
 	- Target OS: FreeBSD
 	- Bug details:
 		- Step 14, Zig: vendor, stops with "FreeBSD libwasmtime-49.0.1 checksum mismatch: got b2a632b8e9652060197d63bd8dcd6052a1c821b0253e6b6049768adf9ccd494e". The pin in `cicd.bash` is 95ee2302...
 		- Seen 20261025 in a full run from a fresh worktree at 897fa59. A checkout with the package already vendored doesn't fetch it, so it passes there.
 		- Same version, new bytes, so the package server rebuilt it. Every fresh packaging run fails until the pin is checked and moved, or checked some other way that survives a rebuild.
+	- Reproduced [Bug]: Yes, 20261025. zstd-1.5.7_2 was rebuilt too, to `baa629f0...`. The run stopped at libwasmtime first.
+	- Actual cause [Bug]:
+		- The FreeBSD 14 quarterly repo rebuilt both packages under the same versions, on 2026-10-15 and 10-17. The new files are FreeBSD's own: the repo's catalog is signed with the key in FreeBSD's `share/keys/pkg/trusted`, and its sums match both files.
+		- The libraries inside are byte for byte the ones vendored on 20261013. Only the package wrapping changed.
+		- The catalog's `sum` is pkg's `2$` form: the file's blake2b-512 in pkg's own base32. The 20261012 note that it wasn't a file hash was wrong.
+	- Actual fix [Bug]: The pins are versions now, not file hashes. The vendor step fetches the catalog, checks its key and signature, then checks each package against its entry there. A version the repo has moved past says to repin. A tree already vendored at the same versions is kept.
+	- Decisions:
+		- 20261025: Checked against the signed catalog rather than repinned. A repin breaks again at the next rebuild, and this is the second break in two weeks. The cost is that the bytes can change without a commit. The release stays pinned to a Wasmtime version, and to FreeBSD's key.
+		- 20261025: openssl and b2sum are needed on the Linux box that packages. The image already has both, so the Dockerfile is unchanged.
+	- Branch: round1026
+	- Test case: deebc (packages the catalog vouches for are taken, a rebuild included, and pkg's sum form against known vectors) and deebd (a moved version, a dep's version taken for the package's, a changed package in either sum form, an edited catalog and another key are refused). Both failed against the old `cicd.bash`, and deebd failed with the signature check or the version read taken out.
+	- Verified:
+		- 20261025: The vendor step from a fresh folder against the real repo: both packages matched the signed catalog, and the vendored tree matched the cached one byte for byte.
+		- 20261025: `pipeline-test.bash` 165 of 165, `test-ids.py check`, and shellcheck on both scripts.
+		- Not verified: the step inside a full run.
+	- Swept: every `freebsdPkgs` and `freebsdRepo` read in `cicd.bash`, and design.md's line on the FreeBSD pin. `fVendor_Wasmtime` pins Wasmtime's own release archives by sha256, which GitHub serves unchanged, so it stays as it is.
 
 - CICD reset: other hosts and VMs
 	- ID: 2026102416233100
