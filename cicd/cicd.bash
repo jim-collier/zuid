@@ -37,6 +37,7 @@
 ##		- 20261025 JC: The FreeBSD release tested on vmFreeBSD, under the host lock. A step can end in SKIP.
 ##		- 20261025 JC: One cleanup line ends every run. Go's module cache in the volume pruned to go.sum. The run log keeps its last lines after Ctrl+C.
 ##		- 20261025 JC: The Linux arm64 release tested on vmDebARM64.
+##		- 20261025 JC: The Mac builds the universal release from HEAD, and it comes back into dist-incoming/.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Global, since the exit trap reads it after fMain has gone.
@@ -90,10 +91,12 @@ fConfig(){ :;
 	default_releaseAssets=("linux-x86_64.tgz" "linux-arm64.tgz" "freebsd-x86_64.tgz" "darwin-universal.tgz" "windows-x86_64.zip" "windows-arm64.zip")
 
 	## Test boxes, as ssh destinations. The host part is the box's name in the
-	## shared host lock. ZUID_BOX_FREEBSD and ZUID_BOX_LINUX_ARM64 replace them,
-	## and set empty leave the box out.
+	## shared host lock. ZUID_BOX_FREEBSD, ZUID_BOX_LINUX_ARM64 and ZUID_BOX_MAC
+	## replace them, and set empty leave the box out. The Mac builds its own
+	## release, so its user needs Zig and Go.
 	default_boxFreeBSD="bsdtest@vmFreeBSD"
 	default_boxLinuxArm64="tester@vmDebARM64"
+	default_boxMac="collierjr@b26"
 	## How long a box step waits for a box another session holds, then skips.
 	default_boxWaitSecs=600
 
@@ -322,10 +325,13 @@ fPrint_Help(){
 
 		A run that packages then tests the releases this machine can't run on the
 		test boxes, over ssh: FreeBSD on ${freebsdBox:-nothing, since ZUID_BOX_FREEBSD is empty}, and Linux arm64
-		on ${linuxArm64Box:-nothing, since ZUID_BOX_LINUX_ARM64 is empty}. Each box is held
-		through the shared host lock for its step, and a VM is put back the way it
-		was found, by the lock's VM state helper: ZUID_BOX_LOCK if set, else the
-		first *_vm-state.bash on PATH. Without one the box isn't held. A box another
+		on ${linuxArm64Box:-nothing, since ZUID_BOX_LINUX_ARM64 is empty}. The Mac on ${macBox:-nothing, since ZUID_BOX_MAC is empty} builds its own
+		release from HEAD, as committed, with a quick run and --package, and the
+		universal tarball and bare command come back into dist-incoming/ for
+		--publish. Each box is held through the shared host lock for its step,
+		and a VM is put back the way it was found, by the lock's VM state
+		helper: ZUID_BOX_LOCK if set, else the first *_vm-state.bash on PATH.
+		Without one the box isn't held. A box another
 		session holds is waited for up to $((boxWaitSecs / 60)) minutes. A box that's taken or
 		doesn't answer is a SKIP, in its step and at the end, and the run goes on.
 		The job runs in a folder of its own under the box's temp root, removed
@@ -340,8 +346,9 @@ fPrint_Help(){
 
 		--publish runs only on ${releaseBranch}, with a clean tree, HEAD pushed, and no tag
 		yet for the version. It uploads dist/ plus whatever is in dist-incoming/.
-		That is where the Mac files go, copied from the dist/ of a --package run
-		of the same commit on a Mac. Only the top level counts, and
+		That is where the Mac box step puts the Mac files. By hand, copy them from
+		the dist/ of a --package run of the same commit on a Mac. Only the top
+		level counts, and
 		checksums.txt and dot files there are ignored.
 		It checks that every platform has an asset, writes one checksums.txt over
 		all of them, shows the plan and asks. Then it tags HEAD v<version> and
@@ -448,6 +455,7 @@ fMain(){
 	local -a default_releaseAssets=()
 	local    default_boxFreeBSD=""
 	local    default_boxLinuxArm64=""
+	local    default_boxMac=""
 	local -i default_boxWaitSecs=0
 	local    default_wasmtimeVer=""
 	local -a default_wasmtimeSha256s=()
@@ -478,6 +486,7 @@ fMain(){
 	local -ra releaseAssets=("${default_releaseAssets[@]}")
 	local -r  freebsdBox="${ZUID_BOX_FREEBSD-${default_boxFreeBSD}}"
 	local -r  linuxArm64Box="${ZUID_BOX_LINUX_ARM64-${default_boxLinuxArm64}}"
+	local -r  macBox="${ZUID_BOX_MAC-${default_boxMac}}"
 	local -ri boxWaitSecs="${default_boxWaitSecs}"
 	local -r wasmtimeVer="${default_wasmtimeVer}"
 	local -ra wasmtimeSha256s=("${default_wasmtimeSha256s[@]}")
@@ -707,6 +716,8 @@ fSteps(){
 	if ((! inContainer)); then
 		fSteps_Box "FreeBSD box"     "${freebsdBox}"    ZUID_BOX_FREEBSD     fStage_Box_FreeBSD
 		fSteps_Box "Linux arm64 box" "${linuxArm64Box}" ZUID_BOX_LINUX_ARM64 fStage_Box_LinuxArm64
+		if ((doRemote)) && [[ "$(uname -s)" == "Darwin" ]]; then fStep_Off "Mac box" "this Mac makes its own universal release"
+		else fSteps_Box "Mac box" "${macBox}" ZUID_BOX_MAC fStage_Box_Mac; fi
 	fi
 
 	if ((! _stepPlanning)); then
@@ -1574,7 +1585,8 @@ fStage_Shell(){
 			"${utilityDir}/pipeline-test.bash" "${utilityDir}/package.bash" \
 			"${utilityDir}/c-checks.bash" "${utilityDir}/git-hooks/pre-push" \
 			"${utilityDir}/include/safe-rm.bash" "${utilityDir}/box-run.bash" \
-			"${utilityDir}/box-release-test.bash" "${utilityDir}/gomod-prune.bash"
+			"${utilityDir}/box-release-test.bash" "${utilityDir}/box-mac-build.bash" \
+			"${utilityDir}/gomod-prune.bash"
 		fEcho_Clean "Clean."
 	fi
 
@@ -4483,8 +4495,9 @@ fBox_Lock(){
 fBox_Skip(){ fTestSkip "$*"; fStep_Skip "$*" ;}
 
 ## Runs <job dir>'s job.bash on the box, held for as long as that takes, and
-## ends the step's check from box-run.bash's verdict.
-fBox_Run(){  ## ssh destination, job dir
+## ends the step's check from box-run.bash's verdict. A job that passed has the
+## optional function look at what it sent home first, which fails with fTestFail.
+fBox_Run(){  ## ssh destination, job dir, [function]
 	local -r dest="$1" jobDir="$2"
 	local -r box="${dest##*@}" verdictFile="${2%/}.verdict"
 	local lock="" verdict=""
@@ -4502,6 +4515,7 @@ fBox_Run(){  ## ssh destination, job dir
 	case "${verdict}" in
 		pass)
 			if ((rc)); then fEcho_Clean "Note .......: ${box} may not be back the way it was found, exit ${rc}, as said above"; fi
+			if [[ -n "${3:-}" ]]; then "$3"; fi
 			fTestPass ;;
 		fail\ *) fTestFail "${verdict#fail }" ;;
 		skip\ *) fBox_Skip "${verdict#skip }" ;;
@@ -4538,6 +4552,40 @@ fStage_Box_FreeBSD(){
 fStage_Box_LinuxArm64(){
 	fId dee7m "Linux arm64 release on its box: command surface and C module"
 	fBox_Release linux-arm64 "${linuxArm64Box}"
+}
+
+## The universal release needs Apple's lipo, so the Mac builds it, from HEAD
+## as committed, the same commit and build number as the rest of the release.
+fStage_Box_Mac(){
+	fId dee8k "macOS universal release built on its box, back in dist-incoming/"
+	local -r jobDir="${_runDir}/box-darwin-universal"
+	mkdir -p "${jobDir}"
+	git -C "${repoRoot}" bundle create -q "${jobDir}/src.bundle" HEAD || fTestFail "couldn't bundle HEAD for the Mac"
+	cp "${utilityDir}/box-mac-build.bash" "${jobDir}/job.bash"
+	ZUID_BOX_BACK="${jobDir}.back" fBox_Run "${macBox}" "${jobDir}" fBox_MacHome
+}
+
+## What the Mac sent home goes in dist-incoming/, replacing its own files from
+## an earlier run. Its debug info goes in dist-incoming/debug/, which --publish
+## never reads.
+fBox_MacHome(){
+	local -r back="${_runDir}/box-darwin-universal.back" release="${distPrefix}darwin-universal"
+	local file=""
+	local -a sent=()
+	if [[ ! -f "${back}/${release}.tgz" ]]; then
+		shopt -s nullglob; sent=("${back}"/*); shopt -u nullglob
+		fTestFail "the Mac sent no ${release}.tgz home, only: ${sent[*]##*/}"
+	fi
+	mkdir -p "${incomingDir}"
+	for file in "${back}/${release}.tgz" "${back}/${release}"; do
+		if [[ -f "${file}" ]]; then mv -f "${file}" "${incomingDir}/"; fi
+	done
+	if [[ -d "${back}/debug/${release}" ]]; then
+		mkdir -p "${incomingDir}/debug"
+		if [[ -e "${incomingDir}/debug/${release}" ]]; then fSafeRm_Under "${incomingDir}/debug" "${incomingDir}/debug/${release}" > /dev/null; fi
+		mv "${back}/debug/${release}" "${incomingDir}/debug/"
+	fi
+	fEcho_Clean "Incoming ...: ${incomingDir}/${release}.tgz"
 }
 
 

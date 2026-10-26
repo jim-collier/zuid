@@ -229,7 +229,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - CICD reset: other hosts, macOS on b26 or vmKt6m
 	- ID: 2026102514523209
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, for dee8k in its "Mac box" step.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261025-145232
 	- Opened by: JC
@@ -241,6 +242,53 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
 		- On b26, or vmKt6m when b26 doesn't answer, the run builds and tests with `--package` from the commit being tested, and the universal tarball comes back into `dist-incoming/`, not by hand.
 		- The box needs Zig 0.17.0. b26 had 0.16.0 when last noted.
+	- Progress log:
+		- 20261025: Split. This item does b26. The vmKt6m fallback is 2026102517494666.
+		- 20261025: b26 already had Zig 0.17.0 in `collierjr`'s home, beside 0.16.0, and Go 1.27.
+		- 20261025: A run that packages has a "Mac box" step after the arm64 one, outside the image. It sends a git bundle of HEAD to `collierjr@b26`, which clones it and runs a quick `cicd.bash --package` there. The universal tarball and the bare command come back into `dist-incoming/`, replacing an earlier run's, and the debug info into `dist-incoming/debug/`.
+		- 20261025: Held through the same lock as the other boxes. `ZUID_BOX_MAC` names another destination, and set empty turns the step off. `--no-remote` turns it off too, and so does running on a Mac.
+		- 20261025: `box-run.bash` brings a job's `back/` folder home when `ZUID_BOX_BACK` names a place for it.
+		- 20261025: The Mac keeps Wasmtime's macOS archives between runs, in its cache dir.
+		- 20261025: Found along the way: de572 fails the first time a box fetches the pinned Go. Filed as 2026102517583389. The next run passes.
+	- Decisions:
+		- 20261025: The calls that may need a look are under `Check:` in the questions file: the `collierjr` user, the flags the Mac runs, which runs have the step, what comes home, and the Wasmtime cache.
+	- Branch: round1026
+	- Test case: dee8k (the box step itself), dee8m (which runs have it), dee8n (it bundles HEAD, brings the release home into `dist-incoming/`, replaces an earlier one, fails when the job fails or sends no tarball, and skips with no answer). dee8m failed with the step left out of the plan and with the Mac check gone. dee8n failed with the files left where they came home, and with `box-run.bash` ignoring `ZUID_BOX_BACK`. Both pass after.
+	- Verified:
+		- 20261025: dee8k on the real b26, from HEAD at 0028c4b: the Mac's quick run with `--package` passed all 18 steps, ddf2d, dde03, dde05, ddwj4 and ddwj5 included, in about 8 minutes. The tarball, the bare command and the debug info came home, b26's work folder was gone after, and the lock was released.
+		- 20261025: `pipeline-test.bash` 158 of 158, `test-ids.py check` (522, all unique), shellcheck on the stage's list.
+		- Not verified: the step inside a full run.
+	- Swept: every `linuxArm64Box` and `freebsdBox` read in `cicd.bash`, the help text and its `--publish` part, `development.md`, `fPlanIn`'s and `fBoxIn`'s defaults, the shellcheck list in `fStage_Shell`, and dee2c's list. The macOS workflow passes `--no-remote`, so it never starts the step.
+
+- de572 fails the first time a box fetches the pinned Go.
+	- ID: 2026102517583389
+	- Type: Bug
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261025-175833
+	- Opened by: JC
+	- Related IDs: 2026102514523209
+	- Target OS: Any
+	- Steps to reproduce [Bug]:
+		- On a box whose Go hasn't fetched `GO_VER` yet, run `cicd.bash --quick --package`.
+	- Incorrect behavior [Bug]: de572 fails with "GOTOOLCHAIN=go1.26.9 gives go: downloading go1.26.9 (darwin/amd64) go1.26.9, not go1.26.9." The next run passes.
+	- Expected behavior [Bug]: It passes on the first run too.
+	- Reproduced [Bug]: 20261025, on b26, in the Mac box step's first run.
+	- Possible cause [Bug]: `fReactor_Toolchain` reads `go env GOVERSION` with `2>&1`, so Go's download note on stderr lands in the version it compares.
+
+- CICD reset: other hosts, macOS falls back to vmKt6m
+	- ID: 2026102517494666
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261025-174946
+	- Opened by: JC
+	- Parent ID: 2026102514523209
+	- Prereq IDs: 2026102514523209
+	- Target OS: macOS
+	- Requirements  [Feature]:
+		- When b26 doesn't answer, the Mac box step runs the same job on vmKt6m, through the VM state helper.
+		- vmKt6m needs Zig 0.17.0 and Go for the build. Its Homebrew builds from source, so set it up detached.
 
 - Identifiers from one tick have no counter.
 	- ID: 2026102409130649

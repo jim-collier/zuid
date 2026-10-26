@@ -1003,7 +1003,7 @@ fPlanIn(){  ## inContainer, planContainer, then name=value settings
 			doSync=1; doGate=0; doFullGate=0; gateFlag=""; doQuick=0; doDemo=1; doPackage=0; noPackage=0; packageSkipWhy=""
 			onlyToolchain=""; doGo=1; doZig=1; doFuzz=1; doCross=1; doLeakcheck=1; leakAsked=0; doProfile=1
 			doPublish=0; doDogfood=1; doBackup=1; backupInWorktree=0; commitAsked=0; doCommit=0; doPush=0; doRemote=1
-			freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"
+			freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"; macBox="collierjr@b26"
 			_stepTitles=(); _stepOffs=(); _stepPlanning=0; _stepElsewhere=0; _stepAt=0; _stepTotal=0
 			read -r -a runAreas <<< "${planAreas:-}"; areaWhy="not in --backlog-run-quick ${planAreas:-}"
 		}
@@ -1013,6 +1013,9 @@ fPlanIn(){  ## inContainer, planContainer, then name=value settings
 		for fn in fSteps fSteps_Checks fSteps_Scrub fSteps_FuzzWhy fSteps_Packages fSteps_Box fSteps_Plan fStep_Off fArea; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
+		## planUname stands in for the host's kernel name.
+		# shellcheck disable=2329  ## Called by the lifted fSteps.
+		uname(){ if [[ -n "${planUname:-}" && "${1:-}" == -s ]]; then printf '%s\n' "${planUname}"; else command uname "$@"; fi; }
 		## Marks the ones the image runs.
 		# shellcheck disable=2329  ## Called by the lifted fSteps.
 		fStep(){ if ((_stepPlanning)); then _stepTitles+=("$( ((_stepElsewhere)) && echo '*')$1"); fi; }
@@ -1245,6 +1248,29 @@ if [[ -z "${boxBad}" ]]
 	else fFail "${boxBad}"
 fi
 
+## The Mac box comes after the arm64 one, outside the image, and never on a Mac.
+fId dee8m "which runs build on the Mac box"
+boxBad=""
+for boxCase in "doPackage=1|yes" "doPackage=1 doFullGate=1 gateFlag=--merge-gate doSync=0|yes" "doPackage=1 doRemote=0|--no-remote" "doPackage=1 macBox=|ZUID_BOX_MAC is empty" "doQuick=1|nothing packaged" "onlyToolchain=go doZig=0|nothing packaged" "doPackage=1 planUname=Darwin|this Mac makes its own universal release"; do
+	boxWant="${boxCase#*|}"
+	# shellcheck disable=2086  ## Settings, split on purpose.
+	outside="$(planAreas="" planOffs=1 fPlanIn 0 1 ${boxCase%%|*})" || { boxBad+=" '${boxCase}': ${outside};"; continue; }
+	if [[ "${boxWant}" == "yes" ]]; then
+		grep -v '^off:' <<< "${outside}" | sed -n '/^Linux arm64 box: vmDebARM64$/,$p' | grep -qx 'Mac box: b26' || boxBad+=" '${boxCase}': it isn't after the arm64 box, in '${outside//$'\n'/, }';"
+	else
+		grep -q '^Mac box' <<< "${outside}" && boxBad+=" '${boxCase}' runs it;"
+		grep -qxF "off:Mac box (${boxWant})" <<< "${outside}" || boxBad+=" '${boxCase}' doesn't say it's off for ${boxWant};"
+	fi
+done
+outside="$(planAreas="" planOffs=1 fPlanIn 0 1 doPackage=1 freebsdBox= linuxArm64Box=)" || true
+grep -qx 'Mac box: b26' <<< "${outside}" || boxBad+=" no other boxes took the Mac one too;"
+inside="$(planAreas="" fPlanIn 1 0 doSync=0 doDogfood=0 doBackup=0 doPackage=1)" || true
+grep -q 'Mac box' <<< "${inside}" && boxBad+=" the image runs it;"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
 ## The box step end to end, with ssh and the host lock stood in for. ssh runs
 ## its command here, so the box's temp root is a folder of the test's own.
 fId dee35 "a box step passes, fails, or skips when the box is down or taken"
@@ -1274,19 +1300,23 @@ fBoxIn(){  ## job.bash's text, in BOX_JOB
 		# shellcheck disable=2034  ## Read by the lifted functions.
 		{ repoRoot="${boxDir}"; utilityDir="$(cd "$(dirname "${cicd}")" && pwd -P)/utility"
 		  zigDir="${boxDir}/zig"; distPrefix="zuid-1.0.0-"; freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"; boxWaitSecs=60; keepTemp=0
+		  macBox="collierjr@b26"; incomingDir="${boxDir}/dist-incoming"
 		  projectName="zuid"; runName="test"; _stepSkipWhy=""; }
 		_runDir="${boxDir}/run"
 		local fn=""
-		for fn in fBox_Lock fBox_Skip fBox_Run fBox_Release fStage_Box_FreeBSD fStage_Box_LinuxArm64 fStep_Skip fId fTestPass fTestSkip fTestFail; do
+		for fn in fBox_Lock fBox_Skip fBox_Run fBox_Release fBox_MacHome fStage_Box_FreeBSD fStage_Box_LinuxArm64 fStage_Box_Mac fStep_Skip fId fTestPass fTestSkip fTestFail; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		# shellcheck disable=2329  ## Called by the lifted functions.
 		{ fEcho_Clean(){ printf '%s\n' "$*"; }; fThrowError(){ printf 'error: %s\n' "$1"; exit 1; }; }
 		## The job is a stand-in, not the real one.
 		# shellcheck disable=2329
-		cp(){ if [[ "${1##*/}" == box-release-test.bash ]]; then printf '%s\n' "${BOX_JOB:?}" > "$2"; else command cp "$@"; fi; }
+		cp(){ if [[ "${1##*/}" == box-release-test.bash || "${1##*/}" == box-mac-build.bash ]]; then printf '%s\n' "${BOX_JOB:?}" > "$2"; else command cp "$@"; fi; }
 		local jobName="box-freebsd-x86_64"; [[ "${BOX_STAGE:-}" != fStage_Box_LinuxArm64 ]] || jobName="box-linux-arm64"
+		## The Mac bundles a repo of its own.
+		if [[ "${BOX_STAGE:-}" == fStage_Box_Mac ]]; then jobName="box-darwin-universal"; repoRoot="${boxDir}/src"; fi
 		if [[ -d "${_runDir}/${jobName}" ]]; then fSafeRm "${_runDir}/${jobName}"; fi
+		if [[ -d "${_runDir}/${jobName}.back" ]]; then fSafeRm "${_runDir}/${jobName}.back"; fi
 		: > "${BOX_LOCK_LOG}"
 		"${BOX_STAGE:-fStage_Box_FreeBSD}"
 		printf 'skipwhy:%s\n' "${_stepSkipWhy}"
@@ -1335,6 +1365,42 @@ grep -q "^Box \.*: tester@vmDebARM64:${boxDir}/root/zuid/[0-9]\{8\}-[0-9]\{6\}_[
 [[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" pass: the box's folder is still there;"
 out="$(BOX_STAGE=fStage_Box_LinuxArm64 ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
 { ((rc == 0)) && grep -q '^  SKIP dee7m .*(no answer from tester@vmDebARM64)$' <<< "${out}"; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## The Mac builds from a bundle of HEAD, and what it sends home goes in
+## dist-incoming/, replacing an earlier run's.
+fId dee8n "the Mac box step builds from HEAD and brings its release home"
+boxBad=""
+mkdir -p "${boxDir}/src"
+git -C "${boxDir}/src" init -q
+printf 'mac\n' > "${boxDir}/src/f"
+git -C "${boxDir}/src" add f
+git -C "${boxDir}/src" -c user.name=t -c user.email=t@t.invalid commit -q -m t
+macRel="zuid-1.0.0-darwin-universal"
+## The stand-in job, which writes <n> into what it sends home.
+fMacJob(){ printf 'git clone -q src.bundle r && [[ -f r/f ]] && mkdir -p back/debug/%s && echo %s > back/%s.tgz && echo b > back/%s && echo %s > back/debug/%s/zuid.dSYM\n' \
+	"${macRel}" "$1" "${macRel}" "${macRel}" "$1" "${macRel}" ;}
+out="$(BOX_STAGE=fStage_Box_Mac ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB="$(fMacJob 1)" fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -qx '  PASS dee8k macOS universal release built on its box, back in dist-incoming/' <<< "${out}"; } || boxBad+=" pass: exited ${rc}, said '${out//$'\n'/ | }';"
+grep -q '^wrap b26 --wait 60 --why zuid: cicd test -- bash .*/box-run.bash collierjr@b26 ' "${BOX_LOCK_LOG}" || boxBad+=" pass: not held through the lock as b26;"
+[[ -f "${boxDir}/dist-incoming/${macRel}.tgz" && -f "${boxDir}/dist-incoming/${macRel}" && -f "${boxDir}/dist-incoming/debug/${macRel}/zuid.dSYM" ]] || boxBad+=" pass: not all of it reached dist-incoming/;"
+[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" pass: the box's folder is still there;"
+## A second run replaces the first one's files.
+out="$(BOX_STAGE=fStage_Box_Mac ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB="$(fMacJob 2)" fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && [[ "$(cat "${boxDir}/dist-incoming/${macRel}.tgz" "${boxDir}/dist-incoming/debug/${macRel}/zuid.dSYM" 2>&1)" == $'2\n2' ]]; } || boxBad+=" again: exited ${rc}, said '${out//$'\n'/ | }';"
+## A job that passes but sends no tarball home fails, and so does one that fails.
+out="$(BOX_STAGE=fStage_Box_Mac ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='mkdir -p back && printf x > back/zuid-0.9.0-darwin-universal.tgz' fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -qx '  FAIL dee8k macOS universal release built on its box, back in dist-incoming/' <<< "${out}" && grep -q "no ${macRel}.tgz home, only: zuid-0.9.0-darwin-universal.tgz" <<< "${out}"; } || boxBad+=" nothing home: exited ${rc}, said '${out//$'\n'/ | }';"
+[[ ! -e "${boxDir}/dist-incoming/zuid-0.9.0-darwin-universal.tgz" ]] || boxBad+=" nothing home: another version reached dist-incoming/;"
+out="$(BOX_STAGE=fStage_Box_Mac ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='mkdir -p back && printf x > back/zuid-1.0.0-darwin-universal.tgz && exit 4' fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -q 'exited 4' <<< "${out}"; } || boxBad+=" fail: exited ${rc}, said '${out//$'\n'/ | }';"
+[[ "$(cat "${boxDir}/dist-incoming/${macRel}.tgz")" == 2 ]] || boxBad+=" fail: a failed job's tarball reached dist-incoming/;"
+[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" fail: the box's folder is still there;"
+out="$(BOX_STAGE=fStage_Box_Mac ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dee8k .*(no answer from collierjr@b26)$' <<< "${out}"; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
 if [[ -z "${boxBad}" ]]
 	then fPass
 	else fFail "${boxBad}"
@@ -3182,7 +3248,7 @@ guardBad=""
 # shellcheck disable=2031  ## Only a subshell much earlier changes it.
 for guardFile in cicd/utility/cli-test.bash cicd/utility/pipeline-test.bash cicd/utility/installer-test.bash \
 	cicd/utility/git-hooks/pre-push cicd/utility/package.bash cicd/utility/include/safe-rm.bash cicd/cicd.bash install.bash install.ps1 \
-	cicd/utility/box-run.bash cicd/utility/box-release-test.bash cicd/utility/gomod-prune.bash; do
+	cicd/utility/box-run.bash cicd/utility/box-release-test.bash cicd/utility/box-mac-build.bash cicd/utility/gomod-prune.bash; do
 	# shellcheck disable=2031  ## Likewise.
 	[[ -f "${repoRoot}/${guardFile}" ]] || { guardBad+=" no ${guardFile};"; continue; }
 	# shellcheck disable=2031  ## Likewise.

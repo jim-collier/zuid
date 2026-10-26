@@ -13,6 +13,8 @@
 ##	Notes:
 ##		- ZUID_SSH names another ssh, for the tests.
 ##		- ZUID_BOX_KEEP=1 keeps the work folder on the box, and says where.
+##		- ZUID_BOX_BACK=<dir> brings the box folder's back/ home into <dir>,
+##		  after a job that passed.
 ##	History: At bottom.
 
 ##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
@@ -26,6 +28,7 @@ dest="${1:?ssh destination}"; jobDir="${2:?job dir}"; verdict="${3:?verdict file
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 guard="${here}/include/safe-rm.bash"
 sshCmd="${ZUID_SSH:-ssh}"
+back="${ZUID_BOX_BACK:-}"
 sshOpts=(-o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=4)
 
 fVerdict(){ printf '%s\n' "$*" > "${verdict}" ;}
@@ -52,15 +55,23 @@ else
 	## job.bash gets no stdin, since bash -s is reading this from it.
 	rc=0
 	{ cat "${guard}"; printf '%s\n' \
-		'safeRmOwn="${1%/*}"; export ZUID_RUN_DIR="$1" TMPDIR="$1" TEMP="$1" TMP="$1"' \
-		'cd "$1" && bash ./job.bash < /dev/null; rc=$?' \
-		'cd / && if [[ "$2" == 1 ]]; then echo "Kept .......: $1"; else fSafeRm "$1" || rc=1; fi' \
-		'exit "${rc}"'; } \
-		| fSsh bash -s -- "${boxDir}" "${ZUID_BOX_KEEP:-0}" || rc=$?
+		'export ZUID_RUN_DIR="$1" TMPDIR="$1" TEMP="$1" TMP="$1"' \
+		'cd "$1" && bash ./job.bash < /dev/null'; } \
+		| fSsh bash -s -- "${boxDir}" || rc=$?
+	why=""
+	if ((rc == 0)) && [[ -n "${back}" ]]; then
+		mkdir -p "${back}"
+		fSsh tar -cf - -C "${boxDir}/back" . < /dev/null | tar -xf - -C "${back}" || why="could not bring back/ home from ${dest}"
+	fi
+	if [[ "${ZUID_BOX_KEEP:-0}" == 1 ]]; then echo "Kept .......: ${dest}:${boxDir}"
+	elif ! { cat "${guard}"; printf '%s\n' 'safeRmOwn="${1%/*}"; fSafeRm "$1"'; } | fSsh bash -s -- "${boxDir}"; then
+		if ((rc == 0)) && [[ -z "${why}" ]]; then why="could not remove ${dest}:${boxDir}"; fi
+	fi
 	## 255 is ssh's own, so the box went away mid-job.
-	if   ((rc == 0));   then fVerdict "pass"
-	elif ((rc == 255)); then fVerdict "skip lost ${dest} partway through"
-	else                     fVerdict "fail the job on ${dest} exited ${rc}"; fi
+	if   ((rc == 255));          then fVerdict "skip lost ${dest} partway through"
+	elif ((rc != 0));            then fVerdict "fail the job on ${dest} exited ${rc}"
+	elif [[ -n "${why}" ]];      then fVerdict "fail ${why}"
+	else                              fVerdict "pass"; fi
 	exit 0
 fi
 
@@ -70,3 +81,4 @@ exit 0
 
 ##	History:
 ##		- 20261025 JC: Created, for the test boxes.
+##		- 20261025 JC: ZUID_BOX_BACK, for the Mac's release.
