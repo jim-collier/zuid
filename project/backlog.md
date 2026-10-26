@@ -184,7 +184,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - CICD reset: other hosts, Linux arm64 on vmDebARM64
 	- ID: 2026102514523204
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, for dee7m in its "Linux arm64 box" step.
 	- Priority [Feature|Enhancement] | Severity [Bug]: High
 	- Opened: 20261025-145232
 	- Opened by: JC
@@ -194,6 +195,20 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Requirements  [Feature]:
 		- Sweeping override, 2026-10-24: this supersedes any earlier decision on this project that conflicts with it.
 		- On vmDebARM64, through the shared part, the Linux arm64 release passes `cli-test.bash` and the C smoke test, shared and static. The VM is emulated, so keep the job small.
+	- Progress log:
+		- 20261025: A run that packages has a "Linux arm64 box" step after the FreeBSD one, outside the image. It sends the arm64 tarball, `cli-test.bash` and `capi_smoke.c` to `tester@vmDebARM64`, through the same lock, VM helper and `box-run.bash` as FreeBSD. The job is the FreeBSD one, unchanged.
+		- 20261025: `ZUID_BOX_LINUX_ARM64` names another destination, and set empty turns the step off. `--no-remote` turns it off too.
+		- 20261025: The two box steps share `fSteps_Box` for when they run and `fBox_Release` for what they send.
+		- 20261025: The step took about 22 minutes from a VM that was off, nearly all of it `cli-test.bash`, since each run of the command takes about 12 s of CPU under emulation even with its module cached. That adds that much to every full run.
+	- Decisions:
+		- 20261025: The calls that may need a look are under `Check:` in the questions file: the step's length, and the `tester` user.
+	- Branch: round1026
+	- Test case: dee7m (the box step itself), dee7n (which runs have it), dee7p (it sends the arm64 release to vmDebARM64 under that box's lock, and skips with no release or no answer). dee7n and dee7p each failed with the step left out of the plan and pointed at the FreeBSD box, and pass after.
+	- Verified:
+		- 20261025: dee7m on the real vmDebARM64, from off, against `dist/` from 16:42: 92 of 92 `cli-test.bash` cases on Debian arm64, both smoke tests, then the VM shut down and put back to off.
+		- 20261025: `pipeline-test.bash` 156 of 156, `test-ids.py check` (519, all unique), shellcheck on the stage's list, the content scrub, and `cicd.bash --backlog-run-quick shell docs`, 8 of 8 steps. Load about 16 to 45 on 32 CPUs.
+		- Not verified: the step inside a full run.
+	- Swept: every `freebsdBox` read in `cicd.bash`, the help text, `development.md`, `fPlanIn`'s and `fBoxIn`'s defaults in `pipeline-test.bash`, and the two Package comments that said the FreeBSD and arm64 releases are run by hand. No new files, so the shellcheck list and dee2c's list are unchanged.
 
 - CICD reset: other hosts, Windows on b29w
 	- ID: 2026102514523207

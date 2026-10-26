@@ -1003,14 +1003,14 @@ fPlanIn(){  ## inContainer, planContainer, then name=value settings
 			doSync=1; doGate=0; doFullGate=0; gateFlag=""; doQuick=0; doDemo=1; doPackage=0; noPackage=0; packageSkipWhy=""
 			onlyToolchain=""; doGo=1; doZig=1; doFuzz=1; doCross=1; doLeakcheck=1; leakAsked=0; doProfile=1
 			doPublish=0; doDogfood=1; doBackup=1; backupInWorktree=0; commitAsked=0; doCommit=0; doPush=0; doRemote=1
-			freebsdBox="bsdtest@vmFreeBSD"
+			freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"
 			_stepTitles=(); _stepOffs=(); _stepPlanning=0; _stepElsewhere=0; _stepAt=0; _stepTotal=0
 			read -r -a runAreas <<< "${planAreas:-}"; areaWhy="not in --backlog-run-quick ${planAreas:-}"
 		}
 		shift 2
 		local kv=""; for kv in "$@"; do printf -v "${kv%%=*}" '%s' "${kv#*=}"; done
 		local fn=""
-		for fn in fSteps fSteps_Checks fSteps_Scrub fSteps_FuzzWhy fSteps_Packages fSteps_Plan fStep_Off fArea; do
+		for fn in fSteps fSteps_Checks fSteps_Scrub fSteps_FuzzWhy fSteps_Packages fSteps_Box fSteps_Plan fStep_Off fArea; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		## Marks the ones the image runs.
@@ -1221,6 +1221,30 @@ if [[ -z "${boxBad}" ]]
 	else fFail "${boxBad}"
 fi
 
+## The same for the Linux arm64 box, which comes after the FreeBSD one.
+fId dee7n "which runs test on the Linux arm64 box"
+boxBad=""
+for boxCase in "doPackage=1|yes" "doPackage=1 doFullGate=1 gateFlag=--merge-gate doSync=0|yes" "doPackage=1 doRemote=0|--no-remote" "doPackage=1 linuxArm64Box=|ZUID_BOX_LINUX_ARM64 is empty" "doQuick=1|nothing packaged" "onlyToolchain=go doZig=0|nothing packaged"; do
+	boxWant="${boxCase#*|}"
+	# shellcheck disable=2086  ## Settings, split on purpose.
+	outside="$(planAreas="" planOffs=1 fPlanIn 0 1 ${boxCase%%|*})" || { boxBad+=" '${boxCase}': ${outside};"; continue; }
+	if [[ "${boxWant}" == "yes" ]]; then
+		grep -v '^off:' <<< "${outside}" | sed -n '/^FreeBSD box: vmFreeBSD$/,$p' | grep -qx 'Linux arm64 box: vmDebARM64' || boxBad+=" '${boxCase}': it isn't after the FreeBSD box, in '${outside//$'\n'/, }';"
+	else
+		grep -q '^Linux arm64 box' <<< "${outside}" && boxBad+=" '${boxCase}' runs it;"
+		grep -qxF "off:Linux arm64 box (${boxWant})" <<< "${outside}" || boxBad+=" '${boxCase}' doesn't say it's off for ${boxWant};"
+	fi
+done
+## Emptying one box's destination leaves the other running.
+outside="$(planAreas="" planOffs=1 fPlanIn 0 1 doPackage=1 freebsdBox=)" || true
+grep -qx 'Linux arm64 box: vmDebARM64' <<< "${outside}" || boxBad+=" no FreeBSD box took the arm64 one too;"
+inside="$(planAreas="" fPlanIn 1 0 doSync=0 doDogfood=0 doBackup=0 doPackage=1)" || true
+grep -q 'Linux arm64 box' <<< "${inside}" && boxBad+=" the image runs it;"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
 ## The box step end to end, with ssh and the host lock stood in for. ssh runs
 ## its command here, so the box's temp root is a folder of the test's own.
 fId dee35 "a box step passes, fails, or skips when the box is down or taken"
@@ -1249,11 +1273,11 @@ fBoxIn(){  ## job.bash's text, in BOX_JOB
 	{
 		# shellcheck disable=2034  ## Read by the lifted functions.
 		{ repoRoot="${boxDir}"; utilityDir="$(cd "$(dirname "${cicd}")" && pwd -P)/utility"
-		  zigDir="${boxDir}/zig"; distPrefix="zuid-1.0.0-"; freebsdBox="bsdtest@vmFreeBSD"; boxWaitSecs=60; keepTemp=0
+		  zigDir="${boxDir}/zig"; distPrefix="zuid-1.0.0-"; freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"; boxWaitSecs=60; keepTemp=0
 		  projectName="zuid"; runName="test"; _stepSkipWhy=""; }
 		_runDir="${boxDir}/run"
 		local fn=""
-		for fn in fBox_Lock fBox_Skip fBox_Run fStage_Box_FreeBSD fStep_Skip fId fTestPass fTestSkip fTestFail; do
+		for fn in fBox_Lock fBox_Skip fBox_Run fBox_Release fStage_Box_FreeBSD fStage_Box_LinuxArm64 fStep_Skip fId fTestPass fTestSkip fTestFail; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		# shellcheck disable=2329  ## Called by the lifted functions.
@@ -1261,9 +1285,10 @@ fBoxIn(){  ## job.bash's text, in BOX_JOB
 		## The job is a stand-in, not the real one.
 		# shellcheck disable=2329
 		cp(){ if [[ "${1##*/}" == box-release-test.bash ]]; then printf '%s\n' "${BOX_JOB:?}" > "$2"; else command cp "$@"; fi; }
-		if [[ -d "${_runDir}/box-freebsd" ]]; then fSafeRm "${_runDir}/box-freebsd"; fi
+		local jobName="box-freebsd-x86_64"; [[ "${BOX_STAGE:-}" != fStage_Box_LinuxArm64 ]] || jobName="box-linux-arm64"
+		if [[ -d "${_runDir}/${jobName}" ]]; then fSafeRm "${_runDir}/${jobName}"; fi
 		: > "${BOX_LOCK_LOG}"
-		fStage_Box_FreeBSD
+		"${BOX_STAGE:-fStage_Box_FreeBSD}"
 		printf 'skipwhy:%s\n' "${_stepSkipWhy}"
 	} 2>&1
 }
@@ -1291,6 +1316,25 @@ out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_TAKEN
 ## No lock here, which says so and runs anyway.
 out="$(ZUID_BOX_LOCK="" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
 { ((rc == 0)) && grep -q "isn't held" <<< "${out}" && grep -q '^  PASS dee33 ' <<< "${out}" && [[ ! -s "${BOX_LOCK_LOG}" ]]; } || boxBad+=" no lock: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## The Linux arm64 box step sends its own release to its own box, under the
+## lock by that box's name, and skips without one.
+fId dee7p "the Linux arm64 box step sends its release to vmDebARM64"
+boxBad=""
+out="$(BOX_STAGE=fStage_Box_LinuxArm64 ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dee7m .*(no zuid-1.0.0-linux-arm64.tgz in dist/)$' <<< "${out}"; } || boxBad+=" no release: exited ${rc}, said '${out//$'\n'/ | }';"
+printf 'x\n' > "${boxDir}/dist/zuid-1.0.0-linux-arm64.tgz"
+out="$(BOX_STAGE=fStage_Box_LinuxArm64 ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='[[ -f zuid-1.0.0-linux-arm64.tgz && ! -e zuid-1.0.0-freebsd-x86_64.tgz && -f cicd/utility/cli-test.bash && -f capi_smoke.c ]]' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -qx '  PASS dee7m Linux arm64 release on its box: command surface and C module' <<< "${out}"; } || boxBad+=" pass: exited ${rc}, said '${out//$'\n'/ | }';"
+grep -q '^wrap vmDebARM64 --wait 60 --why zuid: cicd test -- bash .*/box-run.bash tester@vmDebARM64 ' "${BOX_LOCK_LOG}" || boxBad+=" pass: not held through the lock by its own name;"
+grep -q "^Box \.*: tester@vmDebARM64:${boxDir}/root/zuid/[0-9]\{8\}-[0-9]\{6\}_[0-9]\{3\}$" <<< "${out}" || boxBad+=" pass: no work folder of its own;"
+[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" pass: the box's folder is still there;"
+out="$(BOX_STAGE=fStage_Box_LinuxArm64 ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP dee7m .*(no answer from tester@vmDebARM64)$' <<< "${out}"; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
 if [[ -z "${boxBad}" ]]
 	then fPass
 	else fFail "${boxBad}"

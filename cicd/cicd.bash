@@ -36,6 +36,7 @@
 ##		- 20261025 JC: A run folder of its own in HOST_TEMP, removed at the end. Removals go through the safe removal guard.
 ##		- 20261025 JC: The FreeBSD release tested on vmFreeBSD, under the host lock. A step can end in SKIP.
 ##		- 20261025 JC: One cleanup line ends every run. Go's module cache in the volume pruned to go.sum. The run log keeps its last lines after Ctrl+C.
+##		- 20261025 JC: The Linux arm64 release tested on vmDebARM64.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Global, since the exit trap reads it after fMain has gone.
@@ -89,9 +90,10 @@ fConfig(){ :;
 	default_releaseAssets=("linux-x86_64.tgz" "linux-arm64.tgz" "freebsd-x86_64.tgz" "darwin-universal.tgz" "windows-x86_64.zip" "windows-arm64.zip")
 
 	## Test boxes, as ssh destinations. The host part is the box's name in the
-	## shared host lock. ZUID_BOX_FREEBSD replaces it, and set empty leaves the
-	## box out.
+	## shared host lock. ZUID_BOX_FREEBSD and ZUID_BOX_LINUX_ARM64 replace them,
+	## and set empty leave the box out.
 	default_boxFreeBSD="bsdtest@vmFreeBSD"
+	default_boxLinuxArm64="tester@vmDebARM64"
 	## How long a box step waits for a box another session holds, then skips.
 	default_boxWaitSecs=600
 
@@ -319,7 +321,8 @@ fPrint_Help(){
 		leave it out, and so does --no-remote.
 
 		A run that packages then tests the releases this machine can't run on the
-		test boxes, over ssh: FreeBSD on ${freebsdBox:-nothing, since ZUID_BOX_FREEBSD is empty}. Each box is held
+		test boxes, over ssh: FreeBSD on ${freebsdBox:-nothing, since ZUID_BOX_FREEBSD is empty}, and Linux arm64
+		on ${linuxArm64Box:-nothing, since ZUID_BOX_LINUX_ARM64 is empty}. Each box is held
 		through the shared host lock for its step, and a VM is put back the way it
 		was found, by the lock's VM state helper: ZUID_BOX_LOCK if set, else the
 		first *_vm-state.bash on PATH. Without one the box isn't held. A box another
@@ -444,6 +447,7 @@ fMain(){
 	local    default_releaseBranch=""
 	local -a default_releaseAssets=()
 	local    default_boxFreeBSD=""
+	local    default_boxLinuxArm64=""
 	local -i default_boxWaitSecs=0
 	local    default_wasmtimeVer=""
 	local -a default_wasmtimeSha256s=()
@@ -473,6 +477,7 @@ fMain(){
 	local -r  releaseBranch="${default_releaseBranch}"
 	local -ra releaseAssets=("${default_releaseAssets[@]}")
 	local -r  freebsdBox="${ZUID_BOX_FREEBSD-${default_boxFreeBSD}}"
+	local -r  linuxArm64Box="${ZUID_BOX_LINUX_ARM64-${default_boxLinuxArm64}}"
 	local -ri boxWaitSecs="${default_boxWaitSecs}"
 	local -r wasmtimeVer="${default_wasmtimeVer}"
 	local -ra wasmtimeSha256s=("${default_wasmtimeSha256s[@]}")
@@ -700,10 +705,8 @@ fSteps(){
 	fi
 	## The boxes test what Package made, so they go where it does.
 	if ((! inContainer)); then
-		if   ((! doRemote)); then fStep_Off "FreeBSD box" "--no-remote"
-		elif [[ -z "${freebsdBox}" ]]; then fStep_Off "FreeBSD box" "ZUID_BOX_FREEBSD is empty"
-		elif ! fSteps_Packages; then fStep_Off "FreeBSD box" "nothing packaged"
-		else fStep "FreeBSD box: ${freebsdBox##*@}" fStage_Box_FreeBSD; fi
+		fSteps_Box "FreeBSD box"     "${freebsdBox}"    ZUID_BOX_FREEBSD     fStage_Box_FreeBSD
+		fSteps_Box "Linux arm64 box" "${linuxArm64Box}" ZUID_BOX_LINUX_ARM64 fStage_Box_LinuxArm64
 	fi
 
 	if ((! _stepPlanning)); then
@@ -788,6 +791,14 @@ fSteps_Scrub(){
 }
 
 fSteps_FuzzWhy(){ if ((doGate)); then printf '%s\n' "${gateFlag}"; else printf '%s\n' "--no-fuzz"; fi ;}
+
+## One box step, or why it's off.
+fSteps_Box(){  ## title, ssh destination, its variable, stage function
+	if   ((! doRemote)); then fStep_Off "$1" "--no-remote"
+	elif [[ -z "$2" ]]; then fStep_Off "$1" "$3 is empty"
+	elif ! fSteps_Packages; then fStep_Off "$1" "nothing packaged"
+	else fStep "$1: ${2##*@}" "$4"; fi
+}
 
 ## The image has every tool packaging needs, so a run there packages where
 ## this machine couldn't.
@@ -3771,7 +3782,7 @@ Translation 0409 04b0"
 
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The FreeBSD x86_64 release, cross-built on Linux from FreeBSD's own Wasmtime
-## package. As with arm64, nothing here can run it; a FreeBSD machine does that by hand.
+## package. As with arm64, nothing here can run it; the FreeBSD box step does.
 fStage_Package_FreeBSD(){  ## scratch dir
 
 	local -r scratchDir="$1"
@@ -4223,7 +4234,7 @@ fStage_Package_Licenses(){  ## scratch dir
 #•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## The Linux arm64 release, cross-built beside the x86_64 one. Nothing here can
 ## run it, so these check what it is, what it asks of the machine, and that the
-## C module in its tarball links. Running it is left to an arm64 machine.
+## C module in its tarball links. The Linux arm64 box step runs it.
 fStage_Package_Arm64(){  ## scratch dir, glibc floor
 
 	local -r scratchDir="$1" glibcFloor="$2"
@@ -4502,11 +4513,11 @@ fBox_Run(){  ## ssh destination, job dir
 	esac
 }
 
-## The FreeBSD release from this run, its command through cli-test.bash and
-## its libraries through capi_smoke.c, on FreeBSD itself.
-fStage_Box_FreeBSD(){
-	fId dee33 "FreeBSD release on its box: command surface and C module"
-	local -r tarball="${repoRoot}/dist/${distPrefix}freebsd-x86_64.tgz" jobDir="${_runDir}/box-freebsd"
+## A release from this run, its command through cli-test.bash and its
+## libraries through capi_smoke.c, on a box that runs it. The caller has
+## opened the check.
+fBox_Release(){  ## release name after the version, ssh destination
+	local -r tarball="${repoRoot}/dist/${distPrefix}$1.tgz" jobDir="${_runDir}/box-$1"
 	if [[ ! -f "${tarball}" ]]; then fBox_Skip "no ${tarball##*/} in dist/"; return 0; fi
 	mkdir -p "${jobDir}/cicd/utility/include" "${jobDir}/testdata"
 	cp "${tarball}"                                  "${jobDir}/"
@@ -4515,7 +4526,18 @@ fStage_Box_FreeBSD(){
 	cp "${utilityDir}/include/safe-rm.bash"          "${jobDir}/cicd/utility/include/"
 	cp "${repoRoot}/testdata/errors.tsv"             "${jobDir}/testdata/"
 	cp "${zigDir}/lib/test/capi_smoke.c"             "${jobDir}/"
-	fBox_Run "${freebsdBox}" "${jobDir}"
+	fBox_Run "$2" "${jobDir}"
+}
+
+fStage_Box_FreeBSD(){
+	fId dee33 "FreeBSD release on its box: command surface and C module"
+	fBox_Release freebsd-x86_64 "${freebsdBox}"
+}
+
+## The box is emulated, so this takes about 20 minutes, nearly all cli-test.bash.
+fStage_Box_LinuxArm64(){
+	fId dee7m "Linux arm64 release on its box: command surface and C module"
+	fBox_Release linux-arm64 "${linuxArm64Box}"
 }
 
 
