@@ -35,8 +35,9 @@ for file in manifest.ucl plist stamp root; do [[ -e "${kit}/${file}" ]] || fDie 
 fSay "Box" "$(uname -srm), pkg $(pkg -v)"
 
 ## The stamp is the commit's, as for the tarballs, so one commit makes one .pkg.
+## -t, not SOURCE_DATE_EPOCH, which leaves each file's own mtime in +MANIFEST.
 mkdir out
-SOURCE_DATE_EPOCH="$(< "${kit}/stamp")" pkg create -M "${kit}/manifest.ucl" -p "${kit}/plist" -r "${kit}/root" -o out \
+pkg create -t "$(< "${kit}/stamp")" -M "${kit}/manifest.ucl" -p "${kit}/plist" -r "${kit}/root" -o out \
 	|| fDie "pkg create failed"
 shopt -s nullglob
 outs=(out/*.pkg)
@@ -89,3 +90,4 @@ fSay "Back" "${release}.pkg"
 
 ##	History:
 ##		- 20261026 JC: Created, for the FreeBSD .pkg.
+##		- 20261027 JC: pkg create -t, so the .pkg doesn't depend on how the files got here.

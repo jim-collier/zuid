@@ -4647,7 +4647,7 @@ fBox_Pkg(){  ## release name after the version, ssh destination
 	local -r kit="${repoRoot}/dist/pkg/${distPrefix}$1"
 	[[ -d "${kit}" ]] || fTestFail "package.bash laid out no pkg/${pkgRelease}/ in dist/"
 	mkdir -p "${jobDir}"
-	## -p, since pkg puts each file's own mtime in +MANIFEST, SOURCE_DATE_EPOCH or not.
+	## -p, so the box gets the layout's settled times, as tar would send them.
 	cp -Rp "${kit}" "${jobDir}/"
 	cp "${utilityDir}/box-freebsd-pkg.bash" "${jobDir}/job.bash"
 	ZUID_BOX_BACK="${jobDir}.back" fBox_Run "$2" "${jobDir}" fBox_PkgHome
@@ -4689,8 +4689,8 @@ fPkg_Here(){  ## release name after the version
 	arch="$(sed -n 's/^abi: "FreeBSD:\*:\(.*\)"$/\1/p' "${kit}/manifest.ucl")"
 	[[ -n "${arch}" ]] || fTestFail "pkg/${pkgRelease}/manifest.ucl has no FreeBSD:*:<arch> ABI"
 	mkdir -p "${jobDir}/out"
-	fInImage "${jobDir}" env ABI="FreeBSD:14:${arch}" OSVERSION=1400000 SOURCE_DATE_EPOCH="$(< "${kit}/stamp")" \
-		/opt/fbsdpkg/pkg create -M "${kit}/manifest.ucl" -p "${kit}/plist" -r "${kit}/root" -o "${jobDir}/out" \
+	fInImage "${jobDir}" env ABI="FreeBSD:14:${arch}" OSVERSION=1400000 \
+		/opt/fbsdpkg/pkg create -t "$(< "${kit}/stamp")" -M "${kit}/manifest.ucl" -p "${kit}/plist" -r "${kit}/root" -o "${jobDir}/out" \
 		|| fTestFail "pkg create failed here, as said above"
 	shopt -s nullglob; made=("${jobDir}"/out/*.pkg); shopt -u nullglob
 	((${#made[@]} == 1)) || fTestFail "pkg create made ${#made[@]} files here, not one"

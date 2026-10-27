@@ -1450,7 +1450,7 @@ out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=
 { ((rc == 0)) && grep -q '^  SKIP defmv ' <<< "${out}" && grep -qx '  PASS defp3 FreeBSD .pkg made here, the box'"'"'s bytes, or in dist/ without one' <<< "${out}"; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
 [[ "$(head -c 4 "${pkgHome}" 2>/dev/null | od -An -tx1 | tr -d ' \n')" == 28b52ffd && "$(ls -l "${pkgHome}")" == -rw-r--r--* ]] || boxBad+=" down: no .pkg in dist/, or not 644;"
 grep -qx "$(shasum -a 256 "${pkgHome}" | awk '{print $1}')  zuid-1.0.0-freebsd-x86_64.pkg" "${boxDir}/dist/checksums.txt" || boxBad+=" down: not in checksums.txt;"
-grep -qF "/here-freebsd-x86_64-pkg env ABI=FreeBSD:14:amd64 OSVERSION=1400000 SOURCE_DATE_EPOCH=1700000000 /opt/fbsdpkg/pkg create -M ${pkgKit}/manifest.ucl -p ${pkgKit}/plist -r ${pkgKit}/root -o " "${boxDir}/inimage.args" || boxBad+=" down: pkg create called as '$(cat "${boxDir}/inimage.args" 2>/dev/null || true)';"
+grep -qF "/here-freebsd-x86_64-pkg env ABI=FreeBSD:14:amd64 OSVERSION=1400000 /opt/fbsdpkg/pkg create -t 1700000000 -M ${pkgKit}/manifest.ucl -p ${pkgKit}/plist -r ${pkgKit}/root -o " "${boxDir}/inimage.args" || boxBad+=" down: pkg create called as '$(cat "${boxDir}/inimage.args" 2>/dev/null || true)';"
 ## Made here as xz, or not made, with no box's to go by.
 rm -f "${pkgHome}"
 out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' BOX_HERE='\xfd7zXZ' fBoxIn)" && rc=0 || rc=$?
