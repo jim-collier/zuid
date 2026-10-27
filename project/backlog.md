@@ -107,6 +107,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261026: Upstream patch and issue text drafted, in the private tree's `upstream/2026102617244801/`.
 		- 20261027: The full run at 1a93c3a failed defp3: the box's `.pkg` wasn't the one made here. The only difference was each file's `mtime` in `+MANIFEST`, the time the files reached the box. `fBox_Pkg` copied the layout with `cp -R`, which drops the settled times, and pkg writes the real mtime there even with `SOURCE_DATE_EPOCH` set, which it uses only for the tar headers. The beta.1 compare sent the layout by tar, so it kept them. Now `cp -Rp`.
 		- 20261027: Both sides also run `pkg create -t <stamp>` instead of setting `SOURCE_DATE_EPOCH`. pkg reads that only for the tar headers, while `-t` sets the manifest's times too, so the bytes no longer depend on the layout's mtimes. Same bytes as before for the same stamp.
+		- 20261027: A second upstream draft, for `SOURCE_DATE_EPOCH` not reaching the manifest, is beside the first, as `manifest-mtime.*`.
 	- Decisions:
 		- 20261026: "Sure to install" is the same bytes as `pkg create` on vmFreeBSD. A `.pkg` the box made is the check on the one made here on every run that has both, and a mismatch fails the step rather than picking one.
 		- 20261026: Made here on every run with the image, not only when the box skips, so the check runs whenever it can. It costs about a second.
