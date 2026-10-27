@@ -30,6 +30,22 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## Issues
 
+- The markdown check reports 6 problems in the backlog on `dev`.
+	- ID: 2026102701440000
+	- Type: Bug
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261027-014400
+	- Opened by: JC
+	- Steps to reproduce [Bug]:
+		- Run the shared markdown check on `project/backlog.md` as of `dev` d897271.
+	- Incorrect behavior [Bug]:
+		- An ordinal "4th" in a Done item's Decisions row, one testing marker emoji and 4 ellipsis characters in the Template section.
+	- Expected behavior [Bug]:
+		- No problems, or the Template lines marked as exempt if they're meant to stay.
+	- Progress log:
+		- 20261027: Found at round 1027's gate step. Not the round's, since `dev` shows the same 6.
+
 - The C soak never runs `%c`.
 	- ID: 2026102520060700
 	- Type: Enhancement
