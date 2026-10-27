@@ -182,7 +182,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - The C soak never runs `%c`.
 	- ID: 2026102520060700
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: de5ch, the C call soak under heaptrack, in the image with `--leakcheck`.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261025-200607
 	- Opened by: JC
@@ -190,6 +191,15 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Requirements  [Feature]:
 		- `capi_soak.c` adds `%c` to its formats, so the counter the C context now keeps runs under heaptrack.
 		- Its loop must stay under the 2^20 limit per tick, or pin the clock forward between rounds.
+	- Progress log:
+		- 20261027: The call soak has 3 `%c` formats, alone, with `%d` and `%r`, and with `%h` and `%g`. Each round moves the pinned clock 1000 s forward, which starts the counter over, so a long soak never reaches 2^20.
+	- Decisions:
+		- 20261027: No new test ID. The soak's test, de5ch, now covers `%c`; a failed `%c` call fails the round.
+	- Test case: de5ch and de5cm, unchanged IDs.
+	- Verified:
+		- 20261027: The soak built with the pipeline's flags against the current library and passed plain, at 20 and the default 100 rounds, with the heap level between N and 2N.
+		- Not verified: under heaptrack, and the soak failing on a broken `%c`.
+	- Swept: capi_smoke.c and capi_interpose.c, the other C files that call `zuid_generate`, make a few calls each and no loop of them, so neither nears the limit.
 
 - The FreeBSD release has no `.pkg`.
 	- ID: 2026101410500001

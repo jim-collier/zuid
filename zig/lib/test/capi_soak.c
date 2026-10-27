@@ -46,6 +46,7 @@ struct soak_format {
 static const struct soak_format formats[] = {
 	{"%d", 0}, {"%h", 0}, {"%g", 0}, {"%r", 0}, {"%d%h%g%r", 0},
 	{"%u", 1}, {"%f", 1}, {"%m", 1}, {"%d%h%u%f%m%g%r", 1},
+	{"%c", 0}, {"%d%c%r", 0}, {"%d%h%c%g", 0},
 };
 static const char *const bases[] = {NULL, "16", "32w", "36", "64tt", "128tt", "256tt", "512tt", "1024tz", "2048tz"};
 
@@ -79,12 +80,14 @@ static int gen(zuid *z, const char *format, const char *base, char *out, size_t 
 }
 
 /* Non-zero on anything the smoke test would call a failure, since a soak that
-   stops generating stops measuring. */
-static int calls(zuid *z) {
+   stops generating stops measuring. The clock moves forward each round, which
+   starts the %c counter over. Left on one tick, a long soak would reach the
+   2^20 limit per tick and fail with ZUID_ERR_COUNTER. */
+static int calls(zuid *z, long round) {
 	char out[1024];
 	int bad = 0;
 
-	zuid_set_clock_ms(z, 1785585600000LL);
+	zuid_set_clock_ms(z, 1785585600000LL + round * 1000000LL);
 	for (size_t i = 0; i < COUNT(formats) * COUNT(bases); i++) {
 		const struct soak_format *f = &formats[i / COUNT(bases)];
 		const char *base = bases[i % COUNT(bases)];
@@ -164,7 +167,7 @@ int main(int argc, char **argv) {
 	size_t atN = 0;
 	int bad = 0;
 	for (long i = 1; i <= 2 * rounds && !bad; i++) {
-		bad = perCall ? calls(z) : contexts();
+		bad = perCall ? calls(z, i) : contexts();
 		if (i == rounds) atN = heapInUse();
 	}
 	size_t at2N = heapInUse();
