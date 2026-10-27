@@ -1407,10 +1407,13 @@ boxBad=""
 pkgKit="${boxDir}/dist/pkg/zuid-1.0.0-freebsd-x86_64"
 pkgHome="${boxDir}/dist/zuid-1.0.0-freebsd-x86_64.pkg"
 printf 'pin\n' > "${pkgKit}/manifest.ucl"
+## pkg puts each file's mtime in the package, so the layout's settled times
+## have to get to the box as they are.
+find "${pkgKit}" -exec touch -h -t 202001010000 {} +
 rm -f "${pkgHome}"; printf 'aaa  zuid-1.0.0-freebsd-x86_64.tgz\n' > "${boxDir}/dist/checksums.txt"
 # shellcheck disable=2016  ## Run by the box stand-in.
 out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' \
-	BOX_PKG_JOB='[[ "$(cat zuid-1.0.0-freebsd-x86_64/manifest.ucl)" == pin && -d zuid-1.0.0-freebsd-x86_64/root && ! -e zuid-1.0.0-freebsd-x86_64.tgz ]] && mkdir back && printf made > back/zuid-1.0.0-freebsd-x86_64.pkg' fBoxIn)" && rc=0 || rc=$?
+	BOX_PKG_JOB='[[ "$(cat zuid-1.0.0-freebsd-x86_64/manifest.ucl)" == pin && -d zuid-1.0.0-freebsd-x86_64/root && ! -e zuid-1.0.0-freebsd-x86_64.tgz && -z "$(find zuid-1.0.0-freebsd-x86_64 -newermt 2020-01-02)" ]] && mkdir back && printf made > back/zuid-1.0.0-freebsd-x86_64.pkg' fBoxIn)" && rc=0 || rc=$?
 { ((rc == 0)) && grep -qx '  PASS defmv FreeBSD .pkg made and installed on its box, back in dist/' <<< "${out}" && grep -qx 'skipwhy:' <<< "${out}"; } || boxBad+=" pass: exited ${rc}, said '${out//$'\n'/ | }';"
 grep -q '^wrap vmFreeBSD --wait 60 --why zuid: cicd test -- bash .*/box-run.bash root@vmFreeBSD .*/box-freebsd-x86_64-pkg ' "${BOX_LOCK_LOG}" || boxBad+=" pass: not run as root under the lock;"
 [[ "$(cat "${pkgHome}" 2>/dev/null)" == made && "$(ls -l "${pkgHome}")" == -rw-r--r--* ]] || boxBad+=" pass: no .pkg in dist/, or not 644;"

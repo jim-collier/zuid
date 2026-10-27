@@ -105,6 +105,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261026: pkg 2.7.5 builds on the image's Debian, which upstream supports. Out of the box its `.pkg` differed from vmFreeBSD's in 3 ways, each fixed: no shared libraries listed, the builder's uid in each tar header, and no zstd frame checksum.
 		- 20261026: The image builds pkg in a stage of its own, against libarchive 3.8.2, with the two `#ifdef __FreeBSD__` guards around the 65534 owner taken out. The FreeBSD box step then makes the `.pkg` here too, as defp3.
 		- 20261026: Upstream patch and issue text drafted, in the private tree's `upstream/2026102617244801/`.
+		- 20261027: The full run at 1a93c3a failed defp3: the box's `.pkg` wasn't the one made here. The only difference was each file's `mtime` in `+MANIFEST`, the time the files reached the box. `fBox_Pkg` copied the layout with `cp -R`, which drops the settled times, and pkg writes the real mtime there even with `SOURCE_DATE_EPOCH` set, which clamps only the tar headers. The beta.1 compare sent the layout by tar, so it kept them. Now `cp -Rp`.
 	- Decisions:
 		- 20261026: "Sure to install" is the same bytes as `pkg create` on vmFreeBSD. A `.pkg` the box made is the check on the one made here on every run that has both, and a mismatch fails the step rather than picking one.
 		- 20261026: Made here on every run with the image, not only when the box skips, so the check runs whenever it can. It costs about a second.
@@ -114,12 +115,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261026: The source patch is a `sed` in the Dockerfile, not a patch file, since the image tag is the Dockerfile's hash alone.
 		- 20261026: `--no-remote` turns the FreeBSD box step off, this check with it, so such a run has no `.pkg`.
 	- Branch: round1027
-	- Test case: defp4 (the box down puts the one made here in `dist/` and `checksums.txt`, an xz one or a failed `pkg create` fails, the box's bytes pass and others fail, no image skips) and defp3 (the step's own check). defp4 failed against the old `cicd.bash`, and with the zstd check taken out.
+	- Test case: defp4 (the box down puts the one made here in `dist/` and `checksums.txt`, an xz one or a failed `pkg create` fails, the box's bytes pass and others fail, no image skips) and defp3 (the step's own check). defp4 failed against the old `cicd.bash`, and with the zstd check taken out. defn2 also checks the layout reaches the box with its mtimes; it failed with `cp -R` and passes with `cp -Rp`.
 	- Verified:
 		- 20261026: From one layout of the beta.1 FreeBSD tarball, `pkg create` in the new image, as the caller's uid, and on vmFreeBSD (15.1-p4, pkg 2.7.5) gave the same sha256, `5917d77c...`.
 		- 20261026: `pipeline-test.bash` 168 of 168, `test-ids.py check`, and shellcheck.
+		- 20261027: The FreeBSD box step alone on vmFreeBSD, from the failed run's `dist/`: dee33, defmv and defp3 PASS, both `.pkg` files `405bf9c5...`. `pipeline-test.bash` 168 of 168, `test-ids.py check`, and shellcheck.
 		- Not verified: defp3 inside a full run, either way.
 	- Swept: `fBox_PkgHome` now goes through the same `fPkg_IntoDist`, so both ways into `dist/` set 644 and add the checksum line. dee33, defn2 and dee9h still pass with the image left out, and a run with no FreeBSD tarball skips defp3 as dee33 does. design.md's FreeBSD `.pkg` line.
+		- 20261027: Every `cp -R` in `cicd.bash` and the box scripts. Only `fBox_Pkg`'s feeds a package's bytes; the others copy headers, caches and debug files. `fBox_Release` sends the tarball whole, and `box-run.bash` sends and brings back by tar.
 
 - An uninstall leaves the compiled module in the cache.
 	- ID: 2026102407393000

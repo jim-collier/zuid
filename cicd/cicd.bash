@@ -4647,7 +4647,8 @@ fBox_Pkg(){  ## release name after the version, ssh destination
 	local -r kit="${repoRoot}/dist/pkg/${distPrefix}$1"
 	[[ -d "${kit}" ]] || fTestFail "package.bash laid out no pkg/${pkgRelease}/ in dist/"
 	mkdir -p "${jobDir}"
-	cp -R "${kit}" "${jobDir}/"
+	## -p, since pkg puts each file's own mtime in +MANIFEST, SOURCE_DATE_EPOCH or not.
+	cp -Rp "${kit}" "${jobDir}/"
 	cp "${utilityDir}/box-freebsd-pkg.bash" "${jobDir}/job.bash"
 	ZUID_BOX_BACK="${jobDir}.back" fBox_Run "$2" "${jobDir}" fBox_PkgHome
 }
