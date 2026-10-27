@@ -7,6 +7,47 @@
 # Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+# FreeBSD's pkg, for the .pkg when vmFreeBSD can't make it, so the same layout
+# gives the bytes the box gives. Against libarchive 3.8.2, since its zstd frames
+# have a checksum, as FreeBSD 15.1's do, and trixie's 3.7 doesn't. It's static,
+# so its own libraries are named after it, or the link fails and pkg's configure
+# finds no zstd and quietly makes xz. Upstream sets each file's owner to nobody
+# only when built on FreeBSD, and elsewhere the builder's uid went in, so those
+# two guards come out.
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS fbsdpkg
+ARG LIBARCHIVE_VER=3.8.2
+ARG LIBARCHIVE_SHA256=db0dee91561cbd957689036a3a71281efefd131d35d1d98ebbc32720e4da58e2
+ARG PKG_VER=2.7.5
+# GitHub's tag archive. Taken from the download, 20261026.
+ARG PKG_SHA256=51d726f52ad750fcde14d5f041d43df5b12ea4a6f143777c6b02ed7df16ceb39
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends \
+		ca-certificates curl xz-utils make gcc libc6-dev pkg-config m4 \
+		libssl-dev libbsd-dev libmd-dev liblzma-dev zlib1g-dev libzstd-dev libbz2-dev \
+	&& rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN jobs=$(( ($(nproc) + 3) / 4 )) laLibs="-lmd -lzstd -lz -llzma" \
+	&& curl -fsSLo la.txz "https://github.com/libarchive/libarchive/releases/download/v${LIBARCHIVE_VER}/libarchive-${LIBARCHIVE_VER}.tar.xz" \
+	&& echo "${LIBARCHIVE_SHA256}  la.txz" | sha256sum -c - \
+	&& tar -xJf la.txz && cd "libarchive-${LIBARCHIVE_VER}" \
+	&& ./configure --prefix=/opt/la --disable-shared --enable-static \
+		--without-xml2 --without-expat --without-openssl --without-lz4 --without-lzo2 --without-bz2lib \
+		--without-cng --without-mbedtls --without-nettle --disable-acl --disable-xattr \
+		--disable-bsdtar --disable-bsdcpio --disable-bsdcat --disable-bsdunzip > /dev/null \
+	&& nice -n 19 make -j"${jobs}" > /dev/null && make install > /dev/null \
+	&& cd /src && curl -fsSLo pkg.tgz "https://github.com/freebsd/pkg/archive/refs/tags/${PKG_VER}.tar.gz" \
+	&& echo "${PKG_SHA256}  pkg.tgz" | sha256sum -c - \
+	&& tar -xzf pkg.tgz && cd "pkg-${PKG_VER}" \
+	&& sed -i 's/^#ifdef __FreeBSD__$/#if 1/' libpkg/packing.c \
+	&& [ "$(grep -c '^#if 1$' libpkg/packing.c)" = 2 ] \
+	&& mkdir build && cd build \
+	&& PKG_CONFIG_PATH=/opt/la/lib/pkgconfig ../configure --prefix=/opt/fbsdpkg --with-libarchive.pc --with-openssl.pc \
+		LDFLAGS=-L/opt/la/lib LIBS="${laLibs}" > /dev/null \
+	&& grep -q '^#define HAVE_ARCHIVE_WRITE_ADD_FILTER_ZSTD 1$' pkg_config.h \
+	&& nice -n 19 make -j"${jobs}" OTHER_LIBS="-lbsd -lm -pthread -L/opt/la/lib -larchive ${laLibs} -lssl -lcrypto" > /dev/null \
+	&& [ "$(./src/pkg -v)" = "${PKG_VER}" ]
+RUN install -D -m 0755 "/src/pkg-${PKG_VER}/build/src/pkg" /opt/fbsdpkg/pkg
+
 FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
 
 # Apt is pinned only as far as the base image is. Trixie point releases move
@@ -90,4 +131,7 @@ ENV PATH=/opt/go/bin:/opt/zig:${PATH} \
 	POWERSHELL_TELEMETRY_OPTOUT=1 \
 	POWERSHELL_UPDATECHECK=Off \
 	DOTNET_CLI_TELEMETRY_OPTOUT=1
+
+# Its libraries are all in the list above already.
+COPY --from=fbsdpkg /opt/fbsdpkg/pkg /opt/fbsdpkg/pkg
 WORKDIR /

@@ -1341,11 +1341,16 @@ fBoxIn(){  ## job.bash's text, in BOX_JOB
 		  projectName="zuid"; runName="test"; _stepSkipWhy=""; }
 		_runDir="${boxDir}/run"
 		local fn=""
-		for fn in fBox_Lock fBox_Skip fBox_Run fBox_Release fBox_Pkg fBox_PkgHome fBox_MacHome fStage_Box_FreeBSD fStage_Box_LinuxArm64 fStage_Box_Mac fStage_Box_Windows fStep_Skip fId fTestPass fTestSkip fTestFail; do
+		for fn in fBox_Lock fBox_Skip fBox_Run fBox_Release fBox_Pkg fBox_PkgHome fPkg_IntoDist fPkg_Here fBox_MacHome fStage_Box_FreeBSD fStage_Box_LinuxArm64 fStage_Box_Mac fStage_Box_Windows fStep_Skip fId fTestPass fTestSkip fTestFail; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		# shellcheck disable=2329  ## Called by the lifted functions.
 		{ fEcho_Clean(){ printf '%s\n' "$*"; }; fThrowError(){ printf 'error: %s\n' "$1"; exit 1; }; }
+		## The image, in BOX_HERE: unset is no image, else what its pkg writes,
+		## or "fail". The last argument is pkg create's -o.
+		# shellcheck disable=2329
+		{ fGoCheckers_Ready(){ checkerSkipWhy=""; [[ -n "${BOX_HERE:-}" ]] || checkerSkipWhy="no image"; }
+		  fInImage(){ printf '%s\n' "$*" > "${boxDir}/inimage.args"; [[ "${BOX_HERE}" != fail ]] || return 1; printf '%b' "${BOX_HERE}" > "${*: -1}/zuid-1.0.0.pkg"; }; }
 		## The job is a stand-in, not the real one.
 		# shellcheck disable=2329
 		cp(){ if [[ "${1##*/}" == box-release-test.bash || "${1##*/}" == box-mac-build.bash || "${1##*/}" == box-windows-test.ps1 ]]; then printf '%s\n' "${BOX_JOB:?}" > "$2"
@@ -1425,6 +1430,40 @@ mv "${pkgKit}" "${pkgKit}.away"
 out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
 mv "${pkgKit}.away" "${pkgKit}"
 { ((rc != 0)) && grep -qx '  FAIL defmv FreeBSD .pkg made and installed on its box, back in dist/' <<< "${out}" && grep -q 'laid out no pkg/' <<< "${out}"; } || boxBad+=" no layout: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## The image's pkg makes the same .pkg: it has to be the box's, byte for byte,
+## and goes in dist/ when the box made none, if it's zstd.
+fId defp4 "the FreeBSD box step makes the .pkg here too, and uses it without the box's"
+boxBad=""
+printf 'abi: "FreeBSD:*:amd64"\n' > "${pkgKit}/manifest.ucl"; printf '1700000000\n' > "${pkgKit}/stamp"
+zst='\x28\xb5\x2f\xfdzst'
+## The box is down, so the one made here goes in dist/ and checksums.txt.
+rm -f "${pkgHome}" "${boxDir}/inimage.args"; printf 'aaa  zuid-1.0.0-freebsd-x86_64.tgz\n' > "${boxDir}/dist/checksums.txt"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' BOX_HERE="${zst}" fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP defmv ' <<< "${out}" && grep -qx '  PASS defp3 FreeBSD .pkg made here, the box'"'"'s bytes, or in dist/ without one' <<< "${out}"; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
+[[ "$(head -c 4 "${pkgHome}" 2>/dev/null | od -An -tx1 | tr -d ' \n')" == 28b52ffd && "$(ls -l "${pkgHome}")" == -rw-r--r--* ]] || boxBad+=" down: no .pkg in dist/, or not 644;"
+grep -qx "$(shasum -a 256 "${pkgHome}" | awk '{print $1}')  zuid-1.0.0-freebsd-x86_64.pkg" "${boxDir}/dist/checksums.txt" || boxBad+=" down: not in checksums.txt;"
+grep -qF "/here-freebsd-x86_64-pkg env ABI=FreeBSD:14:amd64 OSVERSION=1400000 SOURCE_DATE_EPOCH=1700000000 /opt/fbsdpkg/pkg create -M ${pkgKit}/manifest.ucl -p ${pkgKit}/plist -r ${pkgKit}/root -o " "${boxDir}/inimage.args" || boxBad+=" down: pkg create called as '$(cat "${boxDir}/inimage.args" 2>/dev/null || true)';"
+## Made here as xz, or not made, with no box's to go by.
+rm -f "${pkgHome}"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' BOX_HERE='\xfd7zXZ' fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -q "isn't zstd, it starts fd377a58" <<< "${out}" && [[ ! -e "${pkgHome}" ]]; } || boxBad+=" xz: exited ${rc}, said '${out//$'\n'/ | }';"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' BOX_HERE=fail fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -qx '  FAIL defp3 FreeBSD .pkg made here, the box'"'"'s bytes, or in dist/ without one' <<< "${out}" && grep -q 'pkg create failed here' <<< "${out}"; } || boxBad+=" failed: exited ${rc}, said '${out//$'\n'/ | }';"
+## The box made one: the same bytes pass and leave the box's, others fail.
+printf 'aaa  zuid-1.0.0-freebsd-x86_64.tgz\n' > "${boxDir}/dist/checksums.txt"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' BOX_PKG_JOB='mkdir back && printf made > back/zuid-1.0.0-freebsd-x86_64.pkg' BOX_HERE=made fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  PASS defmv ' <<< "${out}" && grep -q '^  PASS defp3 ' <<< "${out}" && [[ "$(cat "${pkgHome}")" == made && "$(grep -c 'zuid-1.0.0-freebsd-x86_64.pkg$' "${boxDir}/dist/checksums.txt")" == 1 ]]; } || boxBad+=" same: exited ${rc}, said '${out//$'\n'/ | }';"
+rm -f "${pkgHome}"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' BOX_PKG_JOB='mkdir back && printf made > back/zuid-1.0.0-freebsd-x86_64.pkg' BOX_HERE="${zst}" fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -q "isn't the box's, byte for byte" <<< "${out}" && [[ "$(cat "${pkgHome}")" == made ]]; } || boxBad+=" differs: exited ${rc}, said '${out//$'\n'/ | }';"
+## No image here is a skip.
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -qx '  SKIP defp3 FreeBSD .pkg made here, the box'"'"'s bytes, or in dist/ without one (no image)' <<< "${out}"; } || boxBad+=" no image: exited ${rc}, said '${out//$'\n'/ | }';"
 if [[ -z "${boxBad}" ]]
 	then fPass
 	else fFail "${boxBad}"

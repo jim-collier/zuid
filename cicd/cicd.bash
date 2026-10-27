@@ -4630,12 +4630,16 @@ fBox_Release(){  ## release name after the version, ssh destination, [cli-test.b
 ## Then the .pkg, from what package.bash laid out in dist/pkg/, by pkg create
 ## on the same box. pkg add sets owners, so that job is root's, in a folder of
 ## its own. A box that skipped the first skips this too, without asking again.
+## Then the same from the image's pkg, which has to match the box's byte for
+## byte, and goes in dist/ when the box made none.
 fStage_Box_FreeBSD(){
 	fId dee33 "FreeBSD release on its box: command surface and C module"
 	fBox_Release freebsd-x86_64 "${freebsdBox}"
 	fId defmv "FreeBSD .pkg made and installed on its box, back in dist/"
-	if [[ -n "${_stepSkipWhy}" ]]; then fTestSkip "${_stepSkipWhy}"; return 0; fi
-	fBox_Pkg freebsd-x86_64 "root@${freebsdBox##*@}"
+	if [[ -n "${_stepSkipWhy}" ]]; then fTestSkip "${_stepSkipWhy}"
+	else fBox_Pkg freebsd-x86_64 "root@${freebsdBox##*@}"; fi
+	fId defp3 "FreeBSD .pkg made here, the box's bytes, or in dist/ without one"
+	fPkg_Here freebsd-x86_64
 }
 
 fBox_Pkg(){  ## release name after the version, ssh destination
@@ -4648,18 +4652,56 @@ fBox_Pkg(){  ## release name after the version, ssh destination
 	ZUID_BOX_BACK="${jobDir}.back" fBox_Run "$2" "${jobDir}" fBox_PkgHome
 }
 
-## The .pkg is this run's, like the tarball beside it, so it goes in dist/ and
-## its checksums.txt, not in dist-incoming/, where one could outlive its run.
 ## pkgRelease is fBox_Pkg's.
 fBox_PkgHome(){
-	local -r sent="${_runDir}/box-${pkgRelease#"${distPrefix}"}-pkg.back/${pkgRelease}.pkg" sums="${repoRoot}/dist/checksums.txt"
-	local -a sha256=(sha256sum)
+	local -r sent="${_runDir}/box-${pkgRelease#"${distPrefix}"}-pkg.back/${pkgRelease}.pkg"
 	[[ -f "${sent}" ]] || fTestFail "the box sent no ${pkgRelease}.pkg home"
-	chmod 0644 "${sent}"
-	mv -f "${sent}" "${repoRoot}/dist/"
+	fPkg_IntoDist "${sent}" "${pkgRelease}"
+}
+
+## The .pkg is this run's, like the tarball beside it, so it goes in dist/ and
+## its checksums.txt, not in dist-incoming/, where one could outlive its run.
+fPkg_IntoDist(){  ## .pkg file, release name
+	local -r sums="${repoRoot}/dist/checksums.txt"
+	local -a sha256=(sha256sum)
+	chmod 0644 "$1"
+	mv -f "$1" "${repoRoot}/dist/$2.pkg"
 	command -v sha256sum >/dev/null 2>&1 || sha256=(shasum -a 256)
-	if [[ -f "${sums}" ]]; then (cd "${repoRoot}/dist" && "${sha256[@]}" "${pkgRelease}.pkg") >> "${sums}"; fi
-	fEcho_Clean "Package ....: ${repoRoot}/dist/${pkgRelease}.pkg"
+	if [[ -f "${sums}" ]]; then (cd "${repoRoot}/dist" && "${sha256[@]}" "$2.pkg") >> "${sums}"; fi
+	fEcho_Clean "Package ....: ${repoRoot}/dist/$2.pkg"
+}
+
+## The image's pkg is built to give the box's bytes from the same layout (see
+## cicd/container/Dockerfile). ABI and OSVERSION are pkg's own, for reading the
+## command's libraries as FreeBSD's; the package keeps the manifest's ABI. A
+## box that made one is the check on this one. Without it, the package has to
+## be zstd, as FreeBSD's are, or the image's pkg was built without it.
+fPkg_Here(){  ## release name after the version
+	local -r pkgRelease="${distPrefix}$1" jobDir="${_runDir}/here-$1-pkg"
+	local -r kit="${repoRoot}/dist/pkg/${distPrefix}$1" boxMade="${repoRoot}/dist/${distPrefix}$1.pkg"
+	local arch="" magic=""
+	local -a made=()
+	if [[ ! -f "${repoRoot}/dist/${pkgRelease}.tgz" ]]; then fTestSkip "no ${pkgRelease}.tgz in dist/"; return 0; fi
+	[[ -d "${kit}" ]] || fTestFail "package.bash laid out no pkg/${pkgRelease}/ in dist/"
+	fGoCheckers_Ready
+	if [[ -n "${checkerSkipWhy}" ]]; then fTestSkip "${checkerSkipWhy}"; return 0; fi
+	arch="$(sed -n 's/^abi: "FreeBSD:\*:\(.*\)"$/\1/p' "${kit}/manifest.ucl")"
+	[[ -n "${arch}" ]] || fTestFail "pkg/${pkgRelease}/manifest.ucl has no FreeBSD:*:<arch> ABI"
+	mkdir -p "${jobDir}/out"
+	fInImage "${jobDir}" env ABI="FreeBSD:14:${arch}" OSVERSION=1400000 SOURCE_DATE_EPOCH="$(< "${kit}/stamp")" \
+		/opt/fbsdpkg/pkg create -M "${kit}/manifest.ucl" -p "${kit}/plist" -r "${kit}/root" -o "${jobDir}/out" \
+		|| fTestFail "pkg create failed here, as said above"
+	shopt -s nullglob; made=("${jobDir}"/out/*.pkg); shopt -u nullglob
+	((${#made[@]} == 1)) || fTestFail "pkg create made ${#made[@]} files here, not one"
+	if [[ -f "${boxMade}" ]]; then
+		cmp -s "${boxMade}" "${made[0]}" || fTestFail "the .pkg made here isn't the box's, byte for byte, so it can't stand in for it"
+		fTestPass; return 0
+	fi
+	magic="$(head -c 4 "${made[0]}" | od -An -tx1 | tr -d ' \n')"
+	[[ "${magic}" == 28b52ffd ]] || fTestFail "the .pkg made here isn't zstd, it starts ${magic}"
+	fEcho_Clean "Note .......: no .pkg from the box, so dist/ gets the one made here"
+	fPkg_IntoDist "${made[0]}" "${pkgRelease}"
+	fTestPass
 }
 
 ## The box is emulated, and each run of the command takes about 12 s there, so

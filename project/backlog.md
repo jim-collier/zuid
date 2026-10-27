@@ -253,7 +253,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - The FreeBSD `.pkg`, built here when vmFreeBSD is taken or down.
 	- ID: 2026102617244801
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, plain, not `--container`, since the box steps run only outside it: defp3 with vmFreeBSD up, where the `.pkg` made here has to match the box's byte for byte. Then defp3 again with the box left out (`ZUID_BOX_FREEBSD=` or the VM taken), where the one made here goes in `dist/`.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261026-172448
 	- Opened by: JC
@@ -264,6 +265,39 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- When the box step for 2026102617244796 skips, build FreeBSD's `pkg` from source in the container and run `pkg create` on the same layout.
 		- Only if the result is sure to install on FreeBSD. For example, a test that builds one both ways and finds them the same, or installs the local one on the VM.
 		- Once there's always a `.pkg`, add it to `default_releaseAssets`.
+	- Progress log:
+		- 20261026: Split. The `default_releaseAssets` part is 2026102618125670, which waits on a full run of this one.
+		- 20261026: pkg 2.7.5 builds on the image's Debian, which upstream supports. Out of the box its `.pkg` differed from vmFreeBSD's in 3 ways, each fixed: no shared libraries listed, the builder's uid in each tar header, and no zstd frame checksum.
+		- 20261026: The image builds pkg in a stage of its own, against libarchive 3.8.2, with the two `#ifdef __FreeBSD__` guards around the 65534 owner taken out. The FreeBSD box step then makes the `.pkg` here too, as defp3.
+		- 20261026: Upstream patch and issue text drafted, in the private tree's `upstream/2026102617244801/`.
+	- Decisions:
+		- 20261026: "Sure to install" is the same bytes as `pkg create` on vmFreeBSD. A `.pkg` the box made is the check on the one made here on every run that has both, and a mismatch fails the step rather than picking one.
+		- 20261026: Made here on every run with the image, not only when the box skips, so the check runs whenever it can. It costs about a second.
+		- 20261026: pkg runs with `ABI=FreeBSD:14:<arch>` and `OSVERSION=1400000`. Those are pkg's own, so it reads the command's libraries as FreeBSD's. The package keeps the manifest's `FreeBSD:*:amd64`, and 14 or 15 there gave the same bytes.
+		- 20261026: Without a box's to compare, the one made here has to be zstd. A pkg built without zstd falls back to xz quietly.
+		- 20261026: libarchive 3.8.2 because it turned on the zstd frame checksum, which FreeBSD 15.1's has. A FreeBSD whose libarchive moves on can change the box's bytes, and defp3 would say so.
+		- 20261026: The source patch is a `sed` in the Dockerfile, not a patch file, since the image tag is the Dockerfile's hash alone.
+		- 20261026: `--no-remote` turns the FreeBSD box step off, this check with it, so such a run has no `.pkg`.
+	- Branch: round1027
+	- Test case: defp4 (the box down puts the one made here in `dist/` and `checksums.txt`, an xz one or a failed `pkg create` fails, the box's bytes pass and others fail, no image skips) and defp3 (the step's own check). defp4 failed against the old `cicd.bash`, and with the zstd check taken out.
+	- Verified:
+		- 20261026: From one layout of the beta.1 FreeBSD tarball, `pkg create` in the new image, as the caller's uid, and on vmFreeBSD (15.1-p4, pkg 2.7.5) gave the same sha256, `5917d77c...`.
+		- 20261026: `pipeline-test.bash` 168 of 168, `test-ids.py check`, and shellcheck.
+		- Not verified: defp3 inside a full run, either way.
+	- Swept: `fBox_PkgHome` now goes through the same `fPkg_IntoDist`, so both ways into `dist/` set 644 and add the checksum line. dee33, defn2 and dee9h still pass with the image left out, and a run with no FreeBSD tarball skips defp3 as dee33 does. design.md's FreeBSD `.pkg` line.
+
+- Add FreeBSD's `.pkg` to `default_releaseAssets`.
+	- ID: 2026102618125670
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261026-181256
+	- Opened by: JC
+	- Parent ID: 2026102617244801
+	- Prereq IDs: 2026102617244801
+	- Target OS: FreeBSD
+	- Requirements  [Feature]:
+		- Once a full run shows defp3 passing with vmFreeBSD up and with it left out, add `freebsd-x86_64.pkg` to `default_releaseAssets`, so `--publish` refuses a release without it.
 
 - An uninstall leaves the compiled module in the cache.
 	- ID: 2026102407393000
