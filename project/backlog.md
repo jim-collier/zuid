@@ -286,6 +286,37 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Not verified: defp3 inside a full run, either way.
 	- Swept: `fBox_PkgHome` now goes through the same `fPkg_IntoDist`, so both ways into `dist/` set 644 and add the checksum line. dee33, defn2 and dee9h still pass with the image left out, and a run with no FreeBSD tarball skips defp3 as dee33 does. design.md's FreeBSD `.pkg` line.
 
+- An uninstall leaves the compiled module in the cache.
+	- ID: 2026102407393000
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: Done. `installer-test.bash` 107 of 107, and the quick gate for shell, installers and docs.
+	- Needs external testing: deea5 on b29w, for its 4 new module cache checks under 5.1 and 7. The `macos` workflow, for defpm to defpv against `~/Library/Caches/zuid`.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261024-073930
+	- Opened by: JC
+	- Related IDs: 2026101410495989, 2026102618305629
+	- Requirements  [Feature]:
+		- `--uninstall` on a user install also removes the command's cache dir, such as `~/Library/Caches/zuid`, `~/.cache/zuid` or `%LOCALAPPDATA%\zuid`. It's about 8 MB.
+		- A system install leaves other users' caches alone and says where they are.
+	- Progress log:
+		- 20261024: Seen on b26, after an install, one run and an uninstall.
+		- 20261026: A user uninstall in both installers names the cache dir in its plan and removes it, from where `main.zig`'s `cacheRoot` puts it, `XDG_CACHE_HOME` included. A cache dir that's a link, or isn't a folder, is kept and said so.
+		- 20261026: A system uninstall removes no cache, and its plan says where each user's is, with "safe to delete".
+		- 20261026: `box-windows-test.ps1` runs the command once after each install, and checks the cache is there, then gone after a user uninstall and kept after a system one.
+		- 20261026: `install.md` says what an uninstall does with the cache. Both installers are 1.4.0.
+		- 20261026: `installer-test.bash` unsets `XDG_CACHE_HOME`. It was set on b23, so an uninstall case would have aimed at the real cache.
+		- 20261026: Under bash 3.2 in the `bash:3.2` image, removing the cache fails on BusyBox `rm`, which has no `-x`. An install dir's `bin` goes through the same call, so it's filed as 2026102618305629.
+	- Decisions:
+		- 20261026: A system uninstall leaves the running user's cache too, not only other users'. The cache belongs to whoever ran the command, not to the install, and under sudo HOME may be someone else's. Leaving it costs 8 MB; removing it would only cost one compile.
+		- 20261026: The whole `zuid` cache dir goes, not only `module-*.cwasm`, so a temp file from an interrupted save can't keep it. It goes through each installer's own guard.
+		- 20261026: `install.bash` resolves the cache's parent physically, since `~/.cache` is often a link and FreeBSD's `/home` is one. `install.ps1` keeps a cache whose parent is a link, as its guard does.
+		- 20261026: 1.4.0, not 1.3.3, since an uninstall now removes something it didn't before.
+	- Branch: round1027
+	- Test case: defpm and defpn (a user uninstall removes the cache), defpp and defpq (`XDG_CACHE_HOME` where the command reads it, and not on Darwin), defpr and defps (a cache dir that's a link stays), defpt and defpv (a system uninstall keeps them and says where), in `installer-test.bash` for each installer. All 8 failed against the old installers and pass after. deea5 has the Windows checks.
+	- Verified: 20261026, `installer-test.bash` 107 of 107 with load about 22 on 32 CPUs, shellcheck, PSScriptAnalyzer on both changed `.ps1` files, and the quick gate.
+	- Swept: both installers' uninstall paths for user and system, `box-windows-test.ps1`'s uninstall, every uninstall call in `installer-test.bash` (GuardedRemoval, SystemTarget, ForeignLink, and Bash32 with its own HOME in the image), `install.md`'s cache paragraph, and the cache rules against `cacheRoot` in `main.zig`.
+
 - Add FreeBSD's `.pkg` to `default_releaseAssets`.
 	- ID: 2026102618125670
 	- Type: Enhancement
@@ -300,19 +331,24 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Once a full run shows defp3 passing with vmFreeBSD up and with it left out, add `freebsd-x86_64.pkg` to `default_releaseAssets`, so `--publish` refuses a release without it.
 	- 20261027: Prereq added, since it waits on the full run that checks the local build.
 
-- An uninstall leaves the compiled module in the cache.
-	- ID: 2026102407393000
-	- Type: Enhancement
+- `install.bash` can't remove a folder where `rm` is BusyBox's.
+	- ID: 2026102618305629
+	- Type: Bug
 	- Status: Queued
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261024-073930
+	- Opened: 20261026-183056
 	- Opened by: JC
-	- Related IDs: 2026101410495989
-	- Requirements  [Feature]:
-		- `--uninstall` on a user install also removes the command's cache dir, such as `~/Library/Caches/zuid`, `~/.cache/zuid` or `%LOCALAPPDATA%\zuid`. It's about 8 MB.
-		- A system install leaves other users' caches alone and says where they are.
-	- Progress log:
-		- 20261024: Seen on b26, after an install, one run and an uninstall.
+	- Related IDs: 2026102407393000
+	- Target OS: Linux, BusyBox userland such as Alpine
+	- Steps to reproduce [Bug]:
+		- In the `bash:3.2` image, with HOME holding `~/.cache/zuid`, run `install.bash --uninstall --target user --yes`.
+	- Incorrect behavior [Bug]:
+		- `rm: unrecognized option: x`, then "couldn't remove", exit 1.
+	- Expected behavior [Bug]:
+		- The folder is removed, or refused by name with a reason.
+	- Reproduced [Bug]: 20261026 on b23, for the cache dir.
+	- Possible cause [Bug]:
+		- `fSafeRm_Under` gives BSD's `-x` to any `rm` without `--version`. BusyBox has neither that nor `--one-file-system`. An install dir's `bin` goes through the same call, unchecked.
 
 - CICD reset: other hosts, macOS falls back to vmKt6m
 	- ID: 2026102517494666

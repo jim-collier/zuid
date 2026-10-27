@@ -19,7 +19,7 @@ set -Eeuo pipefail
 
 REPO="jim-collier/zuid"
 PROG="zuid"
-installerVersion="1.3.2"
+installerVersion="1.4.0"
 
 release="stable"
 target="user"
@@ -160,11 +160,29 @@ fLinkIsOurs(){
 	[[ -n "${target}" && -n "${owned}" && "${target}" == "${owned}"/* ]]
 }
 
+## Where the command keeps its compiled module, per main.zig's cacheRoot. It's
+## per user, so only a user uninstall takes it. A system one would be reaching
+## into every home, so it says where they are instead.
+fCacheDir(){
+	if [[ "${osLabel}" == "darwin" ]]; then [[ "${HOME:-}" == /?* ]] && printf '%s' "${HOME%/}/Library/Caches/${PROG}"
+	elif [[ "${XDG_CACHE_HOME:-}" == /* ]]; then printf '%s' "${XDG_CACHE_HOME%/}/${PROG}"
+	else [[ "${HOME:-}" == /?* ]] && printf '%s' "${HOME%/}/.cache/${PROG}"
+	fi
+}
+
 if ((doUninstall)); then
 	## Worked out before anything is removed: once installDir is gone the link
 	## dangles and there is no target left to recognize.
 	ownsLink=0
 	if fLinkIsOurs; then ownsLink=1; fi
+
+	## A link there is somebody's own arrangement, so it's never followed.
+	cacheDir="" cacheKept=""
+	if [[ "${target}" == "user" ]] && cacheDir="$(fCacheDir)"; then
+		if [[ -L "${cacheDir}" || ( -e "${cacheDir}" && ! -d "${cacheDir}" ) ]]; then cacheKept="${cacheDir}"; cacheDir=""
+		elif [[ ! -d "${cacheDir}" ]]; then cacheDir=""
+		fi
+	fi
 
 	fEcho "Uninstall"
 	fLine "  Remove: ${installDir}"
@@ -172,6 +190,14 @@ if ((doUninstall)); then
 		fLine "  Remove: ${linkPath}"
 	elif [[ -e "${linkPath}" || -L "${linkPath}" ]]; then
 		fLine "  Keep ..: ${linkPath} (not this installer's link, so it stays)"
+	fi
+	if [[ -n "${cacheDir}" ]]; then
+		fLine "  Remove: ${cacheDir} (its compiled module cache)"
+	elif [[ -n "${cacheKept}" ]]; then
+		fLine "  Keep ..: ${cacheKept} (not a plain folder, so it stays)"
+	elif [[ "${target}" == "system" ]]; then
+		if [[ "${osLabel}" == "darwin" ]]; then cacheWhere="Library/Caches/${PROG}"; else cacheWhere=".cache/${PROG}, or \${XDG_CACHE_HOME}/${PROG}"; fi
+		fLine "  Keep ..: the module cache in each user's ~/${cacheWhere} (safe to delete)"
 	fi
 	fLine ""
 	if ((! assumeYes)); then
@@ -183,6 +209,12 @@ if ((doUninstall)); then
 	fEmptyInstallDir || fDie "couldn't remove ${installDir}"
 	if [[ -d "${installDir}" ]]; then fRun rmdir "${installDir}" || fDie "couldn't remove ${installDir}"; fi
 	if ((ownsLink)); then fRun rm -f "${linkPath}"; fi
+	if [[ -n "${cacheDir}" ]]; then
+		## Physical, since the guard refuses a parent through a link, and
+		## ~/.cache often is one.
+		cacheParent="$(cd -P -- "${cacheDir%/*}" && pwd -P)" || fDie "couldn't remove ${cacheDir}"
+		fSafeRm_Under "${cacheParent}" "${cacheParent}/${PROG}" || fDie "couldn't remove ${cacheDir}"
+	fi
 	fEcho "Removed."
 	printf '\n'
 	exit 0
@@ -420,6 +452,7 @@ printf '\n'
 
 
 ##	History:
+##		- 20261026 JC: A user uninstall also removes the command's module cache.
 ##		- 20261025 JC: A refused install dir is said once, without the write advice.
 ##		- 20261025 JC: Reads the installed version from either --version line.
 ##		- 20261025 JC: Recursive removals go through its own guard. The install dir is emptied, not removed by path.

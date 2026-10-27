@@ -101,9 +101,12 @@ case "$(uname -m)" in
 	*)             hostAsset="x86_64.tgz" ;;
 esac
 case "$(uname -s)" in
-	Darwin) hostAsset="darwin-universal.tgz"; userShare="Library/Application Support/${PROG}" ;;
-	*)      hostAsset="linux-${hostAsset}";   userShare=".local/share/${PROG}" ;;
+	Darwin) hostAsset="darwin-universal.tgz"; userShare="Library/Application Support/${PROG}"; userCache="Library/Caches/${PROG}" ;;
+	*)      hostAsset="linux-${hostAsset}";   userShare=".local/share/${PROG}";                userCache=".cache/${PROG}" ;;
 esac
+## A user uninstall removes the command's cache, and outside Darwin that follows
+## XDG_CACHE_HOME. Left set, it's the real one, whatever HOME a case gives.
+unset XDG_CACHE_HOME
 ## What an arm64 Linux host fetches, which a stand-in uname can ask for anywhere.
 armAsset="linux-arm64.tgz"
 ## Likewise a FreeBSD one.
@@ -641,6 +644,52 @@ fCase_GuardedRemoval(){  ## label, runner
 	fi
 }
 
+## A user uninstall takes the command's module cache too, from wherever the
+## command would have put it, and doesn't follow a link there. A stand-in
+## module, since the stand-in command never writes one.
+fCase_Cache(){  ## label, runner
+	local -r label="$1" runner="$2"
+	local home="" out=""
+
+	home="$(fNewHome "${label}-cache")"
+	out="$("${runner}" "${home}" user yes)" || true
+	mkdir -p "${home}/${userCache}"
+	printf 'x' > "${home}/${userCache}/module-0123456789abcdef.cwasm"
+	printf 'x' > "${home}/${userCache}/half-written"
+	out+="$("${runner}" "${home}" user uninstall yes)" || true
+	fId "${label}" bash=defpm ps1=defpn "${label}: user uninstall removes the module cache"
+	if [[ -e "${home}/${userCache}" ]]; then fFail "${userCache} is still there. Output: ${out}"
+	elif [[ "${out}" != *"Remove: ${home}/${userCache} "* ]]; then fFail "the plan didn't name it. Output: ${out}"
+	else fPass
+	fi
+
+	## The command reads XDG_CACHE_HOME everywhere but Darwin.
+	home="$(fNewHome "${label}-cache-xdg")"
+	mkdir -p "${home}/xdg/${PROG}" "${home}/${userCache}"
+	printf 'x' > "${home}/xdg/${PROG}/module-0123456789abcdef.cwasm"
+	printf 'x' > "${home}/${userCache}/module-0123456789abcdef.cwasm"
+	local gone="${home}/xdg/${PROG}" kept="${home}/${userCache}"
+	if [[ "$(uname -s)" == "Darwin" ]]; then gone="${home}/${userCache}"; kept="${home}/xdg/${PROG}"; fi
+	out="$(XDG_CACHE_HOME="${home}/xdg" "${runner}" "${home}" user uninstall yes)" || true
+	fId "${label}" bash=defpp ps1=defpq "${label}: and finds it where the command would"
+	if [[ -e "${gone}" ]]; then fFail "${gone} is still there. Output: ${out}"
+	elif [[ ! -f "${kept}/module-0123456789abcdef.cwasm" ]]; then fFail "removed ${kept}, which the command doesn't use here. Output: ${out}"
+	else fPass
+	fi
+
+	home="$(fNewHome "${label}-cache-link")"
+	mkdir -p "${home}/elsewhere" "$(dirname "${home}/${userCache}")"
+	printf 'keep me\n' > "${home}/elsewhere/canary.txt"
+	ln -s "${home}/elsewhere" "${home}/${userCache}"
+	out="$("${runner}" "${home}" user uninstall yes)" || true
+	fId "${label}" bash=defpr ps1=defps "${label}: and keeps a cache dir that's a link"
+	if [[ ! -f "${home}/elsewhere/canary.txt" ]]; then fFail "followed the link. Output: ${out}"
+	elif [[ ! -L "${home}/${userCache}" ]]; then fFail "removed the link. Output: ${out}"
+	elif [[ "${out}" != *"Keep ..: ${home}/${userCache} "* ]]; then fFail "the plan didn't say it stays. Output: ${out}"
+	else fPass
+	fi
+}
+
 ## package.bash empties dist/ or --out through the guard, with that folder as
 ## the one parent, and only unlinks a link. Lifted out of the script, since the
 ## build ahead of it can't run here.
@@ -812,7 +861,14 @@ fCase_SystemTarget(){  ## label, runner, elevates
 		else fFail "the re-run fetched again. Output: ${out}"
 	fi
 
+	mkdir -p "${home}/${userCache}"
+	printf 'x' > "${home}/${userCache}/module-0123456789abcdef.cwasm"
 	out="$("${runner}" "${home}" system uninstall yes)" || true
+	fId "${label}" bash=defpt ps1=defpv "${label}: system uninstall leaves the caches, and says where"
+	if [[ ! -f "${home}/${userCache}/module-0123456789abcdef.cwasm" ]]; then fFail "removed ${userCache}. Output: ${out}"
+	elif [[ "${out}" != *"module cache in each user's ~/${userCache}"* ]]; then fFail "didn't say where they are. Output: ${out}"
+	else fPass
+	fi
 	fId "${label}" bash=dcrmm ps1=dcrmn "${label}: system uninstall"
 	if [[ ! -e "${installed}" ]]
 		then fPass
@@ -1288,6 +1344,7 @@ if [[ "${only}" == "" || "${only}" == "bash" ]]; then
 	fCase_FreeBSD
 	fCase_ForeignLink "bash" "fRunBash"
 	fCase_GuardedRemoval "bash" "fRunBash"
+	fCase_Cache "bash" "fRunBash"
 fi
 
 ## Without pwsh the ps1 cases still run, so each one reports as skipped by ID,
@@ -1312,6 +1369,7 @@ if [[ "${only}" == "" || "${only}" == "ps1" ]]; then
 	fCase_LookupFails "ps1" "${ps1Copy:-}"
 	fCase_ForeignSameVersion "ps1" "fRunPs1"
 	fCase_GuardedRemoval "ps1" "fRunPs1"
+	fCase_Cache "ps1" "fRunPs1"
 	skipWhy=""
 fi
 
@@ -1330,6 +1388,7 @@ fLine ""
 
 
 ##	History:
+##		- 20261026 JC: Uninstall and the module cache. XDG_CACHE_HOME is unset, so it's never the real one.
 ##		- 20261025 JC: The new --version line, and the old one still read as installed.
 ##		- 20261025 JC: Its folder is a run folder, removed through the guard. The installers' and the packager's guards.
 ##		- 20261025 JC: Test IDs in minutes. PASS, FAIL and SKIP lines.

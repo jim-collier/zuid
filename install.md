@@ -47,7 +47,7 @@ Where things go:
 
 Both install for the user unless told otherwise, even when run as root or an admin. On Windows the `bin` folder is added to `PATH`, and taken off again by an uninstall. Shells that were already open don't see it until they're restarted.
 
-The first run compiles the WebAssembly module built into the command, which takes a few seconds of CPU, and keeps the result in `$XDG_CACHE_HOME/zuid/`, or `~/.cache/zuid/` when that isn't set. On macOS that is `~/Library/Caches/zuid/`, and on Windows `%LOCALAPPDATA%\zuid\`. Later runs load it instead. It is safe to delete, and a run as root does not use it.
+The first run compiles the WebAssembly module built into the command, which takes a few seconds of CPU, and keeps the result in `$XDG_CACHE_HOME/zuid/`, or `~/.cache/zuid/` when that isn't set. On macOS that is `~/Library/Caches/zuid/`, and on Windows `%LOCALAPPDATA%\zuid\`. Later runs load it instead. It is safe to delete, and a run as root does not use it. A user uninstall removes it too. A system uninstall leaves each user's cache alone, and says where they are.
 
 ## Do it yourself
 
