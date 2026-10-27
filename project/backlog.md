@@ -30,22 +30,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## Issues
 
-- The markdown check reports 6 problems in the backlog on `dev`.
-	- ID: 2026102701440000
-	- Type: Bug
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261027-014400
-	- Opened by: JC
-	- Steps to reproduce [Bug]:
-		- Run the shared markdown check on `project/backlog.md` as of `dev` d897271.
-	- Incorrect behavior [Bug]:
-		- An ordinal "4th" in a Done item's Decisions row, one testing marker emoji and 4 ellipsis characters in the Template section.
-	- Expected behavior [Bug]:
-		- No problems, or the Template lines marked as exempt if they're meant to stay.
-	- Progress log:
-		- 20261027: Found at round 1027's gate step. Not the round's, since `dev` shows the same 6.
-
 - The C soak never runs `%c`.
 	- ID: 2026102520060700
 	- Type: Enhancement
@@ -332,6 +316,22 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: Question: make it on vmFreeBSD over ssh during `--package`, the way the Mac files come back, or build FreeBSD's `pkg` from source in the container and run `pkg create` on Linux? The first is the native tool but needs the VM up for a release. Leaning toward the VM.
 		- 20261019: Answered: build it here if it's sure to run on FreeBSD. Try the host lock on vmFreeBSD first, and build locally if it's taken or down.
 		- 20261026: Split in two. 2026102617244796 makes it on vmFreeBSD, and 2026102617244801 builds it here when the VM is taken or down.
+
+- The markdown check reports 6 problems in the backlog on `dev`.
+	- ID: 2026102701440000
+	- Type: Bug
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261027-014400
+	- Opened by: JC
+	- Steps to reproduce [Bug]:
+		- Run the shared markdown check on `project/backlog.md` as of `dev` d897271.
+	- Incorrect behavior [Bug]:
+		- An ordinal "4th" in a Done item's Decisions row, one testing marker emoji and 4 ellipsis characters in the Template section.
+	- Expected behavior [Bug]:
+		- No problems, or the Template lines marked as exempt if they're meant to stay.
+	- Progress log:
+		- 20261027: Found at round 1027's gate step. Not the round's, since `dev` shows the same 6.
 
 - Add FreeBSD's `.pkg` to `default_releaseAssets`.
 	- ID: 2026102618125670
