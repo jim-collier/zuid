@@ -1341,20 +1341,24 @@ fBoxIn(){  ## job.bash's text, in BOX_JOB
 		  projectName="zuid"; runName="test"; _stepSkipWhy=""; }
 		_runDir="${boxDir}/run"
 		local fn=""
-		for fn in fBox_Lock fBox_Skip fBox_Run fBox_Release fBox_MacHome fStage_Box_FreeBSD fStage_Box_LinuxArm64 fStage_Box_Mac fStage_Box_Windows fStep_Skip fId fTestPass fTestSkip fTestFail; do
+		for fn in fBox_Lock fBox_Skip fBox_Run fBox_Release fBox_Pkg fBox_PkgHome fBox_MacHome fStage_Box_FreeBSD fStage_Box_LinuxArm64 fStage_Box_Mac fStage_Box_Windows fStep_Skip fId fTestPass fTestSkip fTestFail; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		# shellcheck disable=2329  ## Called by the lifted functions.
 		{ fEcho_Clean(){ printf '%s\n' "$*"; }; fThrowError(){ printf 'error: %s\n' "$1"; exit 1; }; }
 		## The job is a stand-in, not the real one.
 		# shellcheck disable=2329
-		cp(){ if [[ "${1##*/}" == box-release-test.bash || "${1##*/}" == box-mac-build.bash || "${1##*/}" == box-windows-test.ps1 ]]; then printf '%s\n' "${BOX_JOB:?}" > "$2"; else command cp "$@"; fi; }
+		cp(){ if [[ "${1##*/}" == box-release-test.bash || "${1##*/}" == box-mac-build.bash || "${1##*/}" == box-windows-test.ps1 ]]; then printf '%s\n' "${BOX_JOB:?}" > "$2"
+		      elif [[ "${1##*/}" == box-freebsd-pkg.bash ]]; then printf '%s\n' "${BOX_PKG_JOB:-mkdir back && printf pkg > back/zuid-1.0.0-freebsd-x86_64.pkg}" > "$2"
+		      else command cp "$@"; fi; }
 		local jobName="box-freebsd-x86_64"; [[ "${BOX_STAGE:-}" != fStage_Box_LinuxArm64 ]] || jobName="box-linux-arm64"
 		[[ "${BOX_STAGE:-}" != fStage_Box_Windows ]] || jobName="box-windows-x86_64"
 		## The Mac bundles a repo of its own.
 		if [[ "${BOX_STAGE:-}" == fStage_Box_Mac ]]; then jobName="box-darwin-universal"; repoRoot="${boxDir}/src"; fi
 		if [[ -d "${_runDir}/${jobName}" ]]; then fSafeRm "${_runDir}/${jobName}"; fi
 		if [[ -d "${_runDir}/${jobName}.back" ]]; then fSafeRm "${_runDir}/${jobName}.back"; fi
+		if [[ -d "${_runDir}/${jobName}-pkg" ]]; then fSafeRm "${_runDir}/${jobName}-pkg"; fi
+		if [[ -d "${_runDir}/${jobName}-pkg.back" ]]; then fSafeRm "${_runDir}/${jobName}-pkg.back"; fi
 		: > "${BOX_LOCK_LOG}"
 		"${BOX_STAGE:-fStage_Box_FreeBSD}"
 		printf 'skipwhy:%s\n' "${_stepSkipWhy}"
@@ -1366,6 +1370,7 @@ mkdir -p "${boxDir}/zig/lib/test" "${boxDir}/testdata"
 out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
 { ((rc == 0)) && grep -q '^  SKIP dee33 .*(no zuid-1.0.0-freebsd-x86_64.tgz in dist/)$' <<< "${out}" && grep -q '^skipwhy:no ' <<< "${out}"; } || boxBad+=" no release: exited ${rc}, said '${out//$'\n'/ | }';"
 printf 'x\n' > "${boxDir}/dist/zuid-1.0.0-freebsd-x86_64.tgz"
+mkdir -p "${boxDir}/dist/pkg/zuid-1.0.0-freebsd-x86_64/root"
 ## Passes, under the lock, and the box's folder is gone after.
 out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='[[ -f zuid-1.0.0-freebsd-x86_64.tgz && -f cicd/utility/cli-test.bash ]]' fBoxIn)" && rc=0 || rc=$?
 { ((rc == 0)) && grep -qx '  PASS dee33 FreeBSD release on its box: command surface and C module' <<< "${out}" && grep -qx 'skipwhy:' <<< "${out}"; } || boxBad+=" pass: exited ${rc}, said '${out//$'\n'/ | }';"
@@ -1384,6 +1389,42 @@ out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_TAKEN
 ## No lock here, which says so and runs anyway.
 out="$(ZUID_BOX_LOCK="" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
 { ((rc == 0)) && grep -q "isn't held" <<< "${out}" && grep -q '^  PASS dee33 ' <<< "${out}" && [[ ! -s "${BOX_LOCK_LOG}" ]]; } || boxBad+=" no lock: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## FreeBSD's .pkg: package.bash's layout goes to the same box as root, and the
+## .pkg comes home into dist/ and its checksums.txt. A box that skipped the
+## release test skips this too.
+fId defn2 "the FreeBSD box step makes the .pkg as root and brings it into dist/"
+boxBad=""
+pkgKit="${boxDir}/dist/pkg/zuid-1.0.0-freebsd-x86_64"
+pkgHome="${boxDir}/dist/zuid-1.0.0-freebsd-x86_64.pkg"
+printf 'pin\n' > "${pkgKit}/manifest.ucl"
+rm -f "${pkgHome}"; printf 'aaa  zuid-1.0.0-freebsd-x86_64.tgz\n' > "${boxDir}/dist/checksums.txt"
+# shellcheck disable=2016  ## Run by the box stand-in.
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' \
+	BOX_PKG_JOB='[[ "$(cat zuid-1.0.0-freebsd-x86_64/manifest.ucl)" == pin && -d zuid-1.0.0-freebsd-x86_64/root && ! -e zuid-1.0.0-freebsd-x86_64.tgz ]] && mkdir back && printf made > back/zuid-1.0.0-freebsd-x86_64.pkg' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -qx '  PASS defmv FreeBSD .pkg made and installed on its box, back in dist/' <<< "${out}" && grep -qx 'skipwhy:' <<< "${out}"; } || boxBad+=" pass: exited ${rc}, said '${out//$'\n'/ | }';"
+grep -q '^wrap vmFreeBSD --wait 60 --why zuid: cicd test -- bash .*/box-run.bash root@vmFreeBSD .*/box-freebsd-x86_64-pkg ' "${BOX_LOCK_LOG}" || boxBad+=" pass: not run as root under the lock;"
+[[ "$(cat "${pkgHome}" 2>/dev/null)" == made && "$(ls -l "${pkgHome}")" == -rw-r--r--* ]] || boxBad+=" pass: no .pkg in dist/, or not 644;"
+grep -qx "$(shasum -a 256 "${pkgHome}" | awk '{print $1}')  zuid-1.0.0-freebsd-x86_64.pkg" "${boxDir}/dist/checksums.txt" || boxBad+=" pass: not in checksums.txt;"
+[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" pass: the box's folder is still there;"
+## The job fails, or sends nothing home.
+rm -f "${pkgHome}"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' BOX_PKG_JOB='exit 4' fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -qx '  FAIL defmv FreeBSD .pkg made and installed on its box, back in dist/' <<< "${out}" && grep -q 'exited 4' <<< "${out}" && [[ ! -e "${pkgHome}" ]]; } || boxBad+=" fail: exited ${rc}, said '${out//$'\n'/ | }';"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' BOX_PKG_JOB='mkdir back' fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -q 'sent no zuid-1.0.0-freebsd-x86_64.pkg home' <<< "${out}"; } || boxBad+=" nothing home: exited ${rc}, said '${out//$'\n'/ | }';"
+## The release test skipped, so this does too, and asks no box.
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP defmv .*(no answer from bsdtest@vmFreeBSD)$' <<< "${out}" && [[ "$(grep -c '^wrap ' "${BOX_LOCK_LOG}")" == 1 ]]; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
+## No layout from package.bash is its fault, not the box's.
+mv "${pkgKit}" "${pkgKit}.away"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+mv "${pkgKit}.away" "${pkgKit}"
+{ ((rc != 0)) && grep -qx '  FAIL defmv FreeBSD .pkg made and installed on its box, back in dist/' <<< "${out}" && grep -q 'laid out no pkg/' <<< "${out}"; } || boxBad+=" no layout: exited ${rc}, said '${out//$'\n'/ | }';"
 if [[ -z "${boxBad}" ]]
 	then fPass
 	else fFail "${boxBad}"

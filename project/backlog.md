@@ -204,7 +204,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - The FreeBSD release has no `.pkg`.
 	- ID: 2026101410500001
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261014-105000
 	- Opened by: JC
@@ -215,6 +215,55 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261019: Question: make it on vmFreeBSD over ssh during `--package`, the way the Mac files come back, or build FreeBSD's `pkg` from source in the container and run `pkg create` on Linux? The first is the native tool but needs the VM up for a release. Leaning toward the VM.
 		- 20261019: Answered: build it here if it's sure to run on FreeBSD. Try the host lock on vmFreeBSD first, and build locally if it's taken or down.
+		- 20261026: Split in two. 2026102617244796 makes it on vmFreeBSD, and 2026102617244801 builds it here when the VM is taken or down.
+
+- The FreeBSD `.pkg`, made on vmFreeBSD.
+	- ID: 2026102617244796
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, plain, not `--container`, since the box steps run only outside it: ddwmp with `dist/pkg/` in it, then dee33 and defmv on vmFreeBSD.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261026-172447
+	- Opened by: JC
+	- Parent ID: 2026101410500001
+	- Target OS: FreeBSD
+	- Requirements  [Feature]:
+		- `--package` lays out what the package holds, and the FreeBSD box step runs `pkg create` on it there, under the host lock, and brings the `.pkg` home beside the tarball.
+		- The box checks the package before it comes home: its ABI, its version, and that it installs and runs.
+		- A taken or down VM is a skip, as for the other box steps.
+	- Progress log:
+		- 20261026: `package.bash` lays out the package in `dist/pkg/<release>/`: the command and its licenses under `root/usr/local`, as in the `.deb`, with a manifest, a plist and the commit's time. `--publish` reads only the top of `dist/`, so none of it is a release file.
+		- 20261026: The FreeBSD box step then sends that to the same VM, where `box-freebsd-pkg.bash` runs `pkg create`, checks the name, version, ABI and file list pkg reads back, installs it with `pkg add` under a scratch root and runs the installed command. The `.pkg` comes home to `dist/` and its `checksums.txt`.
+		- 20261026: `pkg add` as `bsdtest` fails, since it sets each file's owner to root, so the job runs as `root@vmFreeBSD`. The scratch root gets copies of the base libraries the package needs, or pkg calls them missing.
+	- Decisions:
+		- 20261026: The ABI is `FreeBSD:*:amd64`. pkg 2.7.5 refuses `FreeBSD:14:amd64` on 15 as the wrong architecture, and matches the ABI as a pattern. Built for 14.0, it runs on 14 and later. Left alone, `pkg create` stamps the build box's own, 15.
+		- 20261026: The version follows the ports rule, so 1.0.0-beta.1 is `1.0.0.b.1`, which pkg sorts before 1.0.0. The file keeps the release's name, `zuid-<version>-freebsd-x86_64.pkg`, so the release table puts it in FreeBSD's row.
+		- 20261026: Its own job, so the VM boots twice in the step, about 25 s more. A box that skipped the release test skips this without asking again.
+		- 20261026: Into `dist/`, not `dist-incoming/`. It is this run's, and `dist/` is emptied each run, so an old one can't be published by mistake.
+		- 20261026: Not in `default_releaseAssets` yet, or `--publish` would refuse whenever the VM is down. 2026102617244801 adds it.
+		- 20261026: A missing layout fails the step rather than skipping, since that is `package.bash`'s fault, not the box's.
+	- Branch: round1027
+	- Test case: defn2 (the step sends the layout as root and brings the `.pkg` into `dist/` and `checksums.txt`, a failed job and an empty `back/` fail, a down box skips without a second try, a missing layout fails) and defmv (the step's own check on the VM). defn2 failed against the old `cicd.bash`, and with the job sent as `bsdtest` or the checksum line left out.
+	- Verified:
+		- 20261026: On vmFreeBSD, 15.1-p4 with pkg 2.7.5, as root through the lock: `box-freebsd-pkg.bash` on the layout from `fFreeBSDPkgKit`, fed the beta.1 tarball. It made `zuid-1.0.0.b.1.pkg`, read back `FreeBSD:*:amd64` and the 5 files, installed it, and the installed command printed `zuid v1.0.0-beta.1 build dee5q`. An earlier try from a layout made by hand gave the same bytes from two `pkg create` runs.
+		- 20261026: `pipeline-test.bash`, all passing, `test-ids.py check`, and shellcheck.
+		- Not verified: `package.bash` writing the layout in a real run, and the step inside a full run.
+	- Swept: `fPublish_Downloads` puts the `.pkg` in the FreeBSD x86_64 cell, after the tarball and the bare command. `install.bash` asks for the `.tgz` by exact name. The `.deb` and `.rpm` hold the same files. The other box steps don't change.
+
+- The FreeBSD `.pkg`, built here when vmFreeBSD is taken or down.
+	- ID: 2026102617244801
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261026-172448
+	- Opened by: JC
+	- Parent ID: 2026101410500001
+	- Prereq IDs: 2026102617244796
+	- Target OS: FreeBSD
+	- Requirements  [Feature]:
+		- When the box step for 2026102617244796 skips, build FreeBSD's `pkg` from source in the container and run `pkg create` on the same layout.
+		- Only if the result is sure to install on FreeBSD. For example, a test that builds one both ways and finds them the same, or installs the local one on the VM.
+		- Once there's always a `.pkg`, add it to `default_releaseAssets`.
 
 - An uninstall leaves the compiled module in the cache.
 	- ID: 2026102407393000

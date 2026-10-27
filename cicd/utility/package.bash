@@ -9,6 +9,8 @@
 ##		      for Windows
 ##		    - the bare CLI binary (grab-and-run)
 ##		    - .deb and .rpm, via nfpm
+##		    - for FreeBSD, what its .pkg holds, in pkg/, for pkg create on a
+##		      FreeBSD box
 ##		    - checksums.txt over everything
 ##		- Every binary built here is stripped. Its debug info goes to debug/
 ##		  in the output directory, which is not a release file, so a panic
@@ -478,6 +480,54 @@ fRelease(){  ## os label, arch label, slice...
 	fi
 	fEcho "built ${osLabel}/${label}"
 	if [[ "${osLabel}" == "linux" ]]; then fLinuxPackages "${stage}" "${label}"; fi
+	if [[ "${osLabel}" == "freebsd" ]]; then fFreeBSDPkgKit "${stage}" "${label}"; fi
+}
+
+
+#•••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+## FreeBSD's .pkg. Only pkg create writes one, and that runs on FreeBSD, so this
+## lays out what it takes in pkg/<release>/ for cicd.bash's FreeBSD box step:
+## the files under root/, the manifest, the plist and the stamp. pkg/ is not a
+## release file, since --publish reads only the top of the output directory.
+## The same contents as the .deb: the command and its licenses.
+
+## The ports framework's DISTVERSION to PORTVERSION rule: 1.0.0-beta.1 is
+## 1.0.0.b.1, which pkg sorts before 1.0.0.
+fPkgVersion(){ printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/([a-z])[a-z]+/\1/g; s/([0-9])([a-z])/\1.\2/g; s/[^a-z0-9+]+/./g' ;}
+fUclStr(){ local s="${1//\\/\\\\}"; printf '"%s"' "${s//\"/\\\"}" ;}
+
+fFreeBSDPkgKit(){  ## stage, label
+	local -r stage="$1" label="$2"
+	local -r kit="${OUT}/pkg/${PKG}-${plainver}-freebsd-${label}"
+	local -r docDir="share/doc/${PKG}"
+	local file="" mail="${MAINTAINER##*<}"
+	mail="${mail%>}"
+	mkdir -p "${kit}/root/usr/local/bin" "${kit}/root/usr/local/${docDir}"
+	cp "${stage}/bin/${EXE}" "${kit}/root/usr/local/bin/"
+	printf '@(root,wheel,0755) bin/%s\n' "${EXE}" > "${kit}/plist"
+	for file in LICENSE.txt LICENSE-module.txt NOTICE.txt LICENSE-wasmtime.txt; do
+		cp "${stage}/share/${file}" "${kit}/root/usr/local/${docDir}/"
+		printf '@(root,wheel,0644) %s/%s\n' "${docDir}" "${file}" >> "${kit}/plist"
+	done
+	## Built for 14.0, so it runs on 14 and later. pkg add matches the ABI as a
+	## pattern, and refuses FreeBSD:14 on 15.
+	cat > "${kit}/manifest.ucl" <<-EOF
+		name: ${PKG}
+		version: $(fUclStr "$(fPkgVersion "${plainver}")")
+		origin: sysutils/${PKG}
+		comment: $(fUclStr "${SUMMARY}")
+		desc: $(fUclStr "${DESC_LONG}")
+		www: $(fUclStr "${HOMEPAGE}")
+		maintainer: $(fUclStr "${mail}")
+		prefix: /usr/local
+		abi: "FreeBSD:*:$(fGoArch "${label}")"
+		categories: [sysutils]
+		licenselogic: and
+		licenses: [GPLv2+, APACHE20]
+	EOF
+	printf '%s\n' "${stamp}" > "${kit}/stamp"
+	fSettleTree "${kit}"
+	fEcho "laid out .pkg (freebsd/${label})"
 }
 
 
@@ -599,6 +649,7 @@ fEcho "done: $(find "${OUT}" -maxdepth 1 -type f ! -name checksums.txt ! -name "
 
 
 ##	History:
+##		- 20261026 JC: Lays out FreeBSD's .pkg in pkg/.
 ##		- 20261025 JC: Its work folder is a run folder, and dist/ or --out is emptied through the guard.
 ##		- 20261013 JC: Same bytes on a Mac too: archive symbol tables, dSYM paths and symlink modes.
 ##		- 20261013 JC: debug/ gets only the static lib's DWARF, zlib packed.
