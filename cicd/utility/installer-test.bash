@@ -1312,6 +1312,20 @@ fCase_Bash32(){
 		then fPass
 		else fFail "rc=${rc} and '${out}'"
 	fi
+	rc=0
+	home="$(fNewHome "bash32-rm")"
+	mkdir -p "${home}/${userShare}/bin" "${home}/${userCache}"
+	printf 'x' > "${home}/${userShare}/bin/${PROG}"
+	printf 'x' > "${home}/${userCache}/module-0123456789abcdef.cwasm"
+	if [[ -z "${skipWhy}" ]]; then
+		out="$(docker run --rm --network none --cpus 1 --cpu-shares 256 -e HOME=/home -v "${home}:/home" -v "${bashCopy}:/install.bash:ro" \
+			bash:3.2 nice -n 19 bash /install.bash --uninstall --target user --yes 2>&1)" || rc=$?
+	fi
+	fId defpx "bash 3.2: BusyBox rm removes the install dir and the cache"
+	if ((rc == 0)) && [[ ! -e "${home}/${userShare}" && ! -e "${home}/${userCache}" ]]
+		then fPass
+		else fFail "rc=${rc} and '${out}'"
+	fi
 }
 
 fEcho "Installers: against a local release listing on port ${port}"

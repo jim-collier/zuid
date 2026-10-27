@@ -113,7 +113,7 @@ fRun(){ if ((useSudo)); then sudo "$@"; else "$@"; fi ;}
 ## it stays on one filesystem. Its own copy of the repo's guard, since this
 ## runs alone from a download.
 fSafeRm_Under(){  ## parent, path
-	local parent="${1%/}" path="${2%/}" oneFs="-x"
+	local parent="${1%/}" path="${2%/}" oneFs=""
 	case "${parent}${path}" in
 		*..*|*//*|*$'\n'*) printf '  Refused to remove %s: a bad path\n' "${path}" >&2; return 1 ;;
 	esac
@@ -121,9 +121,12 @@ fSafeRm_Under(){  ## parent, path
 	if [[ -L "${path}" ]]; then printf '  Refused to remove %s: a link\n' "${path}" >&2; return 1; fi
 	[[ -e "${path}" ]] || return 0
 	if [[ "$(cd -P -- "${parent}" 2>/dev/null && pwd -P)" != "${parent}" ]]; then printf '  Refused to remove %s: %s goes through a link\n' "${path}" "${parent}" >&2; return 1; fi
-	## GNU rm says --one-file-system, BSD's -x.
-	if rm --version >/dev/null 2>&1; then oneFs="--one-file-system"; fi
-	fRun rm -rf "${oneFs}" -- "${path}"
+	## GNU rm says --one-file-system, BSD's -x. BusyBox's has neither, and gets
+	## neither. The path is already checked to be physical and under the parent.
+	if rm --version >/dev/null 2>&1; then oneFs="--one-file-system"
+	elif [[ "${osLabel}" == "darwin" || "${osLabel}" == "freebsd" ]]; then oneFs="-x"
+	fi
+	if [[ -n "${oneFs}" ]]; then fRun rm -rf "${oneFs}" -- "${path}"; else fRun rm -rf -- "${path}"; fi
 }
 
 ## Empties the install dir one entry at a time, so it's the one parent the

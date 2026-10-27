@@ -334,7 +334,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `install.bash` can't remove a folder where `rm` is BusyBox's.
 	- ID: 2026102618305629
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261026-183056
 	- Opened by: JC
@@ -349,6 +349,16 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced [Bug]: 20261026 on b23, for the cache dir.
 	- Possible cause [Bug]:
 		- `fSafeRm_Under` gives BSD's `-x` to any `rm` without `--version`. BusyBox has neither that nor `--one-file-system`. An install dir's `bin` goes through the same call, unchecked.
+	- Needs local test suite run?: none.
+	- Needs external testing: none.
+	- Progress log:
+		- 20261027: `install.bash` gives `rm` `--one-file-system` for GNU, `-x` on macOS and FreeBSD, and no flag otherwise. The guard's checks (physical parent, no link, strictly under it) already cover what the flag guarded.
+	- Decisions:
+		- 20261027: The flag follows the OS where `rm --version` fails, so BusyBox on Linux is the only case that goes without. Version stays 1.4.0, as it has not shipped.
+	- Swept: every `rm -r` in `install.bash` goes through `fSafeRm_Under`, the install dir's entries and the cache included. `install.ps1` has no `rm`. The other scripts that use `-x` or `--one-file-system` run under the pipeline's own guard, not from a download.
+	- Branch: round1027
+	- Test case: defpx (BusyBox `rm` in the `bash:3.2` image removes the install dir and the cache). Failed against the old `install.bash`, passes now.
+	- Verified: 20261027, `installer-test.bash` 108 of 108, shellcheck clean apart from existing SC1091 info notes.
 
 - CICD reset: other hosts, macOS falls back to vmKt6m
 	- ID: 2026102517494666
