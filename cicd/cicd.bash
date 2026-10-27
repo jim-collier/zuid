@@ -40,6 +40,7 @@
 ##		- 20261025 JC: The Mac builds the universal release from HEAD, and it comes back into dist-incoming/.
 ##		- 20261025 JC: The Windows release and install.ps1 tested on b29w.
 ##		- 20261025 JC: FreeBSD's packages pinned by version and checked against the repo's signed catalog, not by hash.
+##		- 20261026 JC: FreeBSD's .pkg, made on its box into dist/.
 
 declare -i doQuietly=0; [[ "${ZUID_CICD_QUIET:-}" == "1" ]] && doQuietly=1
 ## Global, since the exit trap reads it after fMain has gone.
@@ -95,11 +96,12 @@ fConfig(){ :;
 	## Test boxes, as ssh destinations. The host part is the box's name in the
 	## shared host lock. ZUID_BOX_FREEBSD, ZUID_BOX_LINUX_ARM64, ZUID_BOX_MAC and
 	## ZUID_BOX_WINDOWS replace them, and set empty leave the box out. The Mac
-	## builds its own release, so its user needs Zig and Go. The Windows user
-	## needs admin, for the system install.
+	## builds its own release, so its user needs Zig and Go. It's a list, tried
+	## in order until one answers. The Windows user needs admin, for the system
+	## install. FreeBSD's .pkg is made as root on the same host, for pkg add.
 	default_boxFreeBSD="bsdtest@vmFreeBSD"
 	default_boxLinuxArm64="tester@vmDebARM64"
-	default_boxMac="collierjr@b26"
+	default_boxMac="collierjr@b26 collierjr@vmKt6m"
 	default_boxWindows="collierjr@b29w"
 	## How long a box step waits for a box another session holds, then skips.
 	default_boxWaitSecs=600
@@ -327,8 +329,10 @@ fPrint_Help(){
 		leave it out, and so does --no-remote.
 
 		A run that packages then tests the releases this machine can't run on the
-		test boxes, over ssh: FreeBSD on ${freebsdBox:-nothing, since ZUID_BOX_FREEBSD is empty}, and Linux arm64
-		on ${linuxArm64Box:-nothing, since ZUID_BOX_LINUX_ARM64 is empty}. The Mac on ${macBox:-nothing, since ZUID_BOX_MAC is empty} builds its own
+		test boxes, over ssh: FreeBSD on ${freebsdBox:-nothing, since ZUID_BOX_FREEBSD is empty}, where root then makes the
+		.pkg into dist/, and Linux arm64
+		on ${linuxArm64Box:-nothing, since ZUID_BOX_LINUX_ARM64 is empty}. The Mac, the first of
+		${macBox:-nothing, since ZUID_BOX_MAC is empty,} that answers, builds its own
 		release from HEAD, as committed, with a quick run and --package, and the
 		universal tarball and bare command come back into dist-incoming/ for
 		--publish. Windows on ${windowsBox:-nothing, since ZUID_BOX_WINDOWS is empty} runs the x86_64 zip's command, and
@@ -816,11 +820,15 @@ fSteps_Scrub(){
 fSteps_FuzzWhy(){ if ((doGate)); then printf '%s\n' "${gateFlag}"; else printf '%s\n' "--no-fuzz"; fi ;}
 
 ## One box step, or why it's off.
-fSteps_Box(){  ## title, ssh destination, its variable, stage function
+fSteps_Box(){  ## title, ssh destinations, its variable, stage function
+	local dest="" hosts=""
+	local -a dests=()
+	read -ra dests <<< "$2"
+	for dest in "${dests[@]}"; do hosts+="${hosts:+ or }${dest##*@}"; done
 	if   ((! doRemote)); then fStep_Off "$1" "--no-remote"
-	elif [[ -z "$2" ]]; then fStep_Off "$1" "$3 is empty"
+	elif [[ -z "${hosts}" ]]; then fStep_Off "$1" "$3 is empty"
 	elif ! fSteps_Packages; then fStep_Off "$1" "nothing packaged"
-	else fStep "$1: ${2##*@}" "$4"; fi
+	else fStep "$1: ${hosts}" "$4"; fi
 }
 
 ## The image has every tool packaging needs, so a run there packages where
@@ -1598,6 +1606,7 @@ fStage_Shell(){
 			"${utilityDir}/c-checks.bash" "${utilityDir}/git-hooks/pre-push" \
 			"${utilityDir}/include/safe-rm.bash" "${utilityDir}/box-run.bash" \
 			"${utilityDir}/box-release-test.bash" "${utilityDir}/box-mac-build.bash" \
+			"${utilityDir}/box-freebsd-pkg.bash" \
 			"${utilityDir}/gomod-prune.bash"
 		fEcho_Clean "Clean."
 	fi
@@ -4562,7 +4571,11 @@ fBox_Lock(){
 	return 0
 }
 
-fBox_Skip(){ fTestSkip "$*"; fStep_Skip "$*" ;}
+## With another box to try, the skip goes to the caller in _boxSkipWhy instead.
+fBox_Skip(){
+	if ((${_boxTryNext:-0})); then _boxSkipWhy="$*"; return 0; fi
+	fTestSkip "$*"; fStep_Skip "$*"
+}
 
 ## Runs <job dir>'s job.bash on the box, held for as long as that takes, and
 ## ends the step's check from box-run.bash's verdict. A job that passed has the
@@ -4614,9 +4627,82 @@ fBox_Release(){  ## release name after the version, ssh destination, [cli-test.b
 	fBox_Run "$2" "${jobDir}"
 }
 
+## Then the .pkg, from what package.bash laid out in dist/pkg/, by pkg create
+## on the same box. pkg add sets owners, so that job is root's, in a folder of
+## its own. A box that skipped the first skips this too, without asking again.
+## Then the same from the image's pkg, which has to match the box's byte for
+## byte, and goes in dist/ when the box made none.
 fStage_Box_FreeBSD(){
 	fId dee33 "FreeBSD release on its box: command surface and C module"
 	fBox_Release freebsd-x86_64 "${freebsdBox}"
+	fId defmv "FreeBSD .pkg made and installed on its box, back in dist/"
+	if [[ -n "${_stepSkipWhy}" ]]; then fTestSkip "${_stepSkipWhy}"
+	else fBox_Pkg freebsd-x86_64 "root@${freebsdBox##*@}"; fi
+	fId defp3 "FreeBSD .pkg made here, the box's bytes, or in dist/ without one"
+	fPkg_Here freebsd-x86_64
+}
+
+fBox_Pkg(){  ## release name after the version, ssh destination
+	local -r pkgRelease="${distPrefix}$1" jobDir="${_runDir}/box-$1-pkg"
+	local -r kit="${repoRoot}/dist/pkg/${distPrefix}$1"
+	[[ -d "${kit}" ]] || fTestFail "package.bash laid out no pkg/${pkgRelease}/ in dist/"
+	mkdir -p "${jobDir}"
+	## -p, so the box gets the layout's settled times, as tar would send them.
+	cp -Rp "${kit}" "${jobDir}/"
+	cp "${utilityDir}/box-freebsd-pkg.bash" "${jobDir}/job.bash"
+	ZUID_BOX_BACK="${jobDir}.back" fBox_Run "$2" "${jobDir}" fBox_PkgHome
+}
+
+## pkgRelease is fBox_Pkg's.
+fBox_PkgHome(){
+	local -r sent="${_runDir}/box-${pkgRelease#"${distPrefix}"}-pkg.back/${pkgRelease}.pkg"
+	[[ -f "${sent}" ]] || fTestFail "the box sent no ${pkgRelease}.pkg home"
+	fPkg_IntoDist "${sent}" "${pkgRelease}"
+}
+
+## The .pkg is this run's, like the tarball beside it, so it goes in dist/ and
+## its checksums.txt, not in dist-incoming/, where one could outlive its run.
+fPkg_IntoDist(){  ## .pkg file, release name
+	local -r sums="${repoRoot}/dist/checksums.txt"
+	local -a sha256=(sha256sum)
+	chmod 0644 "$1"
+	mv -f "$1" "${repoRoot}/dist/$2.pkg"
+	command -v sha256sum >/dev/null 2>&1 || sha256=(shasum -a 256)
+	if [[ -f "${sums}" ]]; then (cd "${repoRoot}/dist" && "${sha256[@]}" "$2.pkg") >> "${sums}"; fi
+	fEcho_Clean "Package ....: ${repoRoot}/dist/$2.pkg"
+}
+
+## The image's pkg is built to give the box's bytes from the same layout (see
+## cicd/container/Dockerfile). ABI and OSVERSION are pkg's own, for reading the
+## command's libraries as FreeBSD's; the package keeps the manifest's ABI. A
+## box that made one is the check on this one. Without it, the package has to
+## be zstd, as FreeBSD's are, or the image's pkg was built without it.
+fPkg_Here(){  ## release name after the version
+	local -r pkgRelease="${distPrefix}$1" jobDir="${_runDir}/here-$1-pkg"
+	local -r kit="${repoRoot}/dist/pkg/${distPrefix}$1" boxMade="${repoRoot}/dist/${distPrefix}$1.pkg"
+	local arch="" magic=""
+	local -a made=()
+	if [[ ! -f "${repoRoot}/dist/${pkgRelease}.tgz" ]]; then fTestSkip "no ${pkgRelease}.tgz in dist/"; return 0; fi
+	[[ -d "${kit}" ]] || fTestFail "package.bash laid out no pkg/${pkgRelease}/ in dist/"
+	fGoCheckers_Ready
+	if [[ -n "${checkerSkipWhy}" ]]; then fTestSkip "${checkerSkipWhy}"; return 0; fi
+	arch="$(sed -n 's/^abi: "FreeBSD:\*:\(.*\)"$/\1/p' "${kit}/manifest.ucl")"
+	[[ -n "${arch}" ]] || fTestFail "pkg/${pkgRelease}/manifest.ucl has no FreeBSD:*:<arch> ABI"
+	mkdir -p "${jobDir}/out"
+	fInImage "${jobDir}" env ABI="FreeBSD:14:${arch}" OSVERSION=1400000 \
+		/opt/fbsdpkg/pkg create -t "$(< "${kit}/stamp")" -M "${kit}/manifest.ucl" -p "${kit}/plist" -r "${kit}/root" -o "${jobDir}/out" \
+		|| fTestFail "pkg create failed here, as said above"
+	shopt -s nullglob; made=("${jobDir}"/out/*.pkg); shopt -u nullglob
+	((${#made[@]} == 1)) || fTestFail "pkg create made ${#made[@]} files here, not one"
+	if [[ -f "${boxMade}" ]]; then
+		cmp -s "${boxMade}" "${made[0]}" || fTestFail "the .pkg made here isn't the box's, byte for byte, so it can't stand in for it"
+		fTestPass; return 0
+	fi
+	magic="$(head -c 4 "${made[0]}" | od -An -tx1 | tr -d ' \n')"
+	[[ "${magic}" == 28b52ffd ]] || fTestFail "the .pkg made here isn't zstd, it starts ${magic}"
+	fEcho_Clean "Note .......: no .pkg from the box, so dist/ gets the one made here"
+	fPkg_IntoDist "${made[0]}" "${pkgRelease}"
+	fTestPass
 }
 
 ## The box is emulated, and each run of the command takes about 12 s there, so
@@ -4628,13 +4714,26 @@ fStage_Box_LinuxArm64(){
 
 ## The universal release needs Apple's lipo, so the Mac builds it, from HEAD
 ## as committed, the same commit and build number as the rest of the release.
+## Each Mac in macBox in turn, until one doesn't skip: b26, else vmKt6m. A job
+## that failed is a fail, not a reason to try the next.
 fStage_Box_Mac(){
 	fId dee8k "macOS universal release built on its box, back in dist-incoming/"
 	local -r jobDir="${_runDir}/box-darwin-universal"
+	local _boxSkipWhy="" whys=""
+	local -a dests=()
+	local -i i=0
+	read -ra dests <<< "${macBox}"
 	mkdir -p "${jobDir}"
 	git -C "${repoRoot}" bundle create -q "${jobDir}/src.bundle" HEAD || fTestFail "couldn't bundle HEAD for the Mac"
 	cp "${utilityDir}/box-mac-build.bash" "${jobDir}/job.bash"
-	ZUID_BOX_BACK="${jobDir}.back" fBox_Run "${macBox}" "${jobDir}" fBox_MacHome
+	for ((i = 0; i < ${#dests[@]}; i++)); do
+		_boxSkipWhy=""
+		_boxTryNext=1 ZUID_BOX_BACK="${jobDir}.back" fBox_Run "${dests[i]}" "${jobDir}" fBox_MacHome
+		[[ -n "${_boxSkipWhy}" ]] || return 0
+		whys+="${whys:+; }${_boxSkipWhy}"
+		if ((i + 1 < ${#dests[@]})); then fEcho_Clean "Note .......: ${_boxSkipWhy}, so trying ${dests[i + 1]}"; fi
+	done
+	fBox_Skip "${whys}"
 }
 
 ## The x86_64 zip's command, then install.ps1 installing that zip under both

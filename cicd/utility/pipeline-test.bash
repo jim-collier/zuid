@@ -1004,7 +1004,7 @@ fPlanIn(){  ## inContainer, planContainer, then name=value settings
 			doSync=1; doGate=0; doFullGate=0; gateFlag=""; doQuick=0; doDemo=1; doPackage=0; noPackage=0; packageSkipWhy=""
 			onlyToolchain=""; doGo=1; doZig=1; doFuzz=1; doCross=1; doLeakcheck=1; leakAsked=0; doProfile=1
 			doPublish=0; doDogfood=1; doBackup=1; backupInWorktree=0; commitAsked=0; doCommit=0; doPush=0; doRemote=1
-			freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"; macBox="collierjr@b26"; windowsBox="collierjr@b29w"
+			freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"; macBox="collierjr@b26 collierjr@vmKt6m"; windowsBox="collierjr@b29w"
 			_stepTitles=(); _stepOffs=(); _stepPlanning=0; _stepElsewhere=0; _stepAt=0; _stepTotal=0
 			read -r -a runAreas <<< "${planAreas:-}"; areaWhy="not in --backlog-run-quick ${planAreas:-}"
 		}
@@ -1265,14 +1265,14 @@ for boxCase in "doPackage=1|yes" "doPackage=1 doFullGate=1 gateFlag=--merge-gate
 	# shellcheck disable=2086  ## Settings, split on purpose.
 	outside="$(planAreas="" planOffs=1 fPlanIn 0 1 ${boxCase%%|*})" || { boxBad+=" '${boxCase}': ${outside};"; continue; }
 	if [[ "${boxWant}" == "yes" ]]; then
-		grep -v '^off:' <<< "${outside}" | sed -n '/^Linux arm64 box: vmDebARM64$/,$p' | grep -qx 'Mac box: b26' || boxBad+=" '${boxCase}': it isn't after the arm64 box, in '${outside//$'\n'/, }';"
+		grep -v '^off:' <<< "${outside}" | sed -n '/^Linux arm64 box: vmDebARM64$/,$p' | grep -qx 'Mac box: b26 or vmKt6m' || boxBad+=" '${boxCase}': it isn't after the arm64 box, in '${outside//$'\n'/, }';"
 	else
 		grep -q '^Mac box' <<< "${outside}" && boxBad+=" '${boxCase}' runs it;"
 		grep -qxF "off:Mac box (${boxWant})" <<< "${outside}" || boxBad+=" '${boxCase}' doesn't say it's off for ${boxWant};"
 	fi
 done
 outside="$(planAreas="" planOffs=1 fPlanIn 0 1 doPackage=1 freebsdBox= linuxArm64Box=)" || true
-grep -qx 'Mac box: b26' <<< "${outside}" || boxBad+=" no other boxes took the Mac one too;"
+grep -qx 'Mac box: b26 or vmKt6m' <<< "${outside}" || boxBad+=" no other boxes took the Mac one too;"
 inside="$(planAreas="" fPlanIn 1 0 doSync=0 doDogfood=0 doBackup=0 doPackage=1)" || true
 grep -q 'Mac box' <<< "${inside}" && boxBad+=" the image runs it;"
 if [[ -z "${boxBad}" ]]
@@ -1288,7 +1288,7 @@ for boxCase in "doPackage=1|yes" "doPackage=1 doFullGate=1 gateFlag=--merge-gate
 	# shellcheck disable=2086  ## Settings, split on purpose.
 	outside="$(planAreas="" planOffs=1 fPlanIn 0 1 ${boxCase%%|*})" || { boxBad+=" '${boxCase}': ${outside};"; continue; }
 	if [[ "${boxWant}" == "yes" ]]; then
-		grep -v '^off:' <<< "${outside}" | sed -n '/^Mac box: b26$/,$p' | grep -qx 'Windows box: b29w' || boxBad+=" '${boxCase}': it isn't after the Mac box, in '${outside//$'\n'/, }';"
+		grep -v '^off:' <<< "${outside}" | sed -n '/^Mac box: b26 or vmKt6m$/,$p' | grep -qx 'Windows box: b29w' || boxBad+=" '${boxCase}': it isn't after the Mac box, in '${outside//$'\n'/, }';"
 	else
 		grep -q '^Windows box' <<< "${outside}" && boxBad+=" '${boxCase}' runs it;"
 		grep -qxF "off:Windows box (${boxWant})" <<< "${outside}" || boxBad+=" '${boxCase}' doesn't say it's off for ${boxWant};"
@@ -1312,6 +1312,8 @@ mkdir -p "${boxDir}/bin" "${boxDir}/root" "${boxDir}/dist" "${boxDir}/run"
 cat > "${boxDir}/bin/ssh" <<'EOF_bssh'
 #!/usr/bin/env bash
 while [[ "${1:-}" == -o ]]; do shift 2; done
+## BOX_DOWN_AT lists the destinations that don't answer.
+[[ " ${BOX_DOWN_AT:-} " != *" ${1} "* ]] || exit 255
 shift
 [[ "${BOX_DOWN:-0}" != 1 ]] || exit 255
 ## The powershell beside it, for the Windows box.
@@ -1322,6 +1324,7 @@ cat > "${boxDir}/bin/lock" <<'EOF_block'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${BOX_LOCK_LOG:?}"
 [[ "${BOX_TAKEN:-0}" != 1 ]] || exit 3
+[[ " ${BOX_TAKEN_AT:-} " != *" ${2:-} "* ]] || exit 3
 while [[ "${1:-}" != -- ]]; do shift; done
 shift
 exec "$@"
@@ -1334,24 +1337,33 @@ fBoxIn(){  ## job.bash's text, in BOX_JOB
 		# shellcheck disable=2034  ## Read by the lifted functions.
 		{ repoRoot="${boxDir}"; utilityDir="$(cd "$(dirname "${cicd}")" && pwd -P)/utility"
 		  zigDir="${boxDir}/zig"; distPrefix="zuid-1.0.0-"; freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"; boxWaitSecs=60; keepTemp=0
-		  macBox="collierjr@b26"; windowsBox="collierjr@b29w"; incomingDir="${boxDir}/dist-incoming"
+		  macBox="${BOX_MAC:-collierjr@b26}"; windowsBox="collierjr@b29w"; incomingDir="${boxDir}/dist-incoming"
 		  projectName="zuid"; runName="test"; _stepSkipWhy=""; }
 		_runDir="${boxDir}/run"
 		local fn=""
-		for fn in fBox_Lock fBox_Skip fBox_Run fBox_Release fBox_MacHome fStage_Box_FreeBSD fStage_Box_LinuxArm64 fStage_Box_Mac fStage_Box_Windows fStep_Skip fId fTestPass fTestSkip fTestFail; do
+		for fn in fBox_Lock fBox_Skip fBox_Run fBox_Release fBox_Pkg fBox_PkgHome fPkg_IntoDist fPkg_Here fBox_MacHome fStage_Box_FreeBSD fStage_Box_LinuxArm64 fStage_Box_Mac fStage_Box_Windows fStep_Skip fId fTestPass fTestSkip fTestFail; do
 			fLoad "${fn}" || { printf 'no %s in cicd.bash\n' "${fn}"; exit 2; }
 		done
 		# shellcheck disable=2329  ## Called by the lifted functions.
 		{ fEcho_Clean(){ printf '%s\n' "$*"; }; fThrowError(){ printf 'error: %s\n' "$1"; exit 1; }; }
+		## The image, in BOX_HERE: unset is no image, else what its pkg writes,
+		## or "fail". The last argument is pkg create's -o.
+		# shellcheck disable=2329
+		{ fGoCheckers_Ready(){ checkerSkipWhy=""; [[ -n "${BOX_HERE:-}" ]] || checkerSkipWhy="no image"; }
+		  fInImage(){ printf '%s\n' "$*" > "${boxDir}/inimage.args"; [[ "${BOX_HERE}" != fail ]] || return 1; printf '%b' "${BOX_HERE}" > "${*: -1}/zuid-1.0.0.pkg"; }; }
 		## The job is a stand-in, not the real one.
 		# shellcheck disable=2329
-		cp(){ if [[ "${1##*/}" == box-release-test.bash || "${1##*/}" == box-mac-build.bash || "${1##*/}" == box-windows-test.ps1 ]]; then printf '%s\n' "${BOX_JOB:?}" > "$2"; else command cp "$@"; fi; }
+		cp(){ if [[ "${1##*/}" == box-release-test.bash || "${1##*/}" == box-mac-build.bash || "${1##*/}" == box-windows-test.ps1 ]]; then printf '%s\n' "${BOX_JOB:?}" > "$2"
+		      elif [[ "${1##*/}" == box-freebsd-pkg.bash ]]; then printf '%s\n' "${BOX_PKG_JOB:-mkdir back && printf pkg > back/zuid-1.0.0-freebsd-x86_64.pkg}" > "$2"
+		      else command cp "$@"; fi; }
 		local jobName="box-freebsd-x86_64"; [[ "${BOX_STAGE:-}" != fStage_Box_LinuxArm64 ]] || jobName="box-linux-arm64"
 		[[ "${BOX_STAGE:-}" != fStage_Box_Windows ]] || jobName="box-windows-x86_64"
 		## The Mac bundles a repo of its own.
 		if [[ "${BOX_STAGE:-}" == fStage_Box_Mac ]]; then jobName="box-darwin-universal"; repoRoot="${boxDir}/src"; fi
 		if [[ -d "${_runDir}/${jobName}" ]]; then fSafeRm "${_runDir}/${jobName}"; fi
 		if [[ -d "${_runDir}/${jobName}.back" ]]; then fSafeRm "${_runDir}/${jobName}.back"; fi
+		if [[ -d "${_runDir}/${jobName}-pkg" ]]; then fSafeRm "${_runDir}/${jobName}-pkg"; fi
+		if [[ -d "${_runDir}/${jobName}-pkg.back" ]]; then fSafeRm "${_runDir}/${jobName}-pkg.back"; fi
 		: > "${BOX_LOCK_LOG}"
 		"${BOX_STAGE:-fStage_Box_FreeBSD}"
 		printf 'skipwhy:%s\n' "${_stepSkipWhy}"
@@ -1363,6 +1375,7 @@ mkdir -p "${boxDir}/zig/lib/test" "${boxDir}/testdata"
 out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
 { ((rc == 0)) && grep -q '^  SKIP dee33 .*(no zuid-1.0.0-freebsd-x86_64.tgz in dist/)$' <<< "${out}" && grep -q '^skipwhy:no ' <<< "${out}"; } || boxBad+=" no release: exited ${rc}, said '${out//$'\n'/ | }';"
 printf 'x\n' > "${boxDir}/dist/zuid-1.0.0-freebsd-x86_64.tgz"
+mkdir -p "${boxDir}/dist/pkg/zuid-1.0.0-freebsd-x86_64/root"
 ## Passes, under the lock, and the box's folder is gone after.
 out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='[[ -f zuid-1.0.0-freebsd-x86_64.tgz && -f cicd/utility/cli-test.bash ]]' fBoxIn)" && rc=0 || rc=$?
 { ((rc == 0)) && grep -qx '  PASS dee33 FreeBSD release on its box: command surface and C module' <<< "${out}" && grep -qx 'skipwhy:' <<< "${out}"; } || boxBad+=" pass: exited ${rc}, said '${out//$'\n'/ | }';"
@@ -1381,6 +1394,79 @@ out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_TAKEN
 ## No lock here, which says so and runs anyway.
 out="$(ZUID_BOX_LOCK="" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
 { ((rc == 0)) && grep -q "isn't held" <<< "${out}" && grep -q '^  PASS dee33 ' <<< "${out}" && [[ ! -s "${BOX_LOCK_LOG}" ]]; } || boxBad+=" no lock: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## FreeBSD's .pkg: package.bash's layout goes to the same box as root, and the
+## .pkg comes home into dist/ and its checksums.txt. A box that skipped the
+## release test skips this too.
+fId defn2 "the FreeBSD box step makes the .pkg as root and brings it into dist/"
+boxBad=""
+pkgKit="${boxDir}/dist/pkg/zuid-1.0.0-freebsd-x86_64"
+pkgHome="${boxDir}/dist/zuid-1.0.0-freebsd-x86_64.pkg"
+printf 'pin\n' > "${pkgKit}/manifest.ucl"
+## pkg puts each file's mtime in the package, so the layout's settled times
+## have to get to the box as they are.
+find "${pkgKit}" -exec touch -h -t 202001010000 {} +
+rm -f "${pkgHome}"; printf 'aaa  zuid-1.0.0-freebsd-x86_64.tgz\n' > "${boxDir}/dist/checksums.txt"
+# shellcheck disable=2016  ## Run by the box stand-in.
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' \
+	BOX_PKG_JOB='[[ "$(cat zuid-1.0.0-freebsd-x86_64/manifest.ucl)" == pin && -d zuid-1.0.0-freebsd-x86_64/root && ! -e zuid-1.0.0-freebsd-x86_64.tgz && -z "$(find zuid-1.0.0-freebsd-x86_64 -newermt 2020-01-02)" ]] && mkdir back && printf made > back/zuid-1.0.0-freebsd-x86_64.pkg' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -qx '  PASS defmv FreeBSD .pkg made and installed on its box, back in dist/' <<< "${out}" && grep -qx 'skipwhy:' <<< "${out}"; } || boxBad+=" pass: exited ${rc}, said '${out//$'\n'/ | }';"
+grep -q '^wrap vmFreeBSD --wait 60 --why zuid: cicd test -- bash .*/box-run.bash root@vmFreeBSD .*/box-freebsd-x86_64-pkg ' "${BOX_LOCK_LOG}" || boxBad+=" pass: not run as root under the lock;"
+[[ "$(cat "${pkgHome}" 2>/dev/null)" == made && "$(ls -l "${pkgHome}")" == -rw-r--r--* ]] || boxBad+=" pass: no .pkg in dist/, or not 644;"
+grep -qx "$(shasum -a 256 "${pkgHome}" | awk '{print $1}')  zuid-1.0.0-freebsd-x86_64.pkg" "${boxDir}/dist/checksums.txt" || boxBad+=" pass: not in checksums.txt;"
+[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" pass: the box's folder is still there;"
+## The job fails, or sends nothing home.
+rm -f "${pkgHome}"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' BOX_PKG_JOB='exit 4' fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -qx '  FAIL defmv FreeBSD .pkg made and installed on its box, back in dist/' <<< "${out}" && grep -q 'exited 4' <<< "${out}" && [[ ! -e "${pkgHome}" ]]; } || boxBad+=" fail: exited ${rc}, said '${out//$'\n'/ | }';"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' BOX_PKG_JOB='mkdir back' fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -q 'sent no zuid-1.0.0-freebsd-x86_64.pkg home' <<< "${out}"; } || boxBad+=" nothing home: exited ${rc}, said '${out//$'\n'/ | }';"
+## The release test skipped, so this does too, and asks no box.
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP defmv .*(no answer from bsdtest@vmFreeBSD)$' <<< "${out}" && [[ "$(grep -c '^wrap ' "${BOX_LOCK_LOG}")" == 1 ]]; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
+## No layout from package.bash is its fault, not the box's.
+mv "${pkgKit}" "${pkgKit}.away"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+mv "${pkgKit}.away" "${pkgKit}"
+{ ((rc != 0)) && grep -qx '  FAIL defmv FreeBSD .pkg made and installed on its box, back in dist/' <<< "${out}" && grep -q 'laid out no pkg/' <<< "${out}"; } || boxBad+=" no layout: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## The image's pkg makes the same .pkg: it has to be the box's, byte for byte,
+## and goes in dist/ when the box made none, if it's zstd.
+fId defp4 "the FreeBSD box step makes the .pkg here too, and uses it without the box's"
+boxBad=""
+printf 'abi: "FreeBSD:*:amd64"\n' > "${pkgKit}/manifest.ucl"; printf '1700000000\n' > "${pkgKit}/stamp"
+zst='\x28\xb5\x2f\xfdzst'
+## The box is down, so the one made here goes in dist/ and checksums.txt.
+rm -f "${pkgHome}" "${boxDir}/inimage.args"; printf 'aaa  zuid-1.0.0-freebsd-x86_64.tgz\n' > "${boxDir}/dist/checksums.txt"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' BOX_HERE="${zst}" fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  SKIP defmv ' <<< "${out}" && grep -qx '  PASS defp3 FreeBSD .pkg made here, the box'"'"'s bytes, or in dist/ without one' <<< "${out}"; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
+[[ "$(head -c 4 "${pkgHome}" 2>/dev/null | od -An -tx1 | tr -d ' \n')" == 28b52ffd && "$(ls -l "${pkgHome}")" == -rw-r--r--* ]] || boxBad+=" down: no .pkg in dist/, or not 644;"
+grep -qx "$(shasum -a 256 "${pkgHome}" | awk '{print $1}')  zuid-1.0.0-freebsd-x86_64.pkg" "${boxDir}/dist/checksums.txt" || boxBad+=" down: not in checksums.txt;"
+grep -qF "/here-freebsd-x86_64-pkg env ABI=FreeBSD:14:amd64 OSVERSION=1400000 /opt/fbsdpkg/pkg create -t 1700000000 -M ${pkgKit}/manifest.ucl -p ${pkgKit}/plist -r ${pkgKit}/root -o " "${boxDir}/inimage.args" || boxBad+=" down: pkg create called as '$(cat "${boxDir}/inimage.args" 2>/dev/null || true)';"
+## Made here as xz, or not made, with no box's to go by.
+rm -f "${pkgHome}"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' BOX_HERE='\xfd7zXZ' fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -q "isn't zstd, it starts fd377a58" <<< "${out}" && [[ ! -e "${pkgHome}" ]]; } || boxBad+=" xz: exited ${rc}, said '${out//$'\n'/ | }';"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' BOX_HERE=fail fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -qx '  FAIL defp3 FreeBSD .pkg made here, the box'"'"'s bytes, or in dist/ without one' <<< "${out}" && grep -q 'pkg create failed here' <<< "${out}"; } || boxBad+=" failed: exited ${rc}, said '${out//$'\n'/ | }';"
+## The box made one: the same bytes pass and leave the box's, others fail.
+printf 'aaa  zuid-1.0.0-freebsd-x86_64.tgz\n' > "${boxDir}/dist/checksums.txt"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' BOX_PKG_JOB='mkdir back && printf made > back/zuid-1.0.0-freebsd-x86_64.pkg' BOX_HERE=made fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  PASS defmv ' <<< "${out}" && grep -q '^  PASS defp3 ' <<< "${out}" && [[ "$(cat "${pkgHome}")" == made && "$(grep -c 'zuid-1.0.0-freebsd-x86_64.pkg$' "${boxDir}/dist/checksums.txt")" == 1 ]]; } || boxBad+=" same: exited ${rc}, said '${out//$'\n'/ | }';"
+rm -f "${pkgHome}"
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' BOX_PKG_JOB='mkdir back && printf made > back/zuid-1.0.0-freebsd-x86_64.pkg' BOX_HERE="${zst}" fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -q "isn't the box's, byte for byte" <<< "${out}" && [[ "$(cat "${pkgHome}")" == made ]]; } || boxBad+=" differs: exited ${rc}, said '${out//$'\n'/ | }';"
+## No image here is a skip.
+out="$(ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -qx '  SKIP defp3 FreeBSD .pkg made here, the box'"'"'s bytes, or in dist/ without one (no image)' <<< "${out}"; } || boxBad+=" no image: exited ${rc}, said '${out//$'\n'/ | }';"
 if [[ -z "${boxBad}" ]]
 	then fPass
 	else fFail "${boxBad}"
@@ -1467,6 +1553,30 @@ out="$(BOX_STAGE=fStage_Box_Mac ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${b
 [[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" fail: the box's folder is still there;"
 out="$(BOX_STAGE=fStage_Box_Mac ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
 { ((rc == 0)) && grep -q '^  SKIP dee8k .*(no answer from collierjr@b26)$' <<< "${out}"; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## b26, else vmKt6m. A Mac that's down or taken hands the job to the next one,
+## and one whose job failed doesn't.
+fId defkr "the Mac box step falls back to vmKt6m when b26 doesn't answer"
+boxBad=""
+macTwo="collierjr@b26 collierjr@vmKt6m"
+out="$(BOX_STAGE=fStage_Box_Mac BOX_MAC="${macTwo}" BOX_DOWN_AT=collierjr@b26 ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB="$(fMacJob 3)" fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -qx '  PASS dee8k macOS universal release built on its box, back in dist-incoming/' <<< "${out}" && grep -qx 'Note .......: no answer from collierjr@b26, so trying collierjr@vmKt6m' <<< "${out}"; } || boxBad+=" b26 down: exited ${rc}, said '${out//$'\n'/ | }';"
+grep -q '^wrap b26 --wait 60 ' "${BOX_LOCK_LOG}" && grep -q '^wrap vmKt6m --wait 60 --why zuid: cicd test -- bash .*/box-run.bash collierjr@vmKt6m ' "${BOX_LOCK_LOG}" || boxBad+=" b26 down: not held as b26 then vmKt6m;"
+[[ "$(cat "${boxDir}/dist-incoming/${macRel}.tgz" 2>&1)" == 3 ]] || boxBad+=" b26 down: vmKt6m's release isn't in dist-incoming/;"
+[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" b26 down: the box's folder is still there;"
+out="$(BOX_STAGE=fStage_Box_Mac BOX_MAC="${macTwo}" BOX_TAKEN_AT=b26 ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB="$(fMacJob 4)" fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  PASS dee8k ' <<< "${out}" && [[ "$(cat "${boxDir}/dist-incoming/${macRel}.tgz" 2>&1)" == 4 ]]; } || boxBad+=" b26 taken: exited ${rc}, said '${out//$'\n'/ | }';"
+## A failed job stays a fail, on b26 alone.
+out="$(BOX_STAGE=fStage_Box_Mac BOX_MAC="${macTwo}" ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 4' fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -q '^  FAIL dee8k ' <<< "${out}" && grep -q 'exited 4' <<< "${out}"; } || boxBad+=" fail: exited ${rc}, said '${out//$'\n'/ | }';"
+grep -q '^wrap vmKt6m ' "${BOX_LOCK_LOG}" && boxBad+=" fail: went on to vmKt6m;"
+## Both down is one skip, with both reasons.
+out="$(BOX_STAGE=fStage_Box_Mac BOX_MAC="${macTwo}" BOX_DOWN=1 ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && [[ "$(grep -c '^  SKIP dee8k ' <<< "${out}")" == 1 ]] && grep -qx '  SKIP dee8k .*(no answer from collierjr@b26; no answer from collierjr@vmKt6m)' <<< "${out}" && grep -qx 'skipwhy:no answer from collierjr@b26; no answer from collierjr@vmKt6m' <<< "${out}"; } || boxBad+=" both down: exited ${rc}, said '${out//$'\n'/ | }';"
 if [[ -z "${boxBad}" ]]
 	then fPass
 	else fFail "${boxBad}"

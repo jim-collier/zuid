@@ -13,7 +13,8 @@
 	that is a junction, in one plain line.
 
 	The user install and the command's module cache go under this folder, by
-	way of LOCALAPPDATA. The system install needs an admin session and no
+	way of LOCALAPPDATA. A user uninstall takes the cache too, and a system one
+	leaves it. The system install needs an admin session and no
 	Program Files\zuid already there. Whatever happens, both PATHs end as they
 	started.
 
@@ -174,6 +175,10 @@ try {
 			if (Test-Path -LiteralPath $exeIn) { $ver = [string](@(& $exeIn --version 2>&1)[0]) }
 			Test-That ($r.Code -eq 0 -and $ver -match "^zuid v$([regex]::Escape($version)) ") "$name install runs ($ver)" -Detail "exit $($r.Code)"
 			if ($r.Code -ne 0) { Show-Output $r.Out }
+			## One real run, so there's a module cache for uninstall to find.
+			$cache = Join-Path $env:LOCALAPPDATA 'zuid'
+			if (Test-Path -LiteralPath $exeIn) { $null = @(& $exeIn 2>&1) }
+			Test-That (Test-Path -LiteralPath $cache -PathType Container) "$name run leaves a module cache" -Detail "no $cache"
 			$now = Get-PathValue $scope
 			Test-That (@($now.Raw -split ';') -contains $bin) "$name install puts $bin on the $($scope.ToLower()) PATH" -Detail 'not there'
 			Test-That ($now.Kind -eq $saved.Kind -or $saved.Kind -eq 'none') "$name install keeps the PATH's value kind ($($now.Kind))" -Detail "$($saved.Kind) before"
@@ -185,6 +190,9 @@ try {
 			$r = Invoke-Install $shell ($opts + '-Uninstall', '-Yes')
 			Test-That ($r.Code -eq 0 -and -not (Test-Path -LiteralPath $dir)) "$name uninstall removes $dir" -Detail "exit $($r.Code)"
 			if ($r.Code -ne 0) { Show-Output $r.Out }
+			## Per user, so only a user uninstall takes it.
+			if ($target -eq 'user') { Test-That (-not (Test-Path -LiteralPath $cache)) "$name uninstall removes the module cache" -Detail "$cache is still there" }
+			else { Test-That (Test-Path -LiteralPath $cache) "$name uninstall leaves the module cache" -Detail "$cache is gone" }
 			$after = Get-PathValue $scope
 			Test-That ($after.Raw -ceq $saved.Raw -and $after.Kind -eq $saved.Kind) "$name uninstall gives the $($scope.ToLower()) PATH back byte for byte" -Detail "$($saved.Raw.Length) chars $($saved.Kind) before, $($after.Raw.Length) $($after.Kind) after"
 		}

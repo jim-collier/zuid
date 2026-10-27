@@ -56,7 +56,7 @@ $ErrorActionPreference = 'Stop'
 
 $repository = 'jim-collier/zuid'
 $program = 'zuid'
-$installerVersion = '1.3.2'
+$installerVersion = '1.4.0'
 
 ## Here and not through Get-Help, which needs the script as a file. Under irm |
 ## scriptblock there isn't one.
@@ -371,12 +371,35 @@ function Test-OurLink {
 	return $target.StartsWith($expected, [System.StringComparison]::Ordinal)
 }
 
+## Where the command keeps its compiled module, per main.zig's cacheRoot. It's
+## per user, so only a user uninstall takes it. A system one would be reaching
+## into every profile, so it says where they are instead.
+function Get-CacheDirectory {
+	$base = if ($onWindows) { $env:LOCALAPPDATA }
+	elseif ($onMac) { if ($HOME) { Join-Path $HOME 'Library/Caches' } }
+	elseif ($env:XDG_CACHE_HOME -and [System.IO.Path]::IsPathRooted($env:XDG_CACHE_HOME)) { $env:XDG_CACHE_HOME }
+	elseif ($HOME) { Join-Path $HOME '.cache' }
+	if (-not $base -or -not [System.IO.Path]::IsPathRooted($base)) { return $null }
+	return Join-Path $base $program
+}
+
 if ($Uninstall) {
 	## Worked out before anything is removed: once the install directory is gone
 	## the link dangles and there is no target left to recognize.
 	$link = if ($linkDirectory) { Join-Path $linkDirectory $program } else { $null }
 	$ownsLink = if ($link) { Test-OurLink $link $installDirectory } else { $false }
 	$ownsPath = if ($onWindows) { Test-OnWindowsPath } else { $false }
+
+	## A link there is somebody's own arrangement, so it's never followed.
+	$cacheDirectory = $null
+	$cacheKept = $null
+	$cachePath = if ($Target -eq 'user') { Get-CacheDirectory } else { $null }
+	$cacheItem = if ($cachePath) { Get-Item -LiteralPath $cachePath -Force -ErrorAction SilentlyContinue } else { $null }
+	if ($cacheItem) {
+		$cacheParent = Get-Item -LiteralPath (Split-Path -Parent $cachePath) -Force
+		if ($cacheItem -is [System.IO.DirectoryInfo] -and -not (Test-IsLink $cacheItem) -and -not (Test-IsLink $cacheParent)) { $cacheDirectory = $cachePath }
+		else { $cacheKept = $cachePath }
+	}
 
 	Write-Status 'Uninstall'
 	Write-Detail "  Remove: $installDirectory"
@@ -386,6 +409,16 @@ if ($Uninstall) {
 	}
 	elseif ($link -and (Test-Path -LiteralPath $link)) {
 		Write-Detail "  Keep ..: $link (not this installer's link, so it stays)"
+	}
+	if ($cacheDirectory) {
+		Write-Detail "  Remove: $cacheDirectory (its compiled module cache)"
+	}
+	elseif ($cacheKept) {
+		Write-Detail "  Keep ..: $cacheKept (not a plain folder, so it stays)"
+	}
+	elseif ($Target -eq 'system') {
+		$cacheWhere = if ($onWindows) { "%LOCALAPPDATA%\$program" } elseif ($onMac) { "~/Library/Caches/$program" } else { "~/.cache/$program, or `${XDG_CACHE_HOME}/$program" }
+		Write-Detail "  Keep ..: the module cache in each user's $cacheWhere (safe to delete)"
 	}
 	Write-Detail ''
 	if (-not $Yes) {
@@ -404,6 +437,7 @@ if ($Uninstall) {
 	if (Test-Path -LiteralPath $installDirectory) { (Get-Item -LiteralPath $installDirectory -Force).Delete() }
 	if ($ownsLink) { Remove-Item -Force -LiteralPath $link }
 	if ($ownsPath) { Set-WindowsPath $false }
+	if ($cacheDirectory) { Remove-Under (Split-Path -Parent $cacheDirectory) $cacheDirectory }
 	Write-Status 'Removed.'
 	Write-Host ''
 	return
