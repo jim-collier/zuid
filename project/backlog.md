@@ -30,6 +30,128 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## Issues
 
+- The C soak never runs `%c`.
+	- ID: 2026102520060700
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: de5ch, the C call soak under heaptrack, in the image with `--leakcheck`.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261025-200607
+	- Opened by: JC
+	- Related IDs: 2026102409130649
+	- Requirements  [Feature]:
+		- `capi_soak.c` adds `%c` to its formats, so the counter the C context now keeps runs under heaptrack.
+		- Its loop must stay under the 2^20 limit per tick, or pin the clock forward between rounds.
+	- Progress log:
+		- 20261027: The call soak has 3 `%c` formats, alone, with `%d` and `%r`, and with `%h` and `%g`. Each round moves the pinned clock 1000 s forward, which starts the counter over, so a long soak never reaches 2^20.
+	- Decisions:
+		- 20261027: No new test ID. The soak's test, de5ch, now covers `%c`; a failed `%c` call fails the round.
+	- Test case: de5ch and de5cm, unchanged IDs.
+	- Verified:
+		- 20261027: The soak built with the pipeline's flags against the current library and passed plain, at 20 and the default 100 rounds, with the heap level between N and 2N.
+		- Not verified: under heaptrack, and the soak failing on a broken `%c`.
+	- Swept: capi_smoke.c and capi_interpose.c, the other C files that call `zuid_generate`, make a few calls each and no loop of them, so neither nears the limit.
+
+- The FreeBSD `.pkg`, made on vmFreeBSD.
+	- ID: 2026102617244796
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, plain, not `--container`, since the box steps run only outside it: ddwmp with `dist/pkg/` in it, then dee33 and defmv on vmFreeBSD.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261026-172447
+	- Opened by: JC
+	- Parent ID: 2026101410500001
+	- Target OS: FreeBSD
+	- Requirements  [Feature]:
+		- `--package` lays out what the package holds, and the FreeBSD box step runs `pkg create` on it there, under the host lock, and brings the `.pkg` home beside the tarball.
+		- The box checks the package before it comes home: its ABI, its version, and that it installs and runs.
+		- A taken or down VM is a skip, as for the other box steps.
+	- Progress log:
+		- 20261026: `package.bash` lays out the package in `dist/pkg/<release>/`: the command and its licenses under `root/usr/local`, as in the `.deb`, with a manifest, a plist and the commit's time. `--publish` reads only the top of `dist/`, so none of it is a release file.
+		- 20261026: The FreeBSD box step then sends that to the same VM, where `box-freebsd-pkg.bash` runs `pkg create`, checks the name, version, ABI and file list pkg reads back, installs it with `pkg add` under a scratch root and runs the installed command. The `.pkg` comes home to `dist/` and its `checksums.txt`.
+		- 20261026: `pkg add` as `bsdtest` fails, since it sets each file's owner to root, so the job runs as `root@vmFreeBSD`. The scratch root gets copies of the base libraries the package needs, or pkg calls them missing.
+	- Decisions:
+		- 20261026: The ABI is `FreeBSD:*:amd64`. pkg 2.7.5 refuses `FreeBSD:14:amd64` on 15 as the wrong architecture, and matches the ABI as a pattern. Built for 14.0, it runs on 14 and later. Left alone, `pkg create` stamps the build box's own, 15.
+		- 20261026: The version follows the ports rule, so 1.0.0-beta.1 is `1.0.0.b.1`, which pkg sorts before 1.0.0. The file keeps the release's name, `zuid-<version>-freebsd-x86_64.pkg`, so the release table puts it in FreeBSD's row.
+		- 20261026: Its own job, so the VM boots twice in the step, about 25 s more. A box that skipped the release test skips this without asking again.
+		- 20261026: Into `dist/`, not `dist-incoming/`. It is this run's, and `dist/` is emptied each run, so an old one can't be published by mistake.
+		- 20261026: Not in `default_releaseAssets` yet, or `--publish` would refuse whenever the VM is down. 2026102617244801 adds it.
+		- 20261026: A missing layout fails the step rather than skipping, since that is `package.bash`'s fault, not the box's.
+	- Branch: round1027
+	- Test case: defn2 (the step sends the layout as root and brings the `.pkg` into `dist/` and `checksums.txt`, a failed job and an empty `back/` fail, a down box skips without a second try, a missing layout fails) and defmv (the step's own check on the VM). defn2 failed against the old `cicd.bash`, and with the job sent as `bsdtest` or the checksum line left out.
+	- Verified:
+		- 20261026: On vmFreeBSD, 15.1-p4 with pkg 2.7.5, as root through the lock: `box-freebsd-pkg.bash` on the layout from `fFreeBSDPkgKit`, fed the beta.1 tarball. It made `zuid-1.0.0.b.1.pkg`, read back `FreeBSD:*:amd64` and the 5 files, installed it, and the installed command printed `zuid v1.0.0-beta.1 build dee5q`. An earlier try from a layout made by hand gave the same bytes from two `pkg create` runs.
+		- 20261026: `pipeline-test.bash`, all passing, `test-ids.py check`, and shellcheck.
+		- Not verified: `package.bash` writing the layout in a real run, and the step inside a full run.
+	- Swept: `fPublish_Downloads` puts the `.pkg` in the FreeBSD x86_64 cell, after the tarball and the bare command. `install.bash` asks for the `.tgz` by exact name. The `.deb` and `.rpm` hold the same files. The other box steps don't change.
+
+- The FreeBSD `.pkg`, built here when vmFreeBSD is taken or down.
+	- ID: 2026102617244801
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, plain, not `--container`, since the box steps run only outside it: defp3 with vmFreeBSD up, where the `.pkg` made here has to match the box's byte for byte. Then defp3 again with the box left out (`ZUID_BOX_FREEBSD=` or the VM taken), where the one made here goes in `dist/`.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261026-172448
+	- Opened by: JC
+	- Parent ID: 2026101410500001
+	- Prereq IDs: 2026102617244796
+	- Target OS: FreeBSD
+	- Requirements  [Feature]:
+		- When the box step for 2026102617244796 skips, build FreeBSD's `pkg` from source in the container and run `pkg create` on the same layout.
+		- Only if the result is sure to install on FreeBSD. For example, a test that builds one both ways and finds them the same, or installs the local one on the VM.
+		- Once there's always a `.pkg`, add it to `default_releaseAssets`.
+	- Progress log:
+		- 20261026: Split. The `default_releaseAssets` part is 2026102618125670, which waits on a full run of this one.
+		- 20261026: pkg 2.7.5 builds on the image's Debian, which upstream supports. Out of the box its `.pkg` differed from vmFreeBSD's in 3 ways, each fixed: no shared libraries listed, the builder's uid in each tar header, and no zstd frame checksum.
+		- 20261026: The image builds pkg in a stage of its own, against libarchive 3.8.2, with the two `#ifdef __FreeBSD__` guards around the 65534 owner taken out. The FreeBSD box step then makes the `.pkg` here too, as defp3.
+		- 20261026: Upstream patch and issue text drafted, in the private tree's `upstream/2026102617244801/`.
+	- Decisions:
+		- 20261026: "Sure to install" is the same bytes as `pkg create` on vmFreeBSD. A `.pkg` the box made is the check on the one made here on every run that has both, and a mismatch fails the step rather than picking one.
+		- 20261026: Made here on every run with the image, not only when the box skips, so the check runs whenever it can. It costs about a second.
+		- 20261026: pkg runs with `ABI=FreeBSD:14:<arch>` and `OSVERSION=1400000`. Those are pkg's own, so it reads the command's libraries as FreeBSD's. The package keeps the manifest's `FreeBSD:*:amd64`, and 14 or 15 there gave the same bytes.
+		- 20261026: Without a box's to compare, the one made here has to be zstd. A pkg built without zstd falls back to xz quietly.
+		- 20261026: libarchive 3.8.2 because it turned on the zstd frame checksum, which FreeBSD 15.1's has. A FreeBSD whose libarchive moves on can change the box's bytes, and defp3 would say so.
+		- 20261026: The source patch is a `sed` in the Dockerfile, not a patch file, since the image tag is the Dockerfile's hash alone.
+		- 20261026: `--no-remote` turns the FreeBSD box step off, this check with it, so such a run has no `.pkg`.
+	- Branch: round1027
+	- Test case: defp4 (the box down puts the one made here in `dist/` and `checksums.txt`, an xz one or a failed `pkg create` fails, the box's bytes pass and others fail, no image skips) and defp3 (the step's own check). defp4 failed against the old `cicd.bash`, and with the zstd check taken out.
+	- Verified:
+		- 20261026: From one layout of the beta.1 FreeBSD tarball, `pkg create` in the new image, as the caller's uid, and on vmFreeBSD (15.1-p4, pkg 2.7.5) gave the same sha256, `5917d77c...`.
+		- 20261026: `pipeline-test.bash` 168 of 168, `test-ids.py check`, and shellcheck.
+		- Not verified: defp3 inside a full run, either way.
+	- Swept: `fBox_PkgHome` now goes through the same `fPkg_IntoDist`, so both ways into `dist/` set 644 and add the checksum line. dee33, defn2 and dee9h still pass with the image left out, and a run with no FreeBSD tarball skips defp3 as dee33 does. design.md's FreeBSD `.pkg` line.
+
+- An uninstall leaves the compiled module in the cache.
+	- ID: 2026102407393000
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: Done. `installer-test.bash` 107 of 107, and the quick gate for shell, installers and docs.
+	- Needs external testing: deea5 on b29w, for its 4 new module cache checks under 5.1 and 7. The `macos` workflow, for defpm to defpv against `~/Library/Caches/zuid`.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261024-073930
+	- Opened by: JC
+	- Related IDs: 2026101410495989, 2026102618305629
+	- Requirements  [Feature]:
+		- `--uninstall` on a user install also removes the command's cache dir, such as `~/Library/Caches/zuid`, `~/.cache/zuid` or `%LOCALAPPDATA%\zuid`. It's about 8 MB.
+		- A system install leaves other users' caches alone and says where they are.
+	- Progress log:
+		- 20261024: Seen on b26, after an install, one run and an uninstall.
+		- 20261026: A user uninstall in both installers names the cache dir in its plan and removes it, from where `main.zig`'s `cacheRoot` puts it, `XDG_CACHE_HOME` included. A cache dir that's a link, or isn't a folder, is kept and said so.
+		- 20261026: A system uninstall removes no cache, and its plan says where each user's is, with "safe to delete".
+		- 20261026: `box-windows-test.ps1` runs the command once after each install, and checks the cache is there, then gone after a user uninstall and kept after a system one.
+		- 20261026: `install.md` says what an uninstall does with the cache. Both installers are 1.4.0.
+		- 20261026: `installer-test.bash` unsets `XDG_CACHE_HOME`. It was set on b23, so an uninstall case would have aimed at the real cache.
+		- 20261026: Under bash 3.2 in the `bash:3.2` image, removing the cache fails on BusyBox `rm`, which has no `-x`. An install dir's `bin` goes through the same call, so it's filed as 2026102618305629.
+	- Decisions:
+		- 20261026: A system uninstall leaves the running user's cache too, not only other users'. The cache belongs to whoever ran the command, not to the install, and under sudo HOME may be someone else's. Leaving it costs 8 MB; removing it would only cost one compile.
+		- 20261026: The whole `zuid` cache dir goes, not only `module-*.cwasm`, so a temp file from an interrupted save can't keep it. It goes through each installer's own guard.
+		- 20261026: `install.bash` resolves the cache's parent physically, since `~/.cache` is often a link and FreeBSD's `/home` is one. `install.ps1` keeps a cache whose parent is a link, as its guard does.
+		- 20261026: 1.4.0, not 1.3.3, since an uninstall now removes something it didn't before.
+	- Branch: round1027
+	- Test case: defpm and defpn (a user uninstall removes the cache), defpp and defpq (`XDG_CACHE_HOME` where the command reads it, and not on Darwin), defpr and defps (a cache dir that's a link stays), defpt and defpv (a system uninstall keeps them and says where), in `installer-test.bash` for each installer. All 8 failed against the old installers and pass after. deea5 has the Windows checks.
+	- Verified: 20261026, `installer-test.bash` 107 of 107 with load about 22 on 32 CPUs, shellcheck, PSScriptAnalyzer on both changed `.ps1` files, and the quick gate.
+	- Swept: both installers' uninstall paths for user and system, `box-windows-test.ps1`'s uninstall, every uninstall call in `installer-test.bash` (GuardedRemoval, SystemTarget, ForeignLink, and Bash32 with its own HOME in the image), `install.md`'s cache paragraph, and the cache rules against `cacheRoot` in `main.zig`.
+
 - FreeBSD kernel panics while zuid runs.
 	- ID: 2026100413383471
 	- Type: Bug
@@ -179,28 +301,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261024: Split from 2026101410495999. Waits on a logo, and `private/logo/` is empty.
 
-- The C soak never runs `%c`.
-	- ID: 2026102520060700
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: de5ch, the C call soak under heaptrack, in the image with `--leakcheck`.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261025-200607
-	- Opened by: JC
-	- Related IDs: 2026102409130649
-	- Requirements  [Feature]:
-		- `capi_soak.c` adds `%c` to its formats, so the counter the C context now keeps runs under heaptrack.
-		- Its loop must stay under the 2^20 limit per tick, or pin the clock forward between rounds.
-	- Progress log:
-		- 20261027: The call soak has 3 `%c` formats, alone, with `%d` and `%r`, and with `%h` and `%g`. Each round moves the pinned clock 1000 s forward, which starts the counter over, so a long soak never reaches 2^20.
-	- Decisions:
-		- 20261027: No new test ID. The soak's test, de5ch, now covers `%c`; a failed `%c` call fails the round.
-	- Test case: de5ch and de5cm, unchanged IDs.
-	- Verified:
-		- 20261027: The soak built with the pipeline's flags against the current library and passed plain, at 20 and the default 100 rounds, with the heap level between N and 2N.
-		- Not verified: under heaptrack, and the soak failing on a broken `%c`.
-	- Swept: capi_smoke.c and capi_interpose.c, the other C files that call `zuid_generate`, make a few calls each and no loop of them, so neither nears the limit.
-
 - The FreeBSD release has no `.pkg`.
 	- ID: 2026101410500001
 	- Type: Enhancement
@@ -217,106 +317,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: Answered: build it here if it's sure to run on FreeBSD. Try the host lock on vmFreeBSD first, and build locally if it's taken or down.
 		- 20261026: Split in two. 2026102617244796 makes it on vmFreeBSD, and 2026102617244801 builds it here when the VM is taken or down.
 
-- The FreeBSD `.pkg`, made on vmFreeBSD.
-	- ID: 2026102617244796
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, plain, not `--container`, since the box steps run only outside it: ddwmp with `dist/pkg/` in it, then dee33 and defmv on vmFreeBSD.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261026-172447
-	- Opened by: JC
-	- Parent ID: 2026101410500001
-	- Target OS: FreeBSD
-	- Requirements  [Feature]:
-		- `--package` lays out what the package holds, and the FreeBSD box step runs `pkg create` on it there, under the host lock, and brings the `.pkg` home beside the tarball.
-		- The box checks the package before it comes home: its ABI, its version, and that it installs and runs.
-		- A taken or down VM is a skip, as for the other box steps.
-	- Progress log:
-		- 20261026: `package.bash` lays out the package in `dist/pkg/<release>/`: the command and its licenses under `root/usr/local`, as in the `.deb`, with a manifest, a plist and the commit's time. `--publish` reads only the top of `dist/`, so none of it is a release file.
-		- 20261026: The FreeBSD box step then sends that to the same VM, where `box-freebsd-pkg.bash` runs `pkg create`, checks the name, version, ABI and file list pkg reads back, installs it with `pkg add` under a scratch root and runs the installed command. The `.pkg` comes home to `dist/` and its `checksums.txt`.
-		- 20261026: `pkg add` as `bsdtest` fails, since it sets each file's owner to root, so the job runs as `root@vmFreeBSD`. The scratch root gets copies of the base libraries the package needs, or pkg calls them missing.
-	- Decisions:
-		- 20261026: The ABI is `FreeBSD:*:amd64`. pkg 2.7.5 refuses `FreeBSD:14:amd64` on 15 as the wrong architecture, and matches the ABI as a pattern. Built for 14.0, it runs on 14 and later. Left alone, `pkg create` stamps the build box's own, 15.
-		- 20261026: The version follows the ports rule, so 1.0.0-beta.1 is `1.0.0.b.1`, which pkg sorts before 1.0.0. The file keeps the release's name, `zuid-<version>-freebsd-x86_64.pkg`, so the release table puts it in FreeBSD's row.
-		- 20261026: Its own job, so the VM boots twice in the step, about 25 s more. A box that skipped the release test skips this without asking again.
-		- 20261026: Into `dist/`, not `dist-incoming/`. It is this run's, and `dist/` is emptied each run, so an old one can't be published by mistake.
-		- 20261026: Not in `default_releaseAssets` yet, or `--publish` would refuse whenever the VM is down. 2026102617244801 adds it.
-		- 20261026: A missing layout fails the step rather than skipping, since that is `package.bash`'s fault, not the box's.
-	- Branch: round1027
-	- Test case: defn2 (the step sends the layout as root and brings the `.pkg` into `dist/` and `checksums.txt`, a failed job and an empty `back/` fail, a down box skips without a second try, a missing layout fails) and defmv (the step's own check on the VM). defn2 failed against the old `cicd.bash`, and with the job sent as `bsdtest` or the checksum line left out.
-	- Verified:
-		- 20261026: On vmFreeBSD, 15.1-p4 with pkg 2.7.5, as root through the lock: `box-freebsd-pkg.bash` on the layout from `fFreeBSDPkgKit`, fed the beta.1 tarball. It made `zuid-1.0.0.b.1.pkg`, read back `FreeBSD:*:amd64` and the 5 files, installed it, and the installed command printed `zuid v1.0.0-beta.1 build dee5q`. An earlier try from a layout made by hand gave the same bytes from two `pkg create` runs.
-		- 20261026: `pipeline-test.bash`, all passing, `test-ids.py check`, and shellcheck.
-		- Not verified: `package.bash` writing the layout in a real run, and the step inside a full run.
-	- Swept: `fPublish_Downloads` puts the `.pkg` in the FreeBSD x86_64 cell, after the tarball and the bare command. `install.bash` asks for the `.tgz` by exact name. The `.deb` and `.rpm` hold the same files. The other box steps don't change.
-
-- The FreeBSD `.pkg`, built here when vmFreeBSD is taken or down.
-	- ID: 2026102617244801
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, plain, not `--container`, since the box steps run only outside it: defp3 with vmFreeBSD up, where the `.pkg` made here has to match the box's byte for byte. Then defp3 again with the box left out (`ZUID_BOX_FREEBSD=` or the VM taken), where the one made here goes in `dist/`.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261026-172448
-	- Opened by: JC
-	- Parent ID: 2026101410500001
-	- Prereq IDs: 2026102617244796
-	- Target OS: FreeBSD
-	- Requirements  [Feature]:
-		- When the box step for 2026102617244796 skips, build FreeBSD's `pkg` from source in the container and run `pkg create` on the same layout.
-		- Only if the result is sure to install on FreeBSD. For example, a test that builds one both ways and finds them the same, or installs the local one on the VM.
-		- Once there's always a `.pkg`, add it to `default_releaseAssets`.
-	- Progress log:
-		- 20261026: Split. The `default_releaseAssets` part is 2026102618125670, which waits on a full run of this one.
-		- 20261026: pkg 2.7.5 builds on the image's Debian, which upstream supports. Out of the box its `.pkg` differed from vmFreeBSD's in 3 ways, each fixed: no shared libraries listed, the builder's uid in each tar header, and no zstd frame checksum.
-		- 20261026: The image builds pkg in a stage of its own, against libarchive 3.8.2, with the two `#ifdef __FreeBSD__` guards around the 65534 owner taken out. The FreeBSD box step then makes the `.pkg` here too, as defp3.
-		- 20261026: Upstream patch and issue text drafted, in the private tree's `upstream/2026102617244801/`.
-	- Decisions:
-		- 20261026: "Sure to install" is the same bytes as `pkg create` on vmFreeBSD. A `.pkg` the box made is the check on the one made here on every run that has both, and a mismatch fails the step rather than picking one.
-		- 20261026: Made here on every run with the image, not only when the box skips, so the check runs whenever it can. It costs about a second.
-		- 20261026: pkg runs with `ABI=FreeBSD:14:<arch>` and `OSVERSION=1400000`. Those are pkg's own, so it reads the command's libraries as FreeBSD's. The package keeps the manifest's `FreeBSD:*:amd64`, and 14 or 15 there gave the same bytes.
-		- 20261026: Without a box's to compare, the one made here has to be zstd. A pkg built without zstd falls back to xz quietly.
-		- 20261026: libarchive 3.8.2 because it turned on the zstd frame checksum, which FreeBSD 15.1's has. A FreeBSD whose libarchive moves on can change the box's bytes, and defp3 would say so.
-		- 20261026: The source patch is a `sed` in the Dockerfile, not a patch file, since the image tag is the Dockerfile's hash alone.
-		- 20261026: `--no-remote` turns the FreeBSD box step off, this check with it, so such a run has no `.pkg`.
-	- Branch: round1027
-	- Test case: defp4 (the box down puts the one made here in `dist/` and `checksums.txt`, an xz one or a failed `pkg create` fails, the box's bytes pass and others fail, no image skips) and defp3 (the step's own check). defp4 failed against the old `cicd.bash`, and with the zstd check taken out.
-	- Verified:
-		- 20261026: From one layout of the beta.1 FreeBSD tarball, `pkg create` in the new image, as the caller's uid, and on vmFreeBSD (15.1-p4, pkg 2.7.5) gave the same sha256, `5917d77c...`.
-		- 20261026: `pipeline-test.bash` 168 of 168, `test-ids.py check`, and shellcheck.
-		- Not verified: defp3 inside a full run, either way.
-	- Swept: `fBox_PkgHome` now goes through the same `fPkg_IntoDist`, so both ways into `dist/` set 644 and add the checksum line. dee33, defn2 and dee9h still pass with the image left out, and a run with no FreeBSD tarball skips defp3 as dee33 does. design.md's FreeBSD `.pkg` line.
-
-- An uninstall leaves the compiled module in the cache.
-	- ID: 2026102407393000
-	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: Done. `installer-test.bash` 107 of 107, and the quick gate for shell, installers and docs.
-	- Needs external testing: deea5 on b29w, for its 4 new module cache checks under 5.1 and 7. The `macos` workflow, for defpm to defpv against `~/Library/Caches/zuid`.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261024-073930
-	- Opened by: JC
-	- Related IDs: 2026101410495989, 2026102618305629
-	- Requirements  [Feature]:
-		- `--uninstall` on a user install also removes the command's cache dir, such as `~/Library/Caches/zuid`, `~/.cache/zuid` or `%LOCALAPPDATA%\zuid`. It's about 8 MB.
-		- A system install leaves other users' caches alone and says where they are.
-	- Progress log:
-		- 20261024: Seen on b26, after an install, one run and an uninstall.
-		- 20261026: A user uninstall in both installers names the cache dir in its plan and removes it, from where `main.zig`'s `cacheRoot` puts it, `XDG_CACHE_HOME` included. A cache dir that's a link, or isn't a folder, is kept and said so.
-		- 20261026: A system uninstall removes no cache, and its plan says where each user's is, with "safe to delete".
-		- 20261026: `box-windows-test.ps1` runs the command once after each install, and checks the cache is there, then gone after a user uninstall and kept after a system one.
-		- 20261026: `install.md` says what an uninstall does with the cache. Both installers are 1.4.0.
-		- 20261026: `installer-test.bash` unsets `XDG_CACHE_HOME`. It was set on b23, so an uninstall case would have aimed at the real cache.
-		- 20261026: Under bash 3.2 in the `bash:3.2` image, removing the cache fails on BusyBox `rm`, which has no `-x`. An install dir's `bin` goes through the same call, so it's filed as 2026102618305629.
-	- Decisions:
-		- 20261026: A system uninstall leaves the running user's cache too, not only other users'. The cache belongs to whoever ran the command, not to the install, and under sudo HOME may be someone else's. Leaving it costs 8 MB; removing it would only cost one compile.
-		- 20261026: The whole `zuid` cache dir goes, not only `module-*.cwasm`, so a temp file from an interrupted save can't keep it. It goes through each installer's own guard.
-		- 20261026: `install.bash` resolves the cache's parent physically, since `~/.cache` is often a link and FreeBSD's `/home` is one. `install.ps1` keeps a cache whose parent is a link, as its guard does.
-		- 20261026: 1.4.0, not 1.3.3, since an uninstall now removes something it didn't before.
-	- Branch: round1027
-	- Test case: defpm and defpn (a user uninstall removes the cache), defpp and defpq (`XDG_CACHE_HOME` where the command reads it, and not on Darwin), defpr and defps (a cache dir that's a link stays), defpt and defpv (a system uninstall keeps them and says where), in `installer-test.bash` for each installer. All 8 failed against the old installers and pass after. deea5 has the Windows checks.
-	- Verified: 20261026, `installer-test.bash` 107 of 107 with load about 22 on 32 CPUs, shellcheck, PSScriptAnalyzer on both changed `.ps1` files, and the quick gate.
-	- Swept: both installers' uninstall paths for user and system, `box-windows-test.ps1`'s uninstall, every uninstall call in `installer-test.bash` (GuardedRemoval, SystemTarget, ForeignLink, and Bash32 with its own HOME in the image), `install.md`'s cache paragraph, and the cache rules against `cacheRoot` in `main.zig`.
-
 - Add FreeBSD's `.pkg` to `default_releaseAssets`.
 	- ID: 2026102618125670
 	- Type: Enhancement
@@ -330,68 +330,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Requirements  [Feature]:
 		- Once a full run shows defp3 passing with vmFreeBSD up and with it left out, add `freebsd-x86_64.pkg` to `default_releaseAssets`, so `--publish` refuses a release without it.
 	- 20261027: Prereq added, since it waits on the full run that checks the local build.
-
-- `install.bash` can't remove a folder where `rm` is BusyBox's.
-	- ID: 2026102618305629
-	- Type: Bug
-	- Status: Done
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261026-183056
-	- Opened by: JC
-	- Related IDs: 2026102407393000
-	- Target OS: Linux, BusyBox userland such as Alpine
-	- Steps to reproduce [Bug]:
-		- In the `bash:3.2` image, with HOME holding `~/.cache/zuid`, run `install.bash --uninstall --target user --yes`.
-	- Incorrect behavior [Bug]:
-		- `rm: unrecognized option: x`, then "couldn't remove", exit 1.
-	- Expected behavior [Bug]:
-		- The folder is removed, or refused by name with a reason.
-	- Reproduced [Bug]: 20261026 on b23, for the cache dir.
-	- Possible cause [Bug]:
-		- `fSafeRm_Under` gives BSD's `-x` to any `rm` without `--version`. BusyBox has neither that nor `--one-file-system`. An install dir's `bin` goes through the same call, unchecked.
-	- Needs local test suite run?: none.
-	- Needs external testing: none.
-	- Progress log:
-		- 20261027: `install.bash` gives `rm` `--one-file-system` for GNU, `-x` on macOS and FreeBSD, and no flag otherwise. The guard's checks (physical parent, no link, strictly under it) already cover what the flag guarded.
-	- Decisions:
-		- 20261027: The flag follows the OS where `rm --version` fails, so BusyBox on Linux is the only case that goes without. Version stays 1.4.0, as it has not shipped.
-	- Swept: every `rm -r` in `install.bash` goes through `fSafeRm_Under`, the install dir's entries and the cache included. `install.ps1` has no `rm`. The other scripts that use `-x` or `--one-file-system` run under the pipeline's own guard, not from a download.
-	- Branch: round1027
-	- Test case: defpx (BusyBox `rm` in the `bash:3.2` image removes the install dir and the cache). Failed against the old `install.bash`, passes now.
-	- Verified: 20261027, `installer-test.bash` 108 of 108, shellcheck clean apart from existing SC1091 info notes.
-
-- CICD reset: other hosts, macOS falls back to vmKt6m
-	- ID: 2026102517494666
-	- Type: Enhancement
-	- Status: Done
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261025-174946
-	- Opened by: JC
-	- Parent ID: 2026102514523209
-	- Prereq IDs: 2026102514523209
-	- Target OS: macOS
-	- Requirements  [Feature]:
-		- When b26 doesn't answer, the Mac box step runs the same job on vmKt6m, through the VM state helper.
-		- vmKt6m needs Zig 0.17.0 and Go for the build. Its Homebrew builds from source, so set it up detached.
-	- Progress log:
-		- 20261026: `ZUID_BOX_MAC` is a list now, tried in order, by default `collierjr@b26 collierjr@vmKt6m`. A Mac that doesn't answer, stays taken or can't be woken hands the job to the next, with a note saying why. A job that fails is a fail, and isn't tried again on the next. When every Mac skips, the step is one `SKIP` with each one's reason. The step's title names both, "Mac box: b26 or vmKt6m".
-		- 20261026: vmKt6m had Go 1.27.3 already. Zig 0.17.0 went in from its release tarball as `~/.local/zig-x86_64-macos-0.17.0`, as on b26, and PowerShell 7.6.6 as `~/.local/bin/pwsh`, which the Mac's own pipeline tests need for deea7. Both checked against their published sha256. No Homebrew build was needed.
-		- 20261026: vmKt6m ignores the helper's ACPI shutdown, so it isn't put back to off after the step. Filed as 2026102617014623.
-		- 20261026: The `Mac box: b26` asserts in dee8m and deea6, the plan tests' title for the Mac step, now want `Mac box: b26 or vmKt6m`, since their default `macBox` follows the real one.
-	- Decisions:
-		- 20261026: Falls back on any skip, not only no answer, since a b26 another session holds for 10 minutes is no more use to the run than one that's down.
-		- 20261026: One variable taking a list, rather than a second one for the fallback. A single destination still works as before.
-		- 20261026: Zig and PowerShell from their release tarballs, not Homebrew, which builds from source there. It matches b26's layout.
-	- Branch: round1027
-	- Test case: defkr (b26 down or taken hands the job to vmKt6m, whose release reaches `dist-incoming/`; a failed job isn't tried again; both down is one skip with both reasons), plus dee8k, dee8m and dee8n. defkr failed with the old step, which ran the whole list as one destination, and passes after.
-	- Verified:
-		- 20261026: dee8k on the real vmKt6m from off, the step's own code with an absent Mac ahead of it: the first skipped with no answer, vmKt6m's quick run with `--package` from HEAD at d897271 passed all 18 steps, ddf2d included, and the universal tarball, bare command and debug info came home. The box's work folder was removed after.
-		- 20261026: `pipeline-test.bash` 166 of 166, shellcheck on `cicd.bash` and `pipeline-test.bash`, and `cicd.bash --backlog-run-quick shell docs`, 8 of 8 steps.
-		- Not verified: the step inside a full run, or with the real b26 down.
-	- Swept: every `macBox` read in `cicd.bash`, the help text and the config comment, `fSteps_Box`'s title for the single-box steps, which is unchanged, `fPlanIn`'s and `fBoxIn`'s defaults, and `development.md`. Only the Mac step takes a list; the other box steps still take one destination.
-	- Acceptance signoff: Self-closed 20261026. Pipeline-only, and run on the real box.
-		- Departs from the wording: it also falls back when b26 stays taken or can't be had, not only when it doesn't answer.
-	- Closed: 20261026-171900
 
 - A fresh full run fails: the FreeBSD `libwasmtime-49.0.1` package no longer matches its pinned checksum.
 	- ID: 2026102519140200
@@ -1648,6 +1586,39 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: `ddb12`, `ddb14`.
 	- Closed: 20260930-155553
 
+- CICD reset: other hosts, macOS falls back to vmKt6m
+	- ID: 2026102517494666
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261025-174946
+	- Opened by: JC
+	- Parent ID: 2026102514523209
+	- Prereq IDs: 2026102514523209
+	- Target OS: macOS
+	- Requirements  [Feature]:
+		- When b26 doesn't answer, the Mac box step runs the same job on vmKt6m, through the VM state helper.
+		- vmKt6m needs Zig 0.17.0 and Go for the build. Its Homebrew builds from source, so set it up detached.
+	- Progress log:
+		- 20261026: `ZUID_BOX_MAC` is a list now, tried in order, by default `collierjr@b26 collierjr@vmKt6m`. A Mac that doesn't answer, stays taken or can't be woken hands the job to the next, with a note saying why. A job that fails is a fail, and isn't tried again on the next. When every Mac skips, the step is one `SKIP` with each one's reason. The step's title names both, "Mac box: b26 or vmKt6m".
+		- 20261026: vmKt6m had Go 1.27.3 already. Zig 0.17.0 went in from its release tarball as `~/.local/zig-x86_64-macos-0.17.0`, as on b26, and PowerShell 7.6.6 as `~/.local/bin/pwsh`, which the Mac's own pipeline tests need for deea7. Both checked against their published sha256. No Homebrew build was needed.
+		- 20261026: vmKt6m ignores the helper's ACPI shutdown, so it isn't put back to off after the step. Filed as 2026102617014623.
+		- 20261026: The `Mac box: b26` asserts in dee8m and deea6, the plan tests' title for the Mac step, now want `Mac box: b26 or vmKt6m`, since their default `macBox` follows the real one.
+	- Decisions:
+		- 20261026: Falls back on any skip, not only no answer, since a b26 another session holds for 10 minutes is no more use to the run than one that's down.
+		- 20261026: One variable taking a list, rather than a second one for the fallback. A single destination still works as before.
+		- 20261026: Zig and PowerShell from their release tarballs, not Homebrew, which builds from source there. It matches b26's layout.
+	- Branch: round1027
+	- Test case: defkr (b26 down or taken hands the job to vmKt6m, whose release reaches `dist-incoming/`; a failed job isn't tried again; both down is one skip with both reasons), plus dee8k, dee8m and dee8n. defkr failed with the old step, which ran the whole list as one destination, and passes after.
+	- Verified:
+		- 20261026: dee8k on the real vmKt6m from off, the step's own code with an absent Mac ahead of it: the first skipped with no answer, vmKt6m's quick run with `--package` from HEAD at d897271 passed all 18 steps, ddf2d included, and the universal tarball, bare command and debug info came home. The box's work folder was removed after.
+		- 20261026: `pipeline-test.bash` 166 of 166, shellcheck on `cicd.bash` and `pipeline-test.bash`, and `cicd.bash --backlog-run-quick shell docs`, 8 of 8 steps.
+		- Not verified: the step inside a full run, or with the real b26 down.
+	- Swept: every `macBox` read in `cicd.bash`, the help text and the config comment, `fSteps_Box`'s title for the single-box steps, which is unchanged, `fPlanIn`'s and `fBoxIn`'s defaults, and `development.md`. Only the Mac step takes a list; the other box steps still take one destination.
+	- Acceptance signoff: Self-closed 20261026. Pipeline-only, and run on the real box.
+		- Departs from the wording: it also falls back when b26 stays taken or can't be had, not only when it doesn't answer.
+	- Closed: 20261026-171900
+
 - Identifiers from one tick have no counter.
 	- ID: 2026102409130649
 	- Type: Feature
@@ -2504,6 +2475,35 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: none. A check of the test machine, not of zuid; the runs above are the result.
 	- Acceptance signoff: Self-closed: the update check and the retest ran.
 	- Closed: 20261004-183600
+
+- `install.bash` can't remove a folder where `rm` is BusyBox's.
+	- ID: 2026102618305629
+	- Type: Bug
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261026-183056
+	- Opened by: JC
+	- Related IDs: 2026102407393000
+	- Target OS: Linux, BusyBox userland such as Alpine
+	- Steps to reproduce [Bug]:
+		- In the `bash:3.2` image, with HOME holding `~/.cache/zuid`, run `install.bash --uninstall --target user --yes`.
+	- Incorrect behavior [Bug]:
+		- `rm: unrecognized option: x`, then "couldn't remove", exit 1.
+	- Expected behavior [Bug]:
+		- The folder is removed, or refused by name with a reason.
+	- Reproduced [Bug]: 20261026 on b23, for the cache dir.
+	- Possible cause [Bug]:
+		- `fSafeRm_Under` gives BSD's `-x` to any `rm` without `--version`. BusyBox has neither that nor `--one-file-system`. An install dir's `bin` goes through the same call, unchecked.
+	- Needs local test suite run?: none.
+	- Needs external testing: none.
+	- Progress log:
+		- 20261027: `install.bash` gives `rm` `--one-file-system` for GNU, `-x` on macOS and FreeBSD, and no flag otherwise. The guard's checks (physical parent, no link, strictly under it) already cover what the flag guarded.
+	- Decisions:
+		- 20261027: The flag follows the OS where `rm --version` fails, so BusyBox on Linux is the only case that goes without. Version stays 1.4.0, as it has not shipped.
+	- Swept: every `rm -r` in `install.bash` goes through `fSafeRm_Under`, the install dir's entries and the cache included. `install.ps1` has no `rm`. The other scripts that use `-x` or `--one-file-system` run under the pipeline's own guard, not from a download.
+	- Branch: round1027
+	- Test case: defpx (BusyBox `rm` in the `bash:3.2` image removes the install dir and the cache). Failed against the old `install.bash`, passes now.
+	- Verified: 20261027, `installer-test.bash` 108 of 108, shellcheck clean apart from existing SC1091 info notes.
 
 - `install.ps1` wraps its link refusal in the generic write error.
 	- ID: 2026102516500000
