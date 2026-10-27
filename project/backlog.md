@@ -119,8 +119,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - vmKt6m isn't put back to off after the Mac box step.
 	- ID: 2026102617014623
 	- Type: Bug
-	- Status: Stalled
-		- Held for: the VM state helper shutting a macOS guest down from inside. A patch for it is drafted, outside the repo.
+	- Status: Done
 	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
 	- Opened: 20261026-170146
 	- Opened by: JC
@@ -134,7 +133,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Possible cause [Bug]: The macOS guest ignores the ACPI power request. A `sudo -n shutdown -h now` from inside works.
 	- Progress log:
 		- 20261026: The drafted helper change shuts vmKt6m down from inside over ssh, as `collierjr`, in place of the ACPI request. Run once by hand on vmKt6m after the Mac box step left it up: off in 15 s, note cleared.
-	- Test case: none yet. The helper isn't in the repo.
+		- 20261026: The change is in the shared helper now. Its `restore` put vmKt6m back to off from a running state with a note in 12 s.
+	- Actual fix [Bug]: The VM state helper shuts vmKt6m down over ssh. Nothing changed in zuid.
+	- Test case: none. The fix is in the shared helper, outside the repo, and the box step only calls it.
+	- Acceptance signoff: Self-closed: the helper's `restore` turned vmKt6m off with no wait.
+	- Closed: 20261026-202617
 
 - Run the arm64 Windows release and the arm64 macOS slice on real arm64 machines.
 	- ID: 2026101312344407
@@ -2843,6 +2846,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261026: Without a box's to compare, the one made here has to be zstd. A pkg built without zstd falls back to xz quietly.
 		- 20261026: libarchive 3.8.2 because it turned on the zstd frame checksum, which FreeBSD 15.1's has. A FreeBSD whose libarchive moves on can change the box's bytes, and defp3 would say so.
 		- 20261026: The source patch is a `sed` in the Dockerfile, not a patch file, since the image tag is the Dockerfile's hash alone.
+		- 20261026: The 2 upstream drafts aren't filed for now. The `sed` and `-t` cover both here, and nothing waits on pkg taking them.
 		- 20261026: `--no-remote` turns the FreeBSD box step off, this check with it, so such a run has no `.pkg`.
 		- 20261027: `-t` and `cp -Rp` both, not one. `-t` is pkg's own switch for a fixed time and covers any way the files travel; `-p` keeps the box's copy the same as the layout anyway.
 	- Branch: round1027
