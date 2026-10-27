@@ -1004,7 +1004,7 @@ fPlanIn(){  ## inContainer, planContainer, then name=value settings
 			doSync=1; doGate=0; doFullGate=0; gateFlag=""; doQuick=0; doDemo=1; doPackage=0; noPackage=0; packageSkipWhy=""
 			onlyToolchain=""; doGo=1; doZig=1; doFuzz=1; doCross=1; doLeakcheck=1; leakAsked=0; doProfile=1
 			doPublish=0; doDogfood=1; doBackup=1; backupInWorktree=0; commitAsked=0; doCommit=0; doPush=0; doRemote=1
-			freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"; macBox="collierjr@b26"; windowsBox="collierjr@b29w"
+			freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"; macBox="collierjr@b26 collierjr@vmKt6m"; windowsBox="collierjr@b29w"
 			_stepTitles=(); _stepOffs=(); _stepPlanning=0; _stepElsewhere=0; _stepAt=0; _stepTotal=0
 			read -r -a runAreas <<< "${planAreas:-}"; areaWhy="not in --backlog-run-quick ${planAreas:-}"
 		}
@@ -1265,14 +1265,14 @@ for boxCase in "doPackage=1|yes" "doPackage=1 doFullGate=1 gateFlag=--merge-gate
 	# shellcheck disable=2086  ## Settings, split on purpose.
 	outside="$(planAreas="" planOffs=1 fPlanIn 0 1 ${boxCase%%|*})" || { boxBad+=" '${boxCase}': ${outside};"; continue; }
 	if [[ "${boxWant}" == "yes" ]]; then
-		grep -v '^off:' <<< "${outside}" | sed -n '/^Linux arm64 box: vmDebARM64$/,$p' | grep -qx 'Mac box: b26' || boxBad+=" '${boxCase}': it isn't after the arm64 box, in '${outside//$'\n'/, }';"
+		grep -v '^off:' <<< "${outside}" | sed -n '/^Linux arm64 box: vmDebARM64$/,$p' | grep -qx 'Mac box: b26 or vmKt6m' || boxBad+=" '${boxCase}': it isn't after the arm64 box, in '${outside//$'\n'/, }';"
 	else
 		grep -q '^Mac box' <<< "${outside}" && boxBad+=" '${boxCase}' runs it;"
 		grep -qxF "off:Mac box (${boxWant})" <<< "${outside}" || boxBad+=" '${boxCase}' doesn't say it's off for ${boxWant};"
 	fi
 done
 outside="$(planAreas="" planOffs=1 fPlanIn 0 1 doPackage=1 freebsdBox= linuxArm64Box=)" || true
-grep -qx 'Mac box: b26' <<< "${outside}" || boxBad+=" no other boxes took the Mac one too;"
+grep -qx 'Mac box: b26 or vmKt6m' <<< "${outside}" || boxBad+=" no other boxes took the Mac one too;"
 inside="$(planAreas="" fPlanIn 1 0 doSync=0 doDogfood=0 doBackup=0 doPackage=1)" || true
 grep -q 'Mac box' <<< "${inside}" && boxBad+=" the image runs it;"
 if [[ -z "${boxBad}" ]]
@@ -1288,7 +1288,7 @@ for boxCase in "doPackage=1|yes" "doPackage=1 doFullGate=1 gateFlag=--merge-gate
 	# shellcheck disable=2086  ## Settings, split on purpose.
 	outside="$(planAreas="" planOffs=1 fPlanIn 0 1 ${boxCase%%|*})" || { boxBad+=" '${boxCase}': ${outside};"; continue; }
 	if [[ "${boxWant}" == "yes" ]]; then
-		grep -v '^off:' <<< "${outside}" | sed -n '/^Mac box: b26$/,$p' | grep -qx 'Windows box: b29w' || boxBad+=" '${boxCase}': it isn't after the Mac box, in '${outside//$'\n'/, }';"
+		grep -v '^off:' <<< "${outside}" | sed -n '/^Mac box: b26 or vmKt6m$/,$p' | grep -qx 'Windows box: b29w' || boxBad+=" '${boxCase}': it isn't after the Mac box, in '${outside//$'\n'/, }';"
 	else
 		grep -q '^Windows box' <<< "${outside}" && boxBad+=" '${boxCase}' runs it;"
 		grep -qxF "off:Windows box (${boxWant})" <<< "${outside}" || boxBad+=" '${boxCase}' doesn't say it's off for ${boxWant};"
@@ -1312,6 +1312,8 @@ mkdir -p "${boxDir}/bin" "${boxDir}/root" "${boxDir}/dist" "${boxDir}/run"
 cat > "${boxDir}/bin/ssh" <<'EOF_bssh'
 #!/usr/bin/env bash
 while [[ "${1:-}" == -o ]]; do shift 2; done
+## BOX_DOWN_AT lists the destinations that don't answer.
+[[ " ${BOX_DOWN_AT:-} " != *" ${1} "* ]] || exit 255
 shift
 [[ "${BOX_DOWN:-0}" != 1 ]] || exit 255
 ## The powershell beside it, for the Windows box.
@@ -1322,6 +1324,7 @@ cat > "${boxDir}/bin/lock" <<'EOF_block'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${BOX_LOCK_LOG:?}"
 [[ "${BOX_TAKEN:-0}" != 1 ]] || exit 3
+[[ " ${BOX_TAKEN_AT:-} " != *" ${2:-} "* ]] || exit 3
 while [[ "${1:-}" != -- ]]; do shift; done
 shift
 exec "$@"
@@ -1334,7 +1337,7 @@ fBoxIn(){  ## job.bash's text, in BOX_JOB
 		# shellcheck disable=2034  ## Read by the lifted functions.
 		{ repoRoot="${boxDir}"; utilityDir="$(cd "$(dirname "${cicd}")" && pwd -P)/utility"
 		  zigDir="${boxDir}/zig"; distPrefix="zuid-1.0.0-"; freebsdBox="bsdtest@vmFreeBSD"; linuxArm64Box="tester@vmDebARM64"; boxWaitSecs=60; keepTemp=0
-		  macBox="collierjr@b26"; windowsBox="collierjr@b29w"; incomingDir="${boxDir}/dist-incoming"
+		  macBox="${BOX_MAC:-collierjr@b26}"; windowsBox="collierjr@b29w"; incomingDir="${boxDir}/dist-incoming"
 		  projectName="zuid"; runName="test"; _stepSkipWhy=""; }
 		_runDir="${boxDir}/run"
 		local fn=""
@@ -1467,6 +1470,30 @@ out="$(BOX_STAGE=fStage_Box_Mac ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${b
 [[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" fail: the box's folder is still there;"
 out="$(BOX_STAGE=fStage_Box_Mac ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_DOWN=1 BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
 { ((rc == 0)) && grep -q '^  SKIP dee8k .*(no answer from collierjr@b26)$' <<< "${out}"; } || boxBad+=" down: exited ${rc}, said '${out//$'\n'/ | }';"
+if [[ -z "${boxBad}" ]]
+	then fPass
+	else fFail "${boxBad}"
+fi
+
+## b26, else vmKt6m. A Mac that's down or taken hands the job to the next one,
+## and one whose job failed doesn't.
+fId defkr "the Mac box step falls back to vmKt6m when b26 doesn't answer"
+boxBad=""
+macTwo="collierjr@b26 collierjr@vmKt6m"
+out="$(BOX_STAGE=fStage_Box_Mac BOX_MAC="${macTwo}" BOX_DOWN_AT=collierjr@b26 ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB="$(fMacJob 3)" fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -qx '  PASS dee8k macOS universal release built on its box, back in dist-incoming/' <<< "${out}" && grep -qx 'Note .......: no answer from collierjr@b26, so trying collierjr@vmKt6m' <<< "${out}"; } || boxBad+=" b26 down: exited ${rc}, said '${out//$'\n'/ | }';"
+grep -q '^wrap b26 --wait 60 ' "${BOX_LOCK_LOG}" && grep -q '^wrap vmKt6m --wait 60 --why zuid: cicd test -- bash .*/box-run.bash collierjr@vmKt6m ' "${BOX_LOCK_LOG}" || boxBad+=" b26 down: not held as b26 then vmKt6m;"
+[[ "$(cat "${boxDir}/dist-incoming/${macRel}.tgz" 2>&1)" == 3 ]] || boxBad+=" b26 down: vmKt6m's release isn't in dist-incoming/;"
+[[ -z "$(find "${boxDir}/root/zuid" -mindepth 1 -maxdepth 1 -type d)" ]] || boxBad+=" b26 down: the box's folder is still there;"
+out="$(BOX_STAGE=fStage_Box_Mac BOX_MAC="${macTwo}" BOX_TAKEN_AT=b26 ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB="$(fMacJob 4)" fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && grep -q '^  PASS dee8k ' <<< "${out}" && [[ "$(cat "${boxDir}/dist-incoming/${macRel}.tgz" 2>&1)" == 4 ]]; } || boxBad+=" b26 taken: exited ${rc}, said '${out//$'\n'/ | }';"
+## A failed job stays a fail, on b26 alone.
+out="$(BOX_STAGE=fStage_Box_Mac BOX_MAC="${macTwo}" ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 4' fBoxIn)" && rc=0 || rc=$?
+{ ((rc != 0)) && grep -q '^  FAIL dee8k ' <<< "${out}" && grep -q 'exited 4' <<< "${out}"; } || boxBad+=" fail: exited ${rc}, said '${out//$'\n'/ | }';"
+grep -q '^wrap vmKt6m ' "${BOX_LOCK_LOG}" && boxBad+=" fail: went on to vmKt6m;"
+## Both down is one skip, with both reasons.
+out="$(BOX_STAGE=fStage_Box_Mac BOX_MAC="${macTwo}" BOX_DOWN=1 ZUID_BOX_LOCK="${boxDir}/bin/lock" ZUID_SSH="${boxDir}/bin/ssh" BOX_JOB='exit 0' fBoxIn)" && rc=0 || rc=$?
+{ ((rc == 0)) && [[ "$(grep -c '^  SKIP dee8k ' <<< "${out}")" == 1 ]] && grep -qx '  SKIP dee8k .*(no answer from collierjr@b26; no answer from collierjr@vmKt6m)' <<< "${out}" && grep -qx 'skipwhy:no answer from collierjr@b26; no answer from collierjr@vmKt6m' <<< "${out}"; } || boxBad+=" both down: exited ${rc}, said '${out//$'\n'/ | }';"
 if [[ -z "${boxBad}" ]]
 	then fPass
 	else fFail "${boxBad}"

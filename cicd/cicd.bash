@@ -95,11 +95,12 @@ fConfig(){ :;
 	## Test boxes, as ssh destinations. The host part is the box's name in the
 	## shared host lock. ZUID_BOX_FREEBSD, ZUID_BOX_LINUX_ARM64, ZUID_BOX_MAC and
 	## ZUID_BOX_WINDOWS replace them, and set empty leave the box out. The Mac
-	## builds its own release, so its user needs Zig and Go. The Windows user
-	## needs admin, for the system install.
+	## builds its own release, so its user needs Zig and Go. It's a list, tried
+	## in order until one answers. The Windows user needs admin, for the system
+	## install.
 	default_boxFreeBSD="bsdtest@vmFreeBSD"
 	default_boxLinuxArm64="tester@vmDebARM64"
-	default_boxMac="collierjr@b26"
+	default_boxMac="collierjr@b26 collierjr@vmKt6m"
 	default_boxWindows="collierjr@b29w"
 	## How long a box step waits for a box another session holds, then skips.
 	default_boxWaitSecs=600
@@ -328,7 +329,8 @@ fPrint_Help(){
 
 		A run that packages then tests the releases this machine can't run on the
 		test boxes, over ssh: FreeBSD on ${freebsdBox:-nothing, since ZUID_BOX_FREEBSD is empty}, and Linux arm64
-		on ${linuxArm64Box:-nothing, since ZUID_BOX_LINUX_ARM64 is empty}. The Mac on ${macBox:-nothing, since ZUID_BOX_MAC is empty} builds its own
+		on ${linuxArm64Box:-nothing, since ZUID_BOX_LINUX_ARM64 is empty}. The Mac, the first of
+		${macBox:-nothing, since ZUID_BOX_MAC is empty,} that answers, builds its own
 		release from HEAD, as committed, with a quick run and --package, and the
 		universal tarball and bare command come back into dist-incoming/ for
 		--publish. Windows on ${windowsBox:-nothing, since ZUID_BOX_WINDOWS is empty} runs the x86_64 zip's command, and
@@ -816,11 +818,15 @@ fSteps_Scrub(){
 fSteps_FuzzWhy(){ if ((doGate)); then printf '%s\n' "${gateFlag}"; else printf '%s\n' "--no-fuzz"; fi ;}
 
 ## One box step, or why it's off.
-fSteps_Box(){  ## title, ssh destination, its variable, stage function
+fSteps_Box(){  ## title, ssh destinations, its variable, stage function
+	local dest="" hosts=""
+	local -a dests=()
+	read -ra dests <<< "$2"
+	for dest in "${dests[@]}"; do hosts+="${hosts:+ or }${dest##*@}"; done
 	if   ((! doRemote)); then fStep_Off "$1" "--no-remote"
-	elif [[ -z "$2" ]]; then fStep_Off "$1" "$3 is empty"
+	elif [[ -z "${hosts}" ]]; then fStep_Off "$1" "$3 is empty"
 	elif ! fSteps_Packages; then fStep_Off "$1" "nothing packaged"
-	else fStep "$1: ${2##*@}" "$4"; fi
+	else fStep "$1: ${hosts}" "$4"; fi
 }
 
 ## The image has every tool packaging needs, so a run there packages where
@@ -4562,7 +4568,11 @@ fBox_Lock(){
 	return 0
 }
 
-fBox_Skip(){ fTestSkip "$*"; fStep_Skip "$*" ;}
+## With another box to try, the skip goes to the caller in _boxSkipWhy instead.
+fBox_Skip(){
+	if ((${_boxTryNext:-0})); then _boxSkipWhy="$*"; return 0; fi
+	fTestSkip "$*"; fStep_Skip "$*"
+}
 
 ## Runs <job dir>'s job.bash on the box, held for as long as that takes, and
 ## ends the step's check from box-run.bash's verdict. A job that passed has the
@@ -4628,13 +4638,26 @@ fStage_Box_LinuxArm64(){
 
 ## The universal release needs Apple's lipo, so the Mac builds it, from HEAD
 ## as committed, the same commit and build number as the rest of the release.
+## Each Mac in macBox in turn, until one doesn't skip: b26, else vmKt6m. A job
+## that failed is a fail, not a reason to try the next.
 fStage_Box_Mac(){
 	fId dee8k "macOS universal release built on its box, back in dist-incoming/"
 	local -r jobDir="${_runDir}/box-darwin-universal"
+	local _boxSkipWhy="" whys=""
+	local -a dests=()
+	local -i i=0
+	read -ra dests <<< "${macBox}"
 	mkdir -p "${jobDir}"
 	git -C "${repoRoot}" bundle create -q "${jobDir}/src.bundle" HEAD || fTestFail "couldn't bundle HEAD for the Mac"
 	cp "${utilityDir}/box-mac-build.bash" "${jobDir}/job.bash"
-	ZUID_BOX_BACK="${jobDir}.back" fBox_Run "${macBox}" "${jobDir}" fBox_MacHome
+	for ((i = 0; i < ${#dests[@]}; i++)); do
+		_boxSkipWhy=""
+		_boxTryNext=1 ZUID_BOX_BACK="${jobDir}.back" fBox_Run "${dests[i]}" "${jobDir}" fBox_MacHome
+		[[ -n "${_boxSkipWhy}" ]] || return 0
+		whys+="${whys:+; }${_boxSkipWhy}"
+		if ((i + 1 < ${#dests[@]})); then fEcho_Clean "Note .......: ${_boxSkipWhy}, so trying ${dests[i + 1]}"; fi
+	done
+	fBox_Skip "${whys}"
 }
 
 ## The x86_64 zip's command, then install.ps1 installing that zip under both

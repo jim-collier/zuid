@@ -116,6 +116,26 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261013: Ruled out: lld's `/pdbsourcepath` rewrites relative paths only. A build with no PDB matches, but 2026101008194330 keeps the PDB in `dist/debug/` so a crash can be looked up. Patching the ID after the link is a hack.
 		- 20261013: Paths aren't the only cause. 2 cold builds at one path still gave 2 PDBs. Zig builds its mingw C runtime from temp files with random names, such as `tmp/679bb39054fc1352-crt2.obj`, and clang puts each command line in the PDB. 88 such names per PDB. No upstream issue found for that.
 
+- vmKt6m isn't put back to off after the Mac box step.
+	- ID: 2026102617014623
+	- Type: Bug
+	- Status: Stalled
+		- Held for: the VM state helper shutting a macOS guest down from inside. A patch for it is drafted, outside the repo.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261026-170146
+	- Opened by: JC
+	- Related IDs: 2026102517494666, 2026102416233100
+	- Target OS: macOS
+	- Steps to reproduce [Bug]:
+		- With vmKt6m off and b26 not answering, run the Mac box step.
+	- Incorrect behavior [Bug]: The helper's ACPI shutdown is ignored, so it gives up after 300 s, with vmKt6m still running and its note kept. The step passes, with a note that the box may not be back the way it was found.
+	- Expected behavior [Bug]: vmKt6m is off again after the step, with no wait.
+	- Reproduced [Bug]: 20261026, with the Mac box step alone and the helper's stop wait cut to 60 s.
+	- Possible cause [Bug]: The macOS guest ignores the ACPI power request. A `sudo -n shutdown -h now` from inside works.
+	- Progress log:
+		- 20261026: The drafted helper change shuts vmKt6m down from inside over ssh, as `collierjr`, in place of the ACPI request. Run once by hand on vmKt6m after the Mac box step left it up: off in 15 s, note cleared.
+	- Test case: none yet. The helper isn't in the repo.
+
 - Run the arm64 Windows release and the arm64 macOS slice on real arm64 machines.
 	- ID: 2026101312344407
 	- Type: Task
@@ -159,20 +179,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20261024: Split from 2026101410495999. Waits on a logo, and `private/logo/` is empty.
 
-- CICD reset: other hosts, macOS falls back to vmKt6m
-	- ID: 2026102517494666
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
-	- Opened: 20261025-174946
-	- Opened by: JC
-	- Parent ID: 2026102514523209
-	- Prereq IDs: 2026102514523209
-	- Target OS: macOS
-	- Requirements  [Feature]:
-		- When b26 doesn't answer, the Mac box step runs the same job on vmKt6m, through the VM state helper.
-		- vmKt6m needs Zig 0.17.0 and Go for the build. Its Homebrew builds from source, so set it up detached.
-
 - The C soak never runs `%c`.
 	- ID: 2026102520060700
 	- Type: Enhancement
@@ -213,6 +219,39 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- A system install leaves other users' caches alone and says where they are.
 	- Progress log:
 		- 20261024: Seen on b26, after an install, one run and an uninstall.
+
+- CICD reset: other hosts, macOS falls back to vmKt6m
+	- ID: 2026102517494666
+	- Type: Enhancement
+	- Status: Done
+	- Priority [Feature|Enhancement] | Severity [Bug]: Avg
+	- Opened: 20261025-174946
+	- Opened by: JC
+	- Parent ID: 2026102514523209
+	- Prereq IDs: 2026102514523209
+	- Target OS: macOS
+	- Requirements  [Feature]:
+		- When b26 doesn't answer, the Mac box step runs the same job on vmKt6m, through the VM state helper.
+		- vmKt6m needs Zig 0.17.0 and Go for the build. Its Homebrew builds from source, so set it up detached.
+	- Progress log:
+		- 20261026: `ZUID_BOX_MAC` is a list now, tried in order, by default `collierjr@b26 collierjr@vmKt6m`. A Mac that doesn't answer, stays taken or can't be woken hands the job to the next, with a note saying why. A job that fails is a fail, and isn't tried again on the next. When every Mac skips, the step is one `SKIP` with each one's reason. The step's title names both, "Mac box: b26 or vmKt6m".
+		- 20261026: vmKt6m had Go 1.27.3 already. Zig 0.17.0 went in from its release tarball as `~/.local/zig-x86_64-macos-0.17.0`, as on b26, and PowerShell 7.6.6 as `~/.local/bin/pwsh`, which the Mac's own pipeline tests need for deea7. Both checked against their published sha256. No Homebrew build was needed.
+		- 20261026: vmKt6m ignores the helper's ACPI shutdown, so it isn't put back to off after the step. Filed as 2026102617014623.
+		- 20261026: The `Mac box: b26` asserts in dee8m and deea6, the plan tests' title for the Mac step, now want `Mac box: b26 or vmKt6m`, since their default `macBox` follows the real one.
+	- Decisions:
+		- 20261026: Falls back on any skip, not only no answer, since a b26 another session holds for 10 minutes is no more use to the run than one that's down.
+		- 20261026: One variable taking a list, rather than a second one for the fallback. A single destination still works as before.
+		- 20261026: Zig and PowerShell from their release tarballs, not Homebrew, which builds from source there. It matches b26's layout.
+	- Branch: round1027
+	- Test case: defkr (b26 down or taken hands the job to vmKt6m, whose release reaches `dist-incoming/`; a failed job isn't tried again; both down is one skip with both reasons), plus dee8k, dee8m and dee8n. defkr failed with the old step, which ran the whole list as one destination, and passes after.
+	- Verified:
+		- 20261026: dee8k on the real vmKt6m from off, the step's own code with an absent Mac ahead of it: the first skipped with no answer, vmKt6m's quick run with `--package` from HEAD at d897271 passed all 18 steps, ddf2d included, and the universal tarball, bare command and debug info came home. The box's work folder was removed after.
+		- 20261026: `pipeline-test.bash` 166 of 166, shellcheck on `cicd.bash` and `pipeline-test.bash`, and `cicd.bash --backlog-run-quick shell docs`, 8 of 8 steps.
+		- Not verified: the step inside a full run, or with the real b26 down.
+	- Swept: every `macBox` read in `cicd.bash`, the help text and the config comment, `fSteps_Box`'s title for the single-box steps, which is unchanged, `fPlanIn`'s and `fBoxIn`'s defaults, and `development.md`. Only the Mac step takes a list; the other box steps still take one destination.
+	- Acceptance signoff: Self-closed 20261026. Pipeline-only, and run on the real box.
+		- Departs from the wording: it also falls back when b26 stays taken or can't be had, not only when it doesn't answer.
+	- Closed: 20261026-171900
 
 - A fresh full run fails: the FreeBSD `libwasmtime-49.0.1` package no longer matches its pinned checksum.
 	- ID: 2026102519140200
