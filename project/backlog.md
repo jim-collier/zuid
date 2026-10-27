@@ -298,6 +298,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Target OS: FreeBSD
 	- Requirements  [Feature]:
 		- Once a full run shows defp3 passing with vmFreeBSD up and with it left out, add `freebsd-x86_64.pkg` to `default_releaseAssets`, so `--publish` refuses a release without it.
+	- 20261027: Prereq added, since it waits on the full run that checks the local build.
 
 - An uninstall leaves the compiled module in the cache.
 	- ID: 2026102407393000
