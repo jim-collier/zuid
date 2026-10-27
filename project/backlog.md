@@ -33,8 +33,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - The C soak never runs `%c`.
 	- ID: 2026102520060700
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: de5ch, the C call soak under heaptrack, in the image with `--leakcheck`.
+	- Status: Done
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261025-200607
 	- Opened by: JC
@@ -50,13 +49,13 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Verified:
 		- 20261027: The soak built with the pipeline's flags against the current library and passed plain, at 20 and the default 100 rounds, with the heap level between N and 2N.
 		- Not verified: under heaptrack, and the soak failing on a broken `%c`.
+	- Verified: 20261027, de5ch and de5cm PASS in the Leak check step of a plain `cicd/cicd.bash --backlog-run-full` on round1027 at 0ac99bd.
 	- Swept: capi_smoke.c and capi_interpose.c, the other C files that call `zuid_generate`, make a few calls each and no loop of them, so neither nears the limit.
 
 - The FreeBSD `.pkg`, made on vmFreeBSD.
 	- ID: 2026102617244796
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full`, plain, not `--container`, since the box steps run only outside it: ddwmp with `dist/pkg/` in it, then dee33 and defmv on vmFreeBSD.
+	- Status: Done
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261026-172447
 	- Opened by: JC
@@ -83,6 +82,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261026: On vmFreeBSD, 15.1-p4 with pkg 2.7.5, as root through the lock: `box-freebsd-pkg.bash` on the layout from `fFreeBSDPkgKit`, fed the beta.1 tarball. It made `zuid-1.0.0.b.1.pkg`, read back `FreeBSD:*:amd64` and the 5 files, installed it, and the installed command printed `zuid v1.0.0-beta.1 build dee5q`. An earlier try from a layout made by hand gave the same bytes from two `pkg create` runs.
 		- 20261026: `pipeline-test.bash`, all passing, `test-ids.py check`, and shellcheck.
 		- Not verified: `package.bash` writing the layout in a real run, and the step inside a full run.
+	- Verified: 20261027, ddwmp, dee33 and defmv PASS in a plain `cicd/cicd.bash --backlog-run-full` on round1027 at 0ac99bd, with vmFreeBSD up.
 	- Swept: `fPublish_Downloads` puts the `.pkg` in the FreeBSD x86_64 cell, after the tarball and the bare command. `install.bash` asks for the `.tgz` by exact name. The `.deb` and `.rpm` hold the same files. The other box steps don't change.
 
 - The FreeBSD `.pkg`, built here when vmFreeBSD is taken or down.
@@ -132,9 +132,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - An uninstall leaves the compiled module in the cache.
 	- ID: 2026102407393000
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: Done. `installer-test.bash` 107 of 107, and the quick gate for shell, installers and docs.
-	- Needs external testing: deea5 on b29w, for its 4 new module cache checks under 5.1 and 7. The `macos` workflow, for defpm to defpv against `~/Library/Caches/zuid`.
+	- Status: Done
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261024-073930
 	- Opened by: JC
@@ -158,6 +156,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: round1027
 	- Test case: defpm and defpn (a user uninstall removes the cache), defpp and defpq (`XDG_CACHE_HOME` where the command reads it, and not on Darwin), defpr and defps (a cache dir that's a link stays), defpt and defpv (a system uninstall keeps them and says where), in `installer-test.bash` for each installer. All 8 failed against the old installers and pass after. deea5 has the Windows checks.
 	- Verified: 20261026, `installer-test.bash` 107 of 107 with load about 22 on 32 CPUs, shellcheck, PSScriptAnalyzer on both changed `.ps1` files, and the quick gate.
+	- Verified: 20261027, deea5 PASS on b29w and the macOS on GitHub step PASS, in a plain `cicd/cicd.bash --backlog-run-full` on round1027 at 0ac99bd. defpm to defpv PASS locally in the same run.
 	- Swept: both installers' uninstall paths for user and system, `box-windows-test.ps1`'s uninstall, every uninstall call in `installer-test.bash` (GuardedRemoval, SystemTarget, ForeignLink, and Bash32 with its own HOME in the image), `install.md`'s cache paragraph, and the cache rules against `cacheRoot` in `main.zig`.
 
 - FreeBSD kernel panics while zuid runs.
