@@ -198,6 +198,21 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20261019: Answered: build it here if it's sure to run on FreeBSD. Try the host lock on vmFreeBSD first, and build locally if it's taken or down.
 		- 20261026: Split in two. 2026102617244796 makes it on vmFreeBSD, and 2026102617244801 builds it here when the VM is taken or down.
 
+- The pipeline prunes every project's docker build cache
+	- ID: 2026110311291908
+	- Type: Bug
+	- Status: Queued
+	- Priority|Severity [Bug]: High
+	- Opened: 20261103-112919
+	- Opened by: JC
+	- Related IDs: common 2026110311291900
+	- Incorrect behavior: The pipeline runs `docker builder prune` after a run, in `cicd/cicd.bash` and `cicd/utility/pipeline-test.bash`. That prunes docker's default builder, which every project shares, so a run here drops any other project's cache once it's a week unused. common's `Cleanup after a run` rule said to do it.
+	- Expected behavior: The pipeline doesn't prune docker's build cache at all. Docker trims the cache itself on b23, through `builder.gc` in `/etc/docker/daemon.json`. Cache unused for a week goes first, then the rest is cut to 120 GB, or further when the disk is under 10% free, but never below 20 GB. The label cleanup of this project's containers, dangling images and old tags stays.
+		- Do it once b23's `/etc/docker/daemon.json` has the `builder.gc` block. `grep -q '"gc"' /etc/docker/daemon.json` checks. Until then the prune stays.
+	- Decisions:
+		- Don't move to a buildx builder of the project's own instead. shcl tried that on 2026-11-02. A cold build of a 2 GB image took 299 s against 266 s on the default builder, and the builder kept a second 3 GB copy of the layers for a week. shcl is going back to the default builder. (JC, me)
+	- Estimated effort: Low
+
 - The markdown check reports 6 problems in the backlog on `dev`.
 	- ID: 2026102701440000
 	- Type: Bug
